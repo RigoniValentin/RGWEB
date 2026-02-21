@@ -1,9 +1,9 @@
 import dotenv from 'dotenv';
-import path from 'path';
 import { loadAppData } from './appdata.js';
+import { envPath } from './paths.js';
 
 // Load .env only for non-DB settings (PORT, JWT, NODE_ENV)
-dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+dotenv.config({ path: envPath });
 
 // ── appdata.ini is REQUIRED — system will not start without it ──
 const appData = loadAppData();

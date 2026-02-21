@@ -9,8 +9,8 @@
  * Uses the SAME key/IV as the desktop app for cross-compatibility.
  */
 import fs from 'fs';
-import path from 'path';
 import crypto from 'crypto';
+import { appdataPath } from './paths.js';
 
 // ── Same key/IV as the C# desktop app ────────────────
 const ENCRYPTION_KEY = Buffer.from('RioGestionEncryptionKey32Bytes!!', 'utf8'); // 32 bytes → AES-256
@@ -18,8 +18,8 @@ const ENCRYPTION_IV = Buffer.from('RioGestionIv16By', 'utf8');                  
 
 const ALGORITHM = 'aes-256-cbc';
 
-// ── INI file path (project root) ─────────────────────
-const INI_PATH = path.resolve(__dirname, '../../../appdata.ini');
+// ── INI file path (resolved from paths.ts) ───────────
+const INI_PATH = appdataPath;
 
 // ── Parsed settings ──────────────────────────────────
 export interface AppDataSettings {

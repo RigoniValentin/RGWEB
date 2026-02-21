@@ -93,6 +93,10 @@ body {
   0%, 100% { border-color: var(--rg-gold); }
   50%      { border-color: var(--rg-gold-light); }
 }
+@keyframes breathe {
+  0%, 100% { opacity: 0.7; transform: scale(1); }
+  50%      { opacity: 1; transform: scale(1.06); }
+}
 
 .animate-fade-in     { animation: fadeIn 0.5s ease-out both; }
 .animate-fade-left   { animation: fadeInLeft 0.5s ease-out both; }
@@ -246,6 +250,11 @@ body {
 }
 
 /* ── Collapse toggle buttons ──────────────────── */
+/* Breathing logo animation in sidebar header */
+.rg-sidebar-header img {
+  animation: breathe 3s ease-in-out infinite;
+}
+
 .rg-collapse-btn:hover {
   background: rgba(234, 189, 35, 0.15) !important;
   color: var(--rg-gold) !important;
@@ -258,7 +267,7 @@ body {
   transition: var(--rg-transition);
 }
 
-/* ── Collapsed Sidebar (WinForms style) ───────── */
+/* ── Collapsed Sidebar (Desktop-app style) ────── */
 /* Collapsed: enlarge icons, center items */
 .rg-sidebar-collapsed .ant-menu-item,
 .rg-sidebar-collapsed .ant-menu-submenu-title {
@@ -266,6 +275,11 @@ body {
   padding-inline: 0 !important;
   margin-inline: auto !important;
   text-align: center;
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+.rg-sidebar-collapsed .ant-menu-item:hover,
+.rg-sidebar-collapsed .ant-menu-submenu-title:hover {
+  background: rgba(255, 255, 255, 0.18) !important;
 }
 .rg-sidebar-collapsed .ant-menu-item .anticon,
 .rg-sidebar-collapsed .ant-menu-submenu-title .anticon {
@@ -276,18 +290,15 @@ body {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-}
-/* Submenu icon gold when collapsed */
-.rg-sidebar-collapsed .ant-menu-submenu-title .anticon {
   color: var(--rg-gold) !important;
 }
-/* Selected item gold gradient when collapsed */
+/* Selected item: dark bg with gold border */
 .rg-sidebar-collapsed .ant-menu-item-selected {
-  background: linear-gradient(135deg, var(--rg-gold), var(--rg-gold-dark)) !important;
-  box-shadow: 0 2px 10px rgba(234, 189, 35, 0.35);
+  background: var(--rg-black) !important;
+  box-shadow: inset 0 0 0 1.5px var(--rg-gold);
 }
 .rg-sidebar-collapsed .ant-menu-item-selected .anticon {
-  color: var(--rg-black) !important;
+  color: var(--rg-gold) !important;
 }
 
 /* ── Header toggle (secondary) ────────────────── */
@@ -529,6 +540,8 @@ body {
   position: sticky;
   top: 56px;
   z-index: 99;
+  border-bottom-right-radius: 20px;
+  border-bottom-left-radius: 20px;
 }
 .rg-tabbar::-webkit-scrollbar {
   display: none;

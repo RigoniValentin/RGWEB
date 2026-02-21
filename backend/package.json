@@ -6,7 +6,15 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "db:init": "tsx src/database/init.ts"
+    "db:init": "tsx src/database/init.ts",
+    "package": "npx pkg dist/index.js --targets node18-win-x64 --output ../installer/RGWeb.exe --compress GZip"
+  },
+  "pkg": {
+    "assets": [
+      "dist/**/*.js",
+      "dist/**/*.js.map"
+    ],
+    "outputPath": "../installer"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -23,6 +31,7 @@
     "@types/jsonwebtoken": "^9.0.7",
     "@types/mssql": "^9.1.9",
     "@types/node": "^22.10.0",
+    "@yao-pkg/pkg": "^6.14.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }

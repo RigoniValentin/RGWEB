@@ -269,13 +269,14 @@ export function AppLayout() {
         className={`rg-sidebar ${collapsed ? 'rg-sidebar-collapsed' : ''}`}
         style={{
           background: 'linear-gradient(180deg, #1E1F22 0%, #2A2B2F 100%)',
-          borderRight: '1px solid rgba(234, 189, 35, 0.15)',
           height: '100vh',
           position: 'sticky',
           top: 0,
           left: 0,
           display: 'flex',
           flexDirection: 'column',
+          borderBottomRightRadius: 20,
+          overflow: 'hidden',
         }}
       >
         {/* Logo + Collapse toggle */}
@@ -287,7 +288,6 @@ export function AppLayout() {
             alignItems: 'center',
             justifyContent: collapsed ? 'center' : 'space-between',
             padding: collapsed ? '0' : '0 12px 0 16px',
-            borderBottom: '1px solid rgba(234, 189, 35, 0.15)',
             transition: 'all 0.3s ease',
             flexShrink: 0,
           }}

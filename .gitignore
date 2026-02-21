@@ -7,3 +7,7 @@ appdata.ini
 .DS_Store
 Thumbs.db
 nul
+
+# Build / Installer output
+installer/
+*.exe

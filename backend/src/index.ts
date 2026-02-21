@@ -1,8 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import path from 'path';
 import { config } from './config/index.js';
+import { frontendDir, isPkg } from './config/paths.js';
 import { getPool, closePool } from './database/connection.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import apiRoutes from './routes/index.js';
@@ -28,12 +28,12 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// ── Serve frontend in production ─────────────────────
-if (config.nodeEnv === 'production') {
-  const frontendPath = path.resolve(__dirname, '../../frontend/dist');
-  app.use(express.static(frontendPath));
+// ── Serve frontend in production / packaged mode ────
+import path from 'path';
+if (config.nodeEnv === 'production' || isPkg) {
+  app.use(express.static(frontendDir));
   app.get('*', (_req, res) => {
-    res.sendFile(path.join(frontendPath, 'index.html'));
+    res.sendFile(path.join(frontendDir, 'index.html'));
   });
 }
 
