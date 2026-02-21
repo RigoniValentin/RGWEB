@@ -15,6 +15,7 @@ import { catalogApi } from '../services/catalog.api';
 import type { Producto } from '../types';
 import { ProductFormModal } from '../components/products/ProductFormModal';
 import { BulkPriceModal } from '../components/products/BulkPriceModal';
+import { PriceListModal } from '../components/products/PriceListModal';
 
 const { Title, Text } = Typography;
 
@@ -43,6 +44,10 @@ export function ProductsPage() {
   // Detail drawer
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailId, setDetailId] = useState<number | null>(null);
+
+  // Price list modal
+  const [priceListOpen, setPriceListOpen] = useState(false);
+  const [priceListProduct, setPriceListProduct] = useState<Producto | null>(null);
 
   // Inline editing
   const [editing, setEditing] = useState<EditingCell>(null);
@@ -279,7 +284,17 @@ export function ProductsPage() {
       width: 125,
       align: 'right',
       sorter: true,
-      render: (v: number, record: Producto) => editableCell('LISTA_1', record, v, true),
+      render: (v: number, record: Producto) => (
+        <div
+          style={{ cursor: 'pointer', minHeight: 22 }}
+          onClick={() => { setPriceListProduct(record); setPriceListOpen(true); }}
+          title="Click para ver/editar todas las listas"
+        >
+          <span style={{ borderBottom: '1px dashed rgba(234,189,35,0.5)' }}>
+            {`$ ${(v ?? 0).toFixed(2)}`}
+          </span>
+        </div>
+      ),
     },
     {
       title: 'Costo',
@@ -502,6 +517,14 @@ export function ProductsPage() {
         onSaved={invalidate}
         editId={editId}
         copyFrom={copyFrom}
+      />
+
+      {/* ── Price List Modal (per product) ────── */}
+      <PriceListModal
+        open={priceListOpen}
+        product={priceListProduct}
+        onClose={() => { setPriceListOpen(false); setPriceListProduct(null); }}
+        onSaved={invalidate}
       />
 
       {/* ── Bulk Price Modal ──────────────────── */}
