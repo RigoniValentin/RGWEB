@@ -169,7 +169,7 @@ const menuItems = [
 ];
 
 export function AppLayout() {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const navigate = useNavigate();
   const location = useLocation();
   const { user, puntosVenta, puntoVentaActivo, setPuntoVentaActivo, logout } = useAuthStore();

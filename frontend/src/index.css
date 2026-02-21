@@ -263,9 +263,19 @@ body {
 .rg-sidebar-collapsed .ant-menu-item,
 .rg-sidebar-collapsed .ant-menu-submenu-title {
   border-radius: 10px !important;
+  padding-inline: 0 !important;
+  margin-inline: auto !important;
+  text-align: center;
 }
-.rg-sidebar-collapsed .ant-menu .anticon {
+.rg-sidebar-collapsed .ant-menu-item .anticon,
+.rg-sidebar-collapsed .ant-menu-submenu-title .anticon {
   font-size: 20px !important;
+  margin: 0 !important;
+  line-height: 1 !important;
+  width: 100% !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 /* Submenu icon gold when collapsed */
 .rg-sidebar-collapsed .ant-menu-submenu-title .anticon {
