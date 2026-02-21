@@ -1,0 +1,502 @@
+/* ══════════════════════════════════════════════════
+   Río Gestión — Global Styles & Animations
+   ══════════════════════════════════════════════════ */
+
+/* ── CSS Variables ────────────────────────────── */
+:root {
+  --rg-black: #1E1F23;
+  --rg-black-light: #2A2B2F;
+  --rg-gold: #EABD23;
+  --rg-gold-dark: #D4A720;
+  --rg-gold-light: #f5d44a;
+  --rg-white-smoke: #F5F5F5;
+  --rg-white: #FFFFFF;
+  --rg-text: #333333;
+  --rg-text-light: #666666;
+  --rg-border: #e8e8e8;
+  --rg-shadow: 0 2px 12px rgba(30, 31, 35, 0.08);
+  --rg-shadow-lg: 0 8px 32px rgba(30, 31, 35, 0.12);
+  --rg-radius: 10px;
+  --rg-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Reset & Base ─────────────────────────────── */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--rg-text);
+  background: var(--rg-white-smoke);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ── Scrollbar ────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--rg-black-light);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--rg-gold);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--rg-gold-dark);
+}
+
+/* ── Animations ───────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeInLeft {
+  from { opacity: 0; transform: translateX(-24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes fadeInRight {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes pulse-gold {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(234, 189, 35, 0.4); }
+  50%      { box-shadow: 0 0 0 8px rgba(234, 189, 35, 0); }
+}
+@keyframes borderGlow {
+  0%, 100% { border-color: var(--rg-gold); }
+  50%      { border-color: var(--rg-gold-light); }
+}
+
+.animate-fade-in     { animation: fadeIn 0.5s ease-out both; }
+.animate-fade-left   { animation: fadeInLeft 0.5s ease-out both; }
+.animate-fade-right  { animation: fadeInRight 0.5s ease-out both; }
+.animate-fade-up     { animation: fadeInUp 0.5s ease-out both; }
+.animate-scale-in    { animation: scaleIn 0.4s ease-out both; }
+
+/* Stagger children */
+.stagger > *:nth-child(1) { animation-delay: 0.05s; }
+.stagger > *:nth-child(2) { animation-delay: 0.10s; }
+.stagger > *:nth-child(3) { animation-delay: 0.15s; }
+.stagger > *:nth-child(4) { animation-delay: 0.20s; }
+.stagger > *:nth-child(5) { animation-delay: 0.25s; }
+.stagger > *:nth-child(6) { animation-delay: 0.30s; }
+
+/* ── Page Transition Wrapper ──────────────────── */
+.page-enter {
+  animation: fadeIn 0.4s ease-out both;
+}
+
+/* ── Card Hover ───────────────────────────────── */
+.rg-card {
+  transition: var(--rg-transition);
+  border: 1px solid transparent;
+  border-radius: var(--rg-radius) !important;
+  overflow: hidden;
+}
+.rg-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--rg-shadow-lg);
+  border-color: var(--rg-gold);
+}
+
+/* ── KPI Stat Card ────────────────────────────── */
+.kpi-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--rg-radius) !important;
+  transition: var(--rg-transition);
+  border: 1px solid var(--rg-border);
+}
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--rg-gold);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.4s ease;
+}
+.kpi-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--rg-shadow-lg);
+}
+.kpi-card:hover::before {
+  transform: scaleX(1);
+}
+
+/* ── Table Styling ────────────────────────────── */
+.rg-table .ant-table-thead > tr > th {
+  background: var(--rg-black) !important;
+  color: var(--rg-gold) !important;
+  font-weight: 600;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 2px solid var(--rg-gold) !important;
+  padding: 12px 16px !important;
+}
+.rg-table .ant-table-tbody > tr {
+  transition: var(--rg-transition);
+}
+.rg-table .ant-table-tbody > tr:hover > td {
+  background: rgba(234, 189, 35, 0.06) !important;
+}
+.rg-table .ant-table-tbody > tr > td {
+  border-bottom: 1px solid var(--rg-border);
+  padding: 10px 16px !important;
+}
+.rg-table .ant-table-row {
+  cursor: pointer;
+}
+/* Alternating rows */
+.rg-table .ant-table-tbody > tr:nth-child(even) > td {
+  background: rgba(245, 245, 245, 0.5);
+}
+
+/* ── Sidebar ──────────────────────────────────── */
+.rg-sidebar .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+}
+.rg-sidebar .ant-menu-dark {
+  background: transparent !important;
+}
+.rg-sidebar .ant-menu-dark .ant-menu-item {
+  margin: 2px 8px;
+  border-radius: 8px;
+  transition: var(--rg-transition);
+  color: rgba(255,255,255,0.7);
+}
+.rg-sidebar .ant-menu-dark .ant-menu-item:hover {
+  color: var(--rg-gold) !important;
+  background: rgba(234, 189, 35, 0.1) !important;
+}
+.rg-sidebar .ant-menu-dark .ant-menu-item-selected {
+  background: linear-gradient(135deg, var(--rg-gold), var(--rg-gold-dark)) !important;
+  color: var(--rg-black) !important;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(234, 189, 35, 0.3);
+}
+.rg-sidebar .ant-menu-dark .ant-menu-item-selected .anticon {
+  color: var(--rg-black) !important;
+}
+
+/* ── Sidebar Submenu (Section headers) ────────── */
+.rg-sidebar .ant-menu-dark .ant-menu-submenu-title {
+  margin: 2px 8px;
+  border-radius: 8px;
+  transition: var(--rg-transition);
+  color: var(--rg-gold) !important;
+  font-weight: 600;
+  font-size: 12.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.rg-sidebar .ant-menu-dark .ant-menu-submenu-title .anticon {
+  color: var(--rg-gold) !important;
+  font-size: 15px;
+}
+.rg-sidebar .ant-menu-dark .ant-menu-submenu-title:hover {
+  background: rgba(234, 189, 35, 0.08) !important;
+}
+.rg-sidebar .ant-menu-dark .ant-menu-submenu-open > .ant-menu-submenu-title {
+  background: rgba(234, 189, 35, 0.12) !important;
+}
+/* Submenu children */
+.rg-sidebar .ant-menu-dark .ant-menu-sub.ant-menu-inline {
+  background: transparent !important;
+}
+.rg-sidebar .ant-menu-dark .ant-menu-sub .ant-menu-item {
+  padding-left: 44px !important;
+  font-size: 13px;
+}
+/* Submenu expand arrow */
+.rg-sidebar .ant-menu-dark .ant-menu-submenu-arrow {
+  color: rgba(234, 189, 35, 0.5) !important;
+}
+
+/* ── Collapse toggle buttons ──────────────────── */
+.rg-collapse-btn:hover {
+  background: rgba(234, 189, 35, 0.15) !important;
+  color: var(--rg-gold) !important;
+}
+.rg-expand-btn:hover .anticon {
+  transform: scale(1.2);
+  filter: drop-shadow(0 0 6px rgba(234, 189, 35, 0.5));
+}
+.rg-expand-btn .anticon {
+  transition: var(--rg-transition);
+}
+
+/* ── Collapsed Sidebar (WinForms style) ───────── */
+/* Collapsed: enlarge icons, center items */
+.rg-sidebar-collapsed .ant-menu-item,
+.rg-sidebar-collapsed .ant-menu-submenu-title {
+  border-radius: 10px !important;
+}
+.rg-sidebar-collapsed .ant-menu .anticon {
+  font-size: 20px !important;
+}
+/* Submenu icon gold when collapsed */
+.rg-sidebar-collapsed .ant-menu-submenu-title .anticon {
+  color: var(--rg-gold) !important;
+}
+/* Selected item gold gradient when collapsed */
+.rg-sidebar-collapsed .ant-menu-item-selected {
+  background: linear-gradient(135deg, var(--rg-gold), var(--rg-gold-dark)) !important;
+  box-shadow: 0 2px 10px rgba(234, 189, 35, 0.35);
+}
+.rg-sidebar-collapsed .ant-menu-item-selected .anticon {
+  color: var(--rg-black) !important;
+}
+
+/* ── Header toggle (secondary) ────────────────── */
+.rg-header-toggle {
+  border-radius: 8px;
+  transition: var(--rg-transition);
+}
+.rg-header-toggle:hover {
+  background: rgba(234, 189, 35, 0.12) !important;
+  color: var(--rg-gold) !important;
+}
+
+/* ── Sidebar Popup Menu (collapsed submenus hover) ── */
+/* Ant Design 5 renders popups in a portal at body level.
+   The popup wrapper uses .ant-menu-submenu-popup with child .ant-menu */
+:where(.ant-menu-submenu-popup) .ant-menu,
+.ant-menu-submenu-popup .ant-menu {
+  background: var(--rg-black) !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(234, 189, 35, 0.25) !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
+  padding: 6px 0 !important;
+  min-width: 190px;
+}
+/* Popup items */
+:where(.ant-menu-submenu-popup) .ant-menu-item,
+.ant-menu-submenu-popup .ant-menu-item {
+  color: rgba(255,255,255,0.85) !important;
+  border-radius: 6px !important;
+  margin: 2px 6px !important;
+  height: 38px !important;
+  line-height: 38px !important;
+  font-size: 13px;
+  transition: var(--rg-transition);
+}
+:where(.ant-menu-submenu-popup) .ant-menu-item .anticon,
+.ant-menu-submenu-popup .ant-menu-item .anticon {
+  color: var(--rg-gold) !important;
+  font-size: 14px !important;
+}
+:where(.ant-menu-submenu-popup) .ant-menu-item:hover,
+.ant-menu-submenu-popup .ant-menu-item:hover {
+  background: rgba(234, 189, 35, 0.12) !important;
+  color: var(--rg-gold) !important;
+}
+/* Popup selected item */
+:where(.ant-menu-submenu-popup) .ant-menu-item-selected,
+.ant-menu-submenu-popup .ant-menu-item-selected {
+  background: linear-gradient(135deg, var(--rg-gold), var(--rg-gold-dark)) !important;
+  color: var(--rg-black) !important;
+  font-weight: 600;
+}
+:where(.ant-menu-submenu-popup) .ant-menu-item-selected .anticon,
+.ant-menu-submenu-popup .ant-menu-item-selected .anticon {
+  color: var(--rg-black) !important;
+}
+/* Gold strip at the top of each popup (like WinForms section header) */
+:where(.ant-menu-submenu-popup) .ant-menu::before,
+.ant-menu-submenu-popup .ant-menu::before {
+  content: '';
+  display: block;
+  height: 3px;
+  background: linear-gradient(90deg, var(--rg-gold), var(--rg-gold-dark));
+  border-radius: 10px 10px 0 0;
+  margin-bottom: 0;
+}
+
+/* ── Popup Group Title (module name header) ─────── */
+:where(.ant-menu-submenu-popup) .ant-menu-item-group-title,
+.ant-menu-submenu-popup .ant-menu-item-group-title {
+  color: var(--rg-gold) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.8px !important;
+  padding: 10px 16px 6px !important;
+  margin-bottom: 2px;
+  border-bottom: 1px solid rgba(234, 189, 35, 0.2);
+  text-align: center !important;
+}
+/* Hide the group title in expanded sidebar (only show in popup) */
+.rg-sidebar .ant-menu-item-group-title {
+  display: none !important;
+}
+.rg-sidebar .ant-menu-item-group-list {
+  /* Remove group indentation in expanded sidebar */
+}
+/* Tooltip popups for non-submenu items */
+.ant-tooltip .ant-tooltip-inner {
+  background: var(--rg-black) !important;
+  border: 1px solid rgba(234, 189, 35, 0.2);
+  font-size: 12px;
+  font-weight: 500;
+}
+.ant-tooltip .ant-tooltip-arrow::before {
+  background: var(--rg-black) !important;
+}
+
+/* ── Drawer ───────────────────────────────────── */
+.rg-drawer .ant-drawer-header {
+  background: var(--rg-black);
+  border-bottom: 2px solid var(--rg-gold);
+}
+.rg-drawer .ant-drawer-title {
+  color: var(--rg-gold) !important;
+  font-weight: 600;
+}
+.rg-drawer .ant-drawer-close {
+  color: rgba(255,255,255,0.6);
+}
+.rg-drawer .ant-drawer-close:hover {
+  color: var(--rg-gold);
+}
+
+/* ── Page Header ──────────────────────────────── */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.page-header h3.ant-typography {
+  margin: 0 !important;
+  color: var(--rg-black);
+  font-weight: 700;
+  position: relative;
+}
+.page-header h3.ant-typography::after {
+  content: '';
+  display: block;
+  width: 40px;
+  height: 3px;
+  background: var(--rg-gold);
+  margin-top: 4px;
+  border-radius: 2px;
+}
+
+/* ── Gold Button ──────────────────────────────── */
+.btn-gold {
+  background: linear-gradient(135deg, var(--rg-gold), var(--rg-gold-dark)) !important;
+  border: none !important;
+  color: var(--rg-black) !important;
+  font-weight: 600 !important;
+  box-shadow: 0 2px 8px rgba(234, 189, 35, 0.3) !important;
+  transition: var(--rg-transition) !important;
+}
+.btn-gold:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(234, 189, 35, 0.4) !important;
+  background: linear-gradient(135deg, var(--rg-gold-light), var(--rg-gold)) !important;
+}
+
+/* ── Ant Overrides ────────────────────────────── */
+.ant-card {
+  border-radius: var(--rg-radius);
+  border: 1px solid var(--rg-border);
+}
+.ant-card-head {
+  border-bottom: 2px solid var(--rg-gold);
+}
+.ant-card-head-title {
+  font-weight: 700;
+  color: var(--rg-black);
+}
+.ant-tag {
+  border-radius: 6px;
+  font-weight: 500;
+}
+.ant-input,
+.ant-select-selector,
+.ant-picker {
+  border-radius: 8px !important;
+  transition: var(--rg-transition);
+}
+.ant-input:focus,
+.ant-input-focused,
+.ant-select-focused .ant-select-selector {
+  border-color: var(--rg-gold) !important;
+  box-shadow: 0 0 0 2px rgba(234, 189, 35, 0.15) !important;
+}
+.ant-pagination-item-active {
+  border-color: var(--rg-gold) !important;
+}
+.ant-pagination-item-active a {
+  color: var(--rg-gold) !important;
+}
+.ant-spin-dot-item {
+  background-color: var(--rg-gold) !important;
+}
+.ant-descriptions-bordered .ant-descriptions-item-label {
+  background: var(--rg-white-smoke);
+  font-weight: 600;
+  color: var(--rg-black);
+}
+
+/* ── Responsive adjustments ───────────────────── */
+@media (max-width: 576px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* ── Loading skeleton shimmer ─────────────────── */
+.skeleton-shimmer {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* ── Stat prefix icon size in Dashboard ───────── */
+.kpi-card .ant-statistic-content-prefix {
+  font-size: 22px;
+  margin-right: 8px;
+}
+.kpi-card .ant-statistic-title {
+  font-weight: 500;
+  color: var(--rg-text-light);
+  font-size: 13px;
+}
