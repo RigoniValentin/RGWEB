@@ -32,8 +32,8 @@ export function RGLogo({
 }: RGLogoProps) {
   const textColor =
     variant === 'dark' ? '#FFFFFF' :
-    variant === 'gold' ? '#1E1F23' :
-    '#1E1F23'; // white variant → dark text (or override externally)
+    variant === 'gold' ? '#1E1F22' :
+    '#1E1F22'; // white variant → dark text (or override externally)
 
   return (
     <div style={{

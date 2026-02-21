@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { useState, useEffect, useMemo, type ComponentType } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Layout, Menu, Button, Typography, Avatar, Dropdown, Select, Tag } from 'antd';
 import {
   DoubleLeftOutlined,
@@ -27,14 +27,51 @@ import {
   AuditOutlined,
   ToolOutlined,
   CoffeeOutlined,
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
+  BuildOutlined,
+  OrderedListOutlined,
+  TableOutlined,
+  FileTextOutlined,
+  UnorderedListOutlined,
+  IdcardOutlined,
+  SafetyOutlined,
+  HomeOutlined,
+  EnvironmentOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../store/authStore';
+import { useTabStore } from '../store/tabStore';
 import { RGLogo } from './RGLogo';
+import { TabBar } from './TabBar';
+
+// ── Lazy-loaded page components ──────────────────
+import { DashboardPage } from '../pages/DashboardPage';
+import { CustomersPage } from '../pages/CustomersPage';
+import { ProductsPage } from '../pages/ProductsPage';
+import { SalesPage } from '../pages/SalesPage';
+import { SuppliersPage } from '../pages/SuppliersPage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
+
+/* ── Tab route configuration ────────────────────── */
+interface TabRoute {
+  label: string;
+  icon: React.ReactNode;
+  component: ComponentType;
+  closable: boolean;
+}
+
+const TAB_ROUTES: Record<string, TabRoute> = {
+  '/dashboard':  { label: 'Dashboard',    icon: <DashboardOutlined />,  component: DashboardPage,  closable: false },
+  '/customers':  { label: 'Clientes',     icon: <TeamOutlined />,       component: CustomersPage,  closable: true },
+  '/products':   { label: 'Productos',    icon: <ShoppingOutlined />,   component: ProductsPage,   closable: true },
+  '/sales':      { label: 'Ventas',       icon: <DollarOutlined />,     component: SalesPage,      closable: true },
+  '/suppliers':  { label: 'Proveedores',  icon: <ShopOutlined />,       component: SuppliersPage,  closable: true },
+};
+
+/** Icon map for TabBar */
+const ICON_MAP: Record<string, React.ReactNode> = Object.fromEntries(
+  Object.entries(TAB_ROUTES).map(([key, r]) => [key, r.icon])
+);
 
 /* ── Menu sections matching Río Gestión desktop ─ */
 const menuItems = [
@@ -75,29 +112,59 @@ const menuItems = [
     ],
   },
   {
-    key: '/production',
+    key: 'produccion',
     icon: <ToolOutlined />,
     label: 'Producción',
+    children: [
+      { type: 'group' as const, label: 'Producción', className: 'rg-popup-group-title', children: [
+        { key: '/production/structures', icon: <BuildOutlined />, label: 'Estructuras' },
+        { key: '/production/orders', icon: <OrderedListOutlined />, label: 'Órdenes' },
+      ]},
+    ],
   },
   {
-    key: '/gastronomy',
+    key: 'gastronomia',
     icon: <CoffeeOutlined />,
     label: 'Gastronomía',
+    children: [
+      { type: 'group' as const, label: 'Gastronomía', className: 'rg-popup-group-title', children: [
+        { key: '/gastronomy/tables', icon: <TableOutlined />, label: 'Gestión de Mesas' },
+      ]},
+    ],
   },
   {
-    key: '/reports',
+    key: 'reportes',
     icon: <BarChartOutlined />,
     label: 'Reportes',
+    children: [
+      { type: 'group' as const, label: 'Reportes', className: 'rg-popup-group-title', children: [
+        { key: '/reports/reports', icon: <FileTextOutlined />, label: 'Reportes' },
+        { key: '/reports/listings', icon: <UnorderedListOutlined />, label: 'Listados' },
+      ]},
+    ],
   },
   {
-    key: '/users',
+    key: 'usuarios',
     icon: <LockOutlined />,
     label: 'Usuarios y Permisos',
+    children: [
+      { type: 'group' as const, label: 'Usuarios y Permisos', className: 'rg-popup-group-title', children: [
+        { key: '/users/users', icon: <UserOutlined />, label: 'Usuarios' },
+        { key: '/users/staff', icon: <IdcardOutlined />, label: 'Personal' },
+        { key: '/users/permissions', icon: <SafetyOutlined />, label: 'Permiso Acciones' },
+      ]},
+    ],
   },
   {
-    key: '/settings',
+    key: 'configuracion',
     icon: <SettingOutlined />,
-    label: 'Configuraciones',
+    label: 'Configuración',
+    children: [
+      { type: 'group' as const, label: 'Configuración', className: 'rg-popup-group-title', children: [
+        { key: '/settings/company', icon: <HomeOutlined />, label: 'Mi Empresa' },
+        { key: '/settings/pos', icon: <EnvironmentOutlined />, label: 'Puntos de Venta' },
+      ]},
+    ],
   },
 ];
 
@@ -106,6 +173,45 @@ export function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, puntosVenta, puntoVentaActivo, setPuntoVentaActivo, logout } = useAuthStore();
+  const { tabs, activeKey, openTab } = useTabStore();
+
+  // Sync: if URL changes externally (e.g. browser back/forward), open/activate the tab
+  useEffect(() => {
+    const path = location.pathname;
+    const route = TAB_ROUTES[path];
+    if (route) {
+      openTab({ key: path, label: route.label, closable: route.closable });
+    }
+  }, [location.pathname]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Navigate from sidebar → open tab
+  const handleMenuClick = (key: string) => {
+    const route = TAB_ROUTES[key];
+    if (route) {
+      openTab({ key, label: route.label, closable: route.closable });
+      navigate(key);
+    } else {
+      navigate(key);
+    }
+  };
+
+  // Render tab panels: each open tab stays mounted, hidden via display:none
+  const tabPanels = useMemo(() => {
+    return tabs
+      .filter(tab => tab.key in TAB_ROUTES)
+      .map(tab => {
+        const Comp = TAB_ROUTES[tab.key]!.component;
+        return (
+          <div
+            key={tab.key}
+            className="rg-tab-panel"
+            style={{ display: tab.key === activeKey ? 'block' : 'none' }}
+          >
+            <Comp />
+          </div>
+        );
+      });
+  }, [tabs, activeKey]);
 
   const handleLogout = () => {
     logout();
@@ -134,10 +240,18 @@ export function AppLayout() {
 
   // Detect which submenu should be open based on path
   const getOpenKeys = (): string[] => {
-    const archivos = ['/customers', '/suppliers', '/deposits', '/categories', '/brands', '/products', '/promotions'];
-    const movimientos = ['/sales', '/purchases', '/cashregisters', '/arca', '/expenses', '/audit'];
-    if (archivos.includes(location.pathname)) return ['archivos'];
-    if (movimientos.includes(location.pathname)) return ['movimientos'];
+    const groups: Record<string, string[]> = {
+      archivos: ['/customers', '/suppliers', '/deposits', '/categories', '/brands', '/products', '/promotions'],
+      movimientos: ['/sales', '/purchases', '/cashregisters', '/arca', '/expenses', '/audit'],
+      produccion: ['/production/structures', '/production/orders'],
+      gastronomia: ['/gastronomy/tables'],
+      reportes: ['/reports/reports', '/reports/listings'],
+      usuarios: ['/users/users', '/users/staff', '/users/permissions'],
+      configuracion: ['/settings/company', '/settings/pos'],
+    };
+    for (const [group, paths] of Object.entries(groups)) {
+      if (paths.includes(activeKey)) return [group];
+    }
     return [];
   };
 
@@ -154,7 +268,7 @@ export function AppLayout() {
         collapsedWidth={64}
         className={`rg-sidebar ${collapsed ? 'rg-sidebar-collapsed' : ''}`}
         style={{
-          background: 'linear-gradient(180deg, #1E1F23 0%, #2A2B2F 100%)',
+          background: 'linear-gradient(180deg, #1E1F22 0%, #2A2B2F 100%)',
           borderRight: '1px solid rgba(234, 189, 35, 0.15)',
           height: '100vh',
           position: 'sticky',
@@ -168,7 +282,7 @@ export function AppLayout() {
         <div
           className="rg-sidebar-header"
           style={{
-            height: 64,
+            height: 56,
             display: 'flex',
             alignItems: 'center',
             justifyContent: collapsed ? 'center' : 'space-between',
@@ -180,7 +294,7 @@ export function AppLayout() {
         >
           <div
             style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-            onClick={() => navigate('/dashboard')}
+            onClick={() => handleMenuClick('/dashboard')}
           >
             <RGLogo size={collapsed ? 34 : 38} collapsed={collapsed} variant="white" />
           </div>
@@ -224,11 +338,11 @@ export function AppLayout() {
           <Menu
             theme="dark"
             mode="inline"
-            selectedKeys={[location.pathname]}
+            selectedKeys={[activeKey]}
             {...(collapsed ? {} : { openKeys, onOpenChange: setOpenKeys })}
             items={menuItems}
             onClick={({ key }) => {
-              if (key.startsWith('/')) navigate(key);
+              if (key.startsWith('/')) handleMenuClick(key);
             }}
             style={{
               marginTop: 4,
@@ -255,11 +369,11 @@ export function AppLayout() {
         {/* ── Header ──────────────────────────── */}
         <Header style={{
           padding: '0 24px',
-          background: '#1E1F23',
+          background: '#1E1F22',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          borderBottom: '2px solid #EABD23',
+          borderBottom: '1px solid rgba(234, 189, 35, 0.15)',
           height: 56,
           lineHeight: '56px',
           position: 'sticky',
@@ -268,19 +382,13 @@ export function AppLayout() {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {/* Mobile toggle (shows only when sidebar collapsed, as secondary control) */}
-            <Button
-              type="text"
-              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-              onClick={() => setCollapsed(!collapsed)}
-              className="rg-header-toggle"
-              style={{ color: 'rgba(255,255,255,0.5)', fontSize: 15, width: 36, height: 36 }}
-            />
+
             <Text style={{
               color: 'rgba(255,255,255,0.4)',
-              fontSize: 13,
-              fontStyle: 'italic',
+              fontSize: 18,
+              fontStyle: 'Normal',
             }}>
-              río <span style={{ fontWeight: 700, fontStyle: 'normal' }}>gestión</span>
+              <span style={{ color: '#EABD23', fontWeight: 700 }}>Río</span> <span style={{ fontWeight: 700, fontStyle: 'normal', color: '#FFFFFF' }}>gestión</span>
             </Text>
           </div>
 
@@ -292,7 +400,7 @@ export function AppLayout() {
                   Pto. Venta:
                 </Text>
                 {puntosVenta.length === 1 ? (
-                  <Tag color="#EABD23" style={{ color: '#1E1F23', fontWeight: 600, margin: 0 }}>
+                  <Tag color="#EABD23" style={{ color: '#1E1F22', fontWeight: 600, margin: 0 }}>
                     {pvNombre}
                   </Tag>
                 ) : (
@@ -331,7 +439,7 @@ export function AppLayout() {
               <Avatar
                 style={{
                   background: 'linear-gradient(135deg, #EABD23, #D4A720)',
-                  color: '#1E1F23',
+                  color: '#1E1F22',
                   cursor: 'pointer',
                   fontWeight: 700,
                   transition: 'all 0.3s ease',
@@ -342,18 +450,19 @@ export function AppLayout() {
           </div>
         </Header>
 
+        {/* ── Tab Bar ──────────────────────────── */}
+        <TabBar iconMap={ICON_MAP} />
+
         {/* ── Content ─────────────────────────── */}
         <Content style={{
-          margin: 20,
+          margin: '0 20px 20px',
           padding: 24,
           background: '#FFFFFF',
-          borderRadius: 12,
+          borderRadius: '0 0 12px 12px',
           minHeight: 280,
           boxShadow: '0 1px 8px rgba(0,0,0,0.04)',
         }}>
-          <div className="page-enter">
-            <Outlet />
-          </div>
+          {tabPanels}
         </Content>
       </Layout>
     </Layout>

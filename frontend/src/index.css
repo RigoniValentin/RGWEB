@@ -4,7 +4,7 @@
 
 /* ── CSS Variables ────────────────────────────── */
 :root {
-  --rg-black: #1E1F23;
+  --rg-black: #1E1F22;
   --rg-black-light: #2A2B2F;
   --rg-gold: #EABD23;
   --rg-gold-dark: #D4A720;
@@ -499,4 +499,118 @@ body {
   font-weight: 500;
   color: var(--rg-text-light);
   font-size: 13px;
+}
+
+/* ══════════════════════════════════════════════════
+   TabBar — Multi-tab workspace
+   ══════════════════════════════════════════════════ */
+.rg-tabbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 0 20px;
+  background: #1E1F22;
+  min-height: 38px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none;
+  border-bottom: 2px solid var(--rg-gold);
+  position: sticky;
+  top: 56px;
+  z-index: 99;
+}
+.rg-tabbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Individual tab ───────────────────────────── */
+.rg-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  border-radius: 8px 8px 0 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.5);
+  background: transparent;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  min-width: 0;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-bottom: none;
+  margin-bottom: -2px;
+}
+.rg-tab:hover {
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.06);
+}
+.rg-tab-active {
+  color: var(--rg-gold) !important;
+  background: var(--rg-white) !important;
+  font-weight: 600;
+  border-color: var(--rg-gold);
+  border-bottom-color: var(--rg-white);
+}
+
+/* ── Tab icon ─────────────────────────────────── */
+.rg-tab-icon {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.rg-tab-active .rg-tab-icon {
+  color: var(--rg-gold);
+}
+
+/* ── Tab label ────────────────────────────────── */
+.rg-tab-label {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Tab close button ─────────────────────────── */
+.rg-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  font-size: 10px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: all 0.15s ease;
+  color: rgba(255, 255, 255, 0.4);
+  margin-left: 2px;
+}
+.rg-tab:hover .rg-tab-close {
+  opacity: 1;
+}
+.rg-tab-active .rg-tab-close {
+  opacity: 0.6;
+  color: var(--rg-text-light);
+}
+.rg-tab-active:hover .rg-tab-close {
+  opacity: 1;
+}
+.rg-tab-close:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ff4d4f !important;
+  opacity: 1 !important;
+}
+.rg-tab-active .rg-tab-close:hover {
+  background: rgba(255, 77, 79, 0.1);
+}
+
+/* ── Tab panel (content pane) ─────────────────── */
+.rg-tab-panel {
+  animation: fadeIn 0.25s ease-out both;
 }

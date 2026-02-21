@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Modal, InputNumber, Typography, message, Space, Tag } from 'antd';
+import { Modal, InputNumber, Typography, Space, Tag, App } from 'antd';
 import { DollarOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { catalogApi } from '../../services/catalog.api';
@@ -18,6 +18,7 @@ interface Props {
 const LISTA_FIELDS = ['LISTA_1', 'LISTA_2', 'LISTA_3', 'LISTA_4', 'LISTA_5'] as const;
 
 export function PriceListModal({ open, product, onClose, onSaved }: Props) {
+  const { message } = App.useApp();
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState<Set<string>>(new Set());
@@ -89,7 +90,7 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
       confirmLoading={saving}
       okText={dirty.size > 0 ? 'Guardar' : 'Cerrar'}
       cancelText="Cancelar"
-      destroyOnClose
+      destroyOnHidden
       width={420}
     >
       {product && (

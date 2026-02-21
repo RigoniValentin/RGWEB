@@ -260,13 +260,18 @@ export const productService = {
 
       if (input.depositos?.length) {
         for (const dep of input.depositos) {
+          // Insert into PRODUCTO_DEPOSITOS (relationship table)
+          await tx.request()
+            .input('prodId', sql.Int, productoId).input('depId', sql.Int, dep.DEPOSITO_ID)
+            .query(`INSERT INTO PRODUCTO_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID) VALUES (@prodId, @depId)`);
+          // Insert into STOCK_DEPOSITOS (stock tracking table)
           const maxId = await tx.request().query(`SELECT ISNULL(MAX(ITEM_ID), 0) + 1 AS nextId FROM STOCK_DEPOSITOS`);
           const nextItemId = maxId.recordset[0].nextId;
           await tx.request()
             .input('itemId', sql.Int, nextItemId)
-            .input('prodId', sql.Int, productoId).input('depId', sql.Int, dep.DEPOSITO_ID)
+            .input('prodId2', sql.Int, productoId).input('depId2', sql.Int, dep.DEPOSITO_ID)
             .input('cant', sql.Decimal(18, 4), dep.CANTIDAD)
-            .query(`INSERT INTO STOCK_DEPOSITOS (ITEM_ID, PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@itemId, @prodId, @depId, @cant)`);
+            .query(`INSERT INTO STOCK_DEPOSITOS (ITEM_ID, PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@itemId, @prodId2, @depId2, @cant)`);
         }
         await tx.request().input('prodId', sql.Int, productoId)
           .query(`UPDATE PRODUCTOS SET CANTIDAD = (SELECT ISNULL(SUM(CANTIDAD),0) FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @prodId) WHERE PRODUCTO_ID = @prodId`);
@@ -342,15 +347,22 @@ export const productService = {
       }
 
       if (input.depositos !== undefined) {
+        // Clear both relationship and stock tables
         await tx.request().input('id', sql.Int, id).query(`DELETE FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @id`);
+        await tx.request().input('id2', sql.Int, id).query(`DELETE FROM PRODUCTO_DEPOSITOS WHERE PRODUCTO_ID = @id2`);
         for (const dep of (input.depositos || [])) {
+          // Insert into PRODUCTO_DEPOSITOS (relationship table)
+          await tx.request()
+            .input('prodId', sql.Int, id).input('depId', sql.Int, dep.DEPOSITO_ID)
+            .query(`INSERT INTO PRODUCTO_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID) VALUES (@prodId, @depId)`);
+          // Insert into STOCK_DEPOSITOS (stock tracking table)
           const maxId = await tx.request().query(`SELECT ISNULL(MAX(ITEM_ID), 0) + 1 AS nextId FROM STOCK_DEPOSITOS`);
           const nextItemId = maxId.recordset[0].nextId;
           await tx.request()
             .input('itemId', sql.Int, nextItemId)
-            .input('prodId', sql.Int, id).input('depId', sql.Int, dep.DEPOSITO_ID)
+            .input('prodId2', sql.Int, id).input('depId2', sql.Int, dep.DEPOSITO_ID)
             .input('cant', sql.Decimal(18, 4), dep.CANTIDAD)
-            .query(`INSERT INTO STOCK_DEPOSITOS (ITEM_ID, PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@itemId, @prodId, @depId, @cant)`);
+            .query(`INSERT INTO STOCK_DEPOSITOS (ITEM_ID, PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@itemId, @prodId2, @depId2, @cant)`);
         }
         await tx.request().input('id', sql.Int, id)
           .query(`UPDATE PRODUCTOS SET CANTIDAD = (SELECT ISNULL(SUM(CANTIDAD),0) FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @id) WHERE PRODUCTO_ID = @id`);

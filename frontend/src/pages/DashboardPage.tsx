@@ -30,7 +30,7 @@ export function DashboardPage() {
     <div>
       {/* ── Welcome Banner ────────────────────── */}
       <div style={{
-        background: 'linear-gradient(135deg, #1E1F23 0%, #2A2B2F 100%)',
+        background: 'linear-gradient(135deg, #1E1F22 0%, #2A2B2F 100%)',
         borderRadius: 14,
         padding: '28px 32px',
         marginBottom: 24,
@@ -68,22 +68,22 @@ export function DashboardPage() {
       <Row gutter={[16, 16]} className="stagger">
         <Col xs={24} sm={12} lg={6}>
           <Card className="kpi-card animate-fade-up" hoverable>
-            <Statistic title="Clientes" value={stats?.totalClientes ?? 0} prefix={<TeamOutlined style={{ color: '#EABD23' }} />} valueStyle={{ color: '#1E1F23', fontWeight: 700 }} />
+            <Statistic title="Clientes" value={stats?.totalClientes ?? 0} prefix={<TeamOutlined style={{ color: '#EABD23' }} />} valueStyle={{ color: '#1E1F22', fontWeight: 700 }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card className="kpi-card animate-fade-up" hoverable>
-            <Statistic title="Productos" value={stats?.totalProductos ?? 0} prefix={<ShoppingOutlined style={{ color: '#EABD23' }} />} valueStyle={{ color: '#1E1F23', fontWeight: 700 }} />
+            <Statistic title="Productos" value={stats?.totalProductos ?? 0} prefix={<ShoppingOutlined style={{ color: '#EABD23' }} />} valueStyle={{ color: '#1E1F22', fontWeight: 700 }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card className="kpi-card animate-fade-up" hoverable>
-            <Statistic title="Proveedores" value={stats?.totalProveedores ?? 0} prefix={<ShopOutlined style={{ color: '#EABD23' }} />} valueStyle={{ color: '#1E1F23', fontWeight: 700 }} />
+            <Statistic title="Proveedores" value={stats?.totalProveedores ?? 0} prefix={<ShopOutlined style={{ color: '#EABD23' }} />} valueStyle={{ color: '#1E1F22', fontWeight: 700 }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card className="kpi-card animate-fade-up" hoverable>
-            <Statistic title="Ventas Hoy" value={stats?.ventasHoy ?? 0} prefix={<DollarOutlined style={{ color: '#EABD23' }} />} valueStyle={{ color: '#1E1F23', fontWeight: 700 }} />
+            <Statistic title="Ventas Hoy" value={stats?.ventasHoy ?? 0} prefix={<DollarOutlined style={{ color: '#EABD23' }} />} valueStyle={{ color: '#1E1F22', fontWeight: 700 }} />
           </Card>
         </Col>
       </Row>
@@ -110,7 +110,7 @@ export function DashboardPage() {
       <Row gutter={[16, 16]} style={{ marginTop: 16 }} className="stagger">
         <Col xs={24} sm={8}>
           <Card className="kpi-card animate-fade-up">
-            <Statistic title="Monto Mes" value={stats?.montoMes ?? 0} precision={2} prefix={<BankOutlined />} suffix={<RiseOutlined style={{ color: '#52c41a' }} />} valueStyle={{ color: '#1E1F23', fontWeight: 700 }} />
+            <Statistic title="Monto Mes" value={stats?.montoMes ?? 0} precision={2} prefix={<BankOutlined />} suffix={<RiseOutlined style={{ color: '#52c41a' }} />} valueStyle={{ color: '#1E1F22', fontWeight: 700 }} />
           </Card>
         </Col>
         <Col xs={24} sm={8}>
@@ -143,7 +143,7 @@ export function DashboardPage() {
                 { title: 'Fecha', dataIndex: 'FECHA_VENTA', render: (v: string) => new Date(v).toLocaleDateString('es-AR') },
                 { title: 'Cliente', dataIndex: 'CLIENTE_NOMBRE' },
                 { title: 'Tipo', dataIndex: 'TIPO_COMPROBANTE', width: 60 },
-                { title: 'Total', dataIndex: 'TOTAL', align: 'right' as const, render: (v: number) => <span style={{ fontWeight: 600, color: '#1E1F23' }}>$ {v.toFixed(2)}</span> },
+                { title: 'Total', dataIndex: 'TOTAL', align: 'right' as const, render: (v: number) => <span style={{ fontWeight: 600, color: '#1E1F22' }}>$ {v.toFixed(2)}</span> },
               ]}
             />
           </Card>

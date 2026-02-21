@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Modal, Form, Input, InputNumber, Select, Switch, Tabs, Space, Button,
-  Table, Tag, DatePicker, Typography, Row, Col, Divider, message,
+  Table, Tag, DatePicker, Typography, Row, Col, Divider, Badge, App,
 } from 'antd';
 import {
   PlusOutlined, DeleteOutlined, BarcodeOutlined, ShopOutlined,
@@ -24,12 +24,15 @@ interface Props {
 }
 
 export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: Props) {
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [barcodes, setBarcodes] = useState<string[]>([]);
   const [newBarcode, setNewBarcode] = useState('');
   const [depositos, setDepositos] = useState<{ DEPOSITO_ID: number; CANTIDAD: number; DEPOSITO_NOMBRE?: string }[]>([]);
   const [selectedProveedores, setSelectedProveedores] = useState<number[]>([]);
+  const [activeTab, setActiveTab] = useState('general');
+  const [tabErrors, setTabErrors] = useState<{ stock?: boolean; proveedores?: boolean }>({});
 
   // ── Catalog data ───────────────────────────────
   const { data: categorias } = useQuery({ queryKey: ['categorias'], queryFn: () => catalogApi.getCategorias() });
@@ -52,6 +55,8 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
 
   useEffect(() => {
     if (!open) return;
+    setActiveTab('general');
+    setTabErrors({});
 
     if (editId && detail) {
       form.setFieldsValue({
@@ -82,13 +87,21 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
         LISTA_1: 0, LISTA_2: 0, LISTA_3: 0, LISTA_4: 0, LISTA_5: 0,
         IMP_INT: 0,
         STOCK_MINIMO: 0,
-        TASA_IVA_ID: tasas?.find((t: TasaImpuesto) => t.PREDETERMINADA)?.TASA_ID,
       });
       setBarcodes([]);
       setDepositos([]);
       setSelectedProveedores([]);
     }
-  }, [open, editId, detail, copyFrom, form, tasas]);
+  }, [open, editId, detail, copyFrom, form]);
+
+  // Set default tax rate once tasas are loaded (separate to avoid resetting form state)
+  useEffect(() => {
+    if (!open || editId || copyFrom || !tasas) return;
+    const defaultTasa = tasas.find((t: TasaImpuesto) => t.PREDETERMINADA)?.TASA_ID;
+    if (defaultTasa && !form.getFieldValue('TASA_IVA_ID')) {
+      form.setFieldsValue({ TASA_IVA_ID: defaultTasa });
+    }
+  }, [open, editId, copyFrom, tasas, form]);
 
   // ── Barcode management ─────────────────────────
   const addBarcode = () => {
@@ -107,6 +120,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
     const unused = depositosList?.find(d => !depositos.some(ed => ed.DEPOSITO_ID === d.DEPOSITO_ID));
     if (unused) {
       setDepositos([...depositos, { DEPOSITO_ID: unused.DEPOSITO_ID, CANTIDAD: 0, DEPOSITO_NOMBRE: unused.NOMBRE }]);
+      setTabErrors(prev => ({ ...prev, stock: false }));
     }
   };
 
@@ -133,13 +147,32 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
+      // Validate deposits & providers (not managed by Form)
+      const errors: { stock?: boolean; proveedores?: boolean } = {};
+      if (depositos.length === 0) errors.stock = true;
+      if (selectedProveedores.length === 0) errors.proveedores = true;
+      setTabErrors(errors);
+
+      if (errors.stock || errors.proveedores) {
+        // Switch to the first tab with an error
+        const firstErrorTab = errors.stock ? 'stock' : 'proveedores';
+        setActiveTab(firstErrorTab);
+        message.warning(
+          errors.stock && errors.proveedores
+            ? 'Debe asociar al menos un depósito y un proveedor'
+            : errors.stock
+            ? 'Debe asociar al menos un depósito'
+            : 'Debe asociar al menos un proveedor'
+        );
+        return;
+      }
       setSaving(true);
 
       const payload = {
         ...values,
         FECHA_VENCIMIENTO: values.FECHA_VENCIMIENTO ? values.FECHA_VENCIMIENTO.format('YYYY-MM-DD') : null,
         codigosBarras: barcodes,
-        depositos,
+        depositos: depositos.map(d => ({ DEPOSITO_ID: d.DEPOSITO_ID, CANTIDAD: d.CANTIDAD })),
         proveedores: selectedProveedores,
       };
 
@@ -170,7 +203,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
       open={open}
       onCancel={onClose}
       width={900}
-      destroyOnClose
+      destroyOnHidden
       maskClosable={false}
       className="rg-drawer"
       footer={
@@ -185,6 +218,8 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
       <Form form={form} layout="vertical" size="middle" disabled={loadingDetail}>
         <Tabs
           size="small"
+          activeKey={activeTab}
+          onChange={(key) => setActiveTab(key)}
           items={[
             {
               key: 'general',
@@ -324,7 +359,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
             },
             {
               key: 'stock',
-              label: <span><InboxOutlined /> Stock y Depósitos</span>,
+              label: <Badge dot={tabErrors.stock} offset={[6, 0]}><span><InboxOutlined /> Stock y Depósitos</span></Badge>,
               children: (
                 <>
                   <Row gutter={16}>
@@ -343,7 +378,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                   <Table
                     size="small"
                     dataSource={depositos}
-                    rowKey={(_, i) => String(i)}
+                    rowKey={(r) => String(r.DEPOSITO_ID)}
                     pagination={false}
                     columns={[
                       {
@@ -412,14 +447,17 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
             },
             {
               key: 'proveedores',
-              label: <span><ShopOutlined /> Proveedores</span>,
+              label: <Badge dot={tabErrors.proveedores} offset={[6, 0]}><span><ShopOutlined /> Proveedores</span></Badge>,
               children: (
                 <Select
                   mode="multiple"
                   style={{ width: '100%' }}
                   placeholder="Seleccioná proveedores"
                   value={selectedProveedores}
-                  onChange={setSelectedProveedores}
+                  onChange={(val) => {
+                    setSelectedProveedores(val);
+                    if (val.length > 0) setTabErrors(prev => ({ ...prev, proveedores: false }));
+                  }}
                   optionFilterProp="label"
                   options={proveedoresList?.data?.map((p: any) => ({
                     label: p.NOMBRE, value: p.PROVEEDOR_ID,

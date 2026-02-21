@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Table, Space, Input, Typography, Tag, Select, Button, Dropdown, Modal, message,
+  Table, Space, Input, Typography, Tag, Select, Button, Dropdown, Modal, App,
   Tooltip, InputNumber,
 } from 'antd';
 import type { InputRef, TableColumnType } from 'antd';
@@ -22,6 +22,7 @@ const { Title, Text } = Typography;
 type EditingCell = { id: number; field: string; value: any } | null;
 
 export function ProductsPage() {
+  const { message } = App.useApp();
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, Form, Select, InputNumber, Radio, Space, Typography, message } from 'antd';
+import { Modal, Form, Select, InputNumber, Radio, Space, Typography, App } from 'antd';
 import { DollarOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { catalogApi } from '../../services/catalog.api';
@@ -15,6 +15,7 @@ interface Props {
 }
 
 export function BulkPriceModal({ open, onClose, onDone, productIds }: Props) {
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
 
@@ -55,7 +56,7 @@ export function BulkPriceModal({ open, onClose, onDone, productIds }: Props) {
       confirmLoading={loading}
       okText="Generar"
       cancelText="Cancelar"
-      destroyOnClose
+      destroyOnHidden
       width={480}
     >
       <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>

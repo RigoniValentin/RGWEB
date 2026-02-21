@@ -6,11 +6,6 @@ import esES from 'antd/locale/es_ES';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AppLayout } from './components/AppLayout';
 import { LoginPage } from './pages/LoginPage';
-import { DashboardPage } from './pages/DashboardPage';
-import { CustomersPage } from './pages/CustomersPage';
-import { ProductsPage } from './pages/ProductsPage';
-import { SalesPage } from './pages/SalesPage';
-import { SuppliersPage } from './pages/SuppliersPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,7 +37,7 @@ function App() {
               colorPrimary: '#EABD23',
               colorPrimaryHover: '#D4A720',
               colorPrimaryActive: '#c49a1a',
-              primaryColor: '#1E1F23',
+              primaryColor: '#1E1F22',
               borderRadius: 8,
               controlHeight: 40,
               fontWeight: 600,
@@ -50,14 +45,14 @@ function App() {
             Menu: {
               darkItemBg: 'transparent',
               darkItemSelectedBg: '#EABD23',
-              darkItemSelectedColor: '#1E1F23',
+              darkItemSelectedColor: '#1E1F22',
               darkItemHoverBg: 'rgba(234, 189, 35, 0.1)',
               darkItemHoverColor: '#EABD23',
               darkItemColor: 'rgba(255,255,255,0.7)',
             },
             Table: {
               borderRadius: 10,
-              headerBg: '#1E1F23',
+              headerBg: '#1E1F22',
               headerColor: '#EABD23',
               headerSortActiveBg: '#2A2B2F',
               rowHoverBg: 'rgba(234, 189, 35, 0.06)',
@@ -88,15 +83,9 @@ function App() {
               {/* Public routes */}
               <Route path="/login" element={<LoginPage />} />
 
-              {/* Protected routes */}
+              {/* Protected routes — AppLayout manages tab content internally */}
               <Route element={<ProtectedRoute />}>
-                <Route element={<AppLayout />}>
-                  <Route path="/dashboard" element={<DashboardPage />} />
-                  <Route path="/customers" element={<CustomersPage />} />
-                  <Route path="/products" element={<ProductsPage />} />
-                  <Route path="/sales" element={<SalesPage />} />
-                  <Route path="/suppliers" element={<SuppliersPage />} />
-                </Route>
+                <Route path="/*" element={<AppLayout />} />
               </Route>
 
               {/* Redirect root to dashboard */}

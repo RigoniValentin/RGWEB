@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Typography, message } from 'antd';
+import { Form, Input, Button, Typography, App } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { authApi } from '../services/auth.api';
 import { useAuthStore } from '../store/authStore';
@@ -9,6 +9,7 @@ import { RGLogo } from '../components/RGLogo';
 const { Title, Text } = Typography;
 
 export function LoginPage() {
+  const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
@@ -36,8 +37,8 @@ export function LoginPage() {
       background: `
         repeating-linear-gradient(
           -45deg,
-          #1E1F23,
-          #1E1F23 10px,
+          #1E1F22,
+          #1E1F22 10px,
           #2A2B2F 10px,
           #2A2B2F 20px
         )
@@ -61,7 +62,7 @@ export function LoginPage() {
           className="animate-fade-left"
           style={{
             flex: '0 0 320px',
-            background: 'linear-gradient(180deg, #1E1F23 0%, #2A2B2F 100%)',
+            background: 'linear-gradient(180deg, #1E1F22 0%, #2A2B2F 100%)',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
@@ -142,7 +143,7 @@ export function LoginPage() {
               level={2}
               style={{
                 margin: 0,
-                color: '#1E1F23',
+                color: '#1E1F22',
                 fontWeight: 700,
               }}
             >
