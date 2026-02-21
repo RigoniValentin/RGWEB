@@ -226,7 +226,7 @@ export const productService = {
         .input('lista3', sql.Decimal(18, 4), input.LISTA_3 || 0)
         .input('lista4', sql.Decimal(18, 4), input.LISTA_4 || 0)
         .input('lista5', sql.Decimal(18, 4), input.LISTA_5 || 0)
-        .input('listaDefecto', sql.Int, input.LISTA_DEFECTO || null)
+        .input('listaDefecto', sql.Int, input.LISTA_DEFECTO || 1)
         .input('fechaVenc', sql.Date, input.FECHA_VENCIMIENTO || null)
         .input('margenInd', sql.Bit, input.MARGEN_INDIVIDUAL ? 1 : 0)
         .query(`

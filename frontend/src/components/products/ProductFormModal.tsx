@@ -85,6 +85,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
         COSTO_USD: 0,
         PRECIO_COMPRA_BASE: 0,
         LISTA_1: 0, LISTA_2: 0, LISTA_3: 0, LISTA_4: 0, LISTA_5: 0,
+        LISTA_DEFECTO: 1,
         IMP_INT: 0,
         STOCK_MINIMO: 0,
       });

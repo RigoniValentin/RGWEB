@@ -7,7 +7,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "db:init": "tsx src/database/init.ts",
-    "package": "npx pkg dist/index.js --targets node18-win-x64 --output ../installer/RGWeb.exe --compress GZip"
+    "package": "npx pkg dist/index.js --targets node18-win-x64 --output ../installer/RGWeb.exe --compress GZip --icon ../frontend/src/assets/logos/RioGestionWhite.ico"
   },
   "pkg": {
     "assets": [

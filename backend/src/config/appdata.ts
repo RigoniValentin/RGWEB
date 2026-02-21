@@ -42,6 +42,11 @@ export interface AppDataSettings {
   apiKey: string;
   apiToken: string;
   ipWsp: string;
+
+  // Server (optional — sensible defaults)
+  port: number;
+  jwtSecret: string;
+  jwtExpiresIn: string;
 }
 
 // ── Encryption helpers (AES-256-CBC, compatible with C#) ──
@@ -131,6 +136,9 @@ export function loadAppData(): AppDataSettings {
     process.exit(1);
   }
 
+  // Optional [ServerSettings] section for port/JWT
+  const srv = data['ServerSettings'] || {};
+
   const settings: AppDataSettings = {
     dataSource: db['DataSource'] || 'localhost',
     initialCatalog: db['InitialCatalog'] || '',
@@ -146,6 +154,9 @@ export function loadAppData(): AppDataSettings {
     apiKey: db['ApiKey'] || '',
     apiToken: db['ApiToken'] || '',
     ipWsp: db['IpWsp'] || '',
+    port: parseInt(srv['Port'] || '3001', 10),
+    jwtSecret: srv['JwtSecret'] || 'RG-Web-Jwt-Secret-2026!',
+    jwtExpiresIn: srv['JwtExpiresIn'] || '8h',
   };
 
   console.log(`[appdata] ✅ Loaded config for "${settings.nombreFantasia}" → ${settings.initialCatalog}`);

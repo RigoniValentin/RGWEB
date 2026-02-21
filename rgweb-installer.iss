@@ -8,8 +8,8 @@
 ;
 ; Structure expected in installer/:
 ;   RGWeb.exe
+;   RGWeb-hidden.vbs
 ;   public/
-;   .env.example
 ; ═══════════════════════════════════════════════════════════
 
 #define MyAppName "Río Gestión WEB"
@@ -51,20 +51,20 @@ Name: "firewall"; Description: "Agregar regla de Firewall (puerto 3001)"; GroupD
 ; Main executable
 Source: "installer\RGWeb.exe"; DestDir: "{app}"; Flags: ignoreversion
 
+; Hidden launcher (runs without console window)
+Source: "installer\RGWeb-hidden.vbs"; DestDir: "{app}"; Flags: ignoreversion
+
 ; Frontend files
 Source: "installer\public\*"; DestDir: "{app}\public"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; Config templates (don't overwrite if already exist)
-Source: "installer\.env.example"; DestDir: "{app}"; DestName: ".env"; Flags: onlyifdoesntexist
-
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppName}"; Filename: "wscript.exe"; Parameters: """{app}\RGWeb-hidden.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"
 Name: "{group}\Desinstalar {#MyAppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "wscript.exe"; Parameters: """{app}\RGWeb-hidden.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
 ; Open browser after install
-Filename: "{app}\{#MyAppExeName}"; Description: "Iniciar {#MyAppName}"; Flags: nowait postinstall skipifsilent
+Filename: "wscript.exe"; Parameters: """{app}\RGWeb-hidden.vbs"""; Description: "Iniciar {#MyAppName}"; Flags: nowait postinstall skipifsilent
 Filename: "http://localhost:3001"; Description: "Abrir en navegador"; Flags: shellexec nowait postinstall skipifsilent unchecked
 
 ; Firewall rule (optional task)
@@ -76,7 +76,7 @@ Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""Rio Gest
 
 [Registry]
 ; Auto-start with Windows (optional task)
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "RioGestionWEB"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue; Tasks: startupicon
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "RioGestionWEB"; ValueData: "wscript.exe ""{app}\RGWeb-hidden.vbs"""; Flags: uninsdeletevalue; Tasks: startupicon
 
 [Code]
 // Show a reminder about appdata.ini after installation

@@ -1,23 +1,25 @@
 import dotenv from 'dotenv';
 import { loadAppData } from './appdata.js';
-import { envPath } from './paths.js';
+import { isPkg, envPath } from './paths.js';
 
-// Load .env only for non-DB settings (PORT, JWT, NODE_ENV)
-dotenv.config({ path: envPath });
+// ── In development, .env can optionally override some values ──
+// In production (pkg), everything comes from appdata.ini
+if (!isPkg) {
+  dotenv.config({ path: envPath });
+}
 
-// ── appdata.ini is REQUIRED — system will not start without it ──
 const appData = loadAppData();
 
 const dbServerRaw = appData.dataSource;
 const hasNamedInstance = dbServerRaw.includes('\\');
 
 export const config = {
-  port: parseInt(process.env.PORT || '3001', 10),
-  nodeEnv: process.env.NODE_ENV || 'development',
+  port: parseInt(process.env.PORT || String(appData.port), 10),
+  nodeEnv: isPkg ? 'production' : (process.env.NODE_ENV || 'development'),
 
   db: {
     server: hasNamedInstance ? dbServerRaw.split('\\')[0] : dbServerRaw,
-    port: hasNamedInstance ? undefined : parseInt(process.env.DB_PORT || '1433', 10),
+    port: hasNamedInstance ? undefined : 1433,
     instanceName: hasNamedInstance ? dbServerRaw.split('\\')[1] : undefined,
     database: appData.initialCatalog,
     user: appData.userId,
@@ -29,8 +31,8 @@ export const config = {
   },
 
   jwt: {
-    secret: process.env.JWT_SECRET || 'dev-secret-change-me',
-    expiresIn: process.env.JWT_EXPIRES_IN || '8h',
+    secret: process.env.JWT_SECRET || appData.jwtSecret,
+    expiresIn: process.env.JWT_EXPIRES_IN || appData.jwtExpiresIn,
   },
 
   // ── Business settings (from appdata.ini) ───────────

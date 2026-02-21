@@ -59,7 +59,7 @@ echo.
 
 REM ── Step 5: Package with pkg ────────────────────
 echo [5/5] Packaging into executable (pkg)...
-call npx pkg dist/index.js --targets node18-win-x64 --output "%OUTPUT_EXE%" --compress GZip
+call npx pkg dist/index.js --targets node18-win-x64 --output "%OUTPUT_EXE%" --compress GZip --icon "%ROOT%frontend\src\assets\logos\RioGestionWhite.ico"
 if errorlevel 1 (
     echo       ERROR: pkg packaging failed!
     echo       Make sure pkg is installed: npm i -g @yao-pkg/pkg
@@ -69,20 +69,7 @@ if errorlevel 1 (
 echo       Done.
 echo.
 
-REM ── Step 6: Copy template configs ──────────────
-echo Copying config templates...
-if not exist "%INSTALLER_DIR%\appdata.ini" (
-    echo ; Copy your appdata.ini here > "%INSTALLER_DIR%\appdata.ini.example"
-)
-
-REM Create a default .env
-(
-echo PORT=3001
-echo NODE_ENV=production
-echo JWT_SECRET=CHANGE-THIS-TO-A-SECURE-SECRET
-echo JWT_EXPIRES_IN=8h
-) > "%INSTALLER_DIR%\.env.example"
-
+REM ── Step 6: Info ────────────────────────────────
 echo.
 echo ══════════════════════════════════════════════════
 echo   BUILD COMPLETE!
@@ -93,11 +80,10 @@ echo.
 echo   Contents:
 echo     RGWeb.exe         — Server executable
 echo     public/           — Frontend files
-echo     .env.example      — Environment template
 echo.
 echo   To deploy, copy the installer/ folder to the
-echo   client PC and place appdata.ini + .env next to
-echo   RGWeb.exe, then run it.
+echo   client PC and place appdata.ini next to
+echo   RGWeb.exe, then run it. No .env needed.
 echo.
 echo ══════════════════════════════════════════════════
 pause
