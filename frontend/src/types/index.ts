@@ -128,6 +128,10 @@ export interface Venta {
   COBRADA: boolean;
   PUNTO_VENTA_ID: number | null;
   USUARIO_ID: number | null;
+  MONTO_ANTICIPO: number | null;
+  DTO_GRAL: number | null;
+  ERROR_FE: string | null;
+  ERRORES: string | null;
   CLIENTE_NOMBRE?: string;
   USUARIO_NOMBRE?: string;
 }
@@ -140,13 +144,82 @@ export interface VentaItem {
   CANTIDAD: number;
   PRECIO_UNITARIO_DTO: number;
   DESCUENTO: number;
+  PROMOCION_ID: number | null;
+  CANTIDAD_PROMO: number | null;
+  PRECIO_PROMOCION: number | null;
   PRECIO_COMPRA: number | null;
+  DEPOSITO_ID: number | null;
+  LISTA_ID: number | null;
+  IMPUESTO_INTERNO_PORCENTAJE: number | null;
+  IMPUESTO_INTERNO_MONTO: number | null;
+  IVA_ALICUOTA: number | null;
+  IVA_MONTO: number | null;
   PRODUCTO_NOMBRE?: string;
   PRODUCTO_CODIGO?: string;
 }
 
 export interface VentaDetalle extends Venta {
   items: VentaItem[];
+}
+
+export interface VentaItemInput {
+  PRODUCTO_ID: number;
+  PRECIO_UNITARIO: number;
+  CANTIDAD: number;
+  DESCUENTO: number;
+  PRECIO_COMPRA: number;
+  DEPOSITO_ID?: number;
+  LISTA_ID?: number;
+  NOMBRE?: string;
+  CODIGO?: string;
+}
+
+export interface VentaInput {
+  CLIENTE_ID: number;
+  FECHA_VENTA?: string;
+  TIPO_COMPROBANTE?: string;
+  PUNTO_VENTA_ID: number;
+  ES_CTA_CORRIENTE?: boolean;
+  MONTO_EFECTIVO?: number;
+  MONTO_DIGITAL?: number;
+  VUELTO?: number;
+  DTO_GRAL?: number;
+  COBRADA?: boolean;
+  items: VentaItemInput[];
+}
+
+export interface PaymentInput {
+  MONTO_EFECTIVO: number;
+  MONTO_DIGITAL: number;
+  VUELTO: number;
+  parcial?: boolean;
+}
+
+export interface ProductoSearch {
+  PRODUCTO_ID: number;
+  CODIGOPARTICULAR: string;
+  NOMBRE: string;
+  PRECIO_VENTA: number;
+  PRECIO_COMPRA: number;
+  STOCK: number;
+  ES_CONJUNTO: boolean | null;
+  DESCUENTA_STOCK: boolean;
+  IMP_INT: number;
+  TASA_IVA_ID: number | null;
+  UNIDAD_ID: number | null;
+  UNIDAD_NOMBRE: string;
+  UNIDAD_ABREVIACION: string;
+  IVA_PORCENTAJE: number;
+}
+
+export interface ClienteVenta {
+  CLIENTE_ID: number;
+  CODIGOPARTICULAR: string;
+  NOMBRE: string;
+  CONDICION_IVA: string | null;
+  CTA_CORRIENTE: boolean;
+  TIPO_DOCUMENTO: string;
+  NUMERO_DOC: string;
 }
 
 // ── Catálogos ────────────────────────────────────
@@ -181,6 +254,113 @@ export interface StockDeposito {
   DEPOSITO_ID: number;
   CANTIDAD: number;
   DEPOSITO_NOMBRE?: string;
+}
+
+// ── Caja ─────────────────────────────────────────
+export interface Caja {
+  CAJA_ID: number;
+  USUARIO_ID: number;
+  FECHA_APERTURA: string;
+  FECHA_CIERRE: string | null;
+  MONTO_APERTURA: number;
+  MONTO_CIERRE: number | null;
+  OBSERVACIONES: string | null;
+  ESTADO: string;
+  PUNTO_VENTA_ID: number | null;
+  USUARIO_NOMBRE?: string;
+  PUNTO_VENTA_NOMBRE?: string;
+}
+
+export interface CajaItem {
+  ITEM_ID: number;
+  CAJA_ID: number;
+  FECHA: string;
+  ORIGEN_TIPO: string;
+  ORIGEN_ID: number | null;
+  MONTO_EFECTIVO: number;
+  MONTO_DIGITAL: number;
+  DESCRIPCION: string | null;
+  USUARIO_ID: number;
+  USUARIO_NOMBRE?: string;
+}
+
+export interface CajaDetalle extends Caja {
+  items: CajaItem[];
+  totales: {
+    efectivo: number;
+    digital: number;
+    ingresos: number;
+    egresos: number;
+  };
+}
+
+export interface AbrirCajaInput {
+  MONTO_APERTURA: number;
+  PUNTO_VENTA_ID: number;
+  OBSERVACIONES?: string;
+}
+
+export interface CerrarCajaInput {
+  MONTO_CIERRE: number;
+  OBSERVACIONES?: string;
+}
+
+export interface IngresoEgresoInput {
+  tipo: 'INGRESO' | 'EGRESO';
+  monto: number;
+  descripcion: string;
+}
+
+// ── Caja Central ─────────────────────────────────
+export interface MovimientoCaja {
+  ID: number;
+  ID_ENTIDAD: number | null;
+  CAJA_ID: number | null;
+  TIPO_ENTIDAD: string;
+  FECHA: string;
+  MOVIMIENTO: string;
+  USUARIO_ID: number | null;
+  EFECTIVO: number;
+  DIGITAL: number;
+  CHEQUES: number;
+  CTA_CTE: number;
+  TOTAL: number;
+  PUNTO_VENTA_ID: number | null;
+  ES_MANUAL: boolean;
+  USUARIO_NOMBRE?: string;
+}
+
+export interface CajaCentralTotales {
+  totalIngresos: number;
+  totalEgresos: number;
+  balance: number;
+  efectivo: number;
+  digital: number;
+  cheques: number;
+  ctaCte: number;
+}
+
+export interface NuevoMovimientoInput {
+  tipo: 'INGRESO' | 'EGRESO';
+  descripcion: string;
+  efectivo?: number;
+  digital?: number;
+  cheques?: number;
+  ctaCte?: number;
+  puntoVentaId?: number;
+}
+
+export interface FondoCambio {
+  ID: number;
+  FECHA: string;
+  CAJA_ID: number | null;
+  TIPO_MOVIMIENTO: string;
+  MONTO: number;
+  SALDO_RESULTANTE: number;
+  USUARIO_ID: number | null;
+  PUNTO_VENTA_ID: number | null;
+  OBSERVACIONES: string | null;
+  USUARIO_NOMBRE?: string;
 }
 
 // ── Dashboard ────────────────────────────────────

@@ -13,6 +13,7 @@ import {
 import { productApi, type ProductDetail } from '../services/product.api';
 import { catalogApi } from '../services/catalog.api';
 import type { Producto } from '../types';
+import { fmtMoney, fmtUsd } from '../utils/format';
 import { ProductFormModal } from '../components/products/ProductFormModal';
 import { BulkPriceModal } from '../components/products/BulkPriceModal';
 import { PriceListModal } from '../components/products/PriceListModal';
@@ -222,7 +223,7 @@ export function ProductsPage() {
         onDoubleClick={() => startEdit(id, field, value)}
         title="Doble click para editar"
       >
-        {isPrice ? `$ ${(value ?? 0).toFixed(2)}` : (value || '')}
+        {isPrice ? fmtMoney(value) : (value || '')}
       </div>
     );
   };
@@ -292,7 +293,7 @@ export function ProductsPage() {
           title="Click para ver/editar todas las listas"
         >
           <span style={{ borderBottom: '1px dashed rgba(234,189,35,0.5)' }}>
-            {`$ ${(v ?? 0).toFixed(2)}`}
+            {fmtMoney(v)}
           </span>
         </div>
       ),
@@ -378,11 +379,11 @@ export function ProductsPage() {
               ['Marca', d.MARCA_NOMBRE || '-'],
               ['Unidad', d.UNIDAD_NOMBRE || '-'],
               ['IVA', d.TASA_IVA_NOMBRE ? `${d.TASA_IVA_NOMBRE} (${d.TASA_IVA_PORCENTAJE}%)` : '-'],
-              ['Costo ARS', `$ ${(d.PRECIO_COMPRA ?? 0).toFixed(2)}`],
-              ['Costo USD', `U$S ${(d.COSTO_USD ?? 0).toFixed(2)}`],
+              ['Costo ARS', fmtMoney(d.PRECIO_COMPRA)],
+              ['Costo USD', fmtUsd(d.COSTO_USD)],
               ...([1, 2, 3, 4, 5].map(i => [
                 listas?.[i - 1]?.NOMBRE || `Lista ${i}`,
-                `$ ${(d[`LISTA_${i}` as keyof Producto] as number ?? 0).toFixed(2)}`,
+                fmtMoney(d[`LISTA_${i}` as keyof Producto] as number),
               ])),
               ['Stock', String(d.CANTIDAD)],
               ['Stock Mínimo', d.STOCK_MINIMO != null ? String(d.STOCK_MINIMO) : '-'],

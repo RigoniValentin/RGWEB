@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Table, Space, Input, Typography, Tag, Drawer, Descriptions, Spin } from 'antd';
 import { SearchOutlined, EyeOutlined } from '@ant-design/icons';
 import { customerApi } from '../services/customer.api';
+import { fmtMoney } from '../utils/format';
 import type { Cliente } from '../types';
 
 const { Title } = Typography;
@@ -137,7 +138,7 @@ export function CustomersPage() {
             <Descriptions column={1} bordered size="small">
               <Descriptions.Item label="Saldo">
                 <span style={{ fontWeight: 'bold', color: ctaCorriente.saldo > 0 ? '#f5222d' : '#52c41a' }}>
-                  $ {ctaCorriente.saldo?.toFixed(2)}
+                  {fmtMoney(ctaCorriente.saldo)}
                 </span>
               </Descriptions.Item>
             </Descriptions>

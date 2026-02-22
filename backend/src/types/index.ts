@@ -128,6 +128,16 @@ export interface Venta {
   COBRADA: boolean;
   PUNTO_VENTA_ID: number | null;
   USUARIO_ID: number | null;
+  MONTO_ANTICIPO: number | null;
+  NETO_NO_GRAVADO: number | null;
+  NETO_GRAVADO: number | null;
+  SUBTOTAL: number | null;
+  BONIFICACIONES: number | null;
+  IMPUESTO_INTERNO: number | null;
+  IVA_TOTAL: number | null;
+  DTO_GRAL: number | null;
+  ERROR_FE: string | null;
+  ERRORES: string | null;
   // Joined
   CLIENTE_NOMBRE?: string;
   USUARIO_NOMBRE?: string;
@@ -142,9 +152,16 @@ export interface VentaItem {
   PRECIO_UNITARIO_DTO: number;
   DESCUENTO: number;
   PROMOCION_ID: number | null;
+  CANTIDAD_PROMO: number | null;
+  PRECIO_PROMOCION: number | null;
   PRECIO_COMPRA: number | null;
   DEPOSITO_ID: number | null;
   LISTA_ID: number | null;
+  IMPUESTO_INTERNO_PORCENTAJE: number | null;
+  IMPUESTO_INTERNO_MONTO: number | null;
+  IMPUESTO_INTERNO_TIPO: number | null;
+  IVA_ALICUOTA: number | null;
+  IVA_MONTO: number | null;
   // Joined
   PRODUCTO_NOMBRE?: string;
   PRODUCTO_CODIGO?: string;
@@ -176,6 +193,54 @@ export interface Caja {
   OBSERVACIONES: string | null;
   ESTADO: string;
   PUNTO_VENTA_ID: number | null;
+  // Joined
+  USUARIO_NOMBRE?: string;
+  PUNTO_VENTA_NOMBRE?: string;
+}
+
+export interface CajaItem {
+  ITEM_ID: number;
+  CAJA_ID: number;
+  FECHA: string;
+  ORIGEN_TIPO: string;       // VENTA, INGRESO, EGRESO, FONDO_CAMBIO
+  ORIGEN_ID: number | null;
+  MONTO_EFECTIVO: number;
+  MONTO_DIGITAL: number;
+  DESCRIPCION: string | null;
+  USUARIO_ID: number;
+  // Joined
+  USUARIO_NOMBRE?: string;
+}
+
+export interface MovimientoCaja {
+  ID: number;
+  ID_ENTIDAD: number | null;
+  CAJA_ID: number | null;
+  TIPO_ENTIDAD: string;
+  FECHA: string;
+  MOVIMIENTO: string;
+  USUARIO_ID: number | null;
+  EFECTIVO: number;
+  DIGITAL: number;
+  CHEQUES: number;
+  CTA_CTE: number;
+  TOTAL: number;
+  PUNTO_VENTA_ID: number | null;
+  ES_MANUAL: boolean;
+  // Joined
+  USUARIO_NOMBRE?: string;
+}
+
+export interface FondoCambio {
+  ID: number;
+  FECHA: string;
+  CAJA_ID: number | null;
+  TIPO_MOVIMIENTO: string;
+  MONTO: number;
+  SALDO_RESULTANTE: number;
+  USUARIO_ID: number | null;
+  PUNTO_VENTA_ID: number | null;
+  OBSERVACIONES: string | null;
 }
 
 // ── Lista de Precios ─────────────────────────────

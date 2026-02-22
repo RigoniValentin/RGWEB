@@ -7,6 +7,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { dashboardApi } from '../services/dashboard.api';
 import { useAuthStore } from '../store/authStore';
+import { fmtMoney, statFormatter } from '../utils/format';
 import { RGLogo } from '../components/RGLogo';
 
 const { Title, Text } = Typography;
@@ -92,17 +93,17 @@ export function DashboardPage() {
       <Row gutter={[16, 16]} style={{ marginTop: 16 }} className="stagger">
         <Col xs={24} sm={8}>
           <Card className="kpi-card animate-fade-up">
-            <Statistic title="Monto Hoy" value={stats?.montoHoy ?? 0} precision={2} prefix={<DollarOutlined />} valueStyle={{ color: '#EABD23', fontWeight: 700 }} />
+            <Statistic title="Monto Hoy" value={stats?.montoHoy ?? 0} formatter={statFormatter} prefix={<DollarOutlined />} valueStyle={{ color: '#EABD23', fontWeight: 700 }} />
           </Card>
         </Col>
         <Col xs={24} sm={8}>
           <Card className="kpi-card animate-fade-up">
-            <Statistic title="Efectivo Hoy" value={stats?.efectivoHoy ?? 0} precision={2} prefix={<WalletOutlined />} valueStyle={{ color: '#52c41a', fontWeight: 700 }} />
+            <Statistic title="Efectivo Hoy" value={stats?.efectivoHoy ?? 0} formatter={statFormatter} prefix={<WalletOutlined />} valueStyle={{ color: '#52c41a', fontWeight: 700 }} />
           </Card>
         </Col>
         <Col xs={24} sm={8}>
           <Card className="kpi-card animate-fade-up">
-            <Statistic title="Digital Hoy" value={stats?.digitalHoy ?? 0} precision={2} prefix={<CreditCardOutlined />} valueStyle={{ color: '#722ed1', fontWeight: 700 }} />
+            <Statistic title="Digital Hoy" value={stats?.digitalHoy ?? 0} formatter={statFormatter} prefix={<CreditCardOutlined />} valueStyle={{ color: '#722ed1', fontWeight: 700 }} />
           </Card>
         </Col>
       </Row>
@@ -110,17 +111,17 @@ export function DashboardPage() {
       <Row gutter={[16, 16]} style={{ marginTop: 16 }} className="stagger">
         <Col xs={24} sm={8}>
           <Card className="kpi-card animate-fade-up">
-            <Statistic title="Monto Mes" value={stats?.montoMes ?? 0} precision={2} prefix={<BankOutlined />} suffix={<RiseOutlined style={{ color: '#52c41a' }} />} valueStyle={{ color: '#1E1F22', fontWeight: 700 }} />
+            <Statistic title="Monto Mes" value={stats?.montoMes ?? 0} formatter={statFormatter} prefix={<BankOutlined />} suffix={<RiseOutlined style={{ color: '#52c41a' }} />} valueStyle={{ color: '#1E1F22', fontWeight: 700 }} />
           </Card>
         </Col>
         <Col xs={24} sm={8}>
           <Card className="kpi-card animate-fade-up">
-            <Statistic title="Ganancia Hoy" value={stats?.gananciaHoy ?? 0} precision={2} prefix={<TrophyOutlined />} valueStyle={{ color: '#52c41a', fontWeight: 700 }} />
+            <Statistic title="Ganancia Hoy" value={stats?.gananciaHoy ?? 0} formatter={statFormatter} prefix={<TrophyOutlined />} valueStyle={{ color: '#52c41a', fontWeight: 700 }} />
           </Card>
         </Col>
         <Col xs={24} sm={8}>
           <Card className="kpi-card animate-fade-up">
-            <Statistic title="Ganancia Mes" value={stats?.gananciaMes ?? 0} precision={2} prefix={<TrophyOutlined />} valueStyle={{ color: '#13c2c2', fontWeight: 700 }} />
+            <Statistic title="Ganancia Mes" value={stats?.gananciaMes ?? 0} formatter={statFormatter} prefix={<TrophyOutlined />} valueStyle={{ color: '#13c2c2', fontWeight: 700 }} />
           </Card>
         </Col>
       </Row>
@@ -143,7 +144,7 @@ export function DashboardPage() {
                 { title: 'Fecha', dataIndex: 'FECHA_VENTA', render: (v: string) => new Date(v).toLocaleDateString('es-AR') },
                 { title: 'Cliente', dataIndex: 'CLIENTE_NOMBRE' },
                 { title: 'Tipo', dataIndex: 'TIPO_COMPROBANTE', width: 60 },
-                { title: 'Total', dataIndex: 'TOTAL', align: 'right' as const, render: (v: number) => <span style={{ fontWeight: 600, color: '#1E1F22' }}>$ {v.toFixed(2)}</span> },
+                { title: 'Total', dataIndex: 'TOTAL', align: 'right' as const, render: (v: number) => <span style={{ fontWeight: 600, color: '#1E1F22' }}>{fmtMoney(v)}</span> },
               ]}
             />
           </Card>
@@ -189,8 +190,8 @@ export function DashboardPage() {
             columns={[
               { title: 'Fecha', dataIndex: 'fecha', render: (v: string) => new Date(v).toLocaleDateString('es-AR') },
               { title: 'Cantidad', dataIndex: 'cantidad', align: 'right' as const },
-              { title: 'Total', dataIndex: 'total', align: 'right' as const, render: (v: number) => <span style={{ fontWeight: 600 }}>$ {v.toFixed(2)}</span> },
-              { title: 'Ganancia', dataIndex: 'ganancia', align: 'right' as const, render: (v: number) => <span style={{ color: '#52c41a', fontWeight: 600 }}>$ {v.toFixed(2)}</span> },
+              { title: 'Total', dataIndex: 'total', align: 'right' as const, render: (v: number) => <span style={{ fontWeight: 600 }}>{fmtMoney(v)}</span> },
+              { title: 'Ganancia', dataIndex: 'ganancia', align: 'right' as const, render: (v: number) => <span style={{ color: '#52c41a', fontWeight: 600 }}>{fmtMoney(v)}</span> },
             ]}
           />
         </Card>
@@ -208,7 +209,7 @@ export function DashboardPage() {
             columns={[
               { title: '#', dataIndex: 'CAJA_ID', width: 60 },
               { title: 'Apertura', dataIndex: 'FECHA_APERTURA', render: (v: string) => new Date(v).toLocaleString('es-AR') },
-              { title: 'Monto Apertura', dataIndex: 'MONTO_APERTURA', align: 'right' as const, render: (v: number) => `$ ${v.toFixed(2)}` },
+              { title: 'Monto Apertura', dataIndex: 'MONTO_APERTURA', align: 'right' as const, render: (v: number) => fmtMoney(v) },
               { title: 'Usuario', dataIndex: 'USUARIO_NOMBRE' },
               { title: 'Punto Venta', dataIndex: 'PUNTO_VENTA_NOMBRE' },
               { title: 'Estado', dataIndex: 'ESTADO', render: (v: string) => <Tag color="green">{v}</Tag> },

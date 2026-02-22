@@ -36,6 +36,7 @@ import {
   SafetyOutlined,
   HomeOutlined,
   EnvironmentOutlined,
+  WalletOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../store/authStore';
 import { useTabStore } from '../store/tabStore';
@@ -48,6 +49,8 @@ import { CustomersPage } from '../pages/CustomersPage';
 import { ProductsPage } from '../pages/ProductsPage';
 import { SalesPage } from '../pages/SalesPage';
 import { SuppliersPage } from '../pages/SuppliersPage';
+import { CajaPage } from '../pages/CajaPage';
+import { CajaCentralPage } from '../pages/CajaCentralPage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -61,11 +64,13 @@ interface TabRoute {
 }
 
 const TAB_ROUTES: Record<string, TabRoute> = {
-  '/dashboard':  { label: 'Dashboard',    icon: <DashboardOutlined />,  component: DashboardPage,  closable: false },
-  '/customers':  { label: 'Clientes',     icon: <TeamOutlined />,       component: CustomersPage,  closable: true },
-  '/products':   { label: 'Productos',    icon: <ShoppingOutlined />,   component: ProductsPage,   closable: true },
-  '/sales':      { label: 'Ventas',       icon: <DollarOutlined />,     component: SalesPage,      closable: true },
-  '/suppliers':  { label: 'Proveedores',  icon: <ShopOutlined />,       component: SuppliersPage,  closable: true },
+  '/dashboard':      { label: 'Dashboard',    icon: <DashboardOutlined />,    component: DashboardPage,    closable: false },
+  '/customers':      { label: 'Clientes',     icon: <TeamOutlined />,         component: CustomersPage,    closable: true },
+  '/products':       { label: 'Productos',    icon: <ShoppingOutlined />,     component: ProductsPage,     closable: true },
+  '/sales':          { label: 'Ventas',       icon: <DollarOutlined />,       component: SalesPage,        closable: true },
+  '/suppliers':      { label: 'Proveedores',  icon: <ShopOutlined />,         component: SuppliersPage,    closable: true },
+  '/cashregisters':  { label: 'Cajas',        icon: <BankOutlined />,         component: CajaPage,         closable: true },
+  '/cashcentral':    { label: 'Caja Central', icon: <WalletOutlined />,       component: CajaCentralPage,  closable: true },
 };
 
 /** Icon map for TabBar */
@@ -105,6 +110,7 @@ const menuItems = [
         { key: '/sales', icon: <DollarOutlined />, label: 'Ventas' },
         { key: '/purchases', icon: <ShoppingCartOutlined />, label: 'Compras' },
         { key: '/cashregisters', icon: <BankOutlined />, label: 'Cajas' },
+        { key: '/cashcentral', icon: <WalletOutlined />, label: 'Caja Central' },
         { key: '/arca', icon: <FileProtectOutlined />, label: 'ARCA' },
         { key: '/expenses', icon: <CreditCardOutlined />, label: 'Gastos y Servicios' },
         { key: '/audit', icon: <AuditOutlined />, label: 'Auditorías' },
@@ -242,7 +248,7 @@ export function AppLayout() {
   const getOpenKeys = (): string[] => {
     const groups: Record<string, string[]> = {
       archivos: ['/customers', '/suppliers', '/deposits', '/categories', '/brands', '/products', '/promotions'],
-      movimientos: ['/sales', '/purchases', '/cashregisters', '/arca', '/expenses', '/audit'],
+      movimientos: ['/sales', '/purchases', '/cashregisters', '/cashcentral', '/arca', '/expenses', '/audit'],
       produccion: ['/production/structures', '/production/orders'],
       gastronomia: ['/gastronomy/tables'],
       reportes: ['/reports/reports', '/reports/listings'],

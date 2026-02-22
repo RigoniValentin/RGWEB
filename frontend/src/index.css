@@ -173,7 +173,7 @@ body {
   transition: var(--rg-transition);
 }
 .rg-table .ant-table-tbody > tr:hover > td {
-  background: rgba(234, 189, 35, 0.06) !important;
+  background: rgba(234, 189, 35, 0.15) !important;
 }
 .rg-table .ant-table-tbody > tr > td {
   border-bottom: 1px solid var(--rg-border);
@@ -636,4 +636,40 @@ body {
 /* ── Tab panel (content pane) ─────────────────── */
 .rg-tab-panel {
   animation: fadeIn 0.25s ease-out both;
+}
+
+/* ── Sale modal footer / totals ───────────────── */
+.sale-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rg-border);
+}
+.sale-footer-left {
+  display: flex;
+  gap: 12px;
+}
+.sale-footer-right {
+  text-align: right;
+  min-width: 220px;
+}
+.sale-totals {
+  font-size: 14px;
+}
+.sale-total-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 4px;
+}
+.sale-total-main {
+  font-size: 18px;
+  font-weight: bold;
+  border-top: 2px solid var(--rg-gold);
+  padding-top: 6px;
+  margin-top: 4px;
+  color: var(--rg-gold);
 }
