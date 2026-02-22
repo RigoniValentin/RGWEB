@@ -1,59 +1,22 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Table, Space, Typography, Tag, DatePicker, Drawer, Descriptions, Spin,
-  Button, Input, Dropdown, Popconfirm, message, Checkbox, Popover,
+  Table, Space, Typography, Tag, Drawer, Descriptions, Spin,
+  Button, Input, Dropdown, Popconfirm, message, Checkbox,
 } from 'antd';
 import {
   EyeOutlined, PlusOutlined, DeleteOutlined, DollarOutlined,
   SearchOutlined, MoreOutlined, WalletOutlined, CloseCircleOutlined,
-  CalendarOutlined, DownOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { salesApi } from '../services/sales.api';
 import { NewSaleModal } from '../components/sales/NewSaleModal';
 import { PaymentModal } from '../components/sales/PaymentModal';
+import { DateFilterPopover, type DatePreset } from '../components/DateFilterPopover';
 import { fmtMoney, fmtNum } from '../utils/format';
 import type { Venta, VentaDetalle } from '../types';
 
 const { Title, Text } = Typography;
-const { RangePicker } = DatePicker;
-
-type DatePreset = 'hoy' | 'semana' | 'mes' | 'mesAnterior' | 'todas';
-
-const PRESET_LABELS: Record<DatePreset, string> = {
-  hoy: 'Hoy',
-  semana: 'Esta semana',
-  mes: 'Este mes',
-  mesAnterior: 'Mes anterior',
-  todas: 'Todas',
-};
-
-const PRESET_OPTIONS: { label: string; value: DatePreset }[] = [
-  { label: 'Hoy', value: 'hoy' },
-  { label: 'Esta semana', value: 'semana' },
-  { label: 'Este mes', value: 'mes' },
-  { label: 'Mes anterior', value: 'mesAnterior' },
-  { label: 'Todas', value: 'todas' },
-];
-
-function getPresetRange(preset: DatePreset): [string, string] | [undefined, undefined] {
-  const today = dayjs();
-  switch (preset) {
-    case 'hoy':
-      return [today.format('YYYY-MM-DD'), today.format('YYYY-MM-DD')];
-    case 'semana':
-      return [today.startOf('week').format('YYYY-MM-DD'), today.endOf('week').format('YYYY-MM-DD')];
-    case 'mes':
-      return [today.startOf('month').format('YYYY-MM-DD'), today.endOf('month').format('YYYY-MM-DD')];
-    case 'mesAnterior': {
-      const prev = today.subtract(1, 'month');
-      return [prev.startOf('month').format('YYYY-MM-DD'), prev.endOf('month').format('YYYY-MM-DD')];
-    }
-    case 'todas':
-      return [undefined, undefined];
-  }
-}
 
 export function SalesPage() {
   const queryClient = useQueryClient();
@@ -64,7 +27,6 @@ export function SalesPage() {
   const [datePreset, setDatePreset] = useState<DatePreset>('hoy');
   const [fechaDesde, setFechaDesde] = useState<string | undefined>(dayjs().format('YYYY-MM-DD'));
   const [fechaHasta, setFechaHasta] = useState<string | undefined>(dayjs().format('YYYY-MM-DD'));
-  const [datePopoverOpen, setDatePopoverOpen] = useState(false);
   const [filterCobrada, setFilterCobrada] = useState<boolean | undefined>();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -134,26 +96,7 @@ export function SalesPage() {
     setDrawerOpen(true);
   };
 
-  const handleDateChange = (dates: any) => {
-    if (dates) {
-      setFechaDesde(dates[0]?.format('YYYY-MM-DD'));
-      setFechaHasta(dates[1]?.format('YYYY-MM-DD'));
-    } else {
-      setFechaDesde(undefined);
-      setFechaHasta(undefined);
-    }
-    setDatePreset(undefined as any);
-    setPage(1);
-  };
 
-  const handlePresetChange = (value: DatePreset) => {
-    setDatePreset(value);
-    const [desde, hasta] = getPresetRange(value);
-    setFechaDesde(desde);
-    setFechaHasta(hasta);
-    setPage(1);
-    setDatePopoverOpen(false);
-  };
 
   const openPayment = (venta: Venta, mode: 'total' | 'parcial') => {
     setPaymentVenta(venta);
@@ -255,45 +198,13 @@ export function SalesPage() {
             allowClear
             style={{ width: 220 }}
           />
-          <Popover
-            trigger="click"
-            open={datePopoverOpen}
-            onOpenChange={setDatePopoverOpen}
-            placement="bottomRight"
-            content={
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 220 }}>
-                {PRESET_OPTIONS.map(opt => (
-                  <Button
-                    key={opt.value}
-                    type={datePreset === opt.value ? 'primary' : 'text'}
-                    size="small"
-                    block
-                    style={datePreset === opt.value ? { background: '#EABD23', borderColor: '#EABD23', color: '#1a1a2e' } : {}}
-                    onClick={() => handlePresetChange(opt.value)}
-                  >
-                    {opt.label}
-                  </Button>
-                ))}
-                <div style={{ borderTop: '1px solid #303050', margin: '4px 0' }} />
-                <RangePicker
-                  onChange={handleDateChange}
-                  format="DD/MM/YYYY"
-                  size="small"
-                  value={fechaDesde && fechaHasta ? [dayjs(fechaDesde), dayjs(fechaHasta)] : null}
-                  style={{ width: '100%' }}
-                />
-              </div>
-            }
-          >
-            <Button icon={<CalendarOutlined />}>
-              {datePreset ? PRESET_LABELS[datePreset] : (
-                fechaDesde && fechaHasta
-                  ? `${dayjs(fechaDesde).format('DD/MM')} – ${dayjs(fechaHasta).format('DD/MM')}`
-                  : 'Fechas'
-              )}
-              <DownOutlined style={{ fontSize: 10, marginLeft: 4 }} />
-            </Button>
-          </Popover>
+          <DateFilterPopover
+            preset={datePreset}
+            fechaDesde={fechaDesde}
+            fechaHasta={fechaHasta}
+            onPresetChange={(p, d, h) => { setDatePreset(p); setFechaDesde(d); setFechaHasta(h); setPage(1); }}
+            onRangeChange={(d, h) => { setDatePreset(undefined as any); setFechaDesde(d); setFechaHasta(h); setPage(1); }}
+          />
           <Checkbox
             checked={filterCobrada === false}
             onChange={e => {

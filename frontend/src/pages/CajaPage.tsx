@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Table, Space, Typography, Tag, DatePicker, Drawer, Descriptions, Spin,
+  Table, Space, Typography, Tag, Drawer, Descriptions, Spin,
   Button, Input, Select, InputNumber, Popconfirm, message, Card, Row, Col,
   Statistic, Modal, Form, Dropdown,
 } from 'antd';
@@ -12,11 +12,11 @@ import {
 } from '@ant-design/icons';
 import { cajaApi } from '../services/caja.api';
 import { useAuthStore } from '../store/authStore';
+import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
 import { fmtMoney, statFormatter } from '../utils/format';
 import type { Caja, CajaItem } from '../types';
 
 const { Title, Text } = Typography;
-const { RangePicker } = DatePicker;
 
 export function CajaPage() {
   const queryClient = useQueryClient();
@@ -25,8 +25,9 @@ export function CajaPage() {
   // ── State ──────────────────────────────────────
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [fechaDesde, setFechaDesde] = useState<string | undefined>();
-  const [fechaHasta, setFechaHasta] = useState<string | undefined>();
+  const [datePreset, setDatePreset] = useState<DatePreset>('mes');
+  const [fechaDesde, setFechaDesde] = useState<string | undefined>(() => getPresetRange('mes')[0]);
+  const [fechaHasta, setFechaHasta] = useState<string | undefined>(() => getPresetRange('mes')[1]);
   const [filterEstado, setFilterEstado] = useState<string | undefined>();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -130,17 +131,7 @@ export function CajaPage() {
     onError: (err: any) => message.error(err.response?.data?.error || 'Error al eliminar'),
   });
 
-  // ── Handlers ───────────────────────────────────
-  const handleDateChange = (dates: any) => {
-    if (dates) {
-      setFechaDesde(dates[0]?.format('YYYY-MM-DD'));
-      setFechaHasta(dates[1]?.format('YYYY-MM-DD'));
-    } else {
-      setFechaDesde(undefined);
-      setFechaHasta(undefined);
-    }
-    setPage(1);
-  };
+
 
   const openDetail = (record: Caja) => {
     setSelectedId(record.CAJA_ID);
@@ -246,7 +237,13 @@ export function CajaPage() {
       <div className="page-header">
         <Title level={3}>Cajas</Title>
         <Space wrap>
-          <RangePicker onChange={handleDateChange} format="DD/MM/YYYY" />
+          <DateFilterPopover
+            preset={datePreset}
+            fechaDesde={fechaDesde}
+            fechaHasta={fechaHasta}
+            onPresetChange={(p, d, h) => { setDatePreset(p); setFechaDesde(d); setFechaHasta(h); setPage(1); }}
+            onRangeChange={(d, h) => { setDatePreset(undefined as any); setFechaDesde(d); setFechaHasta(h); setPage(1); }}
+          />
           <Select
             placeholder="Estado"
             allowClear

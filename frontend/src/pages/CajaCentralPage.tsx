@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import dayjs from 'dayjs';
 import {
-  Table, Space, Typography, Tag, DatePicker, Card, Row, Col,
+  Table, Space, Typography, Tag, Card, Row, Col,
   Statistic, Button, Input, InputNumber, Popconfirm, message,
   Modal, Form, Select, Switch, Tabs, Tooltip,
 } from 'antd';
@@ -12,25 +11,20 @@ import {
 } from '@ant-design/icons';
 import { cajaCentralApi } from '../services/cajaCentral.api';
 import { useAuthStore } from '../store/authStore';
+import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
 import { fmtMoney, fmtMoneyAbs, statFormatter } from '../utils/format';
 import type { MovimientoCaja, CajaCentralTotales } from '../types';
 
 const { Title, Text } = Typography;
-const { RangePicker } = DatePicker;
 
 export function CajaCentralPage() {
   const queryClient = useQueryClient();
   const { puntoVentaActivo } = useAuthStore();
 
   // ── State ──────────────────────────────────────
-  const [fechaDesde, setFechaDesde] = useState<string>(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-  });
-  const [fechaHasta, setFechaHasta] = useState<string>(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  });
+  const [datePreset, setDatePreset] = useState<DatePreset>('mes');
+  const [fechaDesde, setFechaDesde] = useState<string | undefined>(() => getPresetRange('mes')[0]);
+  const [fechaHasta, setFechaHasta] = useState<string | undefined>(() => getPresetRange('mes')[1]);
   const [balanceHistorico, setBalanceHistorico] = useState(false);
   const [activeTab, setActiveTab] = useState('ingresos');
   const [nuevoModalOpen, setNuevoModalOpen] = useState(false);
@@ -122,16 +116,7 @@ export function CajaCentralPage() {
     setNuevoCtaCte(0);
   };
 
-  // ── Date handler ───────────────────────────────
-  const handleDateChange = (dates: any) => {
-    if (dates) {
-      setFechaDesde(dates[0]?.format('YYYY-MM-DD'));
-      setFechaHasta(dates[1]?.format('YYYY-MM-DD'));
-    } else {
-      setFechaDesde('');
-      setFechaHasta('');
-    }
-  };
+
 
   const nuevoTotal = nuevoEfectivo + nuevoDigital + nuevoCheques + nuevoCtaCte;
 
@@ -195,10 +180,12 @@ export function CajaCentralPage() {
       <div className="page-header">
         <Title level={3}>Caja Central</Title>
         <Space wrap>
-          <RangePicker
-            value={fechaDesde && fechaHasta ? [dayjs(fechaDesde), dayjs(fechaHasta)] : null}
-            onChange={handleDateChange}
-            format="DD/MM/YYYY"
+          <DateFilterPopover
+            preset={datePreset}
+            fechaDesde={fechaDesde}
+            fechaHasta={fechaHasta}
+            onPresetChange={(p, d, h) => { setDatePreset(p); setFechaDesde(d); setFechaHasta(h); }}
+            onRangeChange={(d, h) => { setDatePreset(undefined as any); setFechaDesde(d); setFechaHasta(h); }}
             disabled={balanceHistorico}
           />
           <Input
