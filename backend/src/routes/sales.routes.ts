@@ -92,7 +92,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 // PUT /api/sales/:id
 router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const result = await salesService.update(parseInt(req.params.id), req.body);
+    const result = await salesService.update(parseInt(req.params.id as string), req.body);
     res.json(result);
   } catch (err: any) {
     const status = err.name === 'ValidationError' ? 400 : 500;
@@ -103,7 +103,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 // DELETE /api/sales/:id
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
-    const result = await salesService.delete(parseInt(req.params.id));
+    const result = await salesService.delete(parseInt(req.params.id as string));
     res.json(result);
   } catch (err: any) {
     const status = err.name === 'ValidationError' ? 400 : 500;
@@ -114,7 +114,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
 // POST /api/sales/:id/pay
 router.post('/:id/pay', async (req: Request, res: Response) => {
   try {
-    const result = await salesService.markAsPaid(parseInt(req.params.id), req.body);
+    const result = await salesService.markAsPaid(parseInt(req.params.id as string), req.body);
     res.json(result);
   } catch (err: any) {
     const status = err.name === 'ValidationError' ? 400 : 500;
@@ -125,7 +125,7 @@ router.post('/:id/pay', async (req: Request, res: Response) => {
 // POST /api/sales/:id/unpay
 router.post('/:id/unpay', async (req: Request, res: Response) => {
   try {
-    const result = await salesService.removePaid(parseInt(req.params.id));
+    const result = await salesService.removePaid(parseInt(req.params.id as string));
     res.json(result);
   } catch (err: any) {
     const status = err.name === 'ValidationError' ? 400 : 500;

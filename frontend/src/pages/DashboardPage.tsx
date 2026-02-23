@@ -1,4 +1,5 @@
-import { Card, Col, Row, Statistic, Table, Typography, Spin, Tag } from 'antd';
+import { useState } from 'react';
+import { Card, Col, Row, Statistic, Table, Typography, Spin, Tag, Space } from 'antd';
 import {
   TeamOutlined, ShoppingOutlined, DollarOutlined, ShopOutlined,
   WarningOutlined, RiseOutlined, WalletOutlined, CreditCardOutlined,
@@ -8,21 +9,23 @@ import { useQuery } from '@tanstack/react-query';
 import { dashboardApi } from '../services/dashboard.api';
 import { useAuthStore } from '../store/authStore';
 import { fmtMoney, statFormatter } from '../utils/format';
+import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
 import { RGLogo } from '../components/RGLogo';
 
 const { Title, Text } = Typography;
 
 export function DashboardPage() {
   const puntoVentaActivo = useAuthStore((s) => s.puntoVentaActivo);
+  const [pvFilter, setPvFilter] = useState<number | undefined>(() => puntoVentaActivo ?? undefined);
 
   const { data: stats, isLoading } = useQuery({
-    queryKey: ['dashboard-stats', puntoVentaActivo],
-    queryFn: () => dashboardApi.getStats(puntoVentaActivo ?? undefined),
+    queryKey: ['dashboard-stats', pvFilter],
+    queryFn: () => dashboardApi.getStats(pvFilter),
   });
 
   const { data: ventasDiarias } = useQuery({
-    queryKey: ['ventas-por-dia', puntoVentaActivo],
-    queryFn: () => dashboardApi.getVentasPorDia(14, puntoVentaActivo ?? undefined),
+    queryKey: ['ventas-por-dia', pvFilter],
+    queryFn: () => dashboardApi.getVentasPorDia(14, pvFilter),
   });
 
   if (isLoading) return <Spin size="large" style={{ display: 'block', margin: '80px auto' }} />;
@@ -50,6 +53,9 @@ export function DashboardPage() {
           <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, marginTop: 4, display: 'block' }}>
             Gestionamos con vos, <span style={{ color: '#EABD23', fontWeight: 600 }}>CRECEMOS JUNTOS.</span>
           </Text>
+          <Space style={{ marginTop: 8 }}>
+            <PuntoVentaFilter value={pvFilter} onChange={setPvFilter} />
+          </Space>
         </div>
         <div style={{ opacity: 0.15 }}>
           <RGLogo size={80} showText={false} variant="white" />

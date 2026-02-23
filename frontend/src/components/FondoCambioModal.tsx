@@ -8,6 +8,7 @@ import {
   ArrowRightOutlined,
 } from '@ant-design/icons';
 import { cajaApi } from '../services/caja.api';
+import { cajaCentralApi } from '../services/cajaCentral.api';
 import { useAuthStore } from '../store/authStore';
 import { fmtMoney } from '../utils/format';
 import type { TransferEntity, CajaAbierta } from '../types';
@@ -48,6 +49,8 @@ export function FondoCambioModal({ open, onClose, onSuccess, preselectedCajaId }
   const queryClient = useQueryClient();
   const { puntoVentaActivo } = useAuthStore();
 
+  const pvIdsParam = puntoVentaActivo ? String(puntoVentaActivo) : undefined;
+
   const [origen, setOrigen] = useState<TransferEntity | undefined>();
   const [destino, setDestino] = useState<TransferEntity | undefined>();
   const [cajaId, setCajaId] = useState<number | undefined>();
@@ -71,9 +74,9 @@ export function FondoCambioModal({ open, onClose, onSuccess, preselectedCajaId }
     refetchOnMount: 'always',
   });
 
-  const { data: ccEfectivoData, isLoading: ccLoading } = useQuery({
-    queryKey: ['fc-modal-cc-efectivo', puntoVentaActivo],
-    queryFn: () => cajaApi.getEfectivoCajaCentral(puntoVentaActivo || undefined),
+  const { data: ccTotales, isLoading: ccLoading } = useQuery({
+    queryKey: ['fc-modal-cc-efectivo', pvIdsParam],
+    queryFn: () => cajaCentralApi.getBalanceHistorico(pvIdsParam),
     enabled: open,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -110,7 +113,7 @@ export function FondoCambioModal({ open, onClose, onSuccess, preselectedCajaId }
 
   // ── Available balance info ─────────────────────
   const saldoFondo = fondoSaldo?.saldo ?? 0;
-  const efectivoCC = ccEfectivoData?.efectivo ?? 0;
+  const efectivoCC = ccTotales?.efectivo ?? 0;
   const selectedCaja = useMemo(
     () => cajasAbiertas?.find((c: CajaAbierta) => c.CAJA_ID === cajaId),
     [cajasAbiertas, cajaId],

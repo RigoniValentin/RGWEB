@@ -13,6 +13,8 @@ import { salesApi } from '../services/sales.api';
 import { NewSaleModal } from '../components/sales/NewSaleModal';
 import { PaymentModal } from '../components/sales/PaymentModal';
 import { DateFilterPopover, type DatePreset } from '../components/DateFilterPopover';
+import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
+import { useAuthStore } from '../store/authStore';
 import { fmtMoney, fmtNum } from '../utils/format';
 import type { Venta, VentaDetalle } from '../types';
 
@@ -20,6 +22,7 @@ const { Title, Text } = Typography;
 
 export function SalesPage() {
   const queryClient = useQueryClient();
+  const { puntoVentaActivo } = useAuthStore();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [search, setSearch] = useState('');
@@ -28,6 +31,7 @@ export function SalesPage() {
   const [fechaDesde, setFechaDesde] = useState<string | undefined>(dayjs().format('YYYY-MM-DD'));
   const [fechaHasta, setFechaHasta] = useState<string | undefined>(dayjs().format('YYYY-MM-DD'));
   const [filterCobrada, setFilterCobrada] = useState<boolean | undefined>();
+  const [pvFilter, setPvFilter] = useState<number | undefined>(() => puntoVentaActivo ?? undefined);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [newSaleOpen, setNewSaleOpen] = useState(false);
@@ -49,12 +53,13 @@ export function SalesPage() {
 
   // ── List query ─────────────────────────────────
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['sales', page, pageSize, searchDebounced, fechaDesde, fechaHasta, filterCobrada],
+    queryKey: ['sales', page, pageSize, searchDebounced, fechaDesde, fechaHasta, filterCobrada, pvFilter],
     queryFn: () => salesApi.getAll({
       page, pageSize,
       search: searchDebounced || undefined,
       fechaDesde, fechaHasta,
       cobrada: filterCobrada,
+      puntoVentaId: pvFilter,
     }),
   });
 
@@ -205,6 +210,7 @@ export function SalesPage() {
             onPresetChange={(p, d, h) => { setDatePreset(p); setFechaDesde(d); setFechaHasta(h); setPage(1); }}
             onRangeChange={(d, h) => { setDatePreset(undefined as any); setFechaDesde(d); setFechaHasta(h); setPage(1); }}
           />
+          <PuntoVentaFilter value={pvFilter} onChange={(v) => { setPvFilter(v); setPage(1); }} />
           <Checkbox
             checked={filterCobrada === false}
             onChange={e => {

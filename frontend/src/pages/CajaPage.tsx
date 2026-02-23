@@ -13,6 +13,7 @@ import {
 import { cajaApi } from '../services/caja.api';
 import { useAuthStore } from '../store/authStore';
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
+import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
 import { FondoCambioModal } from '../components/FondoCambioModal';
 import { fmtMoney, statFormatter } from '../utils/format';
 import type { Caja, CajaItem } from '../types';
@@ -30,6 +31,7 @@ export function CajaPage() {
   const [fechaDesde, setFechaDesde] = useState<string | undefined>(() => getPresetRange('mes')[0]);
   const [fechaHasta, setFechaHasta] = useState<string | undefined>(() => getPresetRange('mes')[1]);
   const [filterEstado, setFilterEstado] = useState<string | undefined>();
+  const [pvFilter, setPvFilter] = useState<number | undefined>(() => puntoVentaActivo ?? undefined);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -47,11 +49,11 @@ export function CajaPage() {
 
   // ── Queries ────────────────────────────────────
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['cajas', page, pageSize, fechaDesde, fechaHasta, filterEstado, puntoVentaActivo],
+    queryKey: ['cajas', page, pageSize, fechaDesde, fechaHasta, filterEstado, pvFilter],
     queryFn: () => cajaApi.getAll({
       page, pageSize, fechaDesde, fechaHasta,
       estado: filterEstado,
-      puntoVentaIds: puntoVentaActivo ? String(puntoVentaActivo) : undefined,
+      puntoVentaIds: pvFilter ? String(pvFilter) : undefined,
     }),
   });
 
@@ -67,8 +69,8 @@ export function CajaPage() {
   });
 
   const { data: fondoData } = useQuery({
-    queryKey: ['fondo-cambio', puntoVentaActivo],
-    queryFn: () => cajaApi.getFondoCambioSaldo(puntoVentaActivo || undefined),
+    queryKey: ['fondo-cambio', pvFilter],
+    queryFn: () => cajaApi.getFondoCambioSaldo(pvFilter || undefined),
   });
 
   // ── Mutations ──────────────────────────────────
@@ -258,6 +260,7 @@ export function CajaPage() {
               { value: 'CERRADA', label: 'Cerrada' },
             ]}
           />
+          <PuntoVentaFilter value={pvFilter} onChange={(v) => { setPvFilter(v); setPage(1); }} />
           <Button icon={<ReloadOutlined />} onClick={() => invalidateAll()} />
         </Space>
       </div>

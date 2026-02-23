@@ -12,6 +12,7 @@ import {
 import { cajaCentralApi } from '../services/cajaCentral.api';
 import { useAuthStore } from '../store/authStore';
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
+import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
 import { FondoCambioModal } from '../components/FondoCambioModal';
 import { fmtMoney, fmtMoneyAbs, statFormatter } from '../utils/format';
 import type { MovimientoCaja, CajaCentralTotales } from '../types';
@@ -37,8 +38,9 @@ export function CajaCentralPage() {
   const [nuevoCheques, setNuevoCheques] = useState<number>(0);
   const [nuevoCtaCte, setNuevoCtaCte] = useState<number>(0);
   const [cajaIdFilter, setCajaIdFilter] = useState<string>('');
+  const [pvFilter, setPvFilter] = useState<number | undefined>(() => puntoVentaActivo ?? undefined);
 
-  const pvIdsParam = puntoVentaActivo ? String(puntoVentaActivo) : undefined;
+  const pvIdsParam = pvFilter ? String(pvFilter) : undefined;
 
   // ── Queries ────────────────────────────────────
   const filterParams = {
@@ -198,6 +200,7 @@ export function CajaCentralPage() {
             onChange={e => setCajaIdFilter(e.target.value.replace(/\D/g, ''))}
             allowClear
           />
+          <PuntoVentaFilter value={pvFilter} onChange={setPvFilter} />
           <Space size={4}>
             <Text style={{ fontSize: 12 }}>Histórico</Text>
             <Switch

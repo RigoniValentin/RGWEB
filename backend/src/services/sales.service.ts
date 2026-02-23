@@ -124,7 +124,7 @@ export const salesService = {
     dataReq.input('offset', sql.Int, offset);
     dataReq.input('pageSize', sql.Int, pageSize);
 
-    const dataResult = await dataReq.query<Venta>(`
+    const dataResult = await dataReq.query(`
       SELECT 
         v.VENTA_ID, v.CLIENTE_ID, v.FECHA_VENTA, v.TOTAL, v.GANANCIAS,
         v.ES_CTA_CORRIENTE, v.MONTO_EFECTIVO, v.MONTO_DIGITAL, v.VUELTO,
