@@ -21,8 +21,10 @@ export interface AbrirCajaInput {
 }
 
 export interface CerrarCajaInput {
-  MONTO_CIERRE: number;
+  MONTO_CIERRE?: number;
   OBSERVACIONES?: string;
+  DEPOSITO_FONDO?: number;
+  DESCRIPCION_DEPOSITO?: string;
 }
 
 export interface IngresoEgresoInput {
@@ -253,22 +255,24 @@ export const cajaService = {
     await transaction.begin();
 
     try {
-      // Calculate actual totals from items
+      // ── Calculate detailed totals from items (matching desktop query) ──
       const itemsResult = await transaction.request()
         .input('cajaId', sql.Int, cajaId)
         .query(`
           SELECT
-            ISNULL(SUM(CASE WHEN ORIGEN_TIPO != 'EGRESO' THEN ISNULL(MONTO_EFECTIVO, 0) + ISNULL(MONTO_DIGITAL, 0) ELSE 0 END), 0) AS TOTAL_INGRESOS,
-            ISNULL(SUM(CASE WHEN ORIGEN_TIPO = 'EGRESO' THEN ISNULL(MONTO_EFECTIVO, 0) + ISNULL(MONTO_DIGITAL, 0) ELSE 0 END), 0) AS TOTAL_EGRESOS,
-            ISNULL(SUM(ISNULL(MONTO_EFECTIVO, 0)), 0) AS TOTAL_EFECTIVO,
-            ISNULL(SUM(ISNULL(MONTO_DIGITAL, 0)), 0) AS TOTAL_DIGITAL
+            ISNULL(SUM(CASE WHEN ORIGEN_TIPO = 'FONDO_CAMBIO' AND MONTO_EFECTIVO > 0 THEN MONTO_EFECTIVO ELSE 0 END), 0) AS FONDO_INICIAL,
+            ISNULL(SUM(CASE WHEN ORIGEN_TIPO != 'FONDO_CAMBIO' THEN MONTO_EFECTIVO ELSE 0 END), 0) AS EFECTIVO_REAL,
+            ISNULL(SUM(MONTO_EFECTIVO), 0) AS EFECTIVO_TOTAL,
+            ISNULL(SUM(MONTO_DIGITAL), 0) AS TOTAL_DIGITAL,
+            COUNT(CASE WHEN ORIGEN_TIPO != 'FONDO_CAMBIO' THEN 1 END) AS CANTIDAD_ITEMS
           FROM CAJA_ITEMS WHERE CAJA_ID = @cajaId
         `);
 
-      const { TOTAL_EFECTIVO } = itemsResult.recordset[0];
-      const montoCierre = input.MONTO_CIERRE ?? TOTAL_EFECTIVO;
+      const { FONDO_INICIAL, EFECTIVO_REAL, EFECTIVO_TOTAL, TOTAL_DIGITAL, CANTIDAD_ITEMS } = itemsResult.recordset[0];
+      const montoCierre = EFECTIVO_TOTAL;
+      const depositoFondo = Math.min(Math.max(input.DEPOSITO_FONDO ?? 0, 0), Math.max(EFECTIVO_TOTAL, 0));
 
-      // Close the caja
+      // ── PASO 1: Close the caja ──
       await transaction.request()
         .input('id', sql.Int, cajaId)
         .input('montoCierre', sql.Decimal(18, 2), montoCierre)
@@ -282,30 +286,74 @@ export const cajaService = {
           WHERE CAJA_ID = @id
         `);
 
-      // Deposit remaining cash to fondo de cambio if positive
-      if (montoCierre > 0) {
+      // ── PASO 2: MOVIMIENTOS_CAJA — CIERRE_CAJA (real income, excludes fondo) ──
+      const descripcionCierre = depositoFondo > 0
+        ? `Cierre de Caja #${cajaId} - ${CANTIDAD_ITEMS} movimientos | Depósito al Fondo: $${depositoFondo.toFixed(2)}`
+        : `Cierre de Caja #${cajaId} - ${CANTIDAD_ITEMS} movimientos`;
+
+      await transaction.request()
+        .input('idEntidad', sql.Int, cajaId)
+        .input('cajaId', sql.Int, cajaId)
+        .input('tipoEntidad', sql.VarChar(20), 'CIERRE_CAJA')
+        .input('movimiento', sql.NVarChar(500), descripcionCierre)
+        .input('uid', sql.Int, usuarioId)
+        .input('efectivo', sql.Decimal(18, 2), EFECTIVO_REAL)
+        .input('digital', sql.Decimal(18, 2), TOTAL_DIGITAL)
+        .input('total', sql.Decimal(18, 2), EFECTIVO_REAL + TOTAL_DIGITAL)
+        .input('pvId', sql.Int, caja.PUNTO_VENTA_ID)
+        .query(`
+          INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, CAJA_ID, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+          VALUES (@idEntidad, @cajaId, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, 0, 0, @total, @pvId, 0)
+        `);
+
+      // ── PASO 3: MOVIMIENTOS_CAJA — REINTEGRO_FONDO (return opening fund to CC cash) ──
+      if (FONDO_INICIAL > 0) {
+        await transaction.request()
+          .input('idEntidad', sql.Int, cajaId)
+          .input('cajaId', sql.Int, cajaId)
+          .input('tipoEntidad', sql.VarChar(20), 'REINTEGRO_FONDO')
+          .input('movimiento', sql.NVarChar(500), `Reintegro del fondo inicial de Caja #${cajaId} - Monto: $${FONDO_INICIAL.toFixed(2)}`)
+          .input('uid', sql.Int, usuarioId)
+          .input('efectivo', sql.Decimal(18, 2), FONDO_INICIAL)
+          .input('pvId', sql.Int, caja.PUNTO_VENTA_ID)
+          .query(`
+            INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, CAJA_ID, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+            VALUES (@idEntidad, @cajaId, @tipoEntidad, @movimiento, @uid, @efectivo, 0, 0, 0, 0, @pvId, 0)
+          `);
+      }
+
+      // ── PASO 4: Deposit to Fondo de Cambio (user's choice) ──
+      if (depositoFondo > 0) {
+        // 4a: Register in FONDO_CAMBIO
         const fondoSaldo = await this.getSaldoFondoCambioTx(transaction, caja.PUNTO_VENTA_ID);
         await transaction.request()
           .input('cajaId', sql.Int, cajaId)
-          .input('monto', sql.Decimal(18, 2), montoCierre)
-          .input('saldo', sql.Decimal(18, 2), fondoSaldo + montoCierre)
+          .input('monto', sql.Decimal(18, 2), depositoFondo)
+          .input('saldo', sql.Decimal(18, 2), fondoSaldo + depositoFondo)
           .input('uid', sql.Int, usuarioId)
           .input('pvId', sql.Int, caja.PUNTO_VENTA_ID)
+          .input('obs', sql.NVarChar(500), input.DESCRIPCION_DEPOSITO || `Depósito por cierre de Caja #${cajaId}`)
           .query(`
             INSERT INTO FONDO_CAMBIO (CAJA_ID, TIPO_MOVIMIENTO, MONTO, SALDO_RESULTANTE, USUARIO_ID, PUNTO_VENTA_ID, OBSERVACIONES)
-            VALUES (@cajaId, 'DEPOSITO', @monto, @saldo, @uid, @pvId, 'Depósito por cierre de caja')
+            VALUES (@cajaId, 'DEPOSITO', @monto, @saldo, @uid, @pvId, @obs)
           `);
 
-        // Register the outgoing cash as a CAJA_ITEMS entry
+        // 4b: MOVIMIENTOS_CAJA — DEPOSITO_FONDO (negative efectivo, cash leaves CC to fondo)
+        const descripcionDeposito = input.DESCRIPCION_DEPOSITO
+          ? `Depósito al Fondo de Cambio - Cierre Caja #${cajaId} - ${input.DESCRIPCION_DEPOSITO}`
+          : `Depósito al Fondo de Cambio - Cierre Caja #${cajaId}`;
+
         await transaction.request()
+          .input('idEntidad', sql.Int, cajaId)
           .input('cajaId', sql.Int, cajaId)
-          .input('origenTipo', sql.VarChar(30), 'FONDO_CAMBIO')
-          .input('efectivo', sql.Decimal(18, 2), -montoCierre)
-          .input('desc', sql.NVarChar(255), 'Depósito a fondo de cambio por cierre')
+          .input('tipoEntidad', sql.VarChar(20), 'DEPOSITO_FONDO')
+          .input('movimiento', sql.NVarChar(500), descripcionDeposito)
           .input('uid', sql.Int, usuarioId)
+          .input('efectivo', sql.Decimal(18, 2), -depositoFondo)
+          .input('pvId', sql.Int, caja.PUNTO_VENTA_ID)
           .query(`
-            INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
-            VALUES (@cajaId, GETDATE(), @origenTipo, @efectivo, 0, @desc, @uid)
+            INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, CAJA_ID, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+            VALUES (@idEntidad, @cajaId, @tipoEntidad, @movimiento, @uid, @efectivo, 0, 0, 0, 0, @pvId, 0)
           `);
       }
 
@@ -332,48 +380,19 @@ export const cajaService = {
 
     const monto = input.tipo === 'EGRESO' ? -Math.abs(input.monto) : Math.abs(input.monto);
 
-    const transaction = (pool as any).transaction();
-    await transaction.begin();
+    const result = await pool.request()
+      .input('cajaId', sql.Int, cajaId)
+      .input('origenTipo', sql.VarChar(30), input.tipo)
+      .input('efectivo', sql.Decimal(18, 2), monto)
+      .input('desc', sql.NVarChar(255), input.descripcion)
+      .input('uid', sql.Int, usuarioId)
+      .query(`
+        INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
+        OUTPUT INSERTED.ITEM_ID
+        VALUES (@cajaId, GETDATE(), @origenTipo, @efectivo, 0, @desc, @uid)
+      `);
 
-    try {
-      // Insert caja item
-      const itemResult = await transaction.request()
-        .input('cajaId', sql.Int, cajaId)
-        .input('origenTipo', sql.VarChar(30), input.tipo)
-        .input('efectivo', sql.Decimal(18, 2), monto)
-        .input('desc', sql.NVarChar(255), input.descripcion)
-        .input('uid', sql.Int, usuarioId)
-        .query(`
-          INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
-          OUTPUT INSERTED.ITEM_ID
-          VALUES (@cajaId, GETDATE(), @origenTipo, @efectivo, 0, @desc, @uid)
-        `);
-
-      const itemId = itemResult.recordset[0].ITEM_ID;
-
-      // Insert into MOVIMIENTOS_CAJA
-      const caja = cajaResult.recordset[0];
-      const esIngreso = input.tipo === 'INGRESO';
-      await transaction.request()
-        .input('idEntidad', sql.Int, itemId)
-        .input('cajaId', sql.Int, cajaId)
-        .input('tipoEntidad', sql.VarChar(20), input.tipo)
-        .input('movimiento', sql.NVarChar(500), input.descripcion)
-        .input('uid', sql.Int, usuarioId)
-        .input('efectivo', sql.Decimal(18, 2), esIngreso ? Math.abs(input.monto) : -Math.abs(input.monto))
-        .input('total', sql.Decimal(18, 2), esIngreso ? Math.abs(input.monto) : -Math.abs(input.monto))
-        .input('pvId', sql.Int, caja.PUNTO_VENTA_ID)
-        .query(`
-          INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, CAJA_ID, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
-          VALUES (@idEntidad, @cajaId, @tipoEntidad, @movimiento, @uid, @efectivo, 0, 0, 0, @total, @pvId, 1)
-        `);
-
-      await transaction.commit();
-      return { ITEM_ID: itemId };
-    } catch (err) {
-      await transaction.rollback();
-      throw err;
-    }
+    return { ITEM_ID: result.recordset[0].ITEM_ID };
   },
 
   // ── Delete a manually added item ───────────────
@@ -407,16 +426,16 @@ export const cajaService = {
     await transaction.begin();
 
     try {
-      // Delete from MOVIMIENTOS_CAJA
-      await transaction.request()
-        .input('itemId', sql.Int, itemId)
-        .input('tipo', sql.VarChar(20), itemResult.recordset[0].ORIGEN_TIPO)
-        .query(`DELETE FROM MOVIMIENTOS_CAJA WHERE ID_ENTIDAD = @itemId AND TIPO_ENTIDAD = @tipo`);
-
       // Delete from CAJA_ITEMS
       await transaction.request()
         .input('itemId', sql.Int, itemId)
         .query(`DELETE FROM CAJA_ITEMS WHERE ITEM_ID = @itemId`);
+
+      // Also clean up any orphan MOVIMIENTOS_CAJA referencing this item (legacy data)
+      await transaction.request()
+        .input('itemId', sql.Int, itemId)
+        .input('tipo', sql.VarChar(20), itemResult.recordset[0].ORIGEN_TIPO)
+        .query(`DELETE FROM MOVIMIENTOS_CAJA WHERE ID_ENTIDAD = @itemId AND TIPO_ENTIDAD = @tipo`);
 
       await transaction.commit();
       return { success: true };

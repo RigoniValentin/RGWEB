@@ -40,19 +40,23 @@ let pool: sql.ConnectionPool | null = null;
 
 export async function getPool(): Promise<sql.ConnectionPool> {
   if (!pool) {
-    try {
-      pool = await sql.connect(sqlConfig);
-      console.log('✅ Connected to SQL Server');
-    } catch (err: any) {
-      // If named instance connection fails (SQL Browser not running), retry on port 1433
-      if (config.db.instanceName && (err.code === 'ETIMEOUT' || err.code === 'ESOCKET')) {
-        console.warn(`⚠ Named instance connection failed (SQL Browser may be stopped). Retrying on port ${sqlConfigFallback.port}...`);
+    // If a port is configured or we know the instance, try direct port first (faster, no SQL Browser needed)
+    if (config.db.port || config.db.instanceName) {
+      try {
         pool = await sql.connect(sqlConfigFallback);
         console.log('✅ Connected to SQL Server (direct port)');
-      } else {
-        throw err;
+        return pool;
+      } catch {
+        // If direct port fails and we have an instanceName, try via SQL Browser
+        if (config.db.instanceName) {
+          console.warn(`⚠ Direct port connection failed. Retrying via SQL Browser (instance: ${config.db.instanceName})...`);
+        }
       }
     }
+
+    // Fallback: try with instanceName via SQL Browser
+    pool = await sql.connect(sqlConfig);
+    console.log('✅ Connected to SQL Server');
   }
   return pool;
 }

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Drawer, Descriptions, Spin,
   Button, Input, Select, InputNumber, Popconfirm, message, Card, Row, Col,
-  Statistic, Modal, Form, Dropdown,
+  Statistic, Modal, Form, Dropdown, Switch, Radio, Divider, Alert,
 } from 'antd';
 import {
   PlusOutlined, LockOutlined, UnlockOutlined, EyeOutlined,
@@ -39,8 +39,10 @@ export function CajaPage() {
   const [abrirModalOpen, setAbrirModalOpen] = useState(false);
   const [montoApertura, setMontoApertura] = useState<number>(0);
   const [cerrarModalOpen, setCerrarModalOpen] = useState(false);
-  const [montoCierre, setMontoCierre] = useState<number>(0);
   const [cerrarCajaId, setCerrarCajaId] = useState<number | null>(null);
+  const [depositoMode, setDepositoMode] = useState<'none' | 'total' | 'partial'>('none');
+  const [depositoMonto, setDepositoMonto] = useState<number>(0);
+  const [depositoDescripcion, setDepositoDescripcion] = useState('');
   const [ieModalOpen, setIeModalOpen] = useState(false);
   const [ieType, setIeType] = useState<'INGRESO' | 'EGRESO'>('INGRESO');
   const [ieMonto, setIeMonto] = useState<number>(0);
@@ -67,6 +69,28 @@ export function CajaPage() {
     queryFn: () => cajaApi.getById(selectedId!),
     enabled: !!selectedId,
   });
+
+  // Caja detail for cerrar modal breakdown
+  const { data: cerrarDetail, isLoading: cerrarDetailLoading } = useQuery({
+    queryKey: ['caja', cerrarCajaId],
+    queryFn: () => cajaApi.getById(cerrarCajaId!),
+    enabled: !!cerrarCajaId && cerrarModalOpen,
+  });
+
+  // Compute breakdown from items
+  const cerrarBreakdown = (() => {
+    if (!cerrarDetail?.items) return null;
+    let fondoInicial = 0, efectivoReal = 0, efectivoTotal = 0, totalDigital = 0, cantidadItems = 0;
+    for (const item of cerrarDetail.items) {
+      const ef = item.MONTO_EFECTIVO || 0;
+      const dg = item.MONTO_DIGITAL || 0;
+      if (item.ORIGEN_TIPO === 'FONDO_CAMBIO' && ef > 0) fondoInicial += ef;
+      if (item.ORIGEN_TIPO !== 'FONDO_CAMBIO') { efectivoReal += ef; cantidadItems++; }
+      efectivoTotal += ef;
+      totalDigital += dg;
+    }
+    return { fondoInicial, efectivoReal, efectivoTotal, totalDigital, cantidadItems };
+  })();
 
   const { data: fondoData } = useQuery({
     queryKey: ['fondo-cambio', pvFilter],
@@ -97,12 +121,22 @@ export function CajaPage() {
   });
 
   const cerrarMutation = useMutation({
-    mutationFn: () => cajaApi.cerrar(cerrarCajaId!, { MONTO_CIERRE: montoCierre }),
+    mutationFn: () => {
+      const depositoFinal = depositoMode === 'total'
+        ? Math.max(cerrarBreakdown?.efectivoTotal ?? 0, 0)
+        : depositoMode === 'partial' ? depositoMonto : 0;
+      return cajaApi.cerrar(cerrarCajaId!, {
+        DEPOSITO_FONDO: depositoFinal,
+        DESCRIPCION_DEPOSITO: depositoDescripcion || undefined,
+      });
+    },
     onSuccess: () => {
       message.success('Caja cerrada exitosamente');
       setCerrarModalOpen(false);
-      setMontoCierre(0);
       setCerrarCajaId(null);
+      setDepositoMode('none');
+      setDepositoMonto(0);
+      setDepositoDescripcion('');
       invalidateAll();
       if (drawerOpen) { queryClient.invalidateQueries({ queryKey: ['caja', selectedId] }); }
     },
@@ -145,7 +179,9 @@ export function CajaPage() {
 
   const handleCerrar = (cajaId: number) => {
     setCerrarCajaId(cajaId);
-    setMontoCierre(0);
+    setDepositoMode('none');
+    setDepositoMonto(0);
+    setDepositoDescripcion('');
     setCerrarModalOpen(true);
   };
 
@@ -525,27 +561,97 @@ export function CajaPage() {
 
       {/* ── Cerrar Caja Modal ─────────────────── */}
       <Modal
-        title="Cerrar Caja"
+        title={`Cerrar Caja #${cerrarCajaId}`}
         open={cerrarModalOpen}
         onCancel={() => { setCerrarModalOpen(false); setCerrarCajaId(null); }}
         onOk={() => cerrarMutation.mutate()}
         confirmLoading={cerrarMutation.isPending}
         okText="Cerrar Caja"
-        okButtonProps={{ danger: true }}
+        okButtonProps={{ danger: true, disabled: cerrarDetailLoading || !cerrarBreakdown }}
+        width={480}
       >
-        <Form layout="vertical">
-          <Form.Item label="Monto de cierre (efectivo en caja)">
-            <InputNumber
-              style={{ width: '100%' }}
-              min={0}
-              precision={2}
-              prefix="$"
-              value={montoCierre}
-              onChange={v => setMontoCierre(v ?? 0)}
-              autoFocus
+        {cerrarDetailLoading ? (
+          <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>
+        ) : cerrarBreakdown && (
+          <>
+            {/* Breakdown */}
+            <Descriptions column={1} size="small" bordered style={{ marginBottom: 16 }}>
+              <Descriptions.Item label="Cambio inicial">
+                <Text strong>{fmtMoney(cerrarBreakdown.fondoInicial)}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="Efectivo real (ventas - egresos)">
+                <Text strong style={{ color: cerrarBreakdown.efectivoReal >= 0 ? '#52c41a' : '#ff4d4f' }}>
+                  {fmtMoney(cerrarBreakdown.efectivoReal)}
+                </Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="Total efectivo disponible">
+                <Text strong style={{ fontSize: 15 }}>{fmtMoney(cerrarBreakdown.efectivoTotal)}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="Digital">
+                <Text>{fmtMoney(cerrarBreakdown.totalDigital)}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="Movimientos">
+                <Text>{cerrarBreakdown.cantidadItems}</Text>
+              </Descriptions.Item>
+            </Descriptions>
+
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="Al cerrar, se registrará en Caja Central el ingreso real (sin incluir el fondo de cambio)."
             />
-          </Form.Item>
-        </Form>
+
+            {/* Deposit to fondo */}
+            {cerrarBreakdown.efectivoTotal > 0 && (
+              <>
+                <Divider orientation="left" style={{ margin: '12px 0' }}>Depósito al Fondo de Cambio</Divider>
+                <Radio.Group
+                  value={depositoMode}
+                  onChange={e => {
+                    setDepositoMode(e.target.value);
+                    if (e.target.value === 'total') setDepositoMonto(cerrarBreakdown.efectivoTotal);
+                    if (e.target.value === 'none') setDepositoMonto(0);
+                  }}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}
+                >
+                  <Radio value="none">No depositar (el efectivo queda en Caja Central)</Radio>
+                  <Radio value="total">Depositar total ({fmtMoney(cerrarBreakdown.efectivoTotal)})</Radio>
+                  <Radio value="partial">Depositar parcial</Radio>
+                </Radio.Group>
+
+                {depositoMode === 'partial' && (
+                  <Form layout="vertical" style={{ marginBottom: 8 }}>
+                    <Form.Item label="Monto a depositar" style={{ marginBottom: 8 }}>
+                      <InputNumber
+                        style={{ width: '100%' }}
+                        min={0.01}
+                        max={cerrarBreakdown.efectivoTotal}
+                        precision={2}
+                        prefix="$"
+                        value={depositoMonto}
+                        onChange={v => setDepositoMonto(v ?? 0)}
+                        autoFocus
+                      />
+                    </Form.Item>
+                  </Form>
+                )}
+
+                {depositoMode !== 'none' && (
+                  <Form layout="vertical">
+                    <Form.Item label="Descripción (opcional)" style={{ marginBottom: 0 }}>
+                      <Input
+                        value={depositoDescripcion}
+                        onChange={e => setDepositoDescripcion(e.target.value)}
+                        placeholder="Concepto del depósito..."
+                      />
+                    </Form.Item>
+                  </Form>
+                )}
+              </>
+            )}
+          </>
+        )}
       </Modal>
 
       {/* ── Ingreso/Egreso Modal ──────────────── */}

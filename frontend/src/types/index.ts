@@ -301,8 +301,10 @@ export interface AbrirCajaInput {
 }
 
 export interface CerrarCajaInput {
-  MONTO_CIERRE: number;
+  MONTO_CIERRE?: number;
   OBSERVACIONES?: string;
+  DEPOSITO_FONDO?: number;
+  DESCRIPCION_DEPOSITO?: string;
 }
 
 export interface IngresoEgresoInput {
