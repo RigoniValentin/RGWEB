@@ -46,6 +46,7 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 Name: "desktopicon"; Description: "Crear acceso directo en el &Escritorio"; GroupDescription: "Accesos directos:"; Flags: unchecked
 Name: "startupicon"; Description: "Iniciar con Windows"; GroupDescription: "Opciones adicionales:"; Flags: unchecked
 Name: "firewall"; Description: "Agregar regla de Firewall (puerto 3001)"; GroupDescription: "Opciones adicionales:"; Flags: unchecked
+Name: "enabletcp"; Description: "Habilitar TCP/IP en SQL Server (necesario si usa SQLEXPRESS)"; GroupDescription: "Opciones adicionales:"; Flags: unchecked
 
 [Files]
 ; Main executable
@@ -56,6 +57,9 @@ Source: "installer\RGWeb-hidden.vbs"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Frontend files
 Source: "installer\public\*"; DestDir: "{app}\public"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; TCP enabler script
+Source: "installer\enable-tcp-admin.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "wscript.exe"; Parameters: """{app}\RGWeb-hidden.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"
@@ -69,6 +73,9 @@ Filename: "http://localhost:3001"; Description: "Abrir en navegador"; Flags: she
 
 ; Firewall rule (optional task)
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""Rio Gestion WEB"" dir=in action=allow protocol=TCP localport=3001"; Flags: runhidden; Tasks: firewall
+
+; Enable TCP/IP on SQLEXPRESS (optional task)
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\enable-tcp-admin.ps1"""; Flags: runhidden; Tasks: enabletcp
 
 [UninstallRun]
 ; Remove firewall rule on uninstall

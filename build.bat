@@ -19,7 +19,7 @@ echo ═════════════════════════
 echo.
 
 REM ── Step 1: Clean previous build ────────────────
-echo [1/5] Cleaning previous builds...
+echo [1/6] Cleaning previous builds...
 if exist "%INSTALLER_DIR%" rmdir /s /q "%INSTALLER_DIR%"
 if exist "%BACKEND%\dist" rmdir /s /q "%BACKEND%\dist"
 if exist "%FRONTEND%\dist" rmdir /s /q "%FRONTEND%\dist"
@@ -28,7 +28,7 @@ echo       Done.
 echo.
 
 REM ── Step 2: Build Frontend ──────────────────────
-echo [2/5] Building frontend (Vite)...
+echo [2/6] Building frontend (Vite)...
 cd /d "%FRONTEND%"
 call npm run build
 if errorlevel 1 (
@@ -40,13 +40,13 @@ echo       Done.
 echo.
 
 REM ── Step 3: Copy frontend dist → installer/public
-echo [3/5] Copying frontend to installer/public...
+echo [3/6] Copying frontend to installer/public...
 xcopy /s /e /i /q "%FRONTEND%\dist" "%PUBLIC_DIR%" > nul
 echo       Done.
 echo.
 
 REM ── Step 4: Build Backend (TypeScript → JS) ────
-echo [4/5] Compiling backend (TypeScript)...
+echo [4/6] Compiling backend (TypeScript)...
 cd /d "%BACKEND%"
 call npm run build
 if errorlevel 1 (
@@ -57,8 +57,14 @@ if errorlevel 1 (
 echo       Done.
 echo.
 
-REM ── Step 5: Package with pkg ────────────────────
-echo [5/5] Packaging into executable (pkg)...
+REM ── Step 5: Copy utility scripts ────────────────
+echo [5/6] Copying utility scripts...
+copy /y "%ROOT%enable-tcp-admin.ps1" "%INSTALLER_DIR%\enable-tcp-admin.ps1" > nul
+echo       Done.
+echo.
+
+REM ── Step 6: Package with pkg ────────────────────
+echo [6/6] Packaging into executable (pkg)...
 call npx pkg dist/index.js --targets node18-win-x64 --output "%OUTPUT_EXE%" --compress GZip --icon "%ROOT%frontend\src\assets\logos\RioGestionWhite.ico"
 if errorlevel 1 (
     echo       ERROR: pkg packaging failed!
@@ -78,8 +84,9 @@ echo.
 echo   Output directory: %INSTALLER_DIR%
 echo.
 echo   Contents:
-echo     RGWeb.exe         — Server executable
-echo     public/           — Frontend files
+echo     RGWeb.exe              — Server executable
+echo     public/                — Frontend files
+echo     enable-tcp-admin.ps1   — Habilitar TCP en SQL Server
 echo.
 echo   To deploy, copy the installer/ folder to the
 echo   client PC and place appdata.ini next to
