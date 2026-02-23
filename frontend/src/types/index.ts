@@ -395,3 +395,25 @@ export interface PaginatedResponse<T> {
   page: number;
   pageSize: number;
 }
+// ── Fondo de Cambio Transfers ────────────────────────────
+export type TransferEntity = 'CAJA_CENTRAL' | 'FONDO_CAMBIO' | 'CAJA';
+
+export interface TransferFCInput {
+  origen: TransferEntity;
+  destino: TransferEntity;
+  monto: number;
+  observaciones?: string;
+  cajaId?: number;
+  puntoVentaId?: number;
+}
+
+export interface CajaAbierta {
+  CAJA_ID: number;
+  USUARIO_ID: number;
+  FECHA_APERTURA: string;
+  MONTO_APERTURA: number;
+  PUNTO_VENTA_ID: number | null;
+  USUARIO_NOMBRE: string;
+  PUNTO_VENTA_NOMBRE: string;
+  EFECTIVO_DISPONIBLE: number;
+}

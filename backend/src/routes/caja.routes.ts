@@ -52,6 +52,36 @@ router.get('/fondo-cambio/history', async (req: AuthRequest, res: Response, next
   } catch (err) { next(err); }
 });
 
+// ── GET /api/caja/cajas-abiertas — list open cajas for selector ──
+router.get('/cajas-abiertas', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const pvId = req.query.puntoVentaId ? Number(req.query.puntoVentaId) : undefined;
+    const cajas = await cajaService.getCajasAbiertas(pvId);
+    res.json(cajas);
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/caja/efectivo-caja-central — CC cash available ──
+router.get('/efectivo-caja-central', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const pvId = req.query.puntoVentaId ? Number(req.query.puntoVentaId) : undefined;
+    const efectivo = await cajaService.getEfectivoCajaCentral(pvId);
+    res.json({ efectivo });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/caja/fondo-cambio/transferir — transfer between FC and CC/Caja ──
+router.post('/fondo-cambio/transferir', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const pvId = req.body.puntoVentaId ? Number(req.body.puntoVentaId) : undefined;
+    const result = await cajaService.transferirFondoCambio(req.body, req.user!.id, pvId);
+    res.status(201).json(result);
+  } catch (err: any) {
+    if (err.name === 'ValidationError') { res.status(err.status || 400).json({ error: err.message }); return; }
+    next(err);
+  }
+});
+
 // ── GET /api/caja/:id — get caja detail with items ──
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

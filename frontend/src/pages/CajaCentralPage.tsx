@@ -7,11 +7,12 @@ import {
 } from 'antd';
 import {
   ArrowUpOutlined, ArrowDownOutlined,
-  PlusOutlined, DeleteOutlined, ReloadOutlined,
+  PlusOutlined, DeleteOutlined, ReloadOutlined, SwapOutlined,
 } from '@ant-design/icons';
 import { cajaCentralApi } from '../services/cajaCentral.api';
 import { useAuthStore } from '../store/authStore';
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
+import { FondoCambioModal } from '../components/FondoCambioModal';
 import { fmtMoney, fmtMoneyAbs, statFormatter } from '../utils/format';
 import type { MovimientoCaja, CajaCentralTotales } from '../types';
 
@@ -28,6 +29,7 @@ export function CajaCentralPage() {
   const [balanceHistorico, setBalanceHistorico] = useState(false);
   const [activeTab, setActiveTab] = useState('ingresos');
   const [nuevoModalOpen, setNuevoModalOpen] = useState(false);
+  const [fondoModalOpen, setFondoModalOpen] = useState(false);
   const [nuevoTipo, setNuevoTipo] = useState<'INGRESO' | 'EGRESO'>('INGRESO');
   const [nuevoDesc, setNuevoDesc] = useState('');
   const [nuevoEfectivo, setNuevoEfectivo] = useState<number>(0);
@@ -78,6 +80,7 @@ export function CajaCentralPage() {
     queryClient.invalidateQueries({ queryKey: ['caja-central-totales'] });
     queryClient.invalidateQueries({ queryKey: ['caja-central-historico'] });
     queryClient.invalidateQueries({ queryKey: ['caja-central-fondo'] });
+    queryClient.invalidateQueries({ queryKey: ['fc-modal'] });
   };
 
   const crearMutation = useMutation({
@@ -270,6 +273,14 @@ export function CajaCentralPage() {
               formatter={statFormatter} prefix="$"
               valueStyle={{ color: '#EABD23', fontSize: 14 }}
             />
+            <Button
+              size="small"
+              icon={<SwapOutlined />}
+              onClick={() => setFondoModalOpen(true)}
+              style={{ marginTop: 4 }}
+            >
+              Transferir
+            </Button>
           </Card>
         </Col>
       </Row>
@@ -389,6 +400,17 @@ export function CajaCentralPage() {
           </div>
         </Form>
       </Modal>
+
+      {/* ── Fondo de Cambio Modal ───────────── */}
+      <FondoCambioModal
+        open={fondoModalOpen}
+        onClose={() => setFondoModalOpen(false)}
+        onSuccess={() => {
+          setFondoModalOpen(false);
+          message.success('Transferencia realizada');
+          invalidateAll();
+        }}
+      />
     </div>
   );
 }

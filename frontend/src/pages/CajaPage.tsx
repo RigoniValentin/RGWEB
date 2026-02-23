@@ -8,11 +8,12 @@ import {
 import {
   PlusOutlined, LockOutlined, UnlockOutlined, EyeOutlined,
   ArrowUpOutlined, ArrowDownOutlined,
-  DeleteOutlined, ReloadOutlined, MoreOutlined,
+  DeleteOutlined, ReloadOutlined, MoreOutlined, SwapOutlined,
 } from '@ant-design/icons';
 import { cajaApi } from '../services/caja.api';
 import { useAuthStore } from '../store/authStore';
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
+import { FondoCambioModal } from '../components/FondoCambioModal';
 import { fmtMoney, statFormatter } from '../utils/format';
 import type { Caja, CajaItem } from '../types';
 
@@ -42,6 +43,7 @@ export function CajaPage() {
   const [ieType, setIeType] = useState<'INGRESO' | 'EGRESO'>('INGRESO');
   const [ieMonto, setIeMonto] = useState<number>(0);
   const [ieDescripcion, setIeDescripcion] = useState('');
+  const [fondoModalOpen, setFondoModalOpen] = useState(false);
 
   // ── Queries ────────────────────────────────────
   const { data, isLoading, refetch } = useQuery({
@@ -75,6 +77,7 @@ export function CajaPage() {
     refetchMiCaja();
     queryClient.invalidateQueries({ queryKey: ['caja'] });
     queryClient.invalidateQueries({ queryKey: ['fondo-cambio'] });
+    queryClient.invalidateQueries({ queryKey: ['fc-modal'] });
   };
 
   const abrirMutation = useMutation({
@@ -327,7 +330,16 @@ export function CajaPage() {
               prefix="$"
               valueStyle={{ color: (fondoData?.saldo ?? 0) > 0 ? '#52c41a' : (fondoData?.saldo ?? 0) < 0 ? '#ff4d4f' : '#999' }}
             />
-            <Text type="secondary" style={{ fontSize: 12 }}>{pvNombre}</Text>
+            <Space style={{ marginTop: 8 }}>
+              <Button
+                size="small"
+                icon={<SwapOutlined />}
+                onClick={() => setFondoModalOpen(true)}
+              >
+                Transferir
+              </Button>
+              <Text type="secondary" style={{ fontSize: 12 }}>{pvNombre}</Text>
+            </Space>
           </Card>
         </Col>
         <Col xs={24} sm={8}>
@@ -560,6 +572,18 @@ export function CajaPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* ── Fondo de Cambio Modal ───────────── */}
+      <FondoCambioModal
+        open={fondoModalOpen}
+        onClose={() => setFondoModalOpen(false)}
+        onSuccess={() => {
+          setFondoModalOpen(false);
+          message.success('Transferencia realizada');
+          invalidateAll();
+        }}
+        preselectedCajaId={miCaja?.CAJA_ID}
+      />
     </div>
   );
 }

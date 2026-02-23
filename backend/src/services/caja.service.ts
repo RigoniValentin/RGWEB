@@ -454,6 +454,236 @@ export const cajaService = {
 
     return result.recordset;
   },
+
+  // ── List open cajas (for fund transfer selector) ──
+  async getCajasAbiertas(puntoVentaId?: number) {
+    const pool = await getPool();
+    const req = pool.request();
+    let pvFilter = '';
+    if (puntoVentaId) {
+      pvFilter = ' AND c.PUNTO_VENTA_ID = @pvId';
+      req.input('pvId', sql.Int, puntoVentaId);
+    }
+
+    const result = await req.query(`
+      SELECT c.CAJA_ID, c.USUARIO_ID, c.FECHA_APERTURA, c.MONTO_APERTURA, c.PUNTO_VENTA_ID,
+        u.NOMBRE AS USUARIO_NOMBRE,
+        pv.NOMBRE AS PUNTO_VENTA_NOMBRE,
+        ISNULL(SUM(ci.MONTO_EFECTIVO), 0) + c.MONTO_APERTURA AS EFECTIVO_DISPONIBLE
+      FROM CAJA c
+      LEFT JOIN USUARIOS u ON c.USUARIO_ID = u.USUARIO_ID
+      LEFT JOIN PUNTO_VENTAS pv ON c.PUNTO_VENTA_ID = pv.PUNTO_VENTA_ID
+      LEFT JOIN CAJA_ITEMS ci ON ci.CAJA_ID = c.CAJA_ID
+      WHERE c.ESTADO = 'ACTIVA' ${pvFilter}
+      GROUP BY c.CAJA_ID, c.USUARIO_ID, c.FECHA_APERTURA, c.MONTO_APERTURA, c.PUNTO_VENTA_ID,
+        u.NOMBRE, pv.NOMBRE
+      ORDER BY c.CAJA_ID
+    `);
+
+    return result.recordset;
+  },
+
+  // ── Get effective cash in a specific caja ──────
+  async getEfectivoCaja(cajaId: number): Promise<number> {
+    const pool = await getPool();
+    const result = await pool.request()
+      .input('cajaId', sql.Int, cajaId)
+      .query(`
+        SELECT c.MONTO_APERTURA + ISNULL(SUM(ci.MONTO_EFECTIVO), 0) AS EFECTIVO
+        FROM CAJA c
+        LEFT JOIN CAJA_ITEMS ci ON ci.CAJA_ID = c.CAJA_ID
+        WHERE c.CAJA_ID = @cajaId AND c.ESTADO = 'ACTIVA'
+        GROUP BY c.MONTO_APERTURA
+      `);
+    if (result.recordset.length === 0) throw new ValidationError('Caja no encontrada o no está activa');
+    return result.recordset[0].EFECTIVO;
+  },
+
+  // ── Transfer between Fondo de Cambio and CC/Caja ──
+  async transferirFondoCambio(input: {
+    origen: 'CAJA_CENTRAL' | 'FONDO_CAMBIO' | 'CAJA';
+    destino: 'CAJA_CENTRAL' | 'FONDO_CAMBIO' | 'CAJA';
+    monto: number;
+    observaciones?: string;
+    cajaId?: number;
+  }, usuarioId: number, puntoVentaId?: number) {
+    const pool = await getPool();
+    const { origen, destino, monto, observaciones, cajaId } = input;
+
+    // Validate
+    if (monto <= 0) throw new ValidationError('El monto debe ser mayor a cero');
+    if (origen === destino) throw new ValidationError('Origen y destino no pueden ser el mismo');
+    if (origen !== 'FONDO_CAMBIO' && destino !== 'FONDO_CAMBIO') {
+      throw new ValidationError('Las transferencias deben pasar por el Fondo de Cambio');
+    }
+    if ((origen === 'CAJA' || destino === 'CAJA') && !cajaId) {
+      throw new ValidationError('Debe seleccionar una caja');
+    }
+
+    const transaction = (pool as any).transaction();
+    await transaction.begin();
+
+    try {
+      const fondoSaldo = await this.getSaldoFondoCambioTx(transaction, puntoVentaId);
+
+      // ── FC is the source (retiro from fund) ────
+      if (origen === 'FONDO_CAMBIO') {
+        if (fondoSaldo < monto) {
+          throw new ValidationError(`Saldo insuficiente en el fondo. Disponible: $${fondoSaldo.toFixed(2)}`);
+        }
+
+        // 1. Register RETIRO in FONDO_CAMBIO
+        await transaction.request()
+          .input('cajaId', sql.Int, cajaId || null)
+          .input('monto', sql.Decimal(18, 2), -monto)
+          .input('saldo', sql.Decimal(18, 2), fondoSaldo - monto)
+          .input('uid', sql.Int, usuarioId)
+          .input('pvId', sql.Int, puntoVentaId || null)
+          .input('obs', sql.NVarChar(500), observaciones || `Retiro de fondo → ${destino === 'CAJA_CENTRAL' ? 'Caja Central' : `Caja #${cajaId}`}`)
+          .query(`
+            INSERT INTO FONDO_CAMBIO (CAJA_ID, TIPO_MOVIMIENTO, MONTO, SALDO_RESULTANTE, USUARIO_ID, PUNTO_VENTA_ID, OBSERVACIONES)
+            VALUES (@cajaId, 'RETIRO', @monto, @saldo, @uid, @pvId, @obs)
+          `);
+
+        // 2. Counterpart in destination
+        if (destino === 'CAJA_CENTRAL') {
+          await transaction.request()
+            .input('cajaId', sql.Int, cajaId || null)
+            .input('tipoEntidad', sql.VarChar(20), 'TRANSFERENCIA_FC')
+            .input('movimiento', sql.NVarChar(500), observaciones || 'Ingreso desde Fondo de Cambio')
+            .input('uid', sql.Int, usuarioId)
+            .input('efectivo', sql.Decimal(18, 2), monto)
+            .input('total', sql.Decimal(18, 2), monto)
+            .input('pvId', sql.Int, puntoVentaId || null)
+            .query(`
+              INSERT INTO MOVIMIENTOS_CAJA (CAJA_ID, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+              VALUES (@cajaId, @tipoEntidad, @movimiento, @uid, @efectivo, 0, 0, 0, @total, @pvId, 1)
+            `);
+        } else if (destino === 'CAJA') {
+          await transaction.request()
+            .input('cajaId', sql.Int, cajaId)
+            .input('origenTipo', sql.VarChar(30), 'FONDO_CAMBIO')
+            .input('efectivo', sql.Decimal(18, 2), monto)
+            .input('desc', sql.NVarChar(255), observaciones || 'Ingreso desde Fondo de Cambio')
+            .input('uid', sql.Int, usuarioId)
+            .query(`
+              INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
+              VALUES (@cajaId, GETDATE(), @origenTipo, @efectivo, 0, @desc, @uid)
+            `);
+        }
+      }
+
+      // ── FC is the destination (deposit to fund) ──
+      if (destino === 'FONDO_CAMBIO') {
+        // Validate source has enough cash
+        if (origen === 'CAJA' && cajaId) {
+          const efectivoCaja = await this._getEfectivoCajaTx(transaction, cajaId);
+          if (efectivoCaja < monto) {
+            throw new ValidationError(`Efectivo insuficiente en la caja. Disponible: $${efectivoCaja.toFixed(2)}`);
+          }
+        }
+        if (origen === 'CAJA_CENTRAL') {
+          const efectivoCC = await this._getEfectivoCajaCentralTx(transaction, puntoVentaId);
+          if (efectivoCC < monto) {
+            throw new ValidationError(`Efectivo insuficiente en Caja Central. Disponible: $${efectivoCC.toFixed(2)}`);
+          }
+        }
+
+        // 1. Register DEPOSITO in FONDO_CAMBIO
+        await transaction.request()
+          .input('cajaId', sql.Int, cajaId || null)
+          .input('monto', sql.Decimal(18, 2), monto)
+          .input('saldo', sql.Decimal(18, 2), fondoSaldo + monto)
+          .input('uid', sql.Int, usuarioId)
+          .input('pvId', sql.Int, puntoVentaId || null)
+          .input('obs', sql.NVarChar(500), observaciones || `Depósito al fondo ← ${origen === 'CAJA_CENTRAL' ? 'Caja Central' : `Caja #${cajaId}`}`)
+          .query(`
+            INSERT INTO FONDO_CAMBIO (CAJA_ID, TIPO_MOVIMIENTO, MONTO, SALDO_RESULTANTE, USUARIO_ID, PUNTO_VENTA_ID, OBSERVACIONES)
+            VALUES (@cajaId, 'DEPOSITO', @monto, @saldo, @uid, @pvId, @obs)
+          `);
+
+        // 2. Counterpart in source
+        if (origen === 'CAJA_CENTRAL') {
+          await transaction.request()
+            .input('cajaId', sql.Int, cajaId || null)
+            .input('tipoEntidad', sql.VarChar(20), 'TRANSFERENCIA_FC')
+            .input('movimiento', sql.NVarChar(500), observaciones || 'Egreso hacia Fondo de Cambio')
+            .input('uid', sql.Int, usuarioId)
+            .input('efectivo', sql.Decimal(18, 2), -monto)
+            .input('total', sql.Decimal(18, 2), -monto)
+            .input('pvId', sql.Int, puntoVentaId || null)
+            .query(`
+              INSERT INTO MOVIMIENTOS_CAJA (CAJA_ID, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+              VALUES (@cajaId, @tipoEntidad, @movimiento, @uid, @efectivo, 0, 0, 0, @total, @pvId, 1)
+            `);
+        } else if (origen === 'CAJA') {
+          await transaction.request()
+            .input('cajaId', sql.Int, cajaId)
+            .input('origenTipo', sql.VarChar(30), 'FONDO_CAMBIO')
+            .input('efectivo', sql.Decimal(18, 2), -monto)
+            .input('desc', sql.NVarChar(255), observaciones || 'Egreso hacia Fondo de Cambio')
+            .input('uid', sql.Int, usuarioId)
+            .query(`
+              INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
+              VALUES (@cajaId, GETDATE(), @origenTipo, @efectivo, 0, @desc, @uid)
+            `);
+        }
+      }
+
+      await transaction.commit();
+      return { success: true, nuevoSaldoFondo: destino === 'FONDO_CAMBIO' ? fondoSaldo + monto : fondoSaldo - monto };
+    } catch (err) {
+      await transaction.rollback();
+      throw err;
+    }
+  },
+
+  // ── Helper: get effective cash in caja within transaction ──
+  async _getEfectivoCajaTx(transaction: any, cajaId: number): Promise<number> {
+    const result = await transaction.request()
+      .input('cajaId', sql.Int, cajaId)
+      .query(`
+        SELECT c.MONTO_APERTURA + ISNULL(SUM(ci.MONTO_EFECTIVO), 0) AS EFECTIVO
+        FROM CAJA c
+        LEFT JOIN CAJA_ITEMS ci ON ci.CAJA_ID = c.CAJA_ID
+        WHERE c.CAJA_ID = @cajaId AND c.ESTADO = 'ACTIVA'
+        GROUP BY c.MONTO_APERTURA
+      `);
+    return result.recordset.length > 0 ? result.recordset[0].EFECTIVO : 0;
+  },
+
+  // ── Helper: get effective cash in Caja Central within transaction ──
+  async _getEfectivoCajaCentralTx(transaction: any, puntoVentaId?: number): Promise<number> {
+    const req = transaction.request();
+    let pvFilter = '';
+    if (puntoVentaId) {
+      pvFilter = 'WHERE PUNTO_VENTA_ID = @pvId';
+      req.input('pvId', sql.Int, puntoVentaId);
+    }
+    const result = await req.query(`
+      SELECT ISNULL(SUM(EFECTIVO), 0) AS efectivo
+      FROM MOVIMIENTOS_CAJA
+      ${pvFilter}
+    `);
+    return result.recordset[0]?.efectivo ?? 0;
+  },
+
+  // ── Get effective cash in Caja Central (public, no transaction) ──
+  async getEfectivoCajaCentral(puntoVentaId?: number): Promise<number> {
+    const pool = await getPool();
+    const req = pool.request();
+    let pvFilter = '';
+    if (puntoVentaId) {
+      pvFilter = 'WHERE PUNTO_VENTA_ID = @pvId';
+      req.input('pvId', sql.Int, puntoVentaId);
+    }
+    const result = await req.query(`
+      SELECT ISNULL(SUM(EFECTIVO), 0) AS efectivo
+      FROM MOVIMIENTOS_CAJA
+      ${pvFilter}
+    `);
+    return result.recordset[0]?.efectivo ?? 0;
+  },
 };
 
 // ── Error helper ─────────────────────────────────

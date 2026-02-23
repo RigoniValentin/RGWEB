@@ -1,5 +1,5 @@
 import api from './api';
-import type { Caja, CajaDetalle, PaginatedResponse, AbrirCajaInput, CerrarCajaInput, IngresoEgresoInput, FondoCambio } from '../types';
+import type { Caja, CajaDetalle, PaginatedResponse, AbrirCajaInput, CerrarCajaInput, IngresoEgresoInput, FondoCambio, TransferFCInput, CajaAbierta } from '../types';
 
 export const cajaApi = {
   getAll: (params?: Record<string, any>) =>
@@ -28,4 +28,13 @@ export const cajaApi = {
 
   getFondoCambioHistory: (puntoVentaId?: number, limit?: number) =>
     api.get<FondoCambio[]>('/caja/fondo-cambio/history', { params: { puntoVentaId, limit } }).then(r => r.data),
+
+  getCajasAbiertas: (puntoVentaId?: number) =>
+    api.get<CajaAbierta[]>('/caja/cajas-abiertas', { params: { puntoVentaId } }).then(r => r.data),
+
+  getEfectivoCajaCentral: (puntoVentaId?: number) =>
+    api.get<{ efectivo: number }>('/caja/efectivo-caja-central', { params: { puntoVentaId } }).then(r => r.data),
+
+  transferirFondoCambio: (data: TransferFCInput) =>
+    api.post<{ success: boolean; nuevoSaldoFondo: number }>('/caja/fondo-cambio/transferir', data).then(r => r.data),
 };
