@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Card, Row, Col,
@@ -7,7 +8,7 @@ import {
 } from 'antd';
 import {
   ArrowUpOutlined, ArrowDownOutlined,
-  PlusOutlined, DeleteOutlined, ReloadOutlined, SwapOutlined,
+  PlusOutlined, DeleteOutlined, ReloadOutlined, SwapOutlined, EyeOutlined,
 } from '@ant-design/icons';
 import { cajaCentralApi } from '../services/cajaCentral.api';
 import { useAuthStore } from '../store/authStore';
@@ -15,12 +16,15 @@ import { DateFilterPopover, getPresetRange, type DatePreset } from '../component
 import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
 import { FondoCambioModal } from '../components/FondoCambioModal';
 import { fmtMoney, fmtMoneyAbs, statFormatter } from '../utils/format';
+import { useTabStore } from '../store/tabStore';
 import type { MovimientoCaja, CajaCentralTotales } from '../types';
 
 const { Title, Text } = Typography;
 
 export function CajaCentralPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { openTab } = useTabStore();
   const { puntoVentaActivo } = useAuthStore();
 
   // ── State ──────────────────────────────────────
@@ -143,7 +147,7 @@ export function CajaCentralPage() {
     },
     {
       title: 'Fecha', dataIndex: 'FECHA', key: 'date', width: 120, align: 'center' as const,
-      render: (v: string) => new Date(v).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      render: (v: string) => new Date(v).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }),
     },
     { title: 'Movimiento', dataIndex: 'MOVIMIENTO', key: 'mov', ellipsis: true },
     { title: 'Usuario', dataIndex: 'USUARIO_NOMBRE', key: 'user', width: 120, ellipsis: true, align: 'center' as const },
@@ -168,17 +172,31 @@ export function CajaCentralPage() {
       render: (v: number) => <Text strong>{fmtMoneyAbs(v)}</Text>,
     },
     {
-      title: '', key: 'actions', width: 50,
-      render: (_: unknown, record: MovimientoCaja) =>
-        record.ES_MANUAL && record.TIPO_ENTIDAD !== 'TRANSFERENCIA_FC' ? (
-          <Popconfirm
-            title="¿Eliminar este movimiento manual?"
-            onConfirm={() => eliminarMutation.mutate(record.ID)}
-            okText="Sí" cancelText="No" okButtonProps={{ danger: true }}
-          >
-            <DeleteOutlined style={{ cursor: 'pointer', color: '#ff4d4f' }} />
-          </Popconfirm>
-        ) : null,
+      title: '', key: 'actions', width: 60, align: 'center' as const,
+      render: (_: unknown, record: MovimientoCaja) => (
+        <Space size={4}>
+          {record.TIPO_ENTIDAD === 'CIERRE_CAJA' && record.CAJA_ID && (
+            <Tooltip title={`Ver Caja #${record.CAJA_ID}`}>
+              <EyeOutlined
+                style={{ cursor: 'pointer', color: '#EABD23', fontSize: 16 }}
+                onClick={() => {
+                  openTab({ key: '/cashregisters', label: 'Cajas', closable: true });
+                  navigate('/cashregisters', { state: { openCajaId: record.CAJA_ID } });
+                }}
+              />
+            </Tooltip>
+          )}
+          {record.ES_MANUAL && record.TIPO_ENTIDAD !== 'TRANSFERENCIA_FC' && (
+            <Popconfirm
+              title="¿Eliminar este movimiento manual?"
+              onConfirm={() => eliminarMutation.mutate(record.ID)}
+              okText="Sí" cancelText="No" okButtonProps={{ danger: true }}
+            >
+              <DeleteOutlined style={{ cursor: 'pointer', color: '#ff4d4f' }} />
+            </Popconfirm>
+          )}
+        </Space>
+      ),
     },
   ];
 

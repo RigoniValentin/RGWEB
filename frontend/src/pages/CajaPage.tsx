@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Drawer, Descriptions, Spin,
   Button, Input, Select, InputNumber, Popconfirm, message, Card, Row, Col,
-  Statistic, Modal, Form, Dropdown, Switch, Radio, Divider, Alert,
+  Statistic, Modal, Form, Dropdown, Radio, Divider, Alert,
 } from 'antd';
 import {
   PlusOutlined, LockOutlined, UnlockOutlined, EyeOutlined,
@@ -22,6 +23,7 @@ const { Title, Text } = Typography;
 
 export function CajaPage() {
   const queryClient = useQueryClient();
+  const location = useLocation();
   const { user, puntoVentaActivo, puntosVenta } = useAuthStore();
 
   // ── State ──────────────────────────────────────
@@ -48,6 +50,17 @@ export function CajaPage() {
   const [ieMonto, setIeMonto] = useState<number>(0);
   const [ieDescripcion, setIeDescripcion] = useState('');
   const [fondoModalOpen, setFondoModalOpen] = useState(false);
+
+  // ── Open caja detail from external navigation (e.g. Caja Central) ──
+  useEffect(() => {
+    const state = location.state as { openCajaId?: number } | null;
+    if (state?.openCajaId) {
+      setSelectedId(state.openCajaId);
+      setDrawerOpen(true);
+      // Clear state to prevent re-opening on re-render
+      window.history.replaceState({}, '');
+    }
+  }, [location.state]);
 
   // ── Queries ────────────────────────────────────
   const { data, isLoading, refetch } = useQuery({
