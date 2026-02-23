@@ -129,10 +129,13 @@ export function CajaCentralPage() {
   const movColumns = [
     { title: 'ID', dataIndex: 'ID', key: 'id', width: 70,align: 'center' as const },
     {
-      title: '', dataIndex: 'ES_MANUAL', key: 'manual', width: 55, align: 'center' as const,
-      render: (v: boolean) => v
-        ? <Tooltip title="Movimiento manual"><Tag color="gold" style={{ margin: 0 }}>M</Tag></Tooltip>
-        : <Tooltip title="Autogenerado por el sistema"><Tag style={{ margin: 0 }}>A</Tag></Tooltip>,
+      title: '', dataIndex: 'TIPO_ENTIDAD', key: 'manual', width: 55, align: 'center' as const,
+      render: (v: string, record: MovimientoCaja) =>
+        v === 'TRANSFERENCIA_FC'
+          ? <Tooltip title="Transferencia Fondo de Cambio"><Tag color="cyan" style={{ margin: 0 }}>FC</Tag></Tooltip>
+          : record.ES_MANUAL
+            ? <Tooltip title="Movimiento manual"><Tag color="gold" style={{ margin: 0 }}>M</Tag></Tooltip>
+            : <Tooltip title="Autogenerado por el sistema"><Tag style={{ margin: 0 }}>A</Tag></Tooltip>,
     },
     {
       title: 'Caja', dataIndex: 'CAJA_ID', key: 'caja', width: 75,align: 'center' as const ,
@@ -167,7 +170,7 @@ export function CajaCentralPage() {
     {
       title: '', key: 'actions', width: 50,
       render: (_: unknown, record: MovimientoCaja) =>
-        record.ES_MANUAL ? (
+        record.ES_MANUAL && record.TIPO_ENTIDAD !== 'TRANSFERENCIA_FC' ? (
           <Popconfirm
             title="¿Eliminar este movimiento manual?"
             onConfirm={() => eliminarMutation.mutate(record.ID)}

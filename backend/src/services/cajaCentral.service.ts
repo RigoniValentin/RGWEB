@@ -54,11 +54,15 @@ export const cajaCentralService = {
       return req;
     };
 
+    // Exclude internal fondo movements from the grid (like desktop app)
+    // FC transfers are internal and should not appear as ingresos/egresos
+    const whereGrid = where + ` AND m.TIPO_ENTIDAD NOT IN ('TRANSFERENCIA_FC', 'REINTEGRO_FONDO', 'DEPOSITO_FONDO')`;
+
     const result = await bind(pool.request()).query(`
       SELECT m.*, u.NOMBRE AS USUARIO_NOMBRE
       FROM MOVIMIENTOS_CAJA m
       LEFT JOIN USUARIOS u ON m.USUARIO_ID = u.USUARIO_ID
-      ${where}
+      ${whereGrid}
       ORDER BY m.FECHA DESC
     `);
 
@@ -99,21 +103,33 @@ export const cajaCentralService = {
       return req;
     };
 
-    const result = await bind(pool.request()).query(`
+    // Query 1: Ingresos / Egresos / Balance / Digital / Cheques / CtaCte
+    // Exclude internal FC transfers (like desktop app)
+    const whereTotales = where + ` AND m.TIPO_ENTIDAD NOT IN ('TRANSFERENCIA_FC', 'REINTEGRO_FONDO', 'DEPOSITO_FONDO')`;
+
+    const totalesResult = await bind(pool.request()).query(`
       SELECT
         ISNULL(SUM(CASE WHEN TOTAL >= 0 THEN TOTAL ELSE 0 END), 0) AS totalIngresos,
         ISNULL(SUM(CASE WHEN TOTAL < 0 THEN ABS(TOTAL) ELSE 0 END), 0) AS totalEgresos,
         ISNULL(SUM(TOTAL), 0) AS balance,
-        ISNULL(SUM(CASE WHEN TOTAL >= 0 THEN EFECTIVO ELSE 0 END), 0) 
-          + ISNULL(SUM(CASE WHEN TOTAL < 0 THEN EFECTIVO ELSE 0 END), 0) AS efectivo,
         ISNULL(SUM(DIGITAL), 0) AS digital,
         ISNULL(SUM(CHEQUES), 0) AS cheques,
         ISNULL(SUM(CTA_CTE), 0) AS ctaCte
       FROM MOVIMIENTOS_CAJA m
+      ${whereTotales}
+    `);
+
+    // Query 2: Efectivo includes ALL movements (FC transfers affect cash)
+    const efectivoResult = await bind(pool.request()).query(`
+      SELECT ISNULL(SUM(EFECTIVO), 0) AS efectivo
+      FROM MOVIMIENTOS_CAJA m
       ${where}
     `);
 
-    return result.recordset[0];
+    return {
+      ...totalesResult.recordset[0],
+      efectivo: efectivoResult.recordset[0].efectivo,
+    };
   },
 
   // ── Get historical balance (all time) ──────────
@@ -130,20 +146,40 @@ export const cajaCentralService = {
       });
     }
 
-    const result = await req.query(`
+    // Ingresos / Egresos / Balance: Exclude internal FC transfers (like desktop app)
+    const excludeFC = pvFilter
+      ? pvFilter + ` AND TIPO_ENTIDAD NOT IN ('TRANSFERENCIA_FC', 'REINTEGRO_FONDO', 'DEPOSITO_FONDO')`
+      : `WHERE TIPO_ENTIDAD NOT IN ('TRANSFERENCIA_FC', 'REINTEGRO_FONDO', 'DEPOSITO_FONDO')`;
+
+    const totalesResult = await req.query(`
       SELECT
         ISNULL(SUM(CASE WHEN TOTAL >= 0 THEN TOTAL ELSE 0 END), 0) AS totalIngresos,
         ISNULL(SUM(CASE WHEN TOTAL < 0 THEN ABS(TOTAL) ELSE 0 END), 0) AS totalEgresos,
         ISNULL(SUM(TOTAL), 0) AS balance,
-        ISNULL(SUM(EFECTIVO), 0) AS efectivo,
         ISNULL(SUM(DIGITAL), 0) AS digital,
         ISNULL(SUM(CHEQUES), 0) AS cheques,
         ISNULL(SUM(CTA_CTE), 0) AS ctaCte
       FROM MOVIMIENTOS_CAJA
+      ${excludeFC}
+    `);
+
+    // Efectivo includes ALL movements (FC transfers affect cash)
+    const reqEfectivo = pool.request();
+    if (puntoVentaIds && puntoVentaIds.length > 0) {
+      puntoVentaIds.forEach((id, i) => {
+        reqEfectivo.input(`pv${i}`, sql.Int, id);
+      });
+    }
+    const efectivoResult = await reqEfectivo.query(`
+      SELECT ISNULL(SUM(EFECTIVO), 0) AS efectivo
+      FROM MOVIMIENTOS_CAJA
       ${pvFilter}
     `);
 
-    return result.recordset[0];
+    return {
+      ...totalesResult.recordset[0],
+      efectivo: efectivoResult.recordset[0].efectivo,
+    };
   },
 
   // ── Get fondo de cambio saldo ──────────────────
