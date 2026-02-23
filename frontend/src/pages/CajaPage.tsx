@@ -171,27 +171,27 @@ export function CajaPage() {
 
   // ── Columns ────────────────────────────────────
   const columns = [
-    { title: '#', dataIndex: 'CAJA_ID', key: 'id', width: 70 },
+    { title: '#', dataIndex: 'CAJA_ID', key: 'id', width: 50, align: 'center' as const,},
     {
-      title: 'Apertura', dataIndex: 'FECHA_APERTURA', key: 'open', width: 150,
-      render: (v: string) => new Date(v).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      title: 'Apertura', dataIndex: 'FECHA_APERTURA', key: 'open', width: 100, align: 'center' as const,
+      render: (v: string) => new Date(v).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }),
     },
     {
-      title: 'Cierre', dataIndex: 'FECHA_CIERRE', key: 'close', width: 150,
-      render: (v: string | null) => v ? new Date(v).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-',
+      title: 'Cierre', dataIndex: 'FECHA_CIERRE', key: 'close', width: 100, align: 'center' as const,
+      render: (v: string | null) => v ? new Date(v).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '-',
     },
-    { title: 'Usuario', dataIndex: 'USUARIO_NOMBRE', key: 'user', width: 130, ellipsis: true },
-    { title: 'Punto Venta', dataIndex: 'PUNTO_VENTA_NOMBRE', key: 'pv', width: 130, ellipsis: true },
+    { title: 'Usuario', dataIndex: 'USUARIO_NOMBRE', key: 'user', width: 100, ellipsis: true ,align: 'center' as const,},
+    { title: 'Punto Venta', dataIndex: 'PUNTO_VENTA_NOMBRE', key: 'pv', width: 100, ellipsis: true , align: 'center' as const,},
     {
-      title: 'M. Apertura', dataIndex: 'MONTO_APERTURA', key: 'openAmt', width: 120, align: 'right' as const,
+      title: 'M. Apertura', dataIndex: 'MONTO_APERTURA', key: 'openAmt', width: 80, align: 'right' as const,
       render: (v: number) => fmtMoney(v),
     },
     {
-      title: 'M. Cierre', dataIndex: 'MONTO_CIERRE', key: 'closeAmt', width: 120, align: 'right' as const,
+      title: 'M. Cierre', dataIndex: 'MONTO_CIERRE', key: 'closeAmt', width: 80, align: 'right' as const,
       render: (v: number | null) => v != null ? fmtMoney(v) : '-',
     },
     {
-      title: 'Estado', dataIndex: 'ESTADO', key: 'status', width: 100,
+      title: 'Estado', dataIndex: 'ESTADO', key: 'status', width: 50, align: 'center' as const,
       render: (v: string) => <Tag color={v === 'ACTIVA' ? 'green' : 'default'}>{v}</Tag>,
     },
     {
@@ -213,17 +213,21 @@ export function CajaPage() {
   // ── Item columns for detail drawer ─────────────
   const itemColumns = [
     {
-      title: 'Fecha', dataIndex: 'FECHA', key: 'date', width: 140,
-      render: (v: string) => new Date(v).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      title: 'Fecha', dataIndex: 'FECHA', key: 'date', width: 140, align: 'center' as const,
+      render: (v: string) => new Date(v).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }),
     },
     {
-      title: 'Tipo', dataIndex: 'ORIGEN_TIPO', key: 'tipo', width: 100,
+      title: 'Tipo', dataIndex: 'ORIGEN_TIPO', key: 'tipo', width: 100, align: 'center' as const,
       render: (v: string) => {
         const colorMap: Record<string, string> = { VENTA: 'green', INGRESO: 'blue', EGRESO: 'red', FONDO_CAMBIO: 'orange' };
-        return <Tag color={colorMap[v] || 'default'}>{v}</Tag>;
+        const labelMap: Record<string, string> = { FONDO_CAMBIO: 'FC' };
+        return <Tag color={colorMap[v] || 'default'}>{labelMap[v] || v}</Tag>;
       },
     },
-    { title: 'Descripción', dataIndex: 'DESCRIPCION', key: 'desc', ellipsis: true },
+    {
+      title: 'Descripción', dataIndex: 'DESCRIPCION', key: 'desc', ellipsis: true,
+      render: (v: string, r: any) => r.ORIGEN_TIPO === 'FONDO_CAMBIO' ? v?.replace(/Fondo de Cambio/gi, 'FC') : v,
+    },
     {
       title: 'Efectivo', dataIndex: 'MONTO_EFECTIVO', key: 'cash', width: 110, align: 'right' as const,
       render: (v: number) => <Text type={v < 0 ? 'danger' : undefined}>{fmtMoney(v)}</Text>,

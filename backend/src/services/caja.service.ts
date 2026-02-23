@@ -207,6 +207,18 @@ export const cajaService = {
             INSERT INTO FONDO_CAMBIO (CAJA_ID, TIPO_MOVIMIENTO, MONTO, SALDO_RESULTANTE, USUARIO_ID, PUNTO_VENTA_ID, OBSERVACIONES)
             VALUES (@cajaId, 'RETIRO', @monto, @saldo, @uid, @pvId, 'Retiro por apertura de caja')
           `);
+
+        // Register the incoming cash as a CAJA_ITEMS entry
+        await transaction.request()
+          .input('cajaId', sql.Int, cajaId)
+          .input('origenTipo', sql.VarChar(30), 'FONDO_CAMBIO')
+          .input('efectivo', sql.Decimal(18, 2), retiro)
+          .input('desc', sql.NVarChar(255), 'Retiro de fondo de cambio por apertura')
+          .input('uid', sql.Int, usuarioId)
+          .query(`
+            INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
+            VALUES (@cajaId, GETDATE(), @origenTipo, @efectivo, 0, @desc, @uid)
+          `);
       }
 
       await transaction.commit();
@@ -254,7 +266,7 @@ export const cajaService = {
         `);
 
       const { TOTAL_EFECTIVO } = itemsResult.recordset[0];
-      const montoCierre = input.MONTO_CIERRE ?? (caja.MONTO_APERTURA + TOTAL_EFECTIVO);
+      const montoCierre = input.MONTO_CIERRE ?? TOTAL_EFECTIVO;
 
       // Close the caja
       await transaction.request()
@@ -282,6 +294,18 @@ export const cajaService = {
           .query(`
             INSERT INTO FONDO_CAMBIO (CAJA_ID, TIPO_MOVIMIENTO, MONTO, SALDO_RESULTANTE, USUARIO_ID, PUNTO_VENTA_ID, OBSERVACIONES)
             VALUES (@cajaId, 'DEPOSITO', @monto, @saldo, @uid, @pvId, 'Depósito por cierre de caja')
+          `);
+
+        // Register the outgoing cash as a CAJA_ITEMS entry
+        await transaction.request()
+          .input('cajaId', sql.Int, cajaId)
+          .input('origenTipo', sql.VarChar(30), 'FONDO_CAMBIO')
+          .input('efectivo', sql.Decimal(18, 2), -montoCierre)
+          .input('desc', sql.NVarChar(255), 'Depósito a fondo de cambio por cierre')
+          .input('uid', sql.Int, usuarioId)
+          .query(`
+            INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
+            VALUES (@cajaId, GETDATE(), @origenTipo, @efectivo, 0, @desc, @uid)
           `);
       }
 
@@ -469,7 +493,7 @@ export const cajaService = {
       SELECT c.CAJA_ID, c.USUARIO_ID, c.FECHA_APERTURA, c.MONTO_APERTURA, c.PUNTO_VENTA_ID,
         u.NOMBRE AS USUARIO_NOMBRE,
         pv.NOMBRE AS PUNTO_VENTA_NOMBRE,
-        ISNULL(SUM(ci.MONTO_EFECTIVO), 0) + c.MONTO_APERTURA AS EFECTIVO_DISPONIBLE
+        ISNULL(SUM(ci.MONTO_EFECTIVO), 0) AS EFECTIVO_DISPONIBLE
       FROM CAJA c
       LEFT JOIN USUARIOS u ON c.USUARIO_ID = u.USUARIO_ID
       LEFT JOIN PUNTO_VENTAS pv ON c.PUNTO_VENTA_ID = pv.PUNTO_VENTA_ID
@@ -489,11 +513,11 @@ export const cajaService = {
     const result = await pool.request()
       .input('cajaId', sql.Int, cajaId)
       .query(`
-        SELECT c.MONTO_APERTURA + ISNULL(SUM(ci.MONTO_EFECTIVO), 0) AS EFECTIVO
+        SELECT ISNULL(SUM(ci.MONTO_EFECTIVO), 0) AS EFECTIVO
         FROM CAJA c
         LEFT JOIN CAJA_ITEMS ci ON ci.CAJA_ID = c.CAJA_ID
         WHERE c.CAJA_ID = @cajaId AND c.ESTADO = 'ACTIVA'
-        GROUP BY c.MONTO_APERTURA
+        GROUP BY c.CAJA_ID
       `);
     if (result.recordset.length === 0) throw new ValidationError('Caja no encontrada o no está activa');
     return result.recordset[0].EFECTIVO;
@@ -643,11 +667,11 @@ export const cajaService = {
     const result = await transaction.request()
       .input('cajaId', sql.Int, cajaId)
       .query(`
-        SELECT c.MONTO_APERTURA + ISNULL(SUM(ci.MONTO_EFECTIVO), 0) AS EFECTIVO
+        SELECT ISNULL(SUM(ci.MONTO_EFECTIVO), 0) AS EFECTIVO
         FROM CAJA c
         LEFT JOIN CAJA_ITEMS ci ON ci.CAJA_ID = c.CAJA_ID
         WHERE c.CAJA_ID = @cajaId AND c.ESTADO = 'ACTIVA'
-        GROUP BY c.MONTO_APERTURA
+        GROUP BY c.CAJA_ID
       `);
     return result.recordset.length > 0 ? result.recordset[0].EFECTIVO : 0;
   },
