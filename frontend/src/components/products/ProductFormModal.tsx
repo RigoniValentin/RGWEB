@@ -1,16 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   Modal, Form, Input, InputNumber, Select, Switch, Tabs, Space, Button,
-  Table, Tag, DatePicker, Typography, Row, Col, Divider, Badge, App,
+  Table, Tag, Typography, Row, Col, Divider, Badge, App, Tooltip,
 } from 'antd';
 import {
   PlusOutlined, DeleteOutlined, BarcodeOutlined, ShopOutlined,
-  DollarOutlined, InboxOutlined, FileTextOutlined,
+  DollarOutlined, InboxOutlined, FileTextOutlined, UndoOutlined,
 } from '@ant-design/icons';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { catalogApi } from '../../services/catalog.api';
 import { productApi, type TasaImpuesto } from '../../services/product.api';
-import dayjs from 'dayjs';
 import type { Producto } from '../../types';
 
 const { Text } = Typography;
@@ -25,6 +24,7 @@ interface Props {
 
 export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: Props) {
   const { message } = App.useApp();
+  const queryClient = useQueryClient();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [barcodes, setBarcodes] = useState<string[]>([]);
@@ -33,6 +33,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
   const [selectedProveedores, setSelectedProveedores] = useState<number[]>([]);
   const [activeTab, setActiveTab] = useState('general');
   const [tabErrors, setTabErrors] = useState<{ stock?: boolean; proveedores?: boolean }>({});
+  const [margenes, setMargenes] = useState<number[]>([0, 0, 0, 0, 0]);
 
   // ── Catalog data ───────────────────────────────
   const { data: categorias } = useQuery({ queryKey: ['categorias'], queryFn: () => catalogApi.getCategorias() });
@@ -53,6 +54,17 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
     enabled: !!editId && open,
   });
 
+  // Refresh catalog data every time the modal opens
+  useEffect(() => {
+    if (!open) return;
+    queryClient.invalidateQueries({ queryKey: ['categorias'] });
+    queryClient.invalidateQueries({ queryKey: ['marcas'] });
+    queryClient.invalidateQueries({ queryKey: ['unidades'] });
+    queryClient.invalidateQueries({ queryKey: ['depositos'] });
+    queryClient.invalidateQueries({ queryKey: ['all-suppliers'] });
+    queryClient.invalidateQueries({ queryKey: ['listas-precios'] });
+  }, [open, queryClient]);
+
   useEffect(() => {
     if (!open) return;
     setActiveTab('general');
@@ -61,11 +73,12 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
     if (editId && detail) {
       form.setFieldsValue({
         ...detail,
-        FECHA_VENCIMIENTO: detail.FECHA_VENCIMIENTO ? dayjs(detail.FECHA_VENCIMIENTO) : null,
+        FECHA_VENCIMIENTO: null,
       });
       setBarcodes(detail.codigosBarras || []);
       setDepositos(detail.stockDepositos || []);
       setSelectedProveedores(detail.proveedores?.map((p) => p.PROVEEDOR_ID) || []);
+      setMargenes(detail.margenes || [0, 0, 0, 0, 0]);
     } else if (copyFrom) {
       form.setFieldsValue({
         ...copyFrom,
@@ -76,6 +89,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
       setBarcodes([]);
       setDepositos([]);
       setSelectedProveedores([]);
+      setMargenes([0, 0, 0, 0, 0]);
     } else {
       form.resetFields();
       form.setFieldsValue({
@@ -88,12 +102,19 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
         LISTA_DEFECTO: 1,
         IMP_INT: 0,
         STOCK_MINIMO: 0,
+        MARGEN_INDIVIDUAL: true,
       });
       setBarcodes([]);
       setDepositos([]);
       setSelectedProveedores([]);
+      // Initialize margins from default lista margins
+      if (listas && listas.length >= 5) {
+        setMargenes(listas.slice(0, 5).map(l => l.MARGEN || 0));
+      } else {
+        setMargenes([0, 0, 0, 0, 0]);
+      }
     }
-  }, [open, editId, detail, copyFrom, form]);
+  }, [open, editId, detail, copyFrom, form, listas]);
 
   // Set default tax rate once tasas are loaded (separate to avoid resetting form state)
   useEffect(() => {
@@ -144,6 +165,60 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
     setDepositos(next);
   };
 
+  // ── Price / Margin auto-calculation ────────────
+  const recalcAllPricesFromMargins = useCallback((costo: number, currentMargenes: number[]) => {
+    if (costo <= 0) return;
+    const fields: Record<string, number> = {};
+    for (let i = 0; i < 5; i++) {
+      fields[`LISTA_${i + 1}`] = Math.round((costo * (1 + (currentMargenes[i] || 0) / 100)) * 100) / 100;
+    }
+    form.setFieldsValue(fields);
+  }, [form]);
+
+  const handleCostoChange = useCallback((value: number | null) => {
+    const costo = value ?? 0;
+    form.setFieldsValue({ PRECIO_COMPRA: costo });
+    recalcAllPricesFromMargins(costo, margenes);
+  }, [form, margenes, recalcAllPricesFromMargins]);
+
+  const handleMargenChange = useCallback((idx: number, value: number | null) => {
+    const newMargenes = [...margenes];
+    newMargenes[idx] = value ?? 0;
+    setMargenes(newMargenes);
+    const costo = form.getFieldValue('PRECIO_COMPRA') || 0;
+    if (costo > 0) {
+      const precio = Math.round((costo * (1 + newMargenes[idx] / 100)) * 100) / 100;
+      form.setFieldsValue({ [`LISTA_${idx + 1}`]: precio });
+    }
+  }, [form, margenes]);
+
+  const handlePrecioListaChange = useCallback((idx: number, value: number | null) => {
+    const precio = value ?? 0;
+    form.setFieldsValue({ [`LISTA_${idx + 1}`]: precio });
+    const costo = form.getFieldValue('PRECIO_COMPRA') || 0;
+    if (costo > 0 && precio > 0) {
+      const nuevoMargen = Math.round(((precio / costo) - 1) * 10000) / 100;
+      const newMargenes = [...margenes];
+      newMargenes[idx] = nuevoMargen;
+      setMargenes(newMargenes);
+    } else if (precio === 0) {
+      const newMargenes = [...margenes];
+      newMargenes[idx] = 0;
+      setMargenes(newMargenes);
+    }
+  }, [form, margenes]);
+
+  const handleResetMargenesDefecto = useCallback(() => {
+    if (!listas || listas.length < 5) return;
+    const defaultMargenes = listas.slice(0, 5).map(l => l.MARGEN || 0);
+    setMargenes(defaultMargenes);
+    const costo = form.getFieldValue('PRECIO_COMPRA') || 0;
+    if (costo > 0) {
+      recalcAllPricesFromMargins(costo, defaultMargenes);
+    }
+    message.success('Márgenes restaurados a los valores por defecto de las listas');
+  }, [listas, form, recalcAllPricesFromMargins, message]);
+
   // ── Save ───────────────────────────────────────
   const handleSave = async () => {
     try {
@@ -171,10 +246,12 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
 
       const payload = {
         ...values,
-        FECHA_VENCIMIENTO: values.FECHA_VENCIMIENTO ? values.FECHA_VENCIMIENTO.format('YYYY-MM-DD') : null,
+        FECHA_VENCIMIENTO: null,
+        MARGEN_INDIVIDUAL: true,
         codigosBarras: barcodes,
         depositos: depositos.map(d => ({ DEPOSITO_ID: d.DEPOSITO_ID, CANTIDAD: d.CANTIDAD })),
         proveedores: selectedProveedores,
+        margenes,
       };
 
       if (editId) {
@@ -229,8 +306,11 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                 <>
                   <Row gutter={16}>
                     <Col span={8}>
-                      <Form.Item name="CODIGOPARTICULAR" label="Código" rules={[{ required: true, message: 'Requerido' }]}>
-                        <Input placeholder="Código particular" />
+                      <Form.Item name="CODIGOPARTICULAR" label="Código" rules={isEdit || copyFrom ? [{ required: true, message: 'Requerido' }] : []}>
+                        <Input
+                          placeholder={isEdit || copyFrom ? 'Código particular' : 'Se genera automáticamente'}
+                          disabled={!isEdit && !copyFrom}
+                        />
                       </Form.Item>
                     </Col>
                     <Col span={16}>
@@ -284,11 +364,6 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                       </Form.Item>
                     </Col>
                     <Col span={8}>
-                      <Form.Item name="FECHA_VENCIMIENTO" label="Fecha Vencimiento">
-                        <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
-                      </Form.Item>
-                    </Col>
-                    <Col span={4}>
                       <Form.Item name="ACTIVO" label="Activo" valuePropName="checked">
                         <Switch />
                       </Form.Item>
@@ -309,32 +384,28 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                 <>
                   <Row gutter={16}>
                     <Col span={8}>
-                      <Form.Item name="PRECIO_COMPRA" label="Costo ARS ($)">
-                        <InputNumber min={0} precision={2} style={{ width: '100%' }} prefix="$" />
-                      </Form.Item>
-                    </Col>
-                    <Col span={8}>
                       <Form.Item name="COSTO_USD" label="Costo USD (U$S)">
                         <InputNumber min={0} precision={2} style={{ width: '100%' }} prefix="U$S" />
                       </Form.Item>
                     </Col>
                     <Col span={8}>
-                      <Form.Item name="PRECIO_COMPRA_BASE" label="Costo Base ($)">
+                      <Form.Item name="IMP_INT" label="Imp. Internos ($)">
+                        <InputNumber min={0} precision={2} style={{ width: '100%' }} prefix="$" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={8}>
+                      <Form.Item name="PRECIO_COMPRA_BASE" label="Costo sin impuestos ($)">
                         <InputNumber min={0} precision={2} style={{ width: '100%' }} prefix="$" />
                       </Form.Item>
                     </Col>
                   </Row>
-                  <Divider style={{ margin: '12px 0' }}>Listas de Precios</Divider>
                   <Row gutter={16}>
-                    {[1, 2, 3, 4, 5].map(i => (
-                      <Col span={i <= 3 ? 8 : 12} key={i}>
-                        <Form.Item name={`LISTA_${i}`} label={listas?.[i - 1]?.NOMBRE || `Lista ${i}`}>
-                          <InputNumber min={0} precision={2} style={{ width: '100%' }} prefix="$" />
-                        </Form.Item>
-                      </Col>
-                    ))}
-                  </Row>
-                  <Row gutter={16}>
+                    <Col span={8}>
+                      <Form.Item name="PRECIO_COMPRA" label="Costo con impuestos ($)">
+                        <InputNumber min={0} precision={2} style={{ width: '100%' }} prefix="$"
+                          onChange={handleCostoChange} />
+                      </Form.Item>
+                    </Col>
                     <Col span={8}>
                       <Form.Item name="LISTA_DEFECTO" label="Lista por defecto">
                         <Select
@@ -344,17 +415,66 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                         />
                       </Form.Item>
                     </Col>
-                    <Col span={8}>
-                      <Form.Item name="IMP_INT" label="Imp. Internos ($)">
-                        <InputNumber min={0} precision={2} style={{ width: '100%' }} prefix="$" />
-                      </Form.Item>
-                    </Col>
-                    <Col span={8}>
-                      <Form.Item name="MARGEN_INDIVIDUAL" label="Margen Individual" valuePropName="checked">
-                        <Switch />
-                      </Form.Item>
-                    </Col>
                   </Row>
+                  <Divider style={{ margin: '12px 0' }}>
+                    <Space size={12}>
+                      Lista de Precios
+                      <Tooltip title={
+                        listas && listas.length >= 5
+                          ? `Restaurar márgenes por defecto:\n${listas.slice(0, 5).map(l => `${l.NOMBRE}: ${l.MARGEN}%`).join(', ')}`
+                          : 'Restaurar márgenes por defecto de cada lista'
+                      }>
+                        <Button
+                          type="link"
+                          size="small"
+                          icon={<UndoOutlined />}
+                          onClick={handleResetMargenesDefecto}
+                          style={{ fontSize: 12, padding: 0 }}
+                        >
+                          Usar márgenes por defecto
+                        </Button>
+                      </Tooltip>
+                    </Space>
+                  </Divider>
+                  <Table
+                    size="small"
+                    pagination={false}
+                    dataSource={listas?.slice(0, 5).map((l, i) => ({ key: i, idx: i, NOMBRE: l.NOMBRE })) || []}
+                    columns={[
+                      {
+                        title: 'Nombre', dataIndex: 'NOMBRE', width: '40%',
+                      },
+                      {
+                        title: 'Margen (%)', dataIndex: 'idx', width: '30%',
+                        render: (_: any, row: any) => (
+                          <InputNumber
+                            size="small"
+                            min={0}
+                            precision={2}
+                            style={{ width: '100%' }}
+                            suffix="%"
+                            value={margenes[row.idx]}
+                            onChange={(v) => handleMargenChange(row.idx, v)}
+                          />
+                        ),
+                      },
+                      {
+                        title: 'Precio ($)', dataIndex: 'idx', width: '30%',
+                        render: (_: any, row: any) => (
+                          <Form.Item name={`LISTA_${row.idx + 1}`} noStyle>
+                            <InputNumber
+                              size="small"
+                              min={0}
+                              precision={2}
+                              style={{ width: '100%' }}
+                              prefix="$"
+                              onChange={(v) => handlePrecioListaChange(row.idx, v)}
+                            />
+                          </Form.Item>
+                        ),
+                      },
+                    ]}
+                  />
                 </>
               ),
             },

@@ -28,6 +28,7 @@ export interface ProductInput {
   codigosBarras?: string[];
   depositos?: { DEPOSITO_ID: number; CANTIDAD: number }[];
   proveedores?: number[];
+  margenes?: number[];  // [MARGEN_LISTA_1 .. MARGEN_LISTA_5]
 }
 
 export interface ProductDetail extends Producto {
@@ -36,6 +37,7 @@ export interface ProductDetail extends Producto {
   stockDepositos: (StockDeposito & { DEPOSITO_NOMBRE: string })[];
   TASA_IVA_NOMBRE?: string;
   TASA_IVA_PORCENTAJE?: number;
+  margenes?: number[];
 }
 
 export interface TasaImpuesto {

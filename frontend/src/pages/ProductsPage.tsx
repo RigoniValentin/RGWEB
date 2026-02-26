@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Input, Typography, Tag, Select, Button, Dropdown, Modal, App,
-  Tooltip, InputNumber,
+  Tooltip, InputNumber, Drawer, Spin,
 } from 'antd';
 import type { InputRef, TableColumnType } from 'antd';
 import {
@@ -537,26 +537,24 @@ export function ProductsPage() {
         productIds={selectedIds}
       />
 
-      {/* ── Detail Modal ──────────────────────── */}
-      <Modal
+      {/* ── Detail Drawer ─────────────────────── */}
+      <Drawer
         title={<span><BarcodeOutlined /> Detalle del Producto</span>}
         open={detailOpen}
-        onCancel={() => { setDetailOpen(false); setDetailId(null); }}
-        footer={
-          <Space>
-            <Button onClick={() => { setDetailOpen(false); setDetailId(null); }}>Cerrar</Button>
-            <Button type="primary" icon={<EditOutlined />} className="btn-gold"
-              onClick={() => { setDetailOpen(false); handleEdit({ PRODUCTO_ID: detailId } as Producto); }}>
-              Editar
-            </Button>
-          </Space>
-        }
-        width={640}
+        onClose={() => { setDetailOpen(false); setDetailId(null); }}
+        width={560}
         className="rg-drawer"
-        loading={detailLoading}
+        extra={
+          <Button type="primary" icon={<EditOutlined />} className="btn-gold" size="small"
+            onClick={() => { setDetailOpen(false); handleEdit({ PRODUCTO_ID: detailId } as Producto); }}>
+            Editar
+          </Button>
+        }
       >
-        {renderDetail()}
-      </Modal>
+        {detailLoading ? (
+          <div style={{ textAlign: 'center', padding: 40 }}><Spin size="large" /></div>
+        ) : renderDetail()}
+      </Drawer>
     </div>
   );
 }

@@ -18,7 +18,7 @@ export interface ProductFilter {
 }
 
 export interface ProductInput {
-  CODIGOPARTICULAR: string;
+  CODIGOPARTICULAR?: string;
   NOMBRE: string;
   DESCRIPCION?: string | null;
   CATEGORIA_ID?: number | null;
@@ -44,6 +44,7 @@ export interface ProductInput {
   codigosBarras?: string[];
   depositos?: { DEPOSITO_ID: number; CANTIDAD: number }[];
   proveedores?: number[];
+  margenes?: number[];  // [MARGEN_LISTA_1 .. MARGEN_LISTA_5]
 }
 
 export interface InlineEditInput {
@@ -182,11 +183,22 @@ export const productService = {
               FROM PRODUCTOS_PROVEEDORES pp JOIN PROVEEDORES pr ON pp.PROVEEDOR_ID = pr.PROVEEDOR_ID
               WHERE pp.PRODUCTO_ID = @id`);
 
+    // Fetch product margins
+    const margenesResult = await pool.request().input('id', sql.Int, id)
+      .query(`SELECT MARGEN_LISTA_1, MARGEN_LISTA_2, MARGEN_LISTA_3, MARGEN_LISTA_4, MARGEN_LISTA_5
+              FROM PRODUCTO_MARGENES WHERE PRODUCTO_ID = @id`);
+    let margenes: number[] = [0, 0, 0, 0, 0];
+    if (margenesResult.recordset.length > 0) {
+      const m = margenesResult.recordset[0];
+      margenes = [m.MARGEN_LISTA_1, m.MARGEN_LISTA_2, m.MARGEN_LISTA_3, m.MARGEN_LISTA_4, m.MARGEN_LISTA_5];
+    }
+
     return {
       ...result.recordset[0],
       codigosBarras: cbResult.recordset.map((r: any) => r.CODIGO_BARRAS),
       proveedores: provResult.recordset,
       stockDepositos: stockResult.recordset,
+      margenes,
     };
   },
 
@@ -206,7 +218,7 @@ export const productService = {
     await tx.begin();
     try {
       const result = await tx.request()
-        .input('codigo', sql.NVarChar, input.CODIGOPARTICULAR)
+        .input('codigo', sql.NVarChar, input.CODIGOPARTICULAR || 'TEMP')
         .input('nombre', sql.NVarChar, input.NOMBRE)
         .input('descripcion', sql.VarChar, input.DESCRIPCION || null)
         .input('categoriaId', sql.Int, input.CATEGORIA_ID || null)
@@ -248,6 +260,12 @@ export const productService = {
 
       const productoId = result.recordset[0].PRODUCTO_ID;
 
+      // Auto-assign CODIGOPARTICULAR = PRODUCTO_ID
+      await tx.request()
+        .input('prodId', sql.Int, productoId)
+        .input('codPart', sql.NVarChar, String(productoId))
+        .query(`UPDATE PRODUCTOS SET CODIGOPARTICULAR = @codPart WHERE PRODUCTO_ID = @prodId`);
+
       if (input.codigosBarras?.length) {
         for (const cb of input.codigosBarras) {
           if (cb.trim()) {
@@ -284,6 +302,19 @@ export const productService = {
             .query(`INSERT INTO PRODUCTOS_PROVEEDORES (PRODUCTO_ID, PROVEEDOR_ID) VALUES (@prodId, @provId)`);
         }
       }
+
+      // Insert product margins
+      const margenes = input.margenes || [0, 0, 0, 0, 0];
+      while (margenes.length < 5) margenes.push(0);
+      await tx.request()
+        .input('prodId', sql.Int, productoId)
+        .input('m1', sql.Decimal(18, 4), margenes[0])
+        .input('m2', sql.Decimal(18, 4), margenes[1])
+        .input('m3', sql.Decimal(18, 4), margenes[2])
+        .input('m4', sql.Decimal(18, 4), margenes[3])
+        .input('m5', sql.Decimal(18, 4), margenes[4])
+        .query(`INSERT INTO PRODUCTO_MARGENES (PRODUCTO_ID, MARGEN_LISTA_1, MARGEN_LISTA_2, MARGEN_LISTA_3, MARGEN_LISTA_4, MARGEN_LISTA_5)
+                VALUES (@prodId, @m1, @m2, @m3, @m4, @m5)`);
 
       await tx.commit();
       return { PRODUCTO_ID: productoId };
@@ -376,6 +407,33 @@ export const productService = {
         }
       }
 
+      // Update or insert product margins
+      if (input.margenes !== undefined) {
+        const margenes = input.margenes || [0, 0, 0, 0, 0];
+        while (margenes.length < 5) margenes.push(0);
+        const existing = await tx.request().input('id', sql.Int, id)
+          .query(`SELECT 1 FROM PRODUCTO_MARGENES WHERE PRODUCTO_ID = @id`);
+        if (existing.recordset.length > 0) {
+          await tx.request()
+            .input('id', sql.Int, id)
+            .input('m1', sql.Decimal(18, 4), margenes[0])
+            .input('m2', sql.Decimal(18, 4), margenes[1])
+            .input('m3', sql.Decimal(18, 4), margenes[2])
+            .input('m4', sql.Decimal(18, 4), margenes[3])
+            .input('m5', sql.Decimal(18, 4), margenes[4])
+            .query(`UPDATE PRODUCTO_MARGENES SET MARGEN_LISTA_1=@m1, MARGEN_LISTA_2=@m2, MARGEN_LISTA_3=@m3, MARGEN_LISTA_4=@m4, MARGEN_LISTA_5=@m5 WHERE PRODUCTO_ID = @id`);
+        } else {
+          await tx.request()
+            .input('id', sql.Int, id)
+            .input('m1', sql.Decimal(18, 4), margenes[0])
+            .input('m2', sql.Decimal(18, 4), margenes[1])
+            .input('m3', sql.Decimal(18, 4), margenes[2])
+            .input('m4', sql.Decimal(18, 4), margenes[3])
+            .input('m5', sql.Decimal(18, 4), margenes[4])
+            .query(`INSERT INTO PRODUCTO_MARGENES (PRODUCTO_ID, MARGEN_LISTA_1, MARGEN_LISTA_2, MARGEN_LISTA_3, MARGEN_LISTA_4, MARGEN_LISTA_5) VALUES (@id, @m1, @m2, @m3, @m4, @m5)`);
+        }
+      }
+
       await tx.commit();
     } catch (err) {
       await tx.rollback();
@@ -403,6 +461,7 @@ export const productService = {
       await tx.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTOS_COD_BARRAS WHERE PRODUCTO_ID = @id`);
       await tx.request().input('id', sql.Int, id).query(`DELETE FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @id`);
       await tx.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTOS_PROVEEDORES WHERE PRODUCTO_ID = @id`);
+      await tx.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTO_MARGENES WHERE PRODUCTO_ID = @id`);
       await tx.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTOS WHERE PRODUCTO_ID = @id`);
       await tx.commit();
       return { mode: 'hard' as const };
@@ -477,6 +536,7 @@ export const productService = {
         await pool.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTOS_COD_BARRAS WHERE PRODUCTO_ID = @id`);
         await pool.request().input('id', sql.Int, id).query(`DELETE FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @id`);
         await pool.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTOS_PROVEEDORES WHERE PRODUCTO_ID = @id`);
+        await pool.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTO_MARGENES WHERE PRODUCTO_ID = @id`);
         await pool.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTOS WHERE PRODUCTO_ID = @id`);
         deleted++;
       }
@@ -559,7 +619,31 @@ export const productService = {
         );
         SELECT SCOPE_IDENTITY() AS PRODUCTO_ID;
       `);
-    return { PRODUCTO_ID: result.recordset[0].PRODUCTO_ID };
+    const newId = result.recordset[0].PRODUCTO_ID;
+
+    // Copy margins from source product
+    const srcMargenes = await pool.request().input('srcId', sql.Int, sourceId)
+      .query(`SELECT MARGEN_LISTA_1, MARGEN_LISTA_2, MARGEN_LISTA_3, MARGEN_LISTA_4, MARGEN_LISTA_5
+              FROM PRODUCTO_MARGENES WHERE PRODUCTO_ID = @srcId`);
+    if (srcMargenes.recordset.length > 0) {
+      const m = srcMargenes.recordset[0];
+      await pool.request()
+        .input('prodId', sql.Int, newId)
+        .input('m1', sql.Decimal(18, 4), m.MARGEN_LISTA_1 || 0)
+        .input('m2', sql.Decimal(18, 4), m.MARGEN_LISTA_2 || 0)
+        .input('m3', sql.Decimal(18, 4), m.MARGEN_LISTA_3 || 0)
+        .input('m4', sql.Decimal(18, 4), m.MARGEN_LISTA_4 || 0)
+        .input('m5', sql.Decimal(18, 4), m.MARGEN_LISTA_5 || 0)
+        .query(`INSERT INTO PRODUCTO_MARGENES (PRODUCTO_ID, MARGEN_LISTA_1, MARGEN_LISTA_2, MARGEN_LISTA_3, MARGEN_LISTA_4, MARGEN_LISTA_5)
+                VALUES (@prodId, @m1, @m2, @m3, @m4, @m5)`);
+    } else {
+      await pool.request()
+        .input('prodId', sql.Int, newId)
+        .query(`INSERT INTO PRODUCTO_MARGENES (PRODUCTO_ID, MARGEN_LISTA_1, MARGEN_LISTA_2, MARGEN_LISTA_3, MARGEN_LISTA_4, MARGEN_LISTA_5)
+                VALUES (@prodId, 0, 0, 0, 0, 0)`);
+    }
+
+    return { PRODUCTO_ID: newId };
   },
 
   // ── Get tax rates ──────────────────────────────

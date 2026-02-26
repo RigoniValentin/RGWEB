@@ -25,7 +25,7 @@ export function CajaCentralPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { openTab } = useTabStore();
-  const { puntoVentaActivo } = useAuthStore();
+  const { puntoVentaActivo, puntosVenta } = useAuthStore();
 
   // ── State ──────────────────────────────────────
   const [datePreset, setDatePreset] = useState<DatePreset>('mes');
@@ -41,6 +41,7 @@ export function CajaCentralPage() {
   const [nuevoDigital, setNuevoDigital] = useState<number>(0);
   const [nuevoCheques, setNuevoCheques] = useState<number>(0);
   const [nuevoCtaCte, setNuevoCtaCte] = useState<number>(0);
+  const [nuevoPvId, setNuevoPvId] = useState<number | undefined>(() => puntosVenta.length === 1 ? puntosVenta[0]?.PUNTO_VENTA_ID : puntoVentaActivo ?? undefined);
   const [cajaIdFilter, setCajaIdFilter] = useState<string>('');
   const [pvFilter, setPvFilter] = useState<number | undefined>(() => puntoVentaActivo ?? undefined);
 
@@ -97,7 +98,7 @@ export function CajaCentralPage() {
       digital: nuevoDigital,
       cheques: nuevoCheques,
       ctaCte: nuevoCtaCte,
-      puntoVentaId: puntoVentaActivo || undefined,
+      puntoVentaId: nuevoPvId,
     }),
     onSuccess: () => {
       message.success('Movimiento registrado');
@@ -123,6 +124,7 @@ export function CajaCentralPage() {
     setNuevoDigital(0);
     setNuevoCheques(0);
     setNuevoCtaCte(0);
+    setNuevoPvId(puntosVenta.length === 1 ? puntosVenta[0]?.PUNTO_VENTA_ID : puntoVentaActivo ?? undefined);
   };
 
 
@@ -367,20 +369,34 @@ export function CajaCentralPage() {
         onOk={() => crearMutation.mutate()}
         confirmLoading={crearMutation.isPending}
         okText="Registrar"
-        okButtonProps={{ className: nuevoTipo === 'INGRESO' ? 'btn-gold' : undefined, danger: nuevoTipo === 'EGRESO', disabled: !nuevoDesc.trim() || nuevoTotal <= 0 }}
+        okButtonProps={{ className: nuevoTipo === 'INGRESO' ? 'btn-gold' : undefined, danger: nuevoTipo === 'EGRESO', disabled: !nuevoDesc.trim() || nuevoTotal <= 0 || !nuevoPvId }}
         width={500}
       >
         <Form layout="vertical">
-          <Form.Item label="Tipo">
-            <Select
-              value={nuevoTipo}
-              onChange={v => setNuevoTipo(v)}
-              options={[
-                { value: 'INGRESO', label: '↑ Ingreso' },
-                { value: 'EGRESO', label: '↓ Egreso' },
-              ]}
-            />
-          </Form.Item>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item label="Tipo">
+                <Select
+                  value={nuevoTipo}
+                  onChange={v => setNuevoTipo(v)}
+                  options={[
+                    { value: 'INGRESO', label: '↑ Ingreso' },
+                    { value: 'EGRESO', label: '↓ Egreso' },
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Punto de Venta" required>
+                <Select
+                  value={nuevoPvId}
+                  onChange={v => setNuevoPvId(v)}
+                  placeholder="Seleccionar..."
+                  options={puntosVenta.map(pv => ({ value: pv.PUNTO_VENTA_ID, label: pv.NOMBRE }))}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
           <Form.Item label="Descripción" required>
             <Input
               value={nuevoDesc}
