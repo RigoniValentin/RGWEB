@@ -168,16 +168,16 @@ export function DashboardPage() {
               size="small"
               pagination={false}
               columns={[
-                { title: 'Código', dataIndex: 'CODIGOPARTICULAR', width: 80 },
+                { title: 'Código', dataIndex: 'CODIGOPARTICULAR', width: 90, align: 'center' as const },
                 { title: 'Producto', dataIndex: 'NOMBRE', ellipsis: true },
                 {
                   title: 'Stock',
                   dataIndex: 'CANTIDAD',
-                  width: 70,
-                  align: 'right' as const,
+                  width: 90,
+                  align: 'center' as const,
                   render: (v: number) => <Tag color="red">{v}</Tag>,
                 },
-                { title: 'Mín', dataIndex: 'STOCK_MINIMO', width: 60, align: 'right' as const },
+                { title: 'Mín', dataIndex: 'STOCK_MINIMO', width: 60, align: 'center' as const },
               ]}
             />
           </Card>

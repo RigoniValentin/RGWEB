@@ -269,34 +269,41 @@ export function ProductsPage() {
       title: 'Categoría',
       dataIndex: 'CATEGORIA_NOMBRE',
       key: 'CATEGORIA_NOMBRE',
-      width: 150,
+      width: 200,
       sorter: true,
+      ellipsis: { showTitle: true },
+      
     },
     {
       title: 'Marca',
       dataIndex: 'MARCA_NOMBRE',
       key: 'MARCA_NOMBRE',
-      width: 120,
+      width: 130,
       sorter: true,
+      ellipsis: { showTitle: true },
     },
     {
-      title: listas?.[0]?.NOMBRE || 'Lista 1',
+      title: 'Listas $',
       dataIndex: 'LISTA_1',
       key: 'LISTA_1',
       width: 125,
       align: 'right',
       sorter: true,
-      render: (v: number, record: Producto) => (
-        <div
-          style={{ cursor: 'pointer', minHeight: 22 }}
-          onClick={() => { setPriceListProduct(record); setPriceListOpen(true); }}
-          title="Click para ver/editar todas las listas"
-        >
-          <span style={{ borderBottom: '1px dashed rgba(234,189,35,0.5)' }}>
-            {fmtMoney(v)}
-          </span>
-        </div>
-      ),
+      render: (_: number, record: Producto) => {
+        const defList = record.LISTA_DEFECTO ?? 1;
+        const price = (record as any)[`LISTA_${defList}`] as number ?? record.LISTA_1;
+        return (
+          <div
+            style={{ cursor: 'pointer', minHeight: 22 }}
+            onClick={() => { setPriceListProduct(record); setPriceListOpen(true); }}
+            title="Click para ver/editar todas las listas"
+          >
+            <span style={{ borderBottom: '1px dashed rgba(234,189,35,0.5)' }}>
+              {fmtMoney(price)}
+            </span>
+          </div>
+        );
+      },
     },
     {
       title: 'Costo',
