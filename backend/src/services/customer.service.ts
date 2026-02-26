@@ -1,14 +1,35 @@
 import { getPool, sql } from '../database/connection.js';
 import type { Cliente, PaginatedResult } from '../types/index.js';
 
+// ═══════════════════════════════════════════════════
+//  Customer Service — Full CRUD
+// ═══════════════════════════════════════════════════
+
 export interface ClienteFilter {
   page?: number;
   pageSize?: number;
   search?: string;
   activo?: boolean;
+  orderBy?: string;
+  orderDir?: 'ASC' | 'DESC';
+}
+
+export interface ClienteInput {
+  CODIGOPARTICULAR?: string;
+  NOMBRE: string;
+  DOMICILIO?: string | null;
+  PROVINCIA?: string | null;
+  TELEFONO?: string | null;
+  EMAIL?: string | null;
+  TIPO_DOCUMENTO?: string;
+  NUMERO_DOC?: string;
+  CONDICION_IVA?: string | null;
+  CTA_CORRIENTE?: boolean;
+  ACTIVO?: boolean;
 }
 
 export const customerService = {
+  // ── List with pagination & filters ─────────────
   async getAll(filter: ClienteFilter = {}): Promise<PaginatedResult<Cliente>> {
     const pool = await getPool();
     const page = filter.page || 1;
@@ -25,7 +46,7 @@ export const customerService = {
       dataReq.input('activo', sql.Bit, filter.activo ? 1 : 0);
     }
     if (filter.search) {
-      where += ' AND (NOMBRE LIKE @search OR CODIGOPARTICULAR LIKE @search OR NUMERO_DOC LIKE @search OR EMAIL LIKE @search)';
+      where += ' AND (NOMBRE LIKE @search OR CODIGOPARTICULAR LIKE @search OR NUMERO_DOC LIKE @search OR EMAIL LIKE @search OR TELEFONO LIKE @search)';
       countReq.input('search', sql.NVarChar, `%${filter.search}%`);
       dataReq.input('search', sql.NVarChar, `%${filter.search}%`);
     }
@@ -33,19 +54,31 @@ export const customerService = {
     const countResult = await countReq.query(`SELECT COUNT(*) as total FROM CLIENTES ${where}`);
     const total = countResult.recordset[0].total;
 
+    // Sorting
+    const validCols: Record<string, string> = {
+      NOMBRE: 'NOMBRE',
+      CODIGOPARTICULAR: 'CODIGOPARTICULAR',
+      PROVINCIA: 'PROVINCIA',
+      CONDICION_IVA: 'CONDICION_IVA',
+      NUMERO_DOC: 'NUMERO_DOC',
+    };
+    const orderCol = validCols[filter.orderBy || 'NOMBRE'] || 'NOMBRE';
+    const orderDir = filter.orderDir === 'DESC' ? 'DESC' : 'ASC';
+
     dataReq.input('offset', sql.Int, offset);
     dataReq.input('pageSize', sql.Int, pageSize);
 
     const dataResult = await dataReq.query<Cliente>(`
       SELECT * FROM CLIENTES
       ${where}
-      ORDER BY NOMBRE
+      ORDER BY ${orderCol} ${orderDir}
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
     `);
 
     return { data: dataResult.recordset, total, page, pageSize };
   },
 
+  // ── Get by ID ──────────────────────────────────
   async getById(id: number): Promise<Cliente> {
     const pool = await getPool();
     const result = await pool
@@ -59,6 +92,130 @@ export const customerService = {
     return result.recordset[0];
   },
 
+  // ── Create ─────────────────────────────────────
+  async create(input: ClienteInput) {
+    const pool = await getPool();
+
+    // Get next ID
+    const maxResult = await pool.request().query(`SELECT ISNULL(MAX(CLIENTE_ID), 0) + 1 AS nextId FROM CLIENTES`);
+    const nextId = maxResult.recordset[0].nextId;
+
+    // Check duplicate code
+    if (input.CODIGOPARTICULAR) {
+      const dup = await pool.request()
+        .input('code', sql.NVarChar, input.CODIGOPARTICULAR)
+        .query(`SELECT 1 FROM CLIENTES WHERE CODIGOPARTICULAR = @code`);
+      if (dup.recordset.length > 0) {
+        throw Object.assign(new Error('El código ya existe'), { name: 'ValidationError' });
+      }
+    }
+
+    const code = input.CODIGOPARTICULAR || String(nextId);
+
+    await pool.request()
+      .input('id', sql.Int, nextId)
+      .input('codigo', sql.NVarChar, code)
+      .input('nombre', sql.NVarChar, input.NOMBRE)
+      .input('domicilio', sql.NVarChar, input.DOMICILIO || null)
+      .input('provincia', sql.NVarChar, input.PROVINCIA || null)
+      .input('telefono', sql.NVarChar, input.TELEFONO || null)
+      .input('email', sql.NVarChar, input.EMAIL || null)
+      .input('tipoDoc', sql.NVarChar, input.TIPO_DOCUMENTO || 'DNI')
+      .input('numDoc', sql.NVarChar, input.NUMERO_DOC || '')
+      .input('condIva', sql.NVarChar, input.CONDICION_IVA || null)
+      .input('ctaCte', sql.Bit, input.CTA_CORRIENTE ? 1 : 0)
+      .input('activo', sql.Bit, input.ACTIVO !== false ? 1 : 0)
+      .query(`
+        INSERT INTO CLIENTES (CLIENTE_ID, CODIGOPARTICULAR, NOMBRE, DOMICILIO, PROVINCIA,
+          TELEFONO, EMAIL, TIPO_DOCUMENTO, NUMERO_DOC, CONDICION_IVA, CTA_CORRIENTE, ACTIVO)
+        VALUES (@id, @codigo, @nombre, @domicilio, @provincia,
+          @telefono, @email, @tipoDoc, @numDoc, @condIva, @ctaCte, @activo)
+      `);
+
+    return { CLIENTE_ID: nextId };
+  },
+
+  // ── Update ─────────────────────────────────────
+  async update(id: number, input: ClienteInput) {
+    const pool = await getPool();
+
+    // Prevent editing CONSUMIDOR FINAL (ID 1)
+    if (id === 1) {
+      throw Object.assign(new Error('No se puede modificar el cliente CONSUMIDOR FINAL'), { name: 'ValidationError' });
+    }
+
+    // Check duplicate code
+    if (input.CODIGOPARTICULAR) {
+      const dup = await pool.request()
+        .input('code', sql.NVarChar, input.CODIGOPARTICULAR)
+        .input('id', sql.Int, id)
+        .query(`SELECT 1 FROM CLIENTES WHERE CODIGOPARTICULAR = @code AND CLIENTE_ID != @id`);
+      if (dup.recordset.length > 0) {
+        throw Object.assign(new Error('El código ya existe'), { name: 'ValidationError' });
+      }
+    }
+
+    await pool.request()
+      .input('id', sql.Int, id)
+      .input('codigo', sql.NVarChar, input.CODIGOPARTICULAR || '')
+      .input('nombre', sql.NVarChar, input.NOMBRE)
+      .input('domicilio', sql.NVarChar, input.DOMICILIO || null)
+      .input('provincia', sql.NVarChar, input.PROVINCIA || null)
+      .input('telefono', sql.NVarChar, input.TELEFONO || null)
+      .input('email', sql.NVarChar, input.EMAIL || null)
+      .input('tipoDoc', sql.NVarChar, input.TIPO_DOCUMENTO || 'DNI')
+      .input('numDoc', sql.NVarChar, input.NUMERO_DOC || '')
+      .input('condIva', sql.NVarChar, input.CONDICION_IVA || null)
+      .input('ctaCte', sql.Bit, input.CTA_CORRIENTE ? 1 : 0)
+      .input('activo', sql.Bit, input.ACTIVO !== false ? 1 : 0)
+      .query(`
+        UPDATE CLIENTES SET
+          CODIGOPARTICULAR = @codigo, NOMBRE = @nombre, DOMICILIO = @domicilio,
+          PROVINCIA = @provincia, TELEFONO = @telefono, EMAIL = @email,
+          TIPO_DOCUMENTO = @tipoDoc, NUMERO_DOC = @numDoc, CONDICION_IVA = @condIva,
+          CTA_CORRIENTE = @ctaCte, ACTIVO = @activo
+        WHERE CLIENTE_ID = @id
+      `);
+  },
+
+  // ── Delete (soft if referenced, hard otherwise) ─
+  async delete(id: number) {
+    const pool = await getPool();
+
+    // Prevent deleting CONSUMIDOR FINAL
+    if (id === 1) {
+      throw Object.assign(new Error('No se puede eliminar el cliente CONSUMIDOR FINAL'), { name: 'ValidationError' });
+    }
+
+    // Check if referenced in VENTAS
+    const check = await pool.request().input('id', sql.Int, id).query(`
+      SELECT COUNT(*) AS enVentas FROM VENTAS WHERE CLIENTE_ID = @id
+    `);
+    const { enVentas } = check.recordset[0];
+
+    if (enVentas > 0) {
+      await pool.request().input('id', sql.Int, id)
+        .query(`UPDATE CLIENTES SET ACTIVO = 0 WHERE CLIENTE_ID = @id`);
+      return { mode: 'soft' as const };
+    }
+
+    // Clean up CTA_CORRIENTE if exists, then delete
+    try {
+      await pool.request().input('id', sql.Int, id)
+        .query(`DELETE FROM VENTAS_CTA_CORRIENTE WHERE CTA_CORRIENTE_ID IN (SELECT CTA_CORRIENTE_ID FROM CTA_CORRIENTE_C WHERE CLIENTE_ID = @id)`);
+    } catch { /* table may not exist or no records */ }
+    try {
+      await pool.request().input('id', sql.Int, id)
+        .query(`DELETE FROM CTA_CORRIENTE_C WHERE CLIENTE_ID = @id`);
+    } catch { /* table may not exist or no records */ }
+
+    await pool.request().input('id', sql.Int, id)
+      .query(`DELETE FROM CLIENTES WHERE CLIENTE_ID = @id`);
+
+    return { mode: 'hard' as const };
+  },
+
+  // ── Cta corriente saldo ────────────────────────
   async getCtaCorrienteSaldo(clienteId: number) {
     const pool = await getPool();
     const result = await pool
@@ -76,5 +233,12 @@ export const customerService = {
         GROUP BY cc.CTA_CORRIENTE_ID
       `);
     return result.recordset[0] || { SALDO: 0, TOTAL_DEBE: 0, TOTAL_HABER: 0 };
+  },
+
+  // ── Get next code ──────────────────────────────
+  async getNextCode(): Promise<string> {
+    const pool = await getPool();
+    const result = await pool.request().query(`SELECT ISNULL(MAX(CLIENTE_ID), 0) + 1 AS nextId FROM CLIENTES`);
+    return String(result.recordset[0].nextId);
   },
 };
