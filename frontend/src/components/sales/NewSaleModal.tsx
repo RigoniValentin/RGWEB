@@ -1,18 +1,25 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Modal, Input, Select, Button, InputNumber, Table, Space, Typography,
-  Divider, Spin, Switch, message, AutoComplete, Badge, Tag,
+  Divider, Spin, Switch, message, AutoComplete, Badge, Tag, Checkbox,
 } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, ShoppingCartOutlined,
   UserOutlined, MinusOutlined, BarcodeOutlined, ShopOutlined,
   FileTextOutlined, SwapOutlined, DollarOutlined, CreditCardOutlined,
   WalletOutlined, ArrowLeftOutlined, CheckCircleOutlined,
+  WarningOutlined, BankOutlined, PrinterOutlined, WhatsAppOutlined,
+  SendOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { salesApi } from '../../services/sales.api';
+import { cajaApi } from '../../services/caja.api';
 import { useAuthStore } from '../../store/authStore';
+import { useTabStore } from '../../store/tabStore';
 import { fmtMoney } from '../../utils/format';
+import { printReceipt } from '../../utils/printReceipt';
+import type { ReceiptData } from '../../utils/printReceipt';
 import type { VentaItemInput, ProductoSearch, VentaInput, ClienteVenta } from '../../types';
 
 const { Title, Text } = Typography;
@@ -35,7 +42,9 @@ interface Props {
 }
 
 export function NewSaleModal({ open, onClose, onSuccess }: Props) {
-  const { puntoVentaActivo } = useAuthStore();
+  const navigate = useNavigate();
+  const openTab = useTabStore(s => s.openTab);
+  const { puntoVentaActivo, user } = useAuthStore();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [clienteId, setClienteId] = useState<number>(1);
   const [depositoId, setDepositoId] = useState<number | null>(null);
@@ -52,6 +61,41 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
   const [pagoEfectivo, setPagoEfectivo] = useState(0);
   const [pagoDigital, setPagoDigital] = useState(0);
   const efectivoRef = useRef<any>(null);
+
+  // Print / WhatsApp toggles
+  const [wantPrint, setWantPrint] = useState(true);
+  const [wantWhatsApp, setWantWhatsApp] = useState(false);
+  const [wspModalOpen, setWspModalOpen] = useState(false);
+  const [wspTelefono, setWspTelefono] = useState('');
+  const [wspNombre, setWspNombre] = useState('');
+  const [wspSending, setWspSending] = useState(false);
+  const [pendingVentaId, setPendingVentaId] = useState<number | null>(null);
+
+  // ── Check if user has an open caja ─────────────
+  const [cajaCheckState, setCajaCheckState] = useState<'checking' | 'open' | 'closed'>('checking');
+
+  useEffect(() => {
+    if (!open) {
+      setCajaCheckState('checking');
+      return;
+    }
+    let cancelled = false;
+    setCajaCheckState('checking');
+    cajaApi.getMiCaja().then(result => {
+      if (cancelled) return;
+      const hasCaja = result && typeof result === 'object' && 'CAJA_ID' in result;
+      setCajaCheckState(hasCaja ? 'open' : 'closed');
+    }).catch(() => {
+      if (!cancelled) setCajaCheckState('closed');
+    });
+    return () => { cancelled = true; };
+  }, [open]);
+
+  const handleGoToCaja = () => {
+    handleClose();
+    openTab({ key: '/cashregisters', label: 'Cajas', closable: true });
+    navigate('/cashregisters');
+  };
 
   // Fetch clients
   const { data: clientes = [] } = useQuery({
@@ -73,6 +117,14 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
   const { data: empresaIva } = useQuery({
     queryKey: ['sales-empresa-iva'],
     queryFn: () => salesApi.getEmpresaIva(),
+    enabled: open,
+    staleTime: 300000,
+  });
+
+  // Fetch empresa info (for receipts)
+  const { data: empresaInfo } = useQuery({
+    queryKey: ['sales-empresa-info'],
+    queryFn: () => salesApi.getEmpresaInfo(),
     enabled: open,
     staleTime: 300000,
   });
@@ -152,6 +204,49 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     mutationFn: (data: VentaInput) => salesApi.create(data),
     onSuccess: (result) => {
       message.success(`Venta #${result.VENTA_ID} creada — Total: ${fmtMoney(result.TOTAL)}`);
+
+      // ── Post-sale: Print receipt ──
+      if (wantPrint) {
+        const receiptData: ReceiptData = {
+          ventaId: result.VENTA_ID,
+          nombreFantasia: empresaInfo?.NOMBRE_FANTASIA || 'Empresa',
+          clienteNombre: selectedCliente?.NOMBRE || 'Consumidor Final',
+          usuarioNombre: user?.NOMBRE || '',
+          fecha: new Date(),
+          items: cart.map(item => ({
+            nombre: item.NOMBRE,
+            cantidad: item.CANTIDAD,
+            unidad: item.UNIDAD,
+            precioUnitario: item.PRECIO_UNITARIO,
+            descuento: item.DESCUENTO,
+            subtotal: (item.DESCUENTO > 0
+              ? item.PRECIO_UNITARIO * (1 - item.DESCUENTO / 100)
+              : item.PRECIO_UNITARIO) * item.CANTIDAD,
+          })),
+          dtoGral,
+          subtotal,
+          total,
+          esCtaCorriente,
+          montoEfectivo: metodoPago === 'digital' ? 0 : pagoEfectivo,
+          montoDigital: metodoPago === 'efectivo' ? 0 : pagoDigital,
+          vuelto: vuelto,
+          metodoPago: step === 'cobro' ? metodoPago : undefined,
+        };
+        printReceipt(receiptData);
+      }
+
+      // ── Post-sale: WhatsApp ──
+      if (wantWhatsApp) {
+        setPendingVentaId(result.VENTA_ID);
+        // Pre-fill name from selected client
+        setWspNombre(selectedCliente?.NOMBRE || '');
+        setWspTelefono('');
+        setWspModalOpen(true);
+        // Don't resetForm yet — wait for WhatsApp modal to close
+        onSuccess();
+        return;
+      }
+
       resetForm();
       onSuccess();
     },
@@ -159,6 +254,38 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
       message.error(err.response?.data?.error || 'Error al crear la venta');
     },
   });
+
+  // ── Send WhatsApp ──
+  const handleSendWhatsApp = async () => {
+    if (!pendingVentaId || !wspTelefono.trim()) {
+      message.warning('Ingrese un número de teléfono');
+      return;
+    }
+    // Validate: at least 10 digits
+    const digits = wspTelefono.replace(/\D/g, '');
+    if (digits.length < 10) {
+      message.warning('El teléfono debe tener al menos 10 dígitos');
+      return;
+    }
+    setWspSending(true);
+    try {
+      await salesApi.sendWhatsApp(pendingVentaId, wspTelefono, wspNombre || 'Cliente');
+      message.success('Detalle enviado por WhatsApp');
+      setWspModalOpen(false);
+      setPendingVentaId(null);
+      resetForm();
+    } catch (err: any) {
+      message.error(err.response?.data?.error || 'Error al enviar WhatsApp');
+    } finally {
+      setWspSending(false);
+    }
+  };
+
+  const handleCloseWspModal = () => {
+    setWspModalOpen(false);
+    setPendingVentaId(null);
+    resetForm();
+  };
 
   const resetForm = useCallback(() => {
     setCart([]);
@@ -173,6 +300,8 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     setMetodoPago('efectivo');
     setPagoEfectivo(0);
     setPagoDigital(0);
+    setWantPrint(true);
+    setWantWhatsApp(false);
   }, []);
 
   const handleClose = () => {
@@ -224,8 +353,11 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
   }, [depositoId]);
 
   // Barcode quick-pick: on Enter, search immediately and auto-add if single result
+  // If dropdown is already showing options, let AutoComplete handle the selection natively
   const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key !== 'Enter') return;
+    // If dropdown has options visible, let AutoComplete's onSelect handle it
+    if (searchOptions.length > 0) return;
     const text = searchText.trim();
     if (!text) return;
     e.preventDefault();
@@ -251,7 +383,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
         message.warning('No se encontró ningún producto');
       }
     });
-  }, [searchText, addProduct, doSearch]);
+  }, [searchText, searchOptions, addProduct, doSearch]);
 
   const updateCartItem = (key: string, field: string, value: any) => {
     setCart(prev => prev.map(item =>
@@ -470,6 +602,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
   const totalUnits = cart.reduce((s, i) => s + i.CANTIDAD, 0);
 
   return (
+    <>
     <Modal
       open={open}
       onCancel={handleClose}
@@ -505,6 +638,37 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
         </Button>
       </div>
 
+      {cajaCheckState === 'checking' ? (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '80px 0' }}>
+          <Spin size="large" />
+        </div>
+      ) : cajaCheckState === 'closed' ? (
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          padding: '80px 40px', textAlign: 'center', gap: 16,
+        }}>
+          <WarningOutlined style={{ fontSize: 64, color: '#faad14' }} />
+          <Title level={4} style={{ margin: 0 }}>No hay caja abierta</Title>
+          <Text type="secondary" style={{ fontSize: 15, maxWidth: 420 }}>
+            Para registrar una venta es necesario que abras una caja primero.
+            Dirigite a la sección de Cajas para abrir una.
+          </Text>
+          <Space size="middle" style={{ marginTop: 8 }}>
+            <Button
+              type="primary"
+              size="large"
+              icon={<BankOutlined />}
+              className="btn-gold"
+              onClick={handleGoToCaja}
+            >
+              Ir a Cajas
+            </Button>
+            <Button size="large" onClick={handleClose}>
+              Cancelar
+            </Button>
+          </Space>
+        </div>
+      ) : (
       <div className="nsm-body">
         {/* ══ LEFT COLUMN — Search + Cart ══════════ */}
         <div className="nsm-main">
@@ -521,6 +685,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
               }}
               style={{ width: '100%' }}
               popupClassName="nsm-search-dropdown"
+              popupMatchSelectWidth={true}
               notFoundContent={searching ? <Spin size="small" /> : searchText.length > 0 ? 'Sin resultados' : null}
             >
               <Input
@@ -539,7 +704,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
             </AutoComplete>
             <div className="nsm-search-hint">
               <BarcodeOutlined style={{ marginRight: 4 }} />
-              Escanee o ingrese el código y presione Enter para agregar rápidamente
+              Escanee o ingrese busqueda manual. Presione Enter para confirmar. 
             </div>
           </div>
 
@@ -864,6 +1029,28 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
                 )}
               </div>
 
+              {/* Print / WhatsApp toggles */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, margin: '12px 0' }}>
+                <Checkbox
+                  checked={wantPrint}
+                  onChange={e => setWantPrint(e.target.checked)}
+                >
+                  <Space size={6}>
+                    <PrinterOutlined />
+                    <span>Imprimir ticket</span>
+                  </Space>
+                </Checkbox>
+                <Checkbox
+                  checked={wantWhatsApp}
+                  onChange={e => setWantWhatsApp(e.target.checked)}
+                >
+                  <Space size={6}>
+                    <WhatsAppOutlined style={{ color: '#25D366' }} />
+                    <span>Enviar por WhatsApp</span>
+                  </Space>
+                </Checkbox>
+              </div>
+
               {/* Cobro action buttons */}
               <div className="nsm-actions">
                 <Button
@@ -892,6 +1079,63 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
           )}
         </div>
       </div>
+      )}
     </Modal>
+
+    {/* ── WhatsApp phone number modal ── */}
+    <Modal
+      open={wspModalOpen}
+      title={
+        <Space>
+          <WhatsAppOutlined style={{ color: '#25D366', fontSize: 20 }} />
+          <span>Enviar detalle por WhatsApp</span>
+        </Space>
+      }
+      onCancel={handleCloseWspModal}
+      footer={null}
+      centered
+      width={420}
+      destroyOnClose
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 16 }}>
+        <div>
+          <Text strong style={{ display: 'block', marginBottom: 4 }}>Nombre del cliente</Text>
+          <Input
+            value={wspNombre}
+            onChange={e => setWspNombre(e.target.value)}
+            placeholder="Nombre"
+            prefix={<UserOutlined />}
+          />
+        </div>
+        <div>
+          <Text strong style={{ display: 'block', marginBottom: 4 }}>Teléfono (con código de área)</Text>
+          <Input
+            value={wspTelefono}
+            onChange={e => setWspTelefono(e.target.value)}
+            placeholder="Ej: 3415551234"
+            prefix={<span style={{ color: '#999' }}>+54</span>}
+            onPressEnter={handleSendWhatsApp}
+          />
+          <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
+            Ingrese el número sin 0 ni 15. Mínimo 10 dígitos.
+          </Text>
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
+          <Button onClick={handleCloseWspModal} disabled={wspSending}>
+            Omitir
+          </Button>
+          <Button
+            type="primary"
+            icon={<SendOutlined />}
+            onClick={handleSendWhatsApp}
+            loading={wspSending}
+            style={{ background: '#25D366', borderColor: '#25D366' }}
+          >
+            Enviar
+          </Button>
+        </div>
+      </div>
+    </Modal>
+    </>
   );
 }

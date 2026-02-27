@@ -901,10 +901,21 @@ body {
   color: #aaa;
   margin-top: 6px;
   padding-left: 4px;
+  position: relative;
+  z-index: 1;
+}
+.nsm-search-wrap .ant-select {
+  height: 52px !important;
 }
 .nsm-search-dropdown {
   border-radius: 12px !important;
   box-shadow: 0 8px 32px rgba(0,0,0,0.12) !important;
+  margin-top: 4px !important;
+}
+.nsm-search-dropdown .ant-select-item {
+  padding: 10px 14px !important;
+  border-radius: 8px;
+  margin: 2px 4px;
 }
 
 /* Cart area */

@@ -1,4 +1,5 @@
 import { getPool, sql } from '../database/connection.js';
+import { config } from '../config/index.js';
 import type { Venta, VentaItem, PaginatedResult } from '../types/index.js';
 
 // ═══════════════════════════════════════════════════
@@ -396,9 +397,11 @@ export const salesService = {
                ISNULL(vi.IVA_MONTO, 0) AS IVA_MONTO,
                ISNULL(vi.CANTIDAD_PRODUCTOS_PROMO, 0) AS CANTIDAD_PRODUCTOS_PROMO,
                p.NOMBRE AS PRODUCTO_NOMBRE, 
-               p.CODIGOPARTICULAR AS PRODUCTO_CODIGO
+               p.CODIGOPARTICULAR AS PRODUCTO_CODIGO,
+               ISNULL(um.ABREVIACION, 'u') AS UNIDAD_ABREVIACION
         FROM VENTAS_ITEMS vi
         JOIN PRODUCTOS p ON vi.PRODUCTO_ID = p.PRODUCTO_ID
+        LEFT JOIN UNIDADES_MEDIDA um ON p.UNIDAD_ID = um.UNIDAD_ID
         WHERE vi.VENTA_ID = @id
         ORDER BY vi.ITEM_ID
       `);
@@ -1152,4 +1155,126 @@ export const salesService = {
       ? { CONDICION_IVA: result.recordset[0].CONDICION_IVA }
       : { CONDICION_IVA: null };
   },
+
+  // ── Empresa info (for receipts) ────────────────
+  async getEmpresaInfo() {
+    const pool = await getPool();
+    const result = await pool.request().query(`
+      SELECT RAZON_SOCIAL, DOMICILIO_FISCAL, CONDICION_IVA, CUIT
+      FROM EMPRESA_CLIENTE
+    `);
+    const row = result.recordset[0] || {};
+    return {
+      NOMBRE_FANTASIA: config.app.nombreFantasia || row.RAZON_SOCIAL || '',
+      RAZON_SOCIAL: row.RAZON_SOCIAL || '',
+      DOMICILIO_FISCAL: row.DOMICILIO_FISCAL || '',
+      CONDICION_IVA: row.CONDICION_IVA || '',
+      CUIT: row.CUIT || '',
+      TELEFONO_CLIENTE: config.app.telefonoCliente || '',
+    };
+  },
+
+  // ── Send WhatsApp message ──────────────────────
+  async sendWhatsApp(telefono: string, mensaje: string) {
+    const ipWsp = config.integrations.ipWsp;
+    if (!ipWsp) {
+      throw Object.assign(new Error('WhatsApp no configurado (ipWsp)'), { name: 'ValidationError' });
+    }
+
+    const url = `${ipWsp}/send-message`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ numero: telefono, mensaje }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Error al enviar WhatsApp: ${response.status}`);
+    }
+
+    return { success: true };
+  },
+
+  // ── Build WhatsApp sale detail message ─────────
+  async buildWhatsAppMessage(ventaId: number) {
+    const venta = await this.getById(ventaId);
+    const empresa = await this.getEmpresaInfo();
+
+    let msg = `*-------- ${empresa.NOMBRE_FANTASIA.toUpperCase()} --------*\n`;
+    msg += `🗣️ \`\`\`Su compra.\`\`\`\n\n`;
+    msg += `Estimado/a *${venta.CLIENTE_NOMBRE || 'Cliente'}*\n\n`;
+    msg += `Le enviamos el detalle de su compra:\n\n`;
+
+    for (const item of venta.items) {
+      const unidad = (item as any).UNIDAD_ABREVIACION || 'u';
+      const qtyStr = formatQtyWsp(item.CANTIDAD, unidad);
+      const total = item.DESCUENTO > 0
+        ? item.PRECIO_UNITARIO * (1 - item.DESCUENTO / 100) * item.CANTIDAD
+        : item.PRECIO_UNITARIO * item.CANTIDAD;
+      msg += `- _x ${qtyStr}_ *${item.PRODUCTO_NOMBRE}*   _total_ = _$${fmtDecimal(total)}_\n`;
+    }
+
+    msg += `\n- *TOTAL* = *$${fmtDecimal(venta.TOTAL)}*.\n\n`;
+    msg += `Gracias por su compra.🫱🏻‍🫲🏼\n\n`;
+    msg += `_Enviado desde *Río Gestión* Software_.`;
+
+    return msg;
+  },
+
+  // ── Send sale detail notifications ─────────────
+  async sendSaleWhatsApp(ventaId: number, telefonoCliente: string, nombreCliente: string) {
+    const msg = await this.buildWhatsAppMessage(ventaId);
+
+    // Normalize phone: ensure 549 prefix
+    let phone = telefonoCliente.replace(/\D/g, '');
+    if (phone.length === 10) phone = `549${phone}`;
+    else if (phone.length === 12 && phone.startsWith('54')) phone = `549${phone.slice(2)}`;
+
+    // 1. Send to customer
+    await this.sendWhatsApp(phone, msg);
+
+    // 2. Send notification to business owner
+    const ownerPhone = config.app.telefonoCliente;
+    if (ownerPhone) {
+      let ownerNum = ownerPhone.replace(/\D/g, '');
+      if (ownerNum.length === 10) ownerNum = `549${ownerNum}`;
+
+      const ownerMsg = `*-------- RÍO GESTIÓN --------*\n` +
+        `🗣️ \`\`\`Cliente notificado.\`\`\`\n\n` +
+        `Se ha enviado el detalle de la venta a:\n` +
+        `- Nombre: *${nombreCliente}* .\n` +
+        `- Cel: *${telefonoCliente}* .\n\n` +
+        `_Gestionamos con vos, crecemos juntos_.🫱🏻‍🫲🏼`;
+
+      try {
+        await this.sendWhatsApp(ownerNum, ownerMsg);
+      } catch { /* don't fail main flow if owner notification fails */ }
+    }
+
+    // 3. Update venta record with send info
+    const pool = await getPool();
+    await pool.request()
+      .input('id', sql.Int, ventaId)
+      .input('nombre', sql.NVarChar, nombreCliente)
+      .input('nro', sql.NVarChar, telefonoCliente)
+      .query(`
+        UPDATE VENTAS
+        SET NOMBRE_ENVIO_DETALLE = @nombre, NRO_ENVIO_DETALLE = @nro
+        WHERE VENTA_ID = @id
+      `);
+
+    return { success: true };
+  },
 };
+
+// ── WhatsApp formatting helpers ──────────────────
+function formatQtyWsp(cantidad: number, unidad: string): string {
+  const u = (unidad || 'u').toLowerCase();
+  if (u === 'kg') return `${cantidad.toFixed(3)} Kg`;
+  if (u === 'lts' || u === 'lt') return `${cantidad.toFixed(2)} lts`;
+  return `${cantidad.toFixed(2)} u`;
+}
+
+function fmtDecimal(n: number): string {
+  return n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}

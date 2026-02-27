@@ -65,6 +65,33 @@ router.get('/empresa-iva', async (_req: Request, res: Response) => {
   }
 });
 
+// GET /api/sales/empresa-info  (for receipts + WhatsApp)
+router.get('/empresa-info', async (_req: Request, res: Response) => {
+  try {
+    const data = await salesService.getEmpresaInfo();
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sales/:id/whatsapp  (send sale detail via WhatsApp)
+router.post('/:id/whatsapp', async (req: AuthRequest, res: Response) => {
+  try {
+    const ventaId = parseInt(req.params.id as string);
+    const { telefono, nombreCliente } = req.body;
+    if (!telefono || !nombreCliente) {
+      res.status(400).json({ error: 'Se requiere telefono y nombreCliente' });
+      return;
+    }
+    const result = await salesService.sendSaleWhatsApp(ventaId, telefono, nombreCliente);
+    res.json(result);
+  } catch (err: any) {
+    const status = err.name === 'ValidationError' ? 400 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
 // GET /api/sales/search-products
 router.get('/search-products', async (req: Request, res: Response) => {
   try {

@@ -132,6 +132,8 @@ export interface Venta {
   DTO_GRAL: number | null;
   ERROR_FE: string | null;
   ERRORES: string | null;
+  NRO_ENVIO_DETALLE: string | null;
+  NOMBRE_ENVIO_DETALLE: string | null;
   CLIENTE_NOMBRE?: string;
   USUARIO_NOMBRE?: string;
 }
@@ -158,6 +160,7 @@ export interface VentaItem {
   CANTIDAD_PRODUCTOS_PROMO: number | null;
   PRODUCTO_NOMBRE?: string;
   PRODUCTO_CODIGO?: string;
+  UNIDAD_ABREVIACION?: string;
 }
 
 export interface VentaDetalle extends Venta {

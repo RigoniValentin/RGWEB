@@ -44,4 +44,17 @@ export const salesApi = {
 
   getEmpresaIva: () =>
     api.get<{ CONDICION_IVA: string | null }>('/sales/empresa-iva').then(r => r.data),
+
+  getEmpresaInfo: () =>
+    api.get<{
+      NOMBRE_FANTASIA: string;
+      RAZON_SOCIAL: string;
+      DOMICILIO_FISCAL: string;
+      CONDICION_IVA: string;
+      CUIT: string;
+      TELEFONO_CLIENTE: string;
+    }>('/sales/empresa-info').then(r => r.data),
+
+  sendWhatsApp: (ventaId: number, telefono: string, nombreCliente: string) =>
+    api.post<{ success: boolean }>(`/sales/${ventaId}/whatsapp`, { telefono, nombreCliente }).then(r => r.data),
 };

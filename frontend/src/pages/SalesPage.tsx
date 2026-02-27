@@ -2,12 +2,15 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Drawer, Descriptions, Spin,
-  Button, Input, Dropdown, Popconfirm, message, Checkbox,
+  Button, Input, Dropdown, Popconfirm, message, Checkbox, Modal, Tooltip,
 } from 'antd';
 import {
   EyeOutlined, PlusOutlined, DeleteOutlined, DollarOutlined,
   SearchOutlined, MoreOutlined, WalletOutlined, CloseCircleOutlined, ReloadOutlined,
+  PrinterOutlined, WhatsAppOutlined, SendOutlined, UserOutlined,
 } from '@ant-design/icons';
+import { printReceipt } from '../utils/printReceipt';
+import type { ReceiptData } from '../utils/printReceipt';
 import dayjs from 'dayjs';
 import { salesApi } from '../services/sales.api';
 import { NewSaleModal } from '../components/sales/NewSaleModal';
@@ -39,6 +42,13 @@ export function SalesPage() {
   const [paymentMode, setPaymentMode] = useState<'total' | 'parcial'>('total');
   const [paymentVenta, setPaymentVenta] = useState<Venta | null>(null);
 
+  // WhatsApp resend state
+  const [wspModalOpen, setWspModalOpen] = useState(false);
+  const [wspTelefono, setWspTelefono] = useState('');
+  const [wspNombre, setWspNombre] = useState('');
+  const [wspSending, setWspSending] = useState(false);
+  const [wspVentaId, setWspVentaId] = useState<number | null>(null);
+
   // ── Debounced search ───────────────────────────
   const [searchTimer, setSearchTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
   const handleSearchChange = (value: string) => {
@@ -68,6 +78,13 @@ export function SalesPage() {
     queryKey: ['sale', selectedId],
     queryFn: () => salesApi.getById(selectedId!) as Promise<VentaDetalle>,
     enabled: !!selectedId,
+  });
+
+  // ── Empresa info (for receipts) ────────────────
+  const { data: empresaInfo } = useQuery({
+    queryKey: ['sales-empresa-info'],
+    queryFn: () => salesApi.getEmpresaInfo(),
+    staleTime: 300000,
   });
 
   // ── Delete mutation ────────────────────────────
@@ -119,6 +136,70 @@ export function SalesPage() {
     setPaymentVenta(null);
     refetch();
     queryClient.invalidateQueries({ queryKey: ['sale'] });
+  };
+
+  // ── Reprint receipt ────────────────────────────
+  const handleReprint = (v: VentaDetalle) => {
+    const receiptData: ReceiptData = {
+      ventaId: v.VENTA_ID,
+      nombreFantasia: empresaInfo?.NOMBRE_FANTASIA || 'Empresa',
+      clienteNombre: v.CLIENTE_NOMBRE || 'Consumidor Final',
+      usuarioNombre: v.USUARIO_NOMBRE || '',
+      fecha: new Date(v.FECHA_VENTA),
+      items: v.items.map(item => ({
+        nombre: item.PRODUCTO_NOMBRE || '',
+        cantidad: item.CANTIDAD,
+        unidad: item.UNIDAD_ABREVIACION || 'u',
+        precioUnitario: item.PRECIO_UNITARIO,
+        descuento: item.DESCUENTO,
+        subtotal: item.PRECIO_UNITARIO_DTO * item.CANTIDAD,
+      })),
+      dtoGral: v.DTO_GRAL || 0,
+      subtotal: v.items.reduce((s, i) => s + (i.PRECIO_UNITARIO_DTO * i.CANTIDAD), 0),
+      total: v.TOTAL,
+      esCtaCorriente: v.ES_CTA_CORRIENTE,
+      montoEfectivo: v.MONTO_EFECTIVO ?? 0,
+      montoDigital: v.MONTO_DIGITAL ?? 0,
+      vuelto: v.VUELTO ?? 0,
+      metodoPago: (v.MONTO_EFECTIVO ?? 0) > 0 && (v.MONTO_DIGITAL ?? 0) > 0
+        ? 'mixto'
+        : (v.MONTO_DIGITAL ?? 0) > 0 ? 'digital' : 'efectivo',
+    };
+    printReceipt(receiptData);
+  };
+
+  // ── Open WhatsApp resend modal ─────────────────
+  const openWspModal = (v: VentaDetalle) => {
+    setWspVentaId(v.VENTA_ID);
+    setWspNombre(v.NOMBRE_ENVIO_DETALLE || v.CLIENTE_NOMBRE || '');
+    setWspTelefono(v.NRO_ENVIO_DETALLE || '');
+    setWspModalOpen(true);
+  };
+
+  // ── Send WhatsApp ──────────────────────────────
+  const handleSendWhatsApp = async () => {
+    if (!wspVentaId || !wspTelefono.trim()) {
+      message.warning('Ingrese un número de teléfono');
+      return;
+    }
+    const digits = wspTelefono.replace(/\D/g, '');
+    if (digits.length < 10) {
+      message.warning('El teléfono debe tener al menos 10 dígitos');
+      return;
+    }
+    setWspSending(true);
+    try {
+      await salesApi.sendWhatsApp(wspVentaId, wspTelefono, wspNombre || 'Cliente');
+      message.success('Detalle enviado por WhatsApp');
+      setWspModalOpen(false);
+      // Refresh detail to show updated NRO_ENVIO_DETALLE
+      queryClient.invalidateQueries({ queryKey: ['sale', wspVentaId] });
+      setWspVentaId(null);
+    } catch (err: any) {
+      message.error(err.response?.data?.error || 'Error al enviar WhatsApp');
+    } finally {
+      setWspSending(false);
+    }
   };
 
   // ── Action menu for each row ───────────────────
@@ -263,6 +344,21 @@ export function SalesPage() {
         extra={
           detail && (
             <Space>
+              <Tooltip title="Reimprimir ticket">
+                <Button
+                  size="small"
+                  icon={<PrinterOutlined />}
+                  onClick={() => handleReprint(detail as VentaDetalle)}
+                />
+              </Tooltip>
+              <Tooltip title={detail.NRO_ENVIO_DETALLE ? 'Reenviar por WhatsApp' : 'Enviar por WhatsApp'}>
+                <Button
+                  size="small"
+                  icon={<WhatsAppOutlined />}
+                  style={{ color: '#25D366', borderColor: '#25D366' }}
+                  onClick={() => openWspModal(detail as VentaDetalle)}
+                />
+              </Tooltip>
               {!detail.COBRADA && (
                 <Button
                   type="primary"
@@ -332,6 +428,15 @@ export function SalesPage() {
                   {fmtMoney(detail.TOTAL)}
                 </span>
               </Descriptions.Item>
+              {detail.NRO_ENVIO_DETALLE && (
+                <Descriptions.Item label="Enviado por WhatsApp" span={2}>
+                  <Space size={4}>
+                    <WhatsAppOutlined style={{ color: '#25D366' }} />
+                    <Text>{detail.NOMBRE_ENVIO_DETALLE || 'Cliente'}</Text>
+                    <Text type="secondary">({detail.NRO_ENVIO_DETALLE})</Text>
+                  </Space>
+                </Descriptions.Item>
+              )}
             </Descriptions>
 
             {detail.items && detail.items.length > 0 && (
@@ -400,6 +505,61 @@ export function SalesPage() {
         onClose={() => { setPaymentOpen(false); setPaymentVenta(null); }}
         onSuccess={handlePaymentSuccess}
       />
+
+      {/* ── WhatsApp Resend Modal ───────────────── */}
+      <Modal
+        open={wspModalOpen}
+        title={
+          <Space>
+            <WhatsAppOutlined style={{ color: '#25D366', fontSize: 20 }} />
+            <span>Enviar detalle por WhatsApp</span>
+          </Space>
+        }
+        onCancel={() => setWspModalOpen(false)}
+        footer={null}
+        centered
+        width={420}
+        destroyOnClose
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 16 }}>
+          <div>
+            <Text strong style={{ display: 'block', marginBottom: 4 }}>Nombre del cliente</Text>
+            <Input
+              value={wspNombre}
+              onChange={e => setWspNombre(e.target.value)}
+              placeholder="Nombre"
+              prefix={<UserOutlined />}
+            />
+          </div>
+          <div>
+            <Text strong style={{ display: 'block', marginBottom: 4 }}>Teléfono (con código de área)</Text>
+            <Input
+              value={wspTelefono}
+              onChange={e => setWspTelefono(e.target.value)}
+              placeholder="Ej: 3415551234"
+              prefix={<span style={{ color: '#999' }}>+54</span>}
+              onPressEnter={handleSendWhatsApp}
+            />
+            <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
+              Ingrese el número sin 0 ni 15. Mínimo 10 dígitos.
+            </Text>
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
+            <Button onClick={() => setWspModalOpen(false)} disabled={wspSending}>
+              Cancelar
+            </Button>
+            <Button
+              type="primary"
+              icon={<SendOutlined />}
+              onClick={handleSendWhatsApp}
+              loading={wspSending}
+              style={{ background: '#25D366', borderColor: '#25D366' }}
+            >
+              Enviar
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
