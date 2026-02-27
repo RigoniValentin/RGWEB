@@ -6,7 +6,8 @@ import {
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, ShoppingCartOutlined,
   UserOutlined, MinusOutlined, BarcodeOutlined, ShopOutlined,
-  FileTextOutlined, SwapOutlined,
+  FileTextOutlined, SwapOutlined, DollarOutlined, CreditCardOutlined,
+  WalletOutlined, ArrowLeftOutlined, CheckCircleOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { salesApi } from '../../services/sales.api';
@@ -15,6 +16,9 @@ import { fmtMoney } from '../../utils/format';
 import type { VentaItemInput, ProductoSearch, VentaInput, ClienteVenta } from '../../types';
 
 const { Title, Text } = Typography;
+
+type ModalStep = 'cart' | 'cobro';
+type MetodoPago = 'efectivo' | 'digital' | 'mixto';
 
 interface CartItem extends VentaItemInput {
   key: string;
@@ -41,6 +45,13 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
   const [searchText, setSearchText] = useState('');
   const [searchOptions, setSearchOptions] = useState<{ value: string; label: React.ReactNode; product: ProductoSearch }[]>([]);
   const searchRef = useRef<any>(null);
+
+  // Payment step state
+  const [step, setStep] = useState<ModalStep>('cart');
+  const [metodoPago, setMetodoPago] = useState<MetodoPago>('efectivo');
+  const [pagoEfectivo, setPagoEfectivo] = useState(0);
+  const [pagoDigital, setPagoDigital] = useState(0);
+  const efectivoRef = useRef<any>(null);
 
   // Fetch clients
   const { data: clientes = [] } = useQuery({
@@ -158,6 +169,10 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     setDtoGral(0);
     setSearchText('');
     setSearchOptions([]);
+    setStep('cart');
+    setMetodoPago('efectivo');
+    setPagoEfectivo(0);
+    setPagoDigital(0);
   }, []);
 
   const handleClose = () => {
@@ -266,28 +281,108 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
       return;
     }
 
+    if (cobrar) {
+      // Transition to payment step
+      setPagoEfectivo(total);
+      setPagoDigital(0);
+      setMetodoPago('efectivo');
+      setStep('cobro');
+      return;
+    }
+
+    // Save as pending (cta corriente)
     const input: VentaInput = {
       CLIENTE_ID: clienteId,
       PUNTO_VENTA_ID: puntoVentaActivo || 1,
       TIPO_COMPROBANTE: tipoComprobante || undefined,
       ES_CTA_CORRIENTE: esCtaCorriente,
       DTO_GRAL: dtoGral,
-      COBRADA: cobrar,
-      MONTO_EFECTIVO: cobrar ? total : 0,
+      COBRADA: false,
+      MONTO_EFECTIVO: 0,
       MONTO_DIGITAL: 0,
       VUELTO: 0,
       items: cart.map(({ PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID }) => ({
-        PRODUCTO_ID,
-        PRECIO_UNITARIO,
-        CANTIDAD,
-        DESCUENTO,
-        PRECIO_COMPRA,
-        DEPOSITO_ID,
-        LISTA_ID,
+        PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID,
       })),
     };
     createMutation.mutate(input);
   };
+
+  // Payment step logic
+  const vuelto = useMemo(() => {
+    if (metodoPago === 'efectivo') return Math.max(0, pagoEfectivo - total);
+    if (metodoPago === 'mixto') return Math.max(0, (pagoEfectivo + pagoDigital) - total);
+    return 0; // digital: no change
+  }, [metodoPago, pagoEfectivo, pagoDigital, total]);
+
+  const pagoValido = useMemo(() => {
+    const recibido = pagoEfectivo + pagoDigital;
+    if (recibido <= 0) return false;
+
+    if (metodoPago === 'efectivo') {
+      return pagoEfectivo >= total;
+    }
+    if (metodoPago === 'digital') {
+      // Digital must be exact
+      return Math.abs(pagoDigital - total) < 0.01;
+    }
+    // Mixto: must be exact (no change)
+    return Math.abs(recibido - total) < 0.01;
+  }, [metodoPago, pagoEfectivo, pagoDigital, total]);
+
+  const handleConfirmCobro = () => {
+    if (!pagoValido) return;
+
+    // Determine real amounts stored
+    let efectivoFinal = pagoEfectivo;
+    let digitalFinal = pagoDigital;
+    let vueltoFinal = 0;
+
+    if (metodoPago === 'efectivo') {
+      efectivoFinal = total; // store the sale amount, not what was given
+      digitalFinal = 0;
+      vueltoFinal = Math.max(0, pagoEfectivo - total);
+    } else if (metodoPago === 'digital') {
+      efectivoFinal = 0;
+      digitalFinal = total;
+      vueltoFinal = 0;
+    } else {
+      // mixto: exact split
+      vueltoFinal = 0;
+    }
+
+    const input: VentaInput = {
+      CLIENTE_ID: clienteId,
+      PUNTO_VENTA_ID: puntoVentaActivo || 1,
+      TIPO_COMPROBANTE: tipoComprobante || undefined,
+      ES_CTA_CORRIENTE: esCtaCorriente,
+      DTO_GRAL: dtoGral,
+      COBRADA: true,
+      MONTO_EFECTIVO: efectivoFinal,
+      MONTO_DIGITAL: digitalFinal,
+      VUELTO: vueltoFinal,
+      items: cart.map(({ PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID }) => ({
+        PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID,
+      })),
+    };
+    createMutation.mutate(input);
+  };
+
+  // When payment method changes, auto-fill amounts
+  useEffect(() => {
+    if (step !== 'cobro') return;
+    if (metodoPago === 'efectivo') {
+      setPagoEfectivo(total);
+      setPagoDigital(0);
+    } else if (metodoPago === 'digital') {
+      setPagoEfectivo(0);
+      setPagoDigital(total);
+    } else {
+      // mixto: don't auto-fill, let user split
+      setPagoEfectivo(0);
+      setPagoDigital(0);
+    }
+  }, [metodoPago, step, total]);
 
   // Handle keyboard shortcut for search focus
   useEffect(() => {
@@ -389,8 +484,17 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
       {/* ── Dark header bar ─────────────────────── */}
       <div className="nsm-header">
         <div className="nsm-header-left">
-          <ShoppingCartOutlined className="nsm-header-icon" />
-          <Title level={4} style={{ margin: 0, color: '#fff' }}>Nueva Venta</Title>
+          {step === 'cobro' ? (
+            <>
+              <WalletOutlined className="nsm-header-icon" />
+              <Title level={4} style={{ margin: 0, color: '#fff' }}>Pantalla de Cobro</Title>
+            </>
+          ) : (
+            <>
+              <ShoppingCartOutlined className="nsm-header-icon" />
+              <Title level={4} style={{ margin: 0, color: '#fff' }}>Nueva Venta</Title>
+            </>
+          )}
         </div>
         <Button
           type="text"
@@ -465,167 +569,327 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
           </div>
         </div>
 
-        {/* ══ RIGHT COLUMN — Config + Totals ═══════ */}
+        {/* ══ RIGHT COLUMN — Config / Cobro ═══════ */}
         <div className="nsm-sidebar">
-          {/* Client */}
-          <div className="nsm-field-group">
-            <label className="nsm-label">
-              <UserOutlined style={{ marginRight: 6 }} />
-              Cliente
-            </label>
-            <Select
-              showSearch
-              placeholder="Seleccionar cliente"
-              style={{ width: '100%' }}
-              value={clienteId}
-              onChange={setClienteId}
-              optionFilterProp="label"
-              size="large"
-              options={clientes.map((c: ClienteVenta) => ({
-                value: c.CLIENTE_ID,
-                label: `${c.NOMBRE || ''}  (${c.CODIGOPARTICULAR})`,
-              }))}
-            />
-          </div>
+          {step === 'cart' ? (
+            /* ── STEP 1: Cart configuration ───────── */
+            <>
+              {/* Client */}
+              <div className="nsm-field-group">
+                <label className="nsm-label">
+                  <UserOutlined style={{ marginRight: 6 }} />
+                  Cliente
+                </label>
+                <Select
+                  showSearch
+                  placeholder="Seleccionar cliente"
+                  style={{ width: '100%' }}
+                  value={clienteId}
+                  onChange={setClienteId}
+                  optionFilterProp="label"
+                  size="large"
+                  options={clientes.map((c: ClienteVenta) => ({
+                    value: c.CLIENTE_ID,
+                    label: `${c.NOMBRE || ''}  (${c.CODIGOPARTICULAR})`,
+                  }))}
+                />
+              </div>
 
-          {/* Deposito */}
-          <div className="nsm-field-group">
-            <label className="nsm-label">
-              <ShopOutlined style={{ marginRight: 6 }} />
-              Depósito
-            </label>
-            <Select
-              placeholder="Depósito"
-              style={{ width: '100%' }}
-              value={depositoId}
-              onChange={setDepositoId}
-              size="large"
-              options={depositosPV.map(d => ({
-                value: d.DEPOSITO_ID,
-                label: d.NOMBRE,
-              }))}
-            />
-          </div>
+              {/* Deposito */}
+              <div className="nsm-field-group">
+                <label className="nsm-label">
+                  <ShopOutlined style={{ marginRight: 6 }} />
+                  Depósito
+                </label>
+                <Select
+                  placeholder="Depósito"
+                  style={{ width: '100%' }}
+                  value={depositoId}
+                  onChange={setDepositoId}
+                  size="large"
+                  options={depositosPV.map(d => ({
+                    value: d.DEPOSITO_ID,
+                    label: d.NOMBRE,
+                  }))}
+                />
+              </div>
 
-          {/* Comprobante */}
-          <div className="nsm-field-group">
-            <label className="nsm-label">
-              <FileTextOutlined style={{ marginRight: 6 }} />
-              Tipo Comprobante
-            </label>
-            <Select
-              placeholder="Tipo"
-              style={{ width: '100%' }}
-              value={tipoComprobante || undefined}
-              onChange={setTipoComprobante}
-              disabled={esMonotributo}
-              size="large"
-              options={comprobanteOptions}
-            />
-          </div>
+              {/* Comprobante */}
+              <div className="nsm-field-group">
+                <label className="nsm-label">
+                  <FileTextOutlined style={{ marginRight: 6 }} />
+                  Tipo Comprobante
+                </label>
+                <Select
+                  placeholder="Tipo"
+                  style={{ width: '100%' }}
+                  value={tipoComprobante || undefined}
+                  onChange={setTipoComprobante}
+                  disabled={esMonotributo}
+                  size="large"
+                  options={comprobanteOptions}
+                />
+              </div>
 
-          {/* Cta Corriente switch */}
-          <div className="nsm-field-group">
-            <div className="nsm-switch-row">
-              <Switch size="default" checked={esCtaCorriente} onChange={setEsCtaCorriente} />
-              <span className="nsm-switch-label">
-                <SwapOutlined style={{ marginRight: 6 }} />
-                Cuenta Corriente
-              </span>
-            </div>
-          </div>
-
-          {/* Dto general */}
-          <div className="nsm-field-group">
-            <label className="nsm-label">Descuento General %</label>
-            <InputNumber
-              value={dtoGral}
-              min={0}
-              max={100}
-              size="large"
-              style={{ width: '100%' }}
-              onChange={(v) => setDtoGral(v || 0)}
-            />
-          </div>
-
-          <Divider style={{ margin: '16px 0' }} />
-
-          {/* Stats */}
-          <div className="nsm-stats">
-            <div className="nsm-stat">
-              <Text type="secondary" style={{ fontSize: 12 }}>Ítems</Text>
-              <Badge
-                count={totalItems}
-                showZero
-                style={{ backgroundColor: totalItems > 0 ? '#EABD23' : '#d9d9d9', color: '#1E1F22', fontWeight: 600 }}
-              />
-            </div>
-            <div className="nsm-stat">
-              <Text type="secondary" style={{ fontSize: 12 }}>Unidades</Text>
-              <Badge
-                count={totalUnits}
-                showZero
-                style={{ backgroundColor: totalUnits > 0 ? '#EABD23' : '#d9d9d9', color: '#1E1F22', fontWeight: 600 }}
-              />
-            </div>
-          </div>
-
-          {/* Totals */}
-          <div className="nsm-totals-box">
-            {dtoGral > 0 && (
-              <>
-                <div className="nsm-total-line">
-                  <Text type="secondary">Subtotal</Text>
-                  <Text>{fmtMoney(subtotal)}</Text>
+              {/* Cta Corriente switch */}
+              <div className="nsm-field-group">
+                <div className="nsm-switch-row">
+                  <Switch size="default" checked={esCtaCorriente} onChange={setEsCtaCorriente} />
+                  <span className="nsm-switch-label">
+                    <SwapOutlined style={{ marginRight: 6 }} />
+                    Cuenta Corriente
+                  </span>
                 </div>
-                <div className="nsm-total-line">
-                  <Text type="secondary">Dto. {dtoGral}%</Text>
-                  <Text type="danger">- {fmtMoney(descuentoMonto)}</Text>
-                </div>
-                <Divider style={{ margin: '8px 0' }} />
-              </>
-            )}
-            <div className="nsm-total-final">
-              <span>TOTAL</span>
-              <span className="nsm-total-amount">{fmtMoney(total)}</span>
-            </div>
-          </div>
+              </div>
 
-          {/* Action buttons */}
-          <div className="nsm-actions">
-            {esCtaCorriente && (
-              <Button
-                block
-                size="large"
-                onClick={() => handleSubmit(false)}
-                loading={createMutation.isPending}
-                disabled={cart.length === 0}
-                style={{ height: 48 }}
-              >
-                Guardar (Cobro Pendiente)
-              </Button>
-            )}
-            <Button
-              type="primary"
-              block
-              size="large"
-              className="btn-gold nsm-btn-cobrar"
-              onClick={() => handleSubmit(true)}
-              loading={createMutation.isPending}
-              disabled={cart.length === 0}
-              icon={<ShoppingCartOutlined />}
-            >
-              Cobrar {fmtMoney(total)}
-            </Button>
-            <Button
-              block
-              size="large"
-              onClick={handleClose}
-              style={{ height: 44 }}
-            >
-              Cancelar
-            </Button>
-          </div>
+              {/* Dto general */}
+              <div className="nsm-field-group">
+                <label className="nsm-label">Descuento General %</label>
+                <InputNumber
+                  value={dtoGral}
+                  min={0}
+                  max={100}
+                  size="large"
+                  style={{ width: '100%' }}
+                  onChange={(v) => setDtoGral(v || 0)}
+                />
+              </div>
+
+              <Divider style={{ margin: '16px 0' }} />
+
+              {/* Stats */}
+              <div className="nsm-stats">
+                <div className="nsm-stat">
+                  <Text type="secondary" style={{ fontSize: 12 }}>Ítems</Text>
+                  <Badge
+                    count={totalItems}
+                    showZero
+                    style={{ backgroundColor: totalItems > 0 ? '#EABD23' : '#d9d9d9', color: '#1E1F22', fontWeight: 600 }}
+                  />
+                </div>
+                <div className="nsm-stat">
+                  <Text type="secondary" style={{ fontSize: 12 }}>Unidades</Text>
+                  <Badge
+                    count={totalUnits}
+                    showZero
+                    style={{ backgroundColor: totalUnits > 0 ? '#EABD23' : '#d9d9d9', color: '#1E1F22', fontWeight: 600 }}
+                  />
+                </div>
+              </div>
+
+              {/* Totals */}
+              <div className="nsm-totals-box">
+                {dtoGral > 0 && (
+                  <>
+                    <div className="nsm-total-line">
+                      <Text type="secondary">Subtotal</Text>
+                      <Text>{fmtMoney(subtotal)}</Text>
+                    </div>
+                    <div className="nsm-total-line">
+                      <Text type="secondary">Dto. {dtoGral}%</Text>
+                      <Text type="danger">- {fmtMoney(descuentoMonto)}</Text>
+                    </div>
+                    <Divider style={{ margin: '8px 0' }} />
+                  </>
+                )}
+                <div className="nsm-total-final">
+                  <span>TOTAL</span>
+                  <span className="nsm-total-amount">{fmtMoney(total)}</span>
+                </div>
+              </div>
+
+              {/* Action buttons */}
+              <div className="nsm-actions">
+                {esCtaCorriente && (
+                  <Button
+                    block
+                    size="large"
+                    onClick={() => handleSubmit(false)}
+                    loading={createMutation.isPending}
+                    disabled={cart.length === 0}
+                    style={{ height: 48 }}
+                  >
+                    Guardar (Cobro Pendiente)
+                  </Button>
+                )}
+                <Button
+                  type="primary"
+                  block
+                  size="large"
+                  className="btn-gold nsm-btn-cobrar"
+                  onClick={() => handleSubmit(true)}
+                  loading={createMutation.isPending}
+                  disabled={cart.length === 0}
+                  icon={<ShoppingCartOutlined />}
+                >
+                  Cobrar {fmtMoney(total)}
+                </Button>
+                <Button
+                  block
+                  size="large"
+                  onClick={handleClose}
+                  style={{ height: 44 }}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </>
+          ) : (
+            /* ── STEP 2: Payment / Cobro ──────────── */
+            <>
+              {/* Total a cobrar - prominent */}
+              <div className="nsm-cobro-total-box">
+                <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Total a cobrar
+                </Text>
+                <div className="nsm-cobro-total-amount">{fmtMoney(total)}</div>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {totalItems} ítem{totalItems !== 1 ? 's' : ''} · {totalUnits} unidad{totalUnits !== 1 ? 'es' : ''}
+                </Text>
+              </div>
+
+              <Divider style={{ margin: '16px 0' }} />
+
+              {/* Payment method */}
+              <div className="nsm-field-group">
+                <label className="nsm-label">Método de pago</label>
+                <div className="nsm-metodo-group">
+                  {[
+                    { key: 'efectivo' as MetodoPago, icon: <DollarOutlined />, label: 'Efectivo' },
+                    { key: 'digital' as MetodoPago, icon: <CreditCardOutlined />, label: 'Digital' },
+                    { key: 'mixto' as MetodoPago, icon: <SwapOutlined />, label: 'Mixto' },
+                  ].map(m => (
+                    <button
+                      key={m.key}
+                      type="button"
+                      className={`nsm-metodo-btn${metodoPago === m.key ? ' active' : ''}`}
+                      onClick={() => setMetodoPago(m.key)}
+                    >
+                      <span className="nsm-metodo-icon">{m.icon}</span>
+                      <span className="nsm-metodo-label">{m.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Cash input */}
+              {(metodoPago === 'efectivo' || metodoPago === 'mixto') && (
+                <div className="nsm-field-group">
+                  <label className="nsm-label">
+                    <DollarOutlined style={{ marginRight: 6 }} />
+                    Monto Efectivo
+                  </label>
+                  <InputNumber
+                    ref={efectivoRef}
+                    value={pagoEfectivo}
+                    min={0}
+                    step={100}
+                    size="large"
+                    style={{ width: '100%' }}
+                    formatter={v => `$ ${v}`}
+                    onChange={v => setPagoEfectivo(v || 0)}
+                    autoFocus
+                    onPressEnter={() => {
+                      if (metodoPago === 'efectivo' && pagoValido) handleConfirmCobro();
+                    }}
+                  />
+                  {metodoPago === 'efectivo' && (
+                    <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
+                      Puede ingresar un monto mayor — se calculará el vuelto
+                    </Text>
+                  )}
+                </div>
+              )}
+
+              {/* Digital input */}
+              {(metodoPago === 'digital' || metodoPago === 'mixto') && (
+                <div className="nsm-field-group">
+                  <label className="nsm-label">
+                    <CreditCardOutlined style={{ marginRight: 6 }} />
+                    Monto Digital
+                  </label>
+                  <InputNumber
+                    value={pagoDigital}
+                    min={0}
+                    step={100}
+                    size="large"
+                    style={{ width: '100%' }}
+                    formatter={v => `$ ${v}`}
+                    onChange={v => setPagoDigital(v || 0)}
+                    autoFocus={metodoPago === 'digital'}
+                    onPressEnter={() => {
+                      if (pagoValido) handleConfirmCobro();
+                    }}
+                  />
+                  {metodoPago === 'digital' && (
+                    <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
+                      El monto digital debe ser exacto
+                    </Text>
+                  )}
+                  {metodoPago === 'mixto' && (
+                    <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
+                      La suma de efectivo + digital debe ser exacta
+                    </Text>
+                  )}
+                </div>
+              )}
+
+              <Divider style={{ margin: '12px 0' }} />
+
+              {/* Payment summary */}
+              <div className="nsm-cobro-summary">
+                <div className="nsm-cobro-line">
+                  <Text type="secondary">Total recibido</Text>
+                  <Text strong>{fmtMoney(pagoEfectivo + pagoDigital)}</Text>
+                </div>
+                <div className="nsm-cobro-line">
+                  <Text type="secondary">Total a abonar</Text>
+                  <Text strong>{fmtMoney(total)}</Text>
+                </div>
+                {vuelto > 0 && (
+                  <div className="nsm-cobro-vuelto">
+                    <Text strong>Vuelto</Text>
+                    <Text strong className="nsm-cobro-vuelto-amount">{fmtMoney(vuelto)}</Text>
+                  </div>
+                )}
+                {(metodoPago === 'mixto' || metodoPago === 'digital') && (pagoEfectivo + pagoDigital) > 0 && Math.abs((pagoEfectivo + pagoDigital) - total) >= 0.01 && (
+                  <div style={{ marginTop: 8 }}>
+                    <Text type="danger" style={{ fontSize: 12 }}>
+                      {(pagoEfectivo + pagoDigital) < total
+                        ? `Faltan ${fmtMoney(total - pagoEfectivo - pagoDigital)}`
+                        : `Exceso de ${fmtMoney(pagoEfectivo + pagoDigital - total)} — el monto debe ser exacto`
+                      }
+                    </Text>
+                  </div>
+                )}
+              </div>
+
+              {/* Cobro action buttons */}
+              <div className="nsm-actions">
+                <Button
+                  type="primary"
+                  block
+                  size="large"
+                  className="btn-gold nsm-btn-cobrar"
+                  onClick={handleConfirmCobro}
+                  loading={createMutation.isPending}
+                  disabled={!pagoValido}
+                  icon={<CheckCircleOutlined />}
+                >
+                  Confirmar Cobro
+                </Button>
+                <Button
+                  block
+                  size="large"
+                  onClick={() => setStep('cart')}
+                  icon={<ArrowLeftOutlined />}
+                  style={{ height: 44 }}
+                >
+                  Volver al carrito
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </Modal>

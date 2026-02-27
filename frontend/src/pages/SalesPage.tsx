@@ -296,7 +296,7 @@ export function SalesPage() {
           <div style={{ textAlign: 'center', padding: 40 }}><Spin size="large" /></div>
         ) : detail && (
           <>
-            <Descriptions column={2} bordered size="small" style={{ marginBottom: 20 }}>
+            <Descriptions column={2} bordered size="middle" style={{ marginBottom: 24 }}>
               <Descriptions.Item label="Fecha">
                 {new Date(detail.FECHA_VENTA).toLocaleDateString('es-AR')}
               </Descriptions.Item>
@@ -335,33 +335,32 @@ export function SalesPage() {
             </Descriptions>
 
             {detail.items && detail.items.length > 0 && (
-              <div>
-                <Title level={5} style={{ marginBottom: 12 }}>Detalle de productos</Title>
+              <div className="rg-sale-items">
+                <Title level={5} style={{ marginBottom: 12, fontWeight: 700 }}>Detalle de productos</Title>
                 <Table
-                  className="rg-table"
                   dataSource={detail.items}
                   rowKey="ITEM_ID"
-                  size="small"
+                  size="middle"
                   pagination={false}
                   columns={[
                     { title: 'Código', dataIndex: 'PRODUCTO_CODIGO', width: 90 },
                     { title: 'Producto', dataIndex: 'PRODUCTO_NOMBRE', ellipsis: true },
                     {
-                      title: 'Cant.', dataIndex: 'CANTIDAD', width: 65, align: 'right' as const,
+                      title: 'Cant', dataIndex: 'CANTIDAD', width: 65, align: 'center' as const,
                       render: (v: number) => v % 1 === 0 ? v : fmtNum(v),
                     },
                     {
-                      title: 'P. Unit.', dataIndex: 'PRECIO_UNITARIO', width: 100,
+                      title: 'P. Unit', dataIndex: 'PRECIO_UNITARIO', width: 100,
                       align: 'right' as const,
                       render: (v: number) => fmtMoney(v),
                     },
                     {
-                      title: 'Dto.', dataIndex: 'DESCUENTO', width: 55,
+                      title: 'Dto', dataIndex: 'DESCUENTO', width: 55,
                       align: 'right' as const,
                       render: (v: number) => v > 0 ? `${v}%` : '-',
                     },
                     {
-                      title: 'Subtotal', key: 'sub', width: 110, align: 'right' as const,
+                      title: 'Subtotal', key: 'sub', width: 120, align: 'right' as const,
                       render: (_: unknown, r: any) => (
                         <Text strong>{fmtMoney(r.PRECIO_UNITARIO_DTO * r.CANTIDAD)}</Text>
                       ),

@@ -602,10 +602,59 @@ body {
 .ant-spin-dot-item {
   background-color: var(--rg-gold) !important;
 }
+/* ── Sale detail Descriptions (drawer) ─────── */
+.rg-drawer .ant-descriptions {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--rg-border);
+}
+.rg-drawer .ant-descriptions-bordered .ant-descriptions-view {
+  border: none;
+}
 .ant-descriptions-bordered .ant-descriptions-item-label {
   background: var(--rg-white-smoke);
   font-weight: 600;
+  color: var(--rg-text-light);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 10px 14px !important;
+  white-space: nowrap;
+}
+.ant-descriptions-bordered .ant-descriptions-item-content {
+  padding: 10px 14px !important;
+  font-weight: 500;
   color: var(--rg-black);
+  font-size: 13.5px;
+}
+
+/* Sale detail items table */
+.rg-sale-items .ant-table {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--rg-border);
+}
+.rg-sale-items .ant-table-thead > tr > th {
+  background: var(--rg-black) !important;
+  color: var(--rg-gold) !important;
+  font-weight: 700 !important;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 12px 14px !important;
+  border-bottom: 2px solid var(--rg-gold) !important;
+}
+.rg-sale-items .ant-table-tbody > tr > td {
+  padding: 12px 14px !important;
+  font-size: 13.5px;
+}
+.rg-sale-items .ant-table-tbody > tr:hover > td {
+  background: rgba(234, 189, 35, 0.05) !important;
+}
+.rg-sale-items .ant-table-summary > tr > td {
+  padding: 12px 14px !important;
+  border-top: 2px solid var(--rg-border);
+  background: var(--rg-white-smoke);
 }
 
 /* ── Responsive adjustments ───────────────────── */
@@ -993,6 +1042,97 @@ body {
   font-weight: 700 !important;
   border-radius: 12px !important;
   letter-spacing: 0.3px;
+}
+
+/* ── Cobro step (NewSaleModal step 2) ─────── */
+.nsm-cobro-total-box {
+  text-align: center;
+  padding: 18px 12px;
+  background: linear-gradient(135deg, rgba(234, 189, 35, 0.10) 0%, rgba(234, 189, 35, 0.04) 100%);
+  border: 1px solid rgba(234, 189, 35, 0.25);
+  border-radius: 12px;
+}
+.nsm-cobro-total-amount {
+  font-size: 32px;
+  font-weight: 800;
+  color: #EABD23;
+  line-height: 1.2;
+  margin: 4px 0 2px;
+}
+
+/* ── Método de pago selector ─────── */
+.nsm-metodo-group {
+  display: flex;
+  gap: 8px;
+}
+.nsm-metodo-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 4px;
+  border: 2px solid var(--rg-border);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+.nsm-metodo-btn:hover {
+  border-color: #EABD23;
+  background: rgba(234, 189, 35, 0.04);
+}
+.nsm-metodo-btn.active {
+  border-color: #EABD23;
+  background: rgba(234, 189, 35, 0.10);
+  box-shadow: 0 0 0 1px rgba(234, 189, 35, 0.3);
+}
+.nsm-metodo-icon {
+  font-size: 20px;
+  color: #999;
+  line-height: 1;
+}
+.nsm-metodo-btn.active .nsm-metodo-icon {
+  color: #EABD23;
+}
+.nsm-metodo-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--rg-text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.nsm-metodo-btn.active .nsm-metodo-label {
+  color: var(--rg-text);
+}
+
+/* ── Cobro summary ─────── */
+.nsm-cobro-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid var(--rg-border);
+  border-radius: 10px;
+}
+.nsm-cobro-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.nsm-cobro-vuelto {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 2px dashed rgba(234, 189, 35, 0.4);
+}
+.nsm-cobro-vuelto-amount {
+  font-size: 22px;
+  color: #52c41a !important;
 }
 
 /* Responsive: stack on narrow screens */
