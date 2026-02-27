@@ -95,44 +95,54 @@ export const customerService = {
   // ── Create ─────────────────────────────────────
   async create(input: ClienteInput) {
     const pool = await getPool();
+    const tx = pool.transaction();
+    await tx.begin();
 
-    // Get next ID
-    const maxResult = await pool.request().query(`SELECT ISNULL(MAX(CLIENTE_ID), 0) + 1 AS nextId FROM CLIENTES`);
-    const nextId = maxResult.recordset[0].nextId;
+    try {
+      // Get next ID with exclusive lock to prevent race conditions
+      const maxResult = await tx.request().query(
+        `SELECT ISNULL(MAX(CLIENTE_ID), 0) + 1 AS nextId FROM CLIENTES WITH (TABLOCKX, HOLDLOCK)`
+      );
+      const nextId = maxResult.recordset[0].nextId;
 
-    // Check duplicate code
-    if (input.CODIGOPARTICULAR) {
-      const dup = await pool.request()
-        .input('code', sql.NVarChar, input.CODIGOPARTICULAR)
-        .query(`SELECT 1 FROM CLIENTES WHERE CODIGOPARTICULAR = @code`);
-      if (dup.recordset.length > 0) {
-        throw Object.assign(new Error('El código ya existe'), { name: 'ValidationError' });
+      // Check duplicate code
+      if (input.CODIGOPARTICULAR) {
+        const dup = await tx.request()
+          .input('code', sql.NVarChar, input.CODIGOPARTICULAR)
+          .query(`SELECT 1 FROM CLIENTES WHERE CODIGOPARTICULAR = @code`);
+        if (dup.recordset.length > 0) {
+          throw Object.assign(new Error('El código ya existe'), { name: 'ValidationError' });
+        }
       }
+
+      const code = input.CODIGOPARTICULAR || String(nextId);
+
+      await tx.request()
+        .input('id', sql.Int, nextId)
+        .input('codigo', sql.NVarChar, code)
+        .input('nombre', sql.NVarChar, input.NOMBRE)
+        .input('domicilio', sql.NVarChar, input.DOMICILIO || null)
+        .input('provincia', sql.NVarChar, input.PROVINCIA || null)
+        .input('telefono', sql.NVarChar, input.TELEFONO || null)
+        .input('email', sql.NVarChar, input.EMAIL || null)
+        .input('tipoDoc', sql.NVarChar, input.TIPO_DOCUMENTO || 'DNI')
+        .input('numDoc', sql.NVarChar, input.NUMERO_DOC || '')
+        .input('condIva', sql.NVarChar, input.CONDICION_IVA || null)
+        .input('ctaCte', sql.Bit, input.CTA_CORRIENTE ? 1 : 0)
+        .input('activo', sql.Bit, input.ACTIVO !== false ? 1 : 0)
+        .query(`
+          INSERT INTO CLIENTES (CLIENTE_ID, CODIGOPARTICULAR, NOMBRE, DOMICILIO, PROVINCIA,
+            TELEFONO, EMAIL, TIPO_DOCUMENTO, NUMERO_DOC, CONDICION_IVA, CTA_CORRIENTE, ACTIVO)
+          VALUES (@id, @codigo, @nombre, @domicilio, @provincia,
+            @telefono, @email, @tipoDoc, @numDoc, @condIva, @ctaCte, @activo)
+        `);
+
+      await tx.commit();
+      return { CLIENTE_ID: nextId };
+    } catch (err) {
+      await tx.rollback();
+      throw err;
     }
-
-    const code = input.CODIGOPARTICULAR || String(nextId);
-
-    await pool.request()
-      .input('id', sql.Int, nextId)
-      .input('codigo', sql.NVarChar, code)
-      .input('nombre', sql.NVarChar, input.NOMBRE)
-      .input('domicilio', sql.NVarChar, input.DOMICILIO || null)
-      .input('provincia', sql.NVarChar, input.PROVINCIA || null)
-      .input('telefono', sql.NVarChar, input.TELEFONO || null)
-      .input('email', sql.NVarChar, input.EMAIL || null)
-      .input('tipoDoc', sql.NVarChar, input.TIPO_DOCUMENTO || 'DNI')
-      .input('numDoc', sql.NVarChar, input.NUMERO_DOC || '')
-      .input('condIva', sql.NVarChar, input.CONDICION_IVA || null)
-      .input('ctaCte', sql.Bit, input.CTA_CORRIENTE ? 1 : 0)
-      .input('activo', sql.Bit, input.ACTIVO !== false ? 1 : 0)
-      .query(`
-        INSERT INTO CLIENTES (CLIENTE_ID, CODIGOPARTICULAR, NOMBRE, DOMICILIO, PROVINCIA,
-          TELEFONO, EMAIL, TIPO_DOCUMENTO, NUMERO_DOC, CONDICION_IVA, CTA_CORRIENTE, ACTIVO)
-        VALUES (@id, @codigo, @nombre, @domicilio, @provincia,
-          @telefono, @email, @tipoDoc, @numDoc, @condIva, @ctaCte, @activo)
-      `);
-
-    return { CLIENTE_ID: nextId };
   },
 
   // ── Update ─────────────────────────────────────
@@ -142,6 +152,11 @@ export const customerService = {
     // Prevent editing CONSUMIDOR FINAL (ID 1)
     if (id === 1) {
       throw Object.assign(new Error('No se puede modificar el cliente CONSUMIDOR FINAL'), { name: 'ValidationError' });
+    }
+
+    // Validate required fields
+    if (!input.CODIGOPARTICULAR?.trim()) {
+      throw Object.assign(new Error('El código es obligatorio'), { name: 'ValidationError' });
     }
 
     // Check duplicate code

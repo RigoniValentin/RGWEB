@@ -51,6 +51,9 @@ import { SalesPage } from '../pages/SalesPage';
 import { SuppliersPage } from '../pages/SuppliersPage';
 import { CajaPage } from '../pages/CajaPage';
 import { CajaCentralPage } from '../pages/CajaCentralPage';
+import { DepositsPage } from '../pages/DepositsPage';
+import { CategoriesPage } from '../pages/CategoriesPage';
+import { BrandsPage } from '../pages/BrandsPage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -71,6 +74,9 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/suppliers':      { label: 'Proveedores',  icon: <ShopOutlined />,         component: SuppliersPage,    closable: true },
   '/cashregisters':  { label: 'Cajas',        icon: <BankOutlined />,         component: CajaPage,         closable: true },
   '/cashcentral':    { label: 'Caja Central', icon: <WalletOutlined />,       component: CajaCentralPage,  closable: true },
+  '/deposits':       { label: 'Depósitos',    icon: <InboxOutlined />,        component: DepositsPage,     closable: true },
+  '/categories':     { label: 'Categorías',   icon: <TagsOutlined />,         component: CategoriesPage,   closable: true },
+  '/brands':         { label: 'Marcas',        icon: <TagOutlined />,          component: BrandsPage,       closable: true },
 };
 
 /** Icon map for TabBar */
@@ -263,6 +269,16 @@ export function AppLayout() {
 
   const [openKeys, setOpenKeys] = useState<string[]>(getOpenKeys());
 
+  // When collapsed, also select the parent submenu so its icon highlights
+  const getSelectedKeys = (): string[] => {
+    const keys = [activeKey];
+    if (collapsed) {
+      const parentGroup = getOpenKeys();
+      if (parentGroup.length > 0) keys.push(...parentGroup);
+    }
+    return keys;
+  };
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
       {/* ── Sidebar ─────────────────────────── */}
@@ -271,18 +287,21 @@ export function AppLayout() {
         collapsible
         collapsed={collapsed}
         width={230}
-        collapsedWidth={64}
+        collapsedWidth={54}
         className={`rg-sidebar ${collapsed ? 'rg-sidebar-collapsed' : ''}`}
         style={{
-          background: 'linear-gradient(180deg, #1E1F22 0%, #2A2B2F 100%)',
+          background: collapsed
+            ? 'linear-gradient(180deg, #1A1B1E 0%, #222326 100%)'
+            : 'linear-gradient(180deg, #1E1F22 0%, #2A2B2F 100%)',
           height: '100vh',
           position: 'sticky',
           top: 0,
           left: 0,
           display: 'flex',
           flexDirection: 'column',
-          borderBottomRightRadius: 20,
+          borderBottomRightRadius: collapsed ? 12 : 20,
           overflow: 'hidden',
+          borderRight: collapsed ? '1px solid rgba(234, 189, 35, 0.15)' : 'none',
         }}
       >
         {/* Logo + Collapse toggle */}
@@ -324,18 +343,21 @@ export function AppLayout() {
 
         {/* Collapsed toggle button */}
         {collapsed && (
-          <div
-            className="rg-expand-btn"
-            onClick={() => setCollapsed(false)}
-            style={{
-              display: 'flex',
-              justifyContent: 'center',
-              padding: '10px 0 6px',
-              cursor: 'pointer',
-              flexShrink: 0,
-            }}
-          >
-            <DoubleRightOutlined style={{ color: '#EABD23', fontSize: 16 }} />
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '0 0 4px', flexShrink: 0 }}>
+            <Button
+              type="text"
+              icon={<DoubleRightOutlined />}
+              onClick={() => setCollapsed(false)}
+              className="rg-collapse-btn"
+              size="small"
+              style={{
+                color: 'rgba(255,255,255,0.45)',
+                fontSize: 14,
+                width: 28,
+                height: 28,
+                borderRadius: 6,
+              }}
+            />
           </div>
         )}
 
@@ -344,7 +366,7 @@ export function AppLayout() {
           <Menu
             theme="dark"
             mode="inline"
-            selectedKeys={[activeKey]}
+            selectedKeys={getSelectedKeys()}
             {...(collapsed ? {} : { openKeys, onOpenChange: setOpenKeys })}
             items={menuItems}
             onClick={({ key }) => {

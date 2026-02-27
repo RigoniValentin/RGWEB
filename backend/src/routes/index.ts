@@ -8,6 +8,9 @@ import catalogRoutes from './catalog.routes.js';
 import dashboardRoutes from './dashboard.routes.js';
 import cajaRoutes from './caja.routes.js';
 import cajaCentralRoutes from './cajaCentral.routes.js';
+import depositRoutes from './deposit.routes.js';
+import categoryRoutes from './category.routes.js';
+import brandRoutes from './brand.routes.js';
 
 const router = Router();
 
@@ -20,5 +23,8 @@ router.use('/catalog', catalogRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/caja', cajaRoutes);
 router.use('/caja-central', cajaCentralRoutes);
+router.use('/deposits', depositRoutes);
+router.use('/categories', categoryRoutes);
+router.use('/brands', brandRoutes);
 
 export default router;

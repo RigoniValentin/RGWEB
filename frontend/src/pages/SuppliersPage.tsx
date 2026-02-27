@@ -63,6 +63,7 @@ export function SuppliersPage() {
   // ── Helpers ──────────────────────────────────────
   const invalidate = useCallback(() => {
     qc.invalidateQueries({ queryKey: ['suppliers'] });
+    qc.invalidateQueries({ queryKey: ['supplier-edit'] });
   }, [qc]);
 
   // ── Fill form when editing ───────────────────────
@@ -348,8 +349,9 @@ export function SuppliersPage() {
           <Form form={form} layout="vertical" size="middle">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
               <Form.Item name="CODIGOPARTICULAR" label="Código"
-                tooltip="Si se deja vacío se asigna automáticamente">
-                <Input placeholder="Auto" />
+                tooltip={editId ? 'El código es obligatorio' : 'Si se deja vacío se asigna automáticamente'}
+                rules={editId ? [{ required: true, whitespace: true, message: 'El código es obligatorio' }] : []}>
+                <Input placeholder={editId ? '' : 'Auto'} />
               </Form.Item>
               <Form.Item name="NOMBRE" label="Nombre" rules={[{ required: true, message: 'Ingresá el nombre' }]}>
                 <Input />

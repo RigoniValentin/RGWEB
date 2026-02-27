@@ -1,36 +1,29 @@
 import { getPool, sql } from '../database/connection.js';
-import type { Proveedor, PaginatedResult } from '../types/index.js';
+import type { Categoria, PaginatedResult } from '../types/index.js';
 
 // ═══════════════════════════════════════════════════
-//  Supplier Service — Full CRUD
+//  Category Service — Full CRUD
 // ═══════════════════════════════════════════════════
 
-export interface ProveedorFilter {
+export interface CategoriaFilter {
   page?: number;
   pageSize?: number;
   search?: string;
-  activo?: boolean;
+  activa?: boolean;
   orderBy?: string;
   orderDir?: 'ASC' | 'DESC';
 }
 
-export interface ProveedorInput {
+export interface CategoriaInput {
   CODIGOPARTICULAR?: string;
   NOMBRE: string;
-  TELEFONO?: string | null;
-  EMAIL?: string | null;
-  DIRECCION?: string | null;
-  CIUDAD?: string | null;
-  CP?: string | null;
-  TIPO_DOCUMENTO?: string;
-  NUMERO_DOC?: string;
-  CTA_CORRIENTE?: boolean;
-  ACTIVO?: boolean;
+  GUARDA_VENCIMIENTO?: boolean;
+  ACTIVA?: boolean;
 }
 
-export const supplierService = {
+export const categoryService = {
   // ── List with pagination & filters ─────────────
-  async getAll(filter: ProveedorFilter = {}): Promise<PaginatedResult<Proveedor>> {
+  async getAll(filter: CategoriaFilter = {}): Promise<PaginatedResult<Categoria>> {
     const pool = await getPool();
     const page = filter.page || 1;
     const pageSize = filter.pageSize || 20;
@@ -40,26 +33,24 @@ export const supplierService = {
     const countReq = pool.request();
     const dataReq = pool.request();
 
-    if (filter.activo !== undefined) {
-      where += ' AND ACTIVO = @activo';
-      countReq.input('activo', sql.Bit, filter.activo ? 1 : 0);
-      dataReq.input('activo', sql.Bit, filter.activo ? 1 : 0);
+    if (filter.activa !== undefined) {
+      where += ' AND ACTIVA = @activa';
+      countReq.input('activa', sql.Bit, filter.activa ? 1 : 0);
+      dataReq.input('activa', sql.Bit, filter.activa ? 1 : 0);
     }
     if (filter.search) {
-      where += ' AND (NOMBRE LIKE @search OR CODIGOPARTICULAR LIKE @search OR NUMERO_DOC LIKE @search OR EMAIL LIKE @search OR TELEFONO LIKE @search)';
+      where += ' AND (NOMBRE LIKE @search OR CODIGOPARTICULAR LIKE @search)';
       countReq.input('search', sql.NVarChar, `%${filter.search}%`);
       dataReq.input('search', sql.NVarChar, `%${filter.search}%`);
     }
 
-    const countResult = await countReq.query(`SELECT COUNT(*) as total FROM PROVEEDORES ${where}`);
+    const countResult = await countReq.query(`SELECT COUNT(*) as total FROM CATEGORIAS ${where}`);
     const total = countResult.recordset[0].total;
 
     // Sorting
     const validCols: Record<string, string> = {
       NOMBRE: 'NOMBRE',
       CODIGOPARTICULAR: 'CODIGOPARTICULAR',
-      CIUDAD: 'CIUDAD',
-      NUMERO_DOC: 'NUMERO_DOC',
     };
     const orderCol = validCols[filter.orderBy || 'NOMBRE'] || 'NOMBRE';
     const orderDir = filter.orderDir === 'DESC' ? 'DESC' : 'ASC';
@@ -67,8 +58,9 @@ export const supplierService = {
     dataReq.input('offset', sql.Int, offset);
     dataReq.input('pageSize', sql.Int, pageSize);
 
-    const dataResult = await dataReq.query<Proveedor>(`
-      SELECT * FROM PROVEEDORES
+    const dataResult = await dataReq.query<Categoria>(`
+      SELECT CATEGORIA_ID, CODIGOPARTICULAR, NOMBRE, GUARDA_VENCIMIENTO, ACTIVA
+      FROM CATEGORIAS
       ${where}
       ORDER BY ${orderCol} ${orderDir}
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
@@ -78,21 +70,21 @@ export const supplierService = {
   },
 
   // ── Get by ID ──────────────────────────────────
-  async getById(id: number): Promise<Proveedor> {
+  async getById(id: number): Promise<Categoria> {
     const pool = await getPool();
     const result = await pool
       .request()
       .input('id', sql.Int, id)
-      .query<Proveedor>('SELECT * FROM PROVEEDORES WHERE PROVEEDOR_ID = @id');
+      .query<Categoria>('SELECT CATEGORIA_ID, CODIGOPARTICULAR, NOMBRE, GUARDA_VENCIMIENTO, ACTIVA FROM CATEGORIAS WHERE CATEGORIA_ID = @id');
 
     if (result.recordset.length === 0) {
-      throw Object.assign(new Error('Proveedor no encontrado'), { name: 'ValidationError' });
+      throw Object.assign(new Error('Categoría no encontrada'), { name: 'ValidationError' });
     }
     return result.recordset[0];
   },
 
   // ── Create ─────────────────────────────────────
-  async create(input: ProveedorInput) {
+  async create(input: CategoriaInput) {
     const pool = await getPool();
     const tx = pool.transaction();
     await tx.begin();
@@ -100,7 +92,7 @@ export const supplierService = {
     try {
       // Get next ID with exclusive lock to prevent race conditions
       const maxResult = await tx.request().query(
-        `SELECT ISNULL(MAX(PROVEEDOR_ID), 0) + 1 AS nextId FROM PROVEEDORES WITH (TABLOCKX, HOLDLOCK)`
+        `SELECT ISNULL(MAX(CATEGORIA_ID), 0) + 1 AS nextId FROM CATEGORIAS WITH (TABLOCKX, HOLDLOCK)`
       );
       const nextId = maxResult.recordset[0].nextId;
 
@@ -108,7 +100,7 @@ export const supplierService = {
       if (input.CODIGOPARTICULAR) {
         const dup = await tx.request()
           .input('code', sql.NVarChar, input.CODIGOPARTICULAR)
-          .query(`SELECT 1 FROM PROVEEDORES WHERE CODIGOPARTICULAR = @code`);
+          .query(`SELECT 1 FROM CATEGORIAS WHERE CODIGOPARTICULAR = @code`);
         if (dup.recordset.length > 0) {
           throw Object.assign(new Error('El código ya existe'), { name: 'ValidationError' });
         }
@@ -120,24 +112,15 @@ export const supplierService = {
         .input('id', sql.Int, nextId)
         .input('codigo', sql.NVarChar, code)
         .input('nombre', sql.NVarChar, input.NOMBRE)
-        .input('telefono', sql.NVarChar, input.TELEFONO || null)
-        .input('email', sql.NVarChar, input.EMAIL || null)
-        .input('direccion', sql.NVarChar, input.DIRECCION || null)
-        .input('ciudad', sql.NVarChar, input.CIUDAD || null)
-        .input('cp', sql.NVarChar, input.CP || null)
-        .input('tipoDoc', sql.NVarChar, input.TIPO_DOCUMENTO || 'CUIT')
-        .input('numDoc', sql.NVarChar, input.NUMERO_DOC || '')
-        .input('ctaCte', sql.Bit, input.CTA_CORRIENTE ? 1 : 0)
-        .input('activo', sql.Bit, input.ACTIVO !== false ? 1 : 0)
+        .input('guardaVenc', sql.Bit, input.GUARDA_VENCIMIENTO ? 1 : 0)
+        .input('activa', sql.Bit, input.ACTIVA !== false ? 1 : 0)
         .query(`
-          INSERT INTO PROVEEDORES (PROVEEDOR_ID, CODIGOPARTICULAR, NOMBRE, TELEFONO, EMAIL,
-            DIRECCION, CIUDAD, CP, TIPO_DOCUMENTO, NUMERO_DOC, CTA_CORRIENTE, ACTIVO)
-          VALUES (@id, @codigo, @nombre, @telefono, @email,
-            @direccion, @ciudad, @cp, @tipoDoc, @numDoc, @ctaCte, @activo)
+          INSERT INTO CATEGORIAS (CATEGORIA_ID, CODIGOPARTICULAR, NOMBRE, GUARDA_VENCIMIENTO, ACTIVA)
+          VALUES (@id, @codigo, @nombre, @guardaVenc, @activa)
         `);
 
       await tx.commit();
-      return { PROVEEDOR_ID: nextId };
+      return { CATEGORIA_ID: nextId };
     } catch (err) {
       await tx.rollback();
       throw err;
@@ -145,12 +128,15 @@ export const supplierService = {
   },
 
   // ── Update ─────────────────────────────────────
-  async update(id: number, input: ProveedorInput) {
+  async update(id: number, input: CategoriaInput) {
     const pool = await getPool();
 
     // Validate required fields
     if (!input.CODIGOPARTICULAR?.trim()) {
       throw Object.assign(new Error('El código es obligatorio'), { name: 'ValidationError' });
+    }
+    if (!input.NOMBRE?.trim()) {
+      throw Object.assign(new Error('El nombre es obligatorio'), { name: 'ValidationError' });
     }
 
     // Check duplicate code
@@ -158,7 +144,7 @@ export const supplierService = {
       const dup = await pool.request()
         .input('code', sql.NVarChar, input.CODIGOPARTICULAR)
         .input('id', sql.Int, id)
-        .query(`SELECT 1 FROM PROVEEDORES WHERE CODIGOPARTICULAR = @code AND PROVEEDOR_ID != @id`);
+        .query(`SELECT 1 FROM CATEGORIAS WHERE CODIGOPARTICULAR = @code AND CATEGORIA_ID != @id`);
       if (dup.recordset.length > 0) {
         throw Object.assign(new Error('El código ya existe'), { name: 'ValidationError' });
       }
@@ -166,24 +152,15 @@ export const supplierService = {
 
     await pool.request()
       .input('id', sql.Int, id)
-      .input('codigo', sql.NVarChar, input.CODIGOPARTICULAR || '')
+      .input('codigo', sql.NVarChar, input.CODIGOPARTICULAR)
       .input('nombre', sql.NVarChar, input.NOMBRE)
-      .input('telefono', sql.NVarChar, input.TELEFONO || null)
-      .input('email', sql.NVarChar, input.EMAIL || null)
-      .input('direccion', sql.NVarChar, input.DIRECCION || null)
-      .input('ciudad', sql.NVarChar, input.CIUDAD || null)
-      .input('cp', sql.NVarChar, input.CP || null)
-      .input('tipoDoc', sql.NVarChar, input.TIPO_DOCUMENTO || 'CUIT')
-      .input('numDoc', sql.NVarChar, input.NUMERO_DOC || '')
-      .input('ctaCte', sql.Bit, input.CTA_CORRIENTE ? 1 : 0)
-      .input('activo', sql.Bit, input.ACTIVO !== false ? 1 : 0)
+      .input('guardaVenc', sql.Bit, input.GUARDA_VENCIMIENTO ? 1 : 0)
+      .input('activa', sql.Bit, input.ACTIVA !== false ? 1 : 0)
       .query(`
-        UPDATE PROVEEDORES SET
-          CODIGOPARTICULAR = @codigo, NOMBRE = @nombre, TELEFONO = @telefono,
-          EMAIL = @email, DIRECCION = @direccion, CIUDAD = @ciudad, CP = @cp,
-          TIPO_DOCUMENTO = @tipoDoc, NUMERO_DOC = @numDoc,
-          CTA_CORRIENTE = @ctaCte, ACTIVO = @activo
-        WHERE PROVEEDOR_ID = @id
+        UPDATE CATEGORIAS SET
+          CODIGOPARTICULAR = @codigo, NOMBRE = @nombre,
+          GUARDA_VENCIMIENTO = @guardaVenc, ACTIVA = @activa
+        WHERE CATEGORIA_ID = @id
       `);
   },
 
@@ -191,22 +168,21 @@ export const supplierService = {
   async delete(id: number) {
     const pool = await getPool();
 
-    // Check if referenced in COMPRAS or PRODUCTOS_PROVEEDORES
+    // Check if referenced in PRODUCTOS
     const check = await pool.request().input('id', sql.Int, id).query(`
-      SELECT
-        (SELECT COUNT(*) FROM COMPRAS WHERE PROVEEDOR_ID = @id) AS enCompras,
-        (SELECT COUNT(*) FROM PRODUCTOS_PROVEEDORES WHERE PROVEEDOR_ID = @id) AS enProductos
+      SELECT COUNT(*) AS enProductos FROM PRODUCTOS WHERE CATEGORIA_ID = @id
     `);
-    const { enCompras, enProductos } = check.recordset[0];
+    const { enProductos } = check.recordset[0];
 
-    if (enCompras > 0 || enProductos > 0) {
+    if (enProductos > 0) {
+      // Soft delete — mark as inactive
       await pool.request().input('id', sql.Int, id)
-        .query(`UPDATE PROVEEDORES SET ACTIVO = 0 WHERE PROVEEDOR_ID = @id`);
+        .query(`UPDATE CATEGORIAS SET ACTIVA = 0 WHERE CATEGORIA_ID = @id`);
       return { mode: 'soft' as const };
     }
 
     await pool.request().input('id', sql.Int, id)
-      .query(`DELETE FROM PROVEEDORES WHERE PROVEEDOR_ID = @id`);
+      .query(`DELETE FROM CATEGORIAS WHERE CATEGORIA_ID = @id`);
 
     return { mode: 'hard' as const };
   },
@@ -214,7 +190,7 @@ export const supplierService = {
   // ── Get next code ──────────────────────────────
   async getNextCode(): Promise<string> {
     const pool = await getPool();
-    const result = await pool.request().query(`SELECT ISNULL(MAX(PROVEEDOR_ID), 0) + 1 AS nextId FROM PROVEEDORES`);
+    const result = await pool.request().query(`SELECT ISNULL(MAX(CATEGORIA_ID), 0) + 1 AS nextId FROM CATEGORIAS`);
     return String(result.recordset[0].nextId);
   },
 };

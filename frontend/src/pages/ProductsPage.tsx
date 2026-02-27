@@ -87,6 +87,7 @@ export function ProductsPage() {
   // ── Helpers ──────────────────────────────────────
   const invalidate = useCallback(() => {
     qc.invalidateQueries({ queryKey: ['products'] });
+    qc.invalidateQueries({ queryKey: ['product-edit'] });
     setSelectedRowKeys([]);
   }, [qc]);
 
