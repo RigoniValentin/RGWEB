@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Modal, Input, Select, Button, InputNumber, Table, Space, Typography,
   Divider, Empty, Spin, Switch, message, AutoComplete,
@@ -11,7 +11,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { salesApi } from '../../services/sales.api';
 import { useAuthStore } from '../../store/authStore';
 import { fmtMoney } from '../../utils/format';
-import type { VentaItemInput, ProductoSearch, VentaInput } from '../../types';
+import type { VentaItemInput, ProductoSearch, VentaInput, ClienteVenta } from '../../types';
 
 const { Title, Text } = Typography;
 
@@ -32,7 +32,8 @@ interface Props {
 export function NewSaleModal({ open, onClose, onSuccess }: Props) {
   const { puntoVentaActivo } = useAuthStore();
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [clienteId, setClienteId] = useState<number | null>(null);
+  const [clienteId, setClienteId] = useState<number>(1);
+  const [depositoId, setDepositoId] = useState<number | null>(null);
   const [tipoComprobante, setTipoComprobante] = useState<string>('');
   const [esCtaCorriente, setEsCtaCorriente] = useState(false);
   const [dtoGral, setDtoGral] = useState(0);
@@ -47,6 +48,69 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     enabled: open,
     staleTime: 60000,
   });
+
+  // Fetch depositos for the active punto de venta
+  const { data: depositosPV = [] } = useQuery({
+    queryKey: ['sales-depositos-pv', puntoVentaActivo],
+    queryFn: () => salesApi.getDepositosPV(puntoVentaActivo!),
+    enabled: open && !!puntoVentaActivo,
+    staleTime: 60000,
+  });
+
+  // Fetch empresa IVA condition
+  const { data: empresaIva } = useQuery({
+    queryKey: ['sales-empresa-iva'],
+    queryFn: () => salesApi.getEmpresaIva(),
+    enabled: open,
+    staleTime: 300000,
+  });
+
+  // Set default deposito when data loads
+  useEffect(() => {
+    if (depositosPV.length > 0 && depositoId === null) {
+      const preferido = depositosPV.find(d => d.ES_PREFERIDO);
+      setDepositoId(preferido?.DEPOSITO_ID || depositosPV[0]?.DEPOSITO_ID || null);
+    }
+  }, [depositosPV, depositoId]);
+
+  // Auto-determine tipo comprobante based on empresa IVA + client IVA
+  const selectedCliente = useMemo(
+    () => clientes.find((c: ClienteVenta) => c.CLIENTE_ID === clienteId),
+    [clientes, clienteId]
+  );
+
+  const esMonotributo = (empresaIva?.CONDICION_IVA || '').toUpperCase() === 'MONOTRIBUTO';
+
+  const comprobanteOptions = useMemo(() => {
+    if (esMonotributo) {
+      return [{ value: 'Fa.C', label: 'Factura C' }];
+    }
+    return [
+      { value: 'Fa.A', label: 'Factura A' },
+      { value: 'Fa.B', label: 'Factura B' },
+      { value: 'Fa.C', label: 'Factura C' },
+    ];
+  }, [esMonotributo]);
+
+  // Derive the correct comprobante type
+  const comprobanteAutoValue = useMemo(() => {
+    if (!empresaIva?.CONDICION_IVA) return '';
+    const empresaCond = empresaIva.CONDICION_IVA.toUpperCase();
+
+    if (empresaCond === 'MONOTRIBUTO') return 'Fa.C';
+
+    if (empresaCond === 'RESPONSABLE INSCRIPTO') {
+      const clienteCond = (selectedCliente?.CONDICION_IVA || '').toUpperCase();
+      return clienteCond === 'RESPONSABLE INSCRIPTO' ? 'Fa.A' : 'Fa.B';
+    }
+    return '';
+  }, [empresaIva, selectedCliente]);
+
+  useEffect(() => {
+    if (comprobanteAutoValue) {
+      setTipoComprobante(comprobanteAutoValue);
+    }
+  }, [comprobanteAutoValue]);
 
   // Product search
   const { mutate: doSearch, isPending: searching } = useMutation({
@@ -86,7 +150,8 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
 
   const resetForm = useCallback(() => {
     setCart([]);
-    setClienteId(null);
+    setClienteId(1);
+    setDepositoId(null);
     setTipoComprobante('');
     setEsCtaCorriente(false);
     setDtoGral(0);
@@ -133,13 +198,44 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
         PRECIO_COMPRA: product.PRECIO_COMPRA || 0,
         STOCK: product.STOCK,
         UNIDAD: product.UNIDAD_ABREVIACION || 'u',
-        LISTA_ID: 1,
+        DEPOSITO_ID: depositoId || undefined,
+        LISTA_ID: product.LISTA_DEFECTO || 1,
       }];
     });
     setSearchText('');
     setSearchOptions([]);
     setTimeout(() => searchRef.current?.focus(), 100);
-  }, []);
+  }, [depositoId]);
+
+  // Barcode quick-pick: on Enter, search immediately and auto-add if single result
+  const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key !== 'Enter') return;
+    const text = searchText.trim();
+    if (!text) return;
+    e.preventDefault();
+    e.stopPropagation();
+    // Cancel any pending debounced search
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    // Immediate search — if exactly 1 product matches, add it directly
+    salesApi.searchProducts(text).then(products => {
+      if (products.length === 1) {
+        addProduct(products[0]!);
+      } else if (products.length > 1) {
+        // Check for exact barcode/code match among results
+        const exact = products.find(
+          p => p.CODIGOPARTICULAR?.toUpperCase() === text.toUpperCase()
+        );
+        if (exact) {
+          addProduct(exact);
+        } else {
+          // Multiple results, no exact match: just show them in dropdown
+          doSearch(text);
+        }
+      } else {
+        message.warning('No se encontró ningún producto');
+      }
+    });
+  }, [searchText, addProduct, doSearch]);
 
   const updateCartItem = (key: string, field: string, value: any) => {
     setCart(prev => prev.map(item =>
@@ -164,10 +260,6 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
 
   // Submit sale
   const handleSubmit = (cobrar: boolean) => {
-    if (!clienteId) {
-      message.warning('Seleccione un cliente');
-      return;
-    }
     if (cart.length === 0) {
       message.warning('Agregue al menos un producto');
       return;
@@ -183,12 +275,13 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
       MONTO_EFECTIVO: cobrar ? total : 0,
       MONTO_DIGITAL: 0,
       VUELTO: 0,
-      items: cart.map(({ PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, LISTA_ID }) => ({
+      items: cart.map(({ PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID }) => ({
         PRODUCTO_ID,
         PRECIO_UNITARIO,
         CANTIDAD,
         DESCUENTO,
         PRECIO_COMPRA,
+        DEPOSITO_ID,
         LISTA_ID,
       })),
     };
@@ -298,11 +391,24 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
             value={clienteId}
             onChange={setClienteId}
             optionFilterProp="label"
-            options={clientes.map(c => ({
+            options={clientes.map((c: ClienteVenta) => ({
               value: c.CLIENTE_ID,
               label: `${c.NOMBRE || ''}  (${c.CODIGOPARTICULAR})`,
             }))}
             suffixIcon={<UserOutlined />}
+          />
+        </div>
+        <div style={{ flex: 1, minWidth: 140 }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>Depósito</Text>
+          <Select
+            placeholder="Depósito"
+            style={{ width: '100%' }}
+            value={depositoId}
+            onChange={setDepositoId}
+            options={depositosPV.map(d => ({
+              value: d.DEPOSITO_ID,
+              label: d.NOMBRE,
+            }))}
           />
         </div>
         <div style={{ flex: 1, minWidth: 120 }}>
@@ -312,12 +418,8 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
             style={{ width: '100%' }}
             value={tipoComprobante || undefined}
             onChange={setTipoComprobante}
-            allowClear
-            options={[
-              { value: 'Fa.A', label: 'Factura A' },
-              { value: 'Fa.B', label: 'Factura B' },
-              { value: 'Fa.C', label: 'Factura C' },
-            ]}
+            disabled={esMonotributo}
+            options={comprobanteOptions}
           />
         </div>
         <div style={{ minWidth: 140, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
@@ -347,6 +449,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
             placeholder="Buscar producto por nombre, código o código de barras (F2)"
             size="large"
             allowClear
+            onKeyDown={handleSearchKeyDown}
           />
         </AutoComplete>
       </div>
@@ -424,7 +527,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
                 size="large"
                 onClick={() => handleSubmit(false)}
                 loading={createMutation.isPending}
-                disabled={cart.length === 0 || !clienteId}
+                disabled={cart.length === 0}
               >
                 Guardar (Cobro Pendiente)
               </Button>
@@ -435,7 +538,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
               className="btn-gold"
               onClick={() => handleSubmit(true)}
               loading={createMutation.isPending}
-              disabled={cart.length === 0 || !clienteId}
+                disabled={cart.length === 0}
               icon={<ShoppingCartOutlined />}
             >
               Cobrar {fmtMoney(total)}

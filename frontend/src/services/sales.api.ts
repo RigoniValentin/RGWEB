@@ -4,6 +4,10 @@ import type {
   PaginatedResponse, ProductoSearch, ClienteVenta, Deposito,
 } from '../types';
 
+export interface DepositoPV extends Deposito {
+  ES_PREFERIDO: boolean;
+}
+
 export const salesApi = {
   getAll: (params?: Record<string, any>) =>
     api.get<PaginatedResponse<Venta>>('/sales', { params }).then(r => r.data),
@@ -34,4 +38,10 @@ export const salesApi = {
 
   getDepositos: () =>
     api.get<Deposito[]>('/sales/depositos').then(r => r.data),
+
+  getDepositosPV: (pvId: number) =>
+    api.get<DepositoPV[]>(`/sales/depositos-pv/${pvId}`).then(r => r.data),
+
+  getEmpresaIva: () =>
+    api.get<{ CONDICION_IVA: string | null }>('/sales/empresa-iva').then(r => r.data),
 };

@@ -152,8 +152,10 @@ export interface VentaItem {
   LISTA_ID: number | null;
   IMPUESTO_INTERNO_PORCENTAJE: number | null;
   IMPUESTO_INTERNO_MONTO: number | null;
+  IMPUESTO_INTERNO_TIPO: number | null;
   IVA_ALICUOTA: number | null;
   IVA_MONTO: number | null;
+  CANTIDAD_PRODUCTOS_PROMO: number | null;
   PRODUCTO_NOMBRE?: string;
   PRODUCTO_CODIGO?: string;
 }
@@ -170,6 +172,15 @@ export interface VentaItemInput {
   PRECIO_COMPRA: number;
   DEPOSITO_ID?: number;
   LISTA_ID?: number;
+  PROMOCION_ID?: number | null;
+  CANTIDAD_PROMO?: number | null;
+  PRECIO_PROMOCION?: number | null;
+  IMPUESTO_INTERNO_PORCENTAJE?: number;
+  IMPUESTO_INTERNO_MONTO?: number;
+  IMPUESTO_INTERNO_TIPO?: number;
+  IVA_ALICUOTA?: number;
+  IVA_MONTO?: number;
+  CANTIDAD_PRODUCTOS_PROMO?: number;
   NOMBRE?: string;
   CODIGO?: string;
 }
@@ -200,6 +211,7 @@ export interface ProductoSearch {
   CODIGOPARTICULAR: string;
   NOMBRE: string;
   PRECIO_VENTA: number;
+  LISTA_DEFECTO: number;
   PRECIO_COMPRA: number;
   STOCK: number;
   ES_CONJUNTO: boolean | null;

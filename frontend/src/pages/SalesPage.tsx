@@ -6,7 +6,7 @@ import {
 } from 'antd';
 import {
   EyeOutlined, PlusOutlined, DeleteOutlined, DollarOutlined,
-  SearchOutlined, MoreOutlined, WalletOutlined, CloseCircleOutlined,
+  SearchOutlined, MoreOutlined, WalletOutlined, CloseCircleOutlined, ReloadOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { salesApi } from '../services/sales.api';
@@ -220,6 +220,7 @@ export function SalesPage() {
           >
             Cobro pendiente
           </Checkbox>
+          <Button icon={<ReloadOutlined />} onClick={() => refetch()} />
           <Button
             type="primary"
             className="btn-gold"

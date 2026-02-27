@@ -540,6 +540,17 @@ body {
   border-color: var(--rg-gold) !important;
   box-shadow: 0 0 0 2px rgba(234, 189, 35, 0.15) !important;
 }
+
+/* AutoComplete / Select dropdown — gold highlight on hover & active */
+.ant-select-dropdown .ant-select-item-option-active,
+.ant-select-dropdown .ant-select-item-option:hover {
+  background-color: rgba(234, 189, 35, 0.15) !important;
+}
+.ant-select-dropdown .ant-select-item-option-selected {
+  background-color: rgba(234, 189, 35, 0.25) !important;
+  font-weight: 600;
+}
+
 .ant-pagination-item-active {
   border-color: var(--rg-gold) !important;
 }

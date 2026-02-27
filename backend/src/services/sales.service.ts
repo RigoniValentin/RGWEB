@@ -35,6 +35,7 @@ export interface VentaItemInput {
   IMPUESTO_INTERNO_TIPO?: number;
   IVA_ALICUOTA?: number;
   IVA_MONTO?: number;
+  CANTIDAD_PRODUCTOS_PROMO?: number;
 }
 
 export interface VentaInput {
@@ -57,6 +58,219 @@ export interface PaymentInput {
   VUELTO: number;
   parcial?: boolean;
 }
+
+// ── Stock helpers ────────────────────────────────
+
+/**
+ * Decrement stock for a product.
+ * - Conjuntos (kits): decrements children via PRODUCTO_CONJUNTO_DEPOSITO,
+ *   then parent if DESCUENTA_STOCK is true.
+ * - Normal products: only decrements if DESCUENTA_STOCK is true.
+ */
+async function decrementarStock(
+  tx: any,
+  productoId: number,
+  cantidad: number,
+  depositoId: number | null
+) {
+  const prod = await tx.request()
+    .input('pid', sql.Int, productoId)
+    .query(`SELECT ES_CONJUNTO, DESCUENTA_STOCK FROM PRODUCTOS WHERE PRODUCTO_ID = @pid`);
+  if (prod.recordset.length === 0) return;
+
+  const esConjunto = prod.recordset[0].ES_CONJUNTO;
+  const descuentaStock = prod.recordset[0].DESCUENTA_STOCK;
+
+  if (esConjunto) {
+    // Decrement children
+    const children = await tx.request()
+      .input('pid', sql.Int, productoId)
+      .query(`SELECT PRODUCTO_ID_HIJO, DEPOSITO_ID, CANTIDAD
+              FROM PRODUCTO_CONJUNTO_DEPOSITO WHERE PRODUCTO_ID = @pid`);
+
+    for (const child of children.recordset) {
+      const childQty = cantidad * child.CANTIDAD;
+      await tx.request()
+        .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
+        .input('depId', sql.Int, child.DEPOSITO_ID)
+        .input('cant', sql.Decimal(18, 4), childQty)
+        .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant
+                WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+      await tx.request()
+        .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
+        .input('cant', sql.Decimal(18, 4), childQty)
+        .query(`UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @prodId`);
+    }
+
+    // Also decrement parent if DESCUENTA_STOCK
+    if (descuentaStock) {
+      if (depositoId) {
+        await tx.request()
+          .input('prodId', sql.Int, productoId)
+          .input('depId', sql.Int, depositoId)
+          .input('cant', sql.Decimal(18, 4), cantidad)
+          .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant
+                  WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+      }
+      await tx.request()
+        .input('prodId', sql.Int, productoId)
+        .input('cant', sql.Decimal(18, 4), cantidad)
+        .query(`UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @prodId`);
+    }
+  } else if (descuentaStock) {
+    if (depositoId) {
+      await tx.request()
+        .input('prodId', sql.Int, productoId)
+        .input('depId', sql.Int, depositoId)
+        .input('cant', sql.Decimal(18, 4), cantidad)
+        .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant
+                WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+    }
+    await tx.request()
+      .input('prodId', sql.Int, productoId)
+      .input('cant', sql.Decimal(18, 4), cantidad)
+      .query(`UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @prodId`);
+  }
+}
+
+/**
+ * Restore stock for a product (reverse of decrementarStock).
+ */
+async function restaurarStock(
+  tx: any,
+  productoId: number,
+  cantidad: number,
+  depositoId: number | null
+) {
+  const prod = await tx.request()
+    .input('pid', sql.Int, productoId)
+    .query(`SELECT ES_CONJUNTO, DESCUENTA_STOCK FROM PRODUCTOS WHERE PRODUCTO_ID = @pid`);
+  if (prod.recordset.length === 0) return;
+
+  const esConjunto = prod.recordset[0].ES_CONJUNTO;
+  const descuentaStock = prod.recordset[0].DESCUENTA_STOCK;
+
+  if (esConjunto) {
+    const children = await tx.request()
+      .input('pid', sql.Int, productoId)
+      .query(`SELECT PRODUCTO_ID_HIJO, DEPOSITO_ID, CANTIDAD
+              FROM PRODUCTO_CONJUNTO_DEPOSITO WHERE PRODUCTO_ID = @pid`);
+
+    for (const child of children.recordset) {
+      const childQty = cantidad * child.CANTIDAD;
+      await tx.request()
+        .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
+        .input('depId', sql.Int, child.DEPOSITO_ID)
+        .input('cant', sql.Decimal(18, 4), childQty)
+        .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant
+                WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+      await tx.request()
+        .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
+        .input('cant', sql.Decimal(18, 4), childQty)
+        .query(`UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @prodId`);
+    }
+
+    if (descuentaStock) {
+      if (depositoId) {
+        await tx.request()
+          .input('prodId', sql.Int, productoId)
+          .input('depId', sql.Int, depositoId)
+          .input('cant', sql.Decimal(18, 4), cantidad)
+          .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant
+                  WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+      }
+      await tx.request()
+        .input('prodId', sql.Int, productoId)
+        .input('cant', sql.Decimal(18, 4), cantidad)
+        .query(`UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @prodId`);
+    }
+  } else if (descuentaStock) {
+    if (depositoId) {
+      await tx.request()
+        .input('prodId', sql.Int, productoId)
+        .input('depId', sql.Int, depositoId)
+        .input('cant', sql.Decimal(18, 4), cantidad)
+        .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant
+                WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+    }
+    await tx.request()
+      .input('prodId', sql.Int, productoId)
+      .input('cant', sql.Decimal(18, 4), cantidad)
+      .query(`UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @prodId`);
+  }
+}
+
+// ── Audit helper ─────────────────────────────────
+
+async function registrarAuditoria(
+  tx: any,
+  tipoEntidad: string,
+  entidadId: number,
+  tipoMovimiento: string,
+  usuarioId: number,
+  puntoVentaId: number | null,
+  cajaId: number | null,
+  monto: number,
+  descripcion: string
+) {
+  try {
+    await tx.request()
+      .input('TipoEntidad', sql.NVarChar(50), tipoEntidad)
+      .input('EntidadId', sql.Int, entidadId)
+      .input('TipoMovimiento', sql.NVarChar(50), tipoMovimiento)
+      .input('UsuarioId', sql.Int, usuarioId)
+      .input('PuntoVentaId', sql.Int, puntoVentaId)
+      .input('CajaId', sql.Int, cajaId)
+      .input('Descripcion', sql.NVarChar(500), descripcion)
+      .input('Monto', sql.Decimal(18, 2), monto)
+      .output('AuditoriaId', sql.BigInt)
+      .execute('SP_REGISTRAR_AUDITORIA');
+  } catch {
+    // Audit failure should not abort the transaction
+    console.warn(`Audit registration failed for ${tipoEntidad} ${entidadId} (${tipoMovimiento})`);
+  }
+}
+
+// ── Caja helper ──────────────────────────────────
+
+async function getCajaAbiertaTx(
+  tx: any,
+  usuarioId: number
+): Promise<{ CAJA_ID: number } | null> {
+  const result = await tx.request()
+    .input('uid', sql.Int, usuarioId)
+    .query(`SELECT CAJA_ID FROM CAJA WHERE USUARIO_ID = @uid AND ESTADO = 'ACTIVA'`);
+  return result.recordset.length > 0 ? result.recordset[0] : null;
+}
+
+// ── CTA Corriente helper ─────────────────────────
+
+async function ensureCtaCorriente(tx: any, clienteId: number): Promise<number> {
+  const existing = await tx.request()
+    .input('cid', sql.Int, clienteId)
+    .query(`SELECT CTA_CORRIENTE_ID FROM CTA_CORRIENTE_C WHERE CLIENTE_ID = @cid`);
+
+  if (existing.recordset.length > 0) {
+    return existing.recordset[0].CTA_CORRIENTE_ID;
+  }
+
+  // Create new CTA_CORRIENTE_C row
+  const result = await tx.request()
+    .input('cid', sql.Int, clienteId)
+    .query(`
+      INSERT INTO CTA_CORRIENTE_C (CLIENTE_ID, FECHA) VALUES (@cid, GETDATE());
+      SELECT SCOPE_IDENTITY() AS CTA_CORRIENTE_ID;
+    `);
+  return result.recordset[0].CTA_CORRIENTE_ID;
+}
+
+// ── Round helper ─────────────────────────────────
+
+function r2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+// ═══════════════════════════════════════════════════
 
 export const salesService = {
   // ── List with pagination & filters ─────────────
@@ -180,6 +394,7 @@ export const salesService = {
                ISNULL(vi.IMPUESTO_INTERNO_TIPO, 1) AS IMPUESTO_INTERNO_TIPO,
                ISNULL(vi.IVA_ALICUOTA, 0) AS IVA_ALICUOTA,
                ISNULL(vi.IVA_MONTO, 0) AS IVA_MONTO,
+               ISNULL(vi.CANTIDAD_PRODUCTOS_PROMO, 0) AS CANTIDAD_PRODUCTOS_PROMO,
                p.NOMBRE AS PRODUCTO_NOMBRE, 
                p.CODIGOPARTICULAR AS PRODUCTO_CODIGO
         FROM VENTAS_ITEMS vi
@@ -201,12 +416,14 @@ export const salesService = {
     await tx.begin();
 
     try {
-      // Calculate totals from items
+      // ── 1. Calculate totals from items ──
       let subtotal = 0;
       let ganancias = 0;
       let ivaTotal = 0;
       let impuestoInternoTotal = 0;
       let bonificaciones = 0;
+      let netoGravado = 0;
+      let netoNoGravado = 0;
       const dtoGral = input.DTO_GRAL || 0;
 
       for (const item of input.items) {
@@ -221,30 +438,46 @@ export const salesService = {
           bonificaciones += (item.PRECIO_UNITARIO - precioConDto) * item.CANTIDAD;
         }
 
-        ivaTotal += (item.IVA_MONTO || 0) * item.CANTIDAD;
+        const ivaMonto = item.IVA_MONTO || 0;
+        const ivaAlicuota = item.IVA_ALICUOTA || 0;
+        ivaTotal += ivaMonto * item.CANTIDAD;
         impuestoInternoTotal += (item.IMPUESTO_INTERNO_MONTO || 0) * item.CANTIDAD;
+
+        // NETO split: gravado vs no gravado
+        if (ivaAlicuota > 0) {
+          netoGravado += (precioConDto - ivaMonto) * item.CANTIDAD;
+        } else {
+          netoNoGravado += precioConDto * item.CANTIDAD;
+        }
       }
 
       // Apply general discount
       let total = subtotal;
       if (dtoGral > 0) {
         const montoDescuento = subtotal * (dtoGral / 100);
-        total = subtotal - montoDescuento;
+        total -= montoDescuento;
         ganancias -= montoDescuento;
         bonificaciones += montoDescuento;
+        // Proportionally reduce neto amounts
+        const factor = 1 - dtoGral / 100;
+        netoGravado *= factor;
+        netoNoGravado *= factor;
       }
 
-      const cobrada = input.COBRADA !== undefined ? input.COBRADA : true;
+      const cobrada = input.COBRADA !== undefined ? input.COBRADA : !input.ES_CTA_CORRIENTE;
       const montoEfectivo = input.MONTO_EFECTIVO || 0;
       const montoDigital = input.MONTO_DIGITAL || 0;
       const vuelto = input.VUELTO || 0;
 
-      // Insert into VENTAS
+      // ── 2. Get caja abierta ──
+      const caja = await getCajaAbiertaTx(tx, usuarioId);
+
+      // ── 3. INSERT into VENTAS ──
       const ventaResult = await tx.request()
         .input('clienteId', sql.Int, input.CLIENTE_ID)
         .input('fechaVenta', sql.DateTime, input.FECHA_VENTA ? new Date(input.FECHA_VENTA) : new Date())
-        .input('total', sql.Decimal(18, 2), Math.round(total * 100) / 100)
-        .input('ganancias', sql.Decimal(18, 2), Math.round(ganancias * 100) / 100)
+        .input('total', sql.Decimal(18, 2), r2(total))
+        .input('ganancias', sql.Decimal(18, 2), r2(ganancias))
         .input('esCtaCorriente', sql.Bit, input.ES_CTA_CORRIENTE ? 1 : 0)
         .input('montoEfectivo', sql.Decimal(18, 2), montoEfectivo)
         .input('montoDigital', sql.Decimal(18, 2), montoDigital)
@@ -254,29 +487,33 @@ export const salesService = {
         .input('puntoVentaId', sql.Int, input.PUNTO_VENTA_ID)
         .input('usuarioId', sql.Int, usuarioId)
         .input('dtoGral', sql.Decimal(18, 2), dtoGral)
-        .input('subtotal', sql.Decimal(18, 2), Math.round(subtotal * 100) / 100)
-        .input('bonificaciones', sql.Decimal(18, 2), Math.round(bonificaciones * 100) / 100)
-        .input('impuestoInterno', sql.Decimal(18, 2), Math.round(impuestoInternoTotal * 100) / 100)
-        .input('ivaTotal', sql.Decimal(18, 2), Math.round(ivaTotal * 100) / 100)
+        .input('subtotal', sql.Decimal(18, 2), r2(subtotal))
+        .input('bonificaciones', sql.Decimal(18, 2), r2(bonificaciones))
+        .input('impuestoInterno', sql.Decimal(18, 2), r2(impuestoInternoTotal))
+        .input('ivaTotal', sql.Decimal(18, 2), r2(ivaTotal))
         .input('montoAnticipo', sql.Decimal(18, 2), 0)
+        .input('netoGravado', sql.Decimal(18, 2), r2(netoGravado))
+        .input('netoNoGravado', sql.Decimal(18, 2), r2(netoNoGravado))
         .query(`
           INSERT INTO VENTAS (
             CLIENTE_ID, FECHA_VENTA, TOTAL, GANANCIAS, ES_CTA_CORRIENTE,
             MONTO_EFECTIVO, MONTO_DIGITAL, VUELTO, TIPO_COMPROBANTE,
             COBRADA, PUNTO_VENTA_ID, USUARIO_ID, DTO_GRAL,
-            SUBTOTAL, BONIFICACIONES, IMPUESTO_INTERNO, IVA_TOTAL, MONTO_ANTICIPO
+            SUBTOTAL, BONIFICACIONES, IMPUESTO_INTERNO, IVA_TOTAL, MONTO_ANTICIPO,
+            NETO_GRAVADO, NETO_NO_GRAVADO
           ) VALUES (
             @clienteId, @fechaVenta, @total, @ganancias, @esCtaCorriente,
             @montoEfectivo, @montoDigital, @vuelto, @tipoComprobante,
             @cobrada, @puntoVentaId, @usuarioId, @dtoGral,
-            @subtotal, @bonificaciones, @impuestoInterno, @ivaTotal, @montoAnticipo
+            @subtotal, @bonificaciones, @impuestoInterno, @ivaTotal, @montoAnticipo,
+            @netoGravado, @netoNoGravado
           );
           SELECT SCOPE_IDENTITY() AS VENTA_ID;
         `);
 
       const ventaId = ventaResult.recordset[0].VENTA_ID;
 
-      // Insert items
+      // ── 4. INSERT VENTAS_ITEMS + decrement stock ──
       for (const item of input.items) {
         const precioConDto = item.DESCUENTO > 0
           ? item.PRECIO_UNITARIO * (1 - item.DESCUENTO / 100)
@@ -300,55 +537,76 @@ export const salesService = {
           .input('impIntTipo', sql.Int, item.IMPUESTO_INTERNO_TIPO || 1)
           .input('ivaAlicuota', sql.Decimal(18, 4), item.IVA_ALICUOTA || 0)
           .input('ivaMonto', sql.Decimal(18, 4), item.IVA_MONTO || 0)
+          .input('cantidadProductosPromo', sql.Decimal(18, 2), item.CANTIDAD_PRODUCTOS_PROMO || 0)
           .query(`
             INSERT INTO VENTAS_ITEMS (
               VENTA_ID, PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, PRECIO_UNITARIO_DTO,
               DESCUENTO, PROMOCION_ID, CANTIDAD_PROMO, PRECIO_PROMOCION,
               PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID,
               IMPUESTO_INTERNO_PORCENTAJE, IMPUESTO_INTERNO_MONTO, IMPUESTO_INTERNO_TIPO,
-              IVA_ALICUOTA, IVA_MONTO
+              IVA_ALICUOTA, IVA_MONTO, CANTIDAD_PRODUCTOS_PROMO
             ) VALUES (
               @ventaId, @productoId, @precioUnitario, @cantidad, @precioUnitarioDto,
               @descuento, @promocionId, @cantidadPromo, @precioPromocion,
               @precioCompra, @depositoId, @listaId,
               @impIntPorcentaje, @impIntMonto, @impIntTipo,
-              @ivaAlicuota, @ivaMonto
+              @ivaAlicuota, @ivaMonto, @cantidadProductosPromo
             )
           `);
 
-        // Update stock (decrease)
-        if (item.DEPOSITO_ID) {
-          await tx.request()
-            .input('prodId', sql.Int, item.PRODUCTO_ID)
-            .input('depId', sql.Int, item.DEPOSITO_ID)
-            .input('cant', sql.Decimal(18, 4), item.CANTIDAD)
-            .query(`
-              UPDATE STOCK_DEPOSITOS 
-              SET CANTIDAD = CANTIDAD - @cant 
-              WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId
-            `);
-        }
-
-        // Update total stock on product
-        await tx.request()
-          .input('prodId', sql.Int, item.PRODUCTO_ID)
-          .input('cant', sql.Decimal(18, 4), item.CANTIDAD)
-          .query(`UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @prodId`);
+        // Decrement stock (handles DESCUENTA_STOCK flag + conjuntos)
+        await decrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID || null);
       }
 
-      // If cuenta corriente and not paid, update balance
-      if (input.ES_CTA_CORRIENTE && !cobrada) {
+      // ── 5. CAJA_ITEMS (if not cta corriente and caja active) ──
+      if (!input.ES_CTA_CORRIENTE && caja) {
+        const efectivoNeto = Math.max(0, montoEfectivo - vuelto);
+        if (efectivoNeto > 0 || montoDigital > 0) {
+          await tx.request()
+            .input('cajaId', sql.Int, caja.CAJA_ID)
+            .input('origenTipo', sql.VarChar(30), 'VENTA')
+            .input('origenId', sql.Int, ventaId)
+            .input('efectivo', sql.Decimal(18, 2), efectivoNeto)
+            .input('digital', sql.Decimal(18, 2), montoDigital)
+            .input('desc', sql.NVarChar(255), `Venta #${ventaId}`)
+            .input('uid', sql.Int, usuarioId)
+            .query(`
+              INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
+                MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
+              VALUES (@cajaId, GETDATE(), @origenTipo, @origenId,
+                @efectivo, @digital, @desc, @uid)
+            `);
+        }
+      }
+
+      // ── 6. CTA_CORRIENTE (if cuenta corriente sale) ──
+      if (input.ES_CTA_CORRIENTE) {
+        const ctaCteId = await ensureCtaCorriente(tx, input.CLIENTE_ID);
         await tx.request()
-          .input('clienteId', sql.Int, input.CLIENTE_ID)
-          .input('monto', sql.Decimal(18, 2), Math.round(total * 100) / 100)
+          .input('comprobanteId', sql.Int, ventaId)
+          .input('ctaCteId', sql.Int, ctaCteId)
+          .input('fecha', sql.DateTime, input.FECHA_VENTA ? new Date(input.FECHA_VENTA) : new Date())
+          .input('concepto', sql.NVarChar(255), `Venta #${ventaId}`)
+          .input('tipoComp', sql.NVarChar(50), 'VENTA')
+          .input('debe', sql.Decimal(18, 2), r2(total))
+          .input('haber', sql.Decimal(18, 2), 0)
           .query(`
-            IF EXISTS (SELECT 1 FROM CTA_CORRIENTE_C WHERE CLIENTE_ID = @clienteId)
-              UPDATE CTA_CORRIENTE_C SET SALDO = SALDO + @monto WHERE CLIENTE_ID = @clienteId
+            INSERT INTO VENTAS_CTA_CORRIENTE
+              (COMPROBANTE_ID, CTA_CORRIENTE_ID, FECHA, CONCEPTO, TIPO_COMPROBANTE, DEBE, HABER)
+            VALUES
+              (@comprobanteId, @ctaCteId, @fecha, @concepto, @tipoComp, @debe, @haber)
           `);
       }
 
+      // ── 7. AUDITORIA ──
+      await registrarAuditoria(
+        tx, 'VENTA', ventaId, 'CREACION', usuarioId,
+        input.PUNTO_VENTA_ID, caja?.CAJA_ID || null,
+        r2(total), `Venta #${ventaId} creada`
+      );
+
       await tx.commit();
-      return { VENTA_ID: ventaId, TOTAL: Math.round(total * 100) / 100 };
+      return { VENTA_ID: ventaId, TOTAL: r2(total) };
     } catch (err) {
       await tx.rollback();
       throw err;
@@ -356,7 +614,7 @@ export const salesService = {
   },
 
   // ── Update sale ────────────────────────────────
-  async update(id: number, input: VentaInput) {
+  async update(id: number, input: VentaInput, usuarioId: number) {
     const pool = await getPool();
     const tx = pool.transaction();
     await tx.begin();
@@ -365,7 +623,9 @@ export const salesService = {
       // Check sale exists and is not invoiced
       const existing = await tx.request()
         .input('id', sql.Int, id)
-        .query(`SELECT VENTA_ID, NUMERO_FISCAL, COBRADA FROM VENTAS WHERE VENTA_ID = @id`);
+        .query(`SELECT VENTA_ID, NUMERO_FISCAL, COBRADA, ES_CTA_CORRIENTE,
+                       CLIENTE_ID, TOTAL, PUNTO_VENTA_ID
+                FROM VENTAS WHERE VENTA_ID = @id`);
 
       if (existing.recordset.length === 0) {
         throw Object.assign(new Error('Venta no encontrada'), { name: 'ValidationError' });
@@ -374,43 +634,62 @@ export const salesService = {
         throw Object.assign(new Error('No se puede modificar una venta con número fiscal emitido'), { name: 'ValidationError' });
       }
 
-      // Restore stock from old items
+      const oldVenta = existing.recordset[0];
+
+      // ── 1. Restore stock from old items ──
       const oldItems = await tx.request()
         .input('ventaId', sql.Int, id)
         .query(`SELECT PRODUCTO_ID, CANTIDAD, DEPOSITO_ID FROM VENTAS_ITEMS WHERE VENTA_ID = @ventaId`);
 
       for (const oldItem of oldItems.recordset) {
-        if (oldItem.DEPOSITO_ID) {
-          await tx.request()
-            .input('prodId', sql.Int, oldItem.PRODUCTO_ID)
-            .input('depId', sql.Int, oldItem.DEPOSITO_ID)
-            .input('cant', sql.Decimal(18, 4), oldItem.CANTIDAD)
-            .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
-        }
-        await tx.request()
-          .input('prodId', sql.Int, oldItem.PRODUCTO_ID)
-          .input('cant', sql.Decimal(18, 4), oldItem.CANTIDAD)
-          .query(`UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @prodId`);
+        await restaurarStock(tx, oldItem.PRODUCTO_ID, oldItem.CANTIDAD, oldItem.DEPOSITO_ID);
       }
 
-      // Delete old items
+      // ── 2. Delete old items ──
       await tx.request().input('ventaId', sql.Int, id)
         .query(`DELETE FROM VENTAS_ITEMS WHERE VENTA_ID = @ventaId`);
 
-      // Calculate new totals
+      // ── 3. Remove old CAJA_ITEMS for this sale ──
+      await tx.request().input('origenId', sql.Int, id)
+        .query(`DELETE FROM CAJA_ITEMS WHERE ORIGEN_ID = @origenId AND ORIGEN_TIPO = 'VENTA'`);
+
+      // ── 4. Remove old CTA_CORRIENTE records ──
+      if (oldVenta.ES_CTA_CORRIENTE) {
+        await tx.request().input('comprobanteId', sql.Int, id)
+          .query(`DELETE FROM VENTAS_CTA_CORRIENTE WHERE COMPROBANTE_ID = @comprobanteId AND TIPO_COMPROBANTE = 'VENTA'`);
+      }
+
+      // ── 5. Calculate new totals ──
       let subtotal = 0;
       let ganancias = 0;
       let bonificaciones = 0;
+      let ivaTotal = 0;
+      let impuestoInternoTotal = 0;
+      let netoGravado = 0;
+      let netoNoGravado = 0;
       const dtoGral = input.DTO_GRAL || 0;
 
       for (const item of input.items) {
         const precioConDto = item.DESCUENTO > 0
           ? item.PRECIO_UNITARIO * (1 - item.DESCUENTO / 100)
           : item.PRECIO_UNITARIO;
-        subtotal += precioConDto * item.CANTIDAD;
+        const lineTotal = precioConDto * item.CANTIDAD;
+        subtotal += lineTotal;
         ganancias += (precioConDto - (item.PRECIO_COMPRA || 0)) * item.CANTIDAD;
+
         if (item.DESCUENTO > 0) {
           bonificaciones += (item.PRECIO_UNITARIO - precioConDto) * item.CANTIDAD;
+        }
+
+        const ivaMonto = item.IVA_MONTO || 0;
+        const ivaAlicuota = item.IVA_ALICUOTA || 0;
+        ivaTotal += ivaMonto * item.CANTIDAD;
+        impuestoInternoTotal += (item.IMPUESTO_INTERNO_MONTO || 0) * item.CANTIDAD;
+
+        if (ivaAlicuota > 0) {
+          netoGravado += (precioConDto - ivaMonto) * item.CANTIDAD;
+        } else {
+          netoNoGravado += precioConDto * item.CANTIDAD;
         }
       }
 
@@ -420,17 +699,20 @@ export const salesService = {
         total -= montoDescuento;
         ganancias -= montoDescuento;
         bonificaciones += montoDescuento;
+        const factor = 1 - dtoGral / 100;
+        netoGravado *= factor;
+        netoNoGravado *= factor;
       }
 
-      const cobrada = input.COBRADA !== undefined ? input.COBRADA : existing.recordset[0].COBRADA;
+      const cobrada = input.COBRADA !== undefined ? input.COBRADA : oldVenta.COBRADA;
 
-      // Update VENTAS
+      // ── 6. UPDATE VENTAS ──
       await tx.request()
         .input('id', sql.Int, id)
         .input('clienteId', sql.Int, input.CLIENTE_ID)
         .input('fechaVenta', sql.DateTime, input.FECHA_VENTA ? new Date(input.FECHA_VENTA) : new Date())
-        .input('total', sql.Decimal(18, 2), Math.round(total * 100) / 100)
-        .input('ganancias', sql.Decimal(18, 2), Math.round(ganancias * 100) / 100)
+        .input('total', sql.Decimal(18, 2), r2(total))
+        .input('ganancias', sql.Decimal(18, 2), r2(ganancias))
         .input('esCtaCorriente', sql.Bit, input.ES_CTA_CORRIENTE ? 1 : 0)
         .input('montoEfectivo', sql.Decimal(18, 2), input.MONTO_EFECTIVO || 0)
         .input('montoDigital', sql.Decimal(18, 2), input.MONTO_DIGITAL || 0)
@@ -438,19 +720,25 @@ export const salesService = {
         .input('tipoComprobante', sql.NVarChar, input.TIPO_COMPROBANTE || null)
         .input('cobrada', sql.Bit, cobrada ? 1 : 0)
         .input('dtoGral', sql.Decimal(18, 2), dtoGral)
-        .input('subtotal', sql.Decimal(18, 2), Math.round(subtotal * 100) / 100)
-        .input('bonificaciones', sql.Decimal(18, 2), Math.round(bonificaciones * 100) / 100)
+        .input('subtotal', sql.Decimal(18, 2), r2(subtotal))
+        .input('bonificaciones', sql.Decimal(18, 2), r2(bonificaciones))
+        .input('impuestoInterno', sql.Decimal(18, 2), r2(impuestoInternoTotal))
+        .input('ivaTotal', sql.Decimal(18, 2), r2(ivaTotal))
+        .input('netoGravado', sql.Decimal(18, 2), r2(netoGravado))
+        .input('netoNoGravado', sql.Decimal(18, 2), r2(netoNoGravado))
         .query(`
           UPDATE VENTAS SET
             CLIENTE_ID=@clienteId, FECHA_VENTA=@fechaVenta, TOTAL=@total,
             GANANCIAS=@ganancias, ES_CTA_CORRIENTE=@esCtaCorriente,
             MONTO_EFECTIVO=@montoEfectivo, MONTO_DIGITAL=@montoDigital, VUELTO=@vuelto,
             TIPO_COMPROBANTE=@tipoComprobante, COBRADA=@cobrada, DTO_GRAL=@dtoGral,
-            SUBTOTAL=@subtotal, BONIFICACIONES=@bonificaciones
+            SUBTOTAL=@subtotal, BONIFICACIONES=@bonificaciones,
+            IMPUESTO_INTERNO=@impuestoInterno, IVA_TOTAL=@ivaTotal,
+            NETO_GRAVADO=@netoGravado, NETO_NO_GRAVADO=@netoNoGravado
           WHERE VENTA_ID = @id
         `);
 
-      // Insert new items and decrease stock
+      // ── 7. Insert new items + decrement stock ──
       for (const item of input.items) {
         const precioConDto = item.DESCUENTO > 0
           ? item.PRECIO_UNITARIO * (1 - item.DESCUENTO / 100)
@@ -463,31 +751,87 @@ export const salesService = {
           .input('cantidad', sql.Decimal(18, 4), item.CANTIDAD)
           .input('precioUnitarioDto', sql.Decimal(18, 4), Math.round(precioConDto * 10000) / 10000)
           .input('descuento', sql.Decimal(18, 2), item.DESCUENTO)
+          .input('promocionId', sql.Int, item.PROMOCION_ID || null)
+          .input('cantidadPromo', sql.Decimal(18, 4), item.CANTIDAD_PROMO || null)
+          .input('precioPromocion', sql.Decimal(18, 4), item.PRECIO_PROMOCION || null)
           .input('precioCompra', sql.Decimal(18, 4), item.PRECIO_COMPRA || 0)
           .input('depositoId', sql.Int, item.DEPOSITO_ID || null)
           .input('listaId', sql.Int, item.LISTA_ID || 1)
+          .input('impIntPorcentaje', sql.Decimal(18, 4), item.IMPUESTO_INTERNO_PORCENTAJE || 0)
+          .input('impIntMonto', sql.Decimal(18, 4), item.IMPUESTO_INTERNO_MONTO || 0)
+          .input('impIntTipo', sql.Int, item.IMPUESTO_INTERNO_TIPO || 1)
+          .input('ivaAlicuota', sql.Decimal(18, 4), item.IVA_ALICUOTA || 0)
+          .input('ivaMonto', sql.Decimal(18, 4), item.IVA_MONTO || 0)
+          .input('cantidadProductosPromo', sql.Decimal(18, 2), item.CANTIDAD_PRODUCTOS_PROMO || 0)
           .query(`
             INSERT INTO VENTAS_ITEMS (
               VENTA_ID, PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, PRECIO_UNITARIO_DTO,
-              DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID
+              DESCUENTO, PROMOCION_ID, CANTIDAD_PROMO, PRECIO_PROMOCION,
+              PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID,
+              IMPUESTO_INTERNO_PORCENTAJE, IMPUESTO_INTERNO_MONTO, IMPUESTO_INTERNO_TIPO,
+              IVA_ALICUOTA, IVA_MONTO, CANTIDAD_PRODUCTOS_PROMO
             ) VALUES (
               @ventaId, @productoId, @precioUnitario, @cantidad, @precioUnitarioDto,
-              @descuento, @precioCompra, @depositoId, @listaId
+              @descuento, @promocionId, @cantidadPromo, @precioPromocion,
+              @precioCompra, @depositoId, @listaId,
+              @impIntPorcentaje, @impIntMonto, @impIntTipo,
+              @ivaAlicuota, @ivaMonto, @cantidadProductosPromo
             )
           `);
 
-        if (item.DEPOSITO_ID) {
-          await tx.request()
-            .input('prodId', sql.Int, item.PRODUCTO_ID)
-            .input('depId', sql.Int, item.DEPOSITO_ID)
-            .input('cant', sql.Decimal(18, 4), item.CANTIDAD)
-            .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
-        }
-        await tx.request()
-          .input('prodId', sql.Int, item.PRODUCTO_ID)
-          .input('cant', sql.Decimal(18, 4), item.CANTIDAD)
-          .query(`UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @prodId`);
+        await decrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID || null);
       }
+
+      // ── 8. Re-create CAJA_ITEMS if applicable ──
+      const caja = await getCajaAbiertaTx(tx, usuarioId);
+      if (!input.ES_CTA_CORRIENTE && caja) {
+        const montoEfectivo = input.MONTO_EFECTIVO || 0;
+        const montoDigital = input.MONTO_DIGITAL || 0;
+        const vuelto = input.VUELTO || 0;
+        const efectivoNeto = Math.max(0, montoEfectivo - vuelto);
+        if (efectivoNeto > 0 || montoDigital > 0) {
+          await tx.request()
+            .input('cajaId', sql.Int, caja.CAJA_ID)
+            .input('origenTipo', sql.VarChar(30), 'VENTA')
+            .input('origenId', sql.Int, id)
+            .input('efectivo', sql.Decimal(18, 2), efectivoNeto)
+            .input('digital', sql.Decimal(18, 2), montoDigital)
+            .input('desc', sql.NVarChar(255), `Venta #${id}`)
+            .input('uid', sql.Int, usuarioId)
+            .query(`
+              INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
+                MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
+              VALUES (@cajaId, GETDATE(), @origenTipo, @origenId,
+                @efectivo, @digital, @desc, @uid)
+            `);
+        }
+      }
+
+      // ── 9. Re-create CTA_CORRIENTE if applicable ──
+      if (input.ES_CTA_CORRIENTE) {
+        const ctaCteId = await ensureCtaCorriente(tx, input.CLIENTE_ID);
+        await tx.request()
+          .input('comprobanteId', sql.Int, id)
+          .input('ctaCteId', sql.Int, ctaCteId)
+          .input('fecha', sql.DateTime, input.FECHA_VENTA ? new Date(input.FECHA_VENTA) : new Date())
+          .input('concepto', sql.NVarChar(255), `Venta #${id}`)
+          .input('tipoComp', sql.NVarChar(50), 'VENTA')
+          .input('debe', sql.Decimal(18, 2), r2(total))
+          .input('haber', sql.Decimal(18, 2), 0)
+          .query(`
+            INSERT INTO VENTAS_CTA_CORRIENTE
+              (COMPROBANTE_ID, CTA_CORRIENTE_ID, FECHA, CONCEPTO, TIPO_COMPROBANTE, DEBE, HABER)
+            VALUES
+              (@comprobanteId, @ctaCteId, @fecha, @concepto, @tipoComp, @debe, @haber)
+          `);
+      }
+
+      // ── 10. AUDITORIA ──
+      await registrarAuditoria(
+        tx, 'VENTA', id, 'MODIFICACION', usuarioId,
+        input.PUNTO_VENTA_ID, caja?.CAJA_ID || null,
+        r2(total), `Venta #${id} modificada`
+      );
 
       await tx.commit();
       return { ok: true };
@@ -498,7 +842,7 @@ export const salesService = {
   },
 
   // ── Delete sale ────────────────────────────────
-  async delete(id: number) {
+  async delete(id: number, usuarioId: number) {
     const pool = await getPool();
     const tx = pool.transaction();
     await tx.begin();
@@ -506,7 +850,8 @@ export const salesService = {
     try {
       const existing = await tx.request()
         .input('id', sql.Int, id)
-        .query(`SELECT VENTA_ID, NUMERO_FISCAL, ES_CTA_CORRIENTE, CLIENTE_ID, TOTAL, COBRADA 
+        .query(`SELECT VENTA_ID, NUMERO_FISCAL, ES_CTA_CORRIENTE, CLIENTE_ID,
+                       TOTAL, COBRADA, PUNTO_VENTA_ID
                 FROM VENTAS WHERE VENTA_ID = @id`);
 
       if (existing.recordset.length === 0) {
@@ -522,41 +867,38 @@ export const salesService = {
         );
       }
 
-      // Restore stock from items
+      // ── 1. Restore stock from items ──
       const items = await tx.request()
         .input('ventaId', sql.Int, id)
         .query(`SELECT PRODUCTO_ID, CANTIDAD, DEPOSITO_ID FROM VENTAS_ITEMS WHERE VENTA_ID = @ventaId`);
 
       for (const item of items.recordset) {
-        if (item.DEPOSITO_ID) {
-          await tx.request()
-            .input('prodId', sql.Int, item.PRODUCTO_ID)
-            .input('depId', sql.Int, item.DEPOSITO_ID)
-            .input('cant', sql.Decimal(18, 4), item.CANTIDAD)
-            .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
-        }
-        await tx.request()
-          .input('prodId', sql.Int, item.PRODUCTO_ID)
-          .input('cant', sql.Decimal(18, 4), item.CANTIDAD)
-          .query(`UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @prodId`);
+        await restaurarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID);
       }
 
-      // If cuenta corriente, reverse balance
-      if (venta.ES_CTA_CORRIENTE && !venta.COBRADA) {
-        await tx.request()
-          .input('clienteId', sql.Int, venta.CLIENTE_ID)
-          .input('monto', sql.Decimal(18, 2), venta.TOTAL)
-          .query(`
-            IF EXISTS (SELECT 1 FROM CTA_CORRIENTE_C WHERE CLIENTE_ID = @clienteId)
-              UPDATE CTA_CORRIENTE_C SET SALDO = SALDO - @monto WHERE CLIENTE_ID = @clienteId
-          `);
+      // ── 2. Remove CAJA_ITEMS ──
+      await tx.request().input('origenId', sql.Int, id)
+        .query(`DELETE FROM CAJA_ITEMS WHERE ORIGEN_ID = @origenId AND ORIGEN_TIPO = 'VENTA'`);
+
+      // ── 3. Remove CTA_CORRIENTE records (both VENTA and PAGO entries) ──
+      if (venta.ES_CTA_CORRIENTE) {
+        await tx.request().input('comprobanteId', sql.Int, id)
+          .query(`DELETE FROM VENTAS_CTA_CORRIENTE WHERE COMPROBANTE_ID = @comprobanteId`);
       }
 
-      // Delete items then sale
+      // ── 4. Delete items then sale ──
       await tx.request().input('ventaId', sql.Int, id)
         .query(`DELETE FROM VENTAS_ITEMS WHERE VENTA_ID = @ventaId`);
       await tx.request().input('id', sql.Int, id)
         .query(`DELETE FROM VENTAS WHERE VENTA_ID = @id`);
+
+      // ── 5. AUDITORIA ──
+      const caja = await getCajaAbiertaTx(tx, usuarioId);
+      await registrarAuditoria(
+        tx, 'VENTA', id, 'ELIMINACION', usuarioId,
+        venta.PUNTO_VENTA_ID, caja?.CAJA_ID || null,
+        venta.TOTAL, `Venta #${id} eliminada`
+      );
 
       await tx.commit();
       return { ok: true };
@@ -567,7 +909,7 @@ export const salesService = {
   },
 
   // ── Mark as paid (total or partial) ────────────
-  async markAsPaid(id: number, payment: PaymentInput) {
+  async markAsPaid(id: number, payment: PaymentInput, usuarioId: number) {
     const pool = await getPool();
     const tx = pool.transaction();
     await tx.begin();
@@ -575,8 +917,9 @@ export const salesService = {
     try {
       const existing = await tx.request()
         .input('id', sql.Int, id)
-        .query(`SELECT VENTA_ID, TOTAL, COBRADA, MONTO_EFECTIVO, MONTO_DIGITAL, 
-                       ES_CTA_CORRIENTE, CLIENTE_ID FROM VENTAS WHERE VENTA_ID = @id`);
+        .query(`SELECT VENTA_ID, TOTAL, COBRADA, MONTO_EFECTIVO, MONTO_DIGITAL,
+                       ES_CTA_CORRIENTE, CLIENTE_ID, PUNTO_VENTA_ID
+                FROM VENTAS WHERE VENTA_ID = @id`);
 
       if (existing.recordset.length === 0) {
         throw Object.assign(new Error('Venta no encontrada'), { name: 'ValidationError' });
@@ -590,6 +933,7 @@ export const salesService = {
       const totalPaidNow = newEfectivo + newDigital;
       const cobrada = !payment.parcial && (totalPaidNow >= venta.TOTAL);
 
+      // ── 1. Update VENTAS ──
       await tx.request()
         .input('id', sql.Int, id)
         .input('montoEfectivo', sql.Decimal(18, 2), newEfectivo)
@@ -603,16 +947,59 @@ export const salesService = {
           WHERE VENTA_ID = @id
         `);
 
-      // If cta corriente and now fully paid, reduce balance
-      if (cobrada && venta.ES_CTA_CORRIENTE) {
-        await tx.request()
-          .input('clienteId', sql.Int, venta.CLIENTE_ID)
-          .input('monto', sql.Decimal(18, 2), venta.TOTAL)
-          .query(`
-            IF EXISTS (SELECT 1 FROM CTA_CORRIENTE_C WHERE CLIENTE_ID = @clienteId)
-              UPDATE CTA_CORRIENTE_C SET SALDO = SALDO - @monto WHERE CLIENTE_ID = @clienteId
-          `);
+      // ── 2. CAJA_ITEMS ──
+      const caja = await getCajaAbiertaTx(tx, usuarioId);
+      if (caja) {
+        const efectivoNeto = Math.max(0, payment.MONTO_EFECTIVO - payment.VUELTO);
+        if (efectivoNeto > 0 || payment.MONTO_DIGITAL > 0) {
+          await tx.request()
+            .input('cajaId', sql.Int, caja.CAJA_ID)
+            .input('origenTipo', sql.VarChar(30), 'VENTA')
+            .input('origenId', sql.Int, id)
+            .input('efectivo', sql.Decimal(18, 2), efectivoNeto)
+            .input('digital', sql.Decimal(18, 2), payment.MONTO_DIGITAL)
+            .input('desc', sql.NVarChar(255), `Cobro Venta #${id}`)
+            .input('uid', sql.Int, usuarioId)
+            .query(`
+              INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
+                MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
+              VALUES (@cajaId, GETDATE(), @origenTipo, @origenId,
+                @efectivo, @digital, @desc, @uid)
+            `);
+        }
       }
+
+      // ── 3. CTA_CORRIENTE: record payment as HABER ──
+      if (venta.ES_CTA_CORRIENTE) {
+        const ctaCteResult = await tx.request()
+          .input('cid', sql.Int, venta.CLIENTE_ID)
+          .query(`SELECT CTA_CORRIENTE_ID FROM CTA_CORRIENTE_C WHERE CLIENTE_ID = @cid`);
+
+        if (ctaCteResult.recordset.length > 0) {
+          const ctaCteId = ctaCteResult.recordset[0].CTA_CORRIENTE_ID;
+          const totalPayment = r2(payment.MONTO_EFECTIVO + payment.MONTO_DIGITAL - payment.VUELTO);
+          await tx.request()
+            .input('comprobanteId', sql.Int, id)
+            .input('ctaCteId', sql.Int, ctaCteId)
+            .input('concepto', sql.NVarChar(255), `Pago Venta #${id}`)
+            .input('tipoComp', sql.NVarChar(50), 'PAGO')
+            .input('haber', sql.Decimal(18, 2), totalPayment)
+            .query(`
+              INSERT INTO VENTAS_CTA_CORRIENTE
+                (COMPROBANTE_ID, CTA_CORRIENTE_ID, FECHA, CONCEPTO, TIPO_COMPROBANTE, DEBE, HABER)
+              VALUES
+                (@comprobanteId, @ctaCteId, GETDATE(), @concepto, @tipoComp, 0, @haber)
+            `);
+        }
+      }
+
+      // ── 4. AUDITORIA ──
+      await registrarAuditoria(
+        tx, 'VENTA', id, 'COBRO', usuarioId,
+        venta.PUNTO_VENTA_ID, caja?.CAJA_ID || null,
+        r2(payment.MONTO_EFECTIVO + payment.MONTO_DIGITAL),
+        `Cobro Venta #${id}`
+      );
 
       await tx.commit();
       return { ok: true, cobrada };
@@ -623,7 +1010,7 @@ export const salesService = {
   },
 
   // ── Remove payment ─────────────────────────────
-  async removePaid(id: number) {
+  async removePaid(id: number, usuarioId: number) {
     const pool = await getPool();
     const tx = pool.transaction();
     await tx.begin();
@@ -631,28 +1018,41 @@ export const salesService = {
     try {
       const existing = await tx.request()
         .input('id', sql.Int, id)
-        .query(`SELECT VENTA_ID, TOTAL, COBRADA, ES_CTA_CORRIENTE, CLIENTE_ID FROM VENTAS WHERE VENTA_ID = @id`);
+        .query(`SELECT VENTA_ID, TOTAL, COBRADA, ES_CTA_CORRIENTE, CLIENTE_ID,
+                       PUNTO_VENTA_ID, MONTO_EFECTIVO, MONTO_DIGITAL
+                FROM VENTAS WHERE VENTA_ID = @id`);
 
       if (existing.recordset.length === 0) {
         throw Object.assign(new Error('Venta no encontrada'), { name: 'ValidationError' });
       }
 
       const venta = existing.recordset[0];
+      const oldMonto = (venta.MONTO_EFECTIVO || 0) + (venta.MONTO_DIGITAL || 0);
 
+      // ── 1. Reset payment on VENTAS ──
       await tx.request()
         .input('id', sql.Int, id)
-        .query(`UPDATE VENTAS SET MONTO_EFECTIVO=0, MONTO_DIGITAL=0, VUELTO=0, COBRADA=0 WHERE VENTA_ID = @id`);
+        .query(`UPDATE VENTAS SET MONTO_EFECTIVO=0, MONTO_DIGITAL=0, VUELTO=0, COBRADA=0
+                WHERE VENTA_ID = @id`);
 
-      // If was paid and cta corriente, restore balance
-      if (venta.COBRADA && venta.ES_CTA_CORRIENTE) {
-        await tx.request()
-          .input('clienteId', sql.Int, venta.CLIENTE_ID)
-          .input('monto', sql.Decimal(18, 2), venta.TOTAL)
-          .query(`
-            IF EXISTS (SELECT 1 FROM CTA_CORRIENTE_C WHERE CLIENTE_ID = @clienteId)
-              UPDATE CTA_CORRIENTE_C SET SALDO = SALDO + @monto WHERE CLIENTE_ID = @clienteId
-          `);
+      // ── 2. Remove CAJA_ITEMS for this sale ──
+      await tx.request().input('origenId', sql.Int, id)
+        .query(`DELETE FROM CAJA_ITEMS WHERE ORIGEN_ID = @origenId AND ORIGEN_TIPO = 'VENTA'`);
+
+      // ── 3. Remove CTA_CORRIENTE payment records ──
+      if (venta.ES_CTA_CORRIENTE) {
+        await tx.request().input('comprobanteId', sql.Int, id)
+          .query(`DELETE FROM VENTAS_CTA_CORRIENTE
+                  WHERE COMPROBANTE_ID = @comprobanteId AND TIPO_COMPROBANTE = 'PAGO'`);
       }
+
+      // ── 4. AUDITORIA ──
+      const caja = await getCajaAbiertaTx(tx, usuarioId);
+      await registrarAuditoria(
+        tx, 'VENTA', id, 'DESCOBRO', usuarioId,
+        venta.PUNTO_VENTA_ID, caja?.CAJA_ID || null,
+        oldMonto, `Descobro Venta #${id}`
+      );
 
       await tx.commit();
       return { ok: true };
@@ -663,9 +1063,21 @@ export const salesService = {
   },
 
   // ── Search products for sale form ──────────────
-  async searchProducts(search: string, listaId: number = 1, limit: number = 20) {
+  async searchProducts(search: string, listaId: number = 0, limit: number = 20) {
     const pool = await getPool();
-    const listaCol = `LISTA_${Math.max(1, Math.min(5, listaId))}`;
+
+    // If listaId is explicitly provided (>0), use that fixed list.
+    // Otherwise (0), use each product's LISTA_DEFECTO.
+    const precioExpr = listaId > 0
+      ? `p.LISTA_${Math.max(1, Math.min(5, listaId))}`
+      : `CASE ISNULL(p.LISTA_DEFECTO, 1)
+           WHEN 1 THEN p.LISTA_1
+           WHEN 2 THEN p.LISTA_2
+           WHEN 3 THEN p.LISTA_3
+           WHEN 4 THEN p.LISTA_4
+           WHEN 5 THEN p.LISTA_5
+           ELSE p.LISTA_1
+         END`;
 
     const result = await pool.request()
       .input('search', sql.NVarChar, `%${search}%`)
@@ -673,7 +1085,8 @@ export const salesService = {
       .query(`
         SELECT DISTINCT TOP (@limit)
           p.PRODUCTO_ID, p.CODIGOPARTICULAR, p.NOMBRE, 
-          p.${listaCol} AS PRECIO_VENTA,
+          ${precioExpr} AS PRECIO_VENTA,
+          ISNULL(p.LISTA_DEFECTO, 1) AS LISTA_DEFECTO,
           p.PRECIO_COMPRA, p.CANTIDAD AS STOCK,
           p.ES_CONJUNTO, p.DESCUENTA_STOCK, p.ACTIVO,
           p.IMP_INT, p.TASA_IVA_ID, p.UNIDAD_ID,
@@ -712,5 +1125,31 @@ export const salesService = {
       SELECT DEPOSITO_ID, CODIGOPARTICULAR, NOMBRE FROM DEPOSITOS ORDER BY NOMBRE
     `);
     return result.recordset;
+  },
+
+  // ── Depositos linked to a punto de venta ───────
+  async getDepositosPuntoVenta(puntoVentaId: number) {
+    const pool = await getPool();
+    const result = await pool.request()
+      .input('pvId', sql.Int, puntoVentaId)
+      .query(`
+        SELECT d.DEPOSITO_ID, d.CODIGOPARTICULAR, d.NOMBRE, pvd.ES_PREFERIDO
+        FROM PUNTOS_VENTA_DEPOSITOS pvd
+        JOIN DEPOSITOS d ON pvd.DEPOSITO_ID = d.DEPOSITO_ID
+        WHERE pvd.PUNTO_VENTA_ID = @pvId
+        ORDER BY pvd.ES_PREFERIDO DESC, d.NOMBRE
+      `);
+    return result.recordset;
+  },
+
+  // ── Empresa IVA condition ──────────────────────
+  async getEmpresaIva() {
+    const pool = await getPool();
+    const result = await pool.request().query(`
+      SELECT CONDICION_IVA FROM EMPRESA_CLIENTE
+    `);
+    return result.recordset.length > 0
+      ? { CONDICION_IVA: result.recordset[0].CONDICION_IVA }
+      : { CONDICION_IVA: null };
   },
 };

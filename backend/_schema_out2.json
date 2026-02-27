@@ -1,0 +1,43 @@
+{
+  "tables": [
+    {
+      "TABLE_NAME": "DEPOSITOS"
+    },
+    {
+      "TABLE_NAME": "PRODUCTO_CONJUNTO_DEPOSITO"
+    },
+    {
+      "TABLE_NAME": "PRODUCTO_DEPOSITOS"
+    },
+    {
+      "TABLE_NAME": "PRODUCTO_PUNTO_VENTA_SERVICIO_COMANDA"
+    },
+    {
+      "TABLE_NAME": "PUNTO_VENTAS"
+    },
+    {
+      "TABLE_NAME": "PUNTOS_VENTA_DEPOSITOS"
+    },
+    {
+      "TABLE_NAME": "STOCK_DEPOSITOS"
+    }
+  ],
+  "depositos": [
+    {
+      "DEPOSITO_ID": 1,
+      "CODIGOPARTICULAR": "DC",
+      "NOMBRE": "DEPOSITO CENTRAL"
+    }
+  ],
+  "usuario_cols": [
+    {
+      "COLUMN_NAME": "USUARIO_ID"
+    },
+    {
+      "COLUMN_NAME": "NOMBRE"
+    },
+    {
+      "COLUMN_NAME": "CLAVE"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "cols": [
+    {
+      "COLUMN_NAME": "PUNTO_VENTA_ID",
+      "DATA_TYPE": "int"
+    },
+    {
+      "COLUMN_NAME": "DEPOSITO_ID",
+      "DATA_TYPE": "int"
+    },
+    {
+      "COLUMN_NAME": "ES_PREFERIDO",
+      "DATA_TYPE": "bit"
+    }
+  ],
+  "data": [
+    {
+      "PUNTO_VENTA_ID": 1,
+      "DEPOSITO_ID": 1,
+      "ES_PREFERIDO": true
+    }
+  ]
+}

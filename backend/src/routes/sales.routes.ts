@@ -45,6 +45,26 @@ router.get('/depositos', async (_req: Request, res: Response) => {
   }
 });
 
+// GET /api/sales/depositos-pv/:pvId
+router.get('/depositos-pv/:pvId', async (req: Request, res: Response) => {
+  try {
+    const data = await salesService.getDepositosPuntoVenta(parseInt(req.params.pvId as string));
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/sales/empresa-iva
+router.get('/empresa-iva', async (_req: Request, res: Response) => {
+  try {
+    const data = await salesService.getEmpresaIva();
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/sales/search-products
 router.get('/search-products', async (req: Request, res: Response) => {
   try {
@@ -53,7 +73,7 @@ router.get('/search-products', async (req: Request, res: Response) => {
       res.json([]);
       return;
     }
-    const listaId = parseInt(req.query.listaId as string) || 1;
+    const listaId = parseInt(req.query.listaId as string) || 0;
     const limit = parseInt(req.query.limit as string) || 20;
     const data = await salesService.searchProducts(search, listaId, limit);
     res.json(data);
@@ -92,7 +112,12 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 // PUT /api/sales/:id
 router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const result = await salesService.update(parseInt(req.params.id as string), req.body);
+    const usuarioId = req.user?.id;
+    if (!usuarioId) {
+      res.status(401).json({ error: 'Usuario no autenticado' });
+      return;
+    }
+    const result = await salesService.update(parseInt(req.params.id as string), req.body, usuarioId);
     res.json(result);
   } catch (err: any) {
     const status = err.name === 'ValidationError' ? 400 : 500;
@@ -101,9 +126,14 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 });
 
 // DELETE /api/sales/:id
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const result = await salesService.delete(parseInt(req.params.id as string));
+    const usuarioId = req.user?.id;
+    if (!usuarioId) {
+      res.status(401).json({ error: 'Usuario no autenticado' });
+      return;
+    }
+    const result = await salesService.delete(parseInt(req.params.id as string), usuarioId);
     res.json(result);
   } catch (err: any) {
     const status = err.name === 'ValidationError' ? 400 : 500;
@@ -112,9 +142,14 @@ router.delete('/:id', async (req: Request, res: Response) => {
 });
 
 // POST /api/sales/:id/pay
-router.post('/:id/pay', async (req: Request, res: Response) => {
+router.post('/:id/pay', async (req: AuthRequest, res: Response) => {
   try {
-    const result = await salesService.markAsPaid(parseInt(req.params.id as string), req.body);
+    const usuarioId = req.user?.id;
+    if (!usuarioId) {
+      res.status(401).json({ error: 'Usuario no autenticado' });
+      return;
+    }
+    const result = await salesService.markAsPaid(parseInt(req.params.id as string), req.body, usuarioId);
     res.json(result);
   } catch (err: any) {
     const status = err.name === 'ValidationError' ? 400 : 500;
@@ -123,9 +158,14 @@ router.post('/:id/pay', async (req: Request, res: Response) => {
 });
 
 // POST /api/sales/:id/unpay
-router.post('/:id/unpay', async (req: Request, res: Response) => {
+router.post('/:id/unpay', async (req: AuthRequest, res: Response) => {
   try {
-    const result = await salesService.removePaid(parseInt(req.params.id as string));
+    const usuarioId = req.user?.id;
+    if (!usuarioId) {
+      res.status(401).json({ error: 'Usuario no autenticado' });
+      return;
+    }
+    const result = await salesService.removePaid(parseInt(req.params.id as string), usuarioId);
     res.json(result);
   } catch (err: any) {
     const status = err.name === 'ValidationError' ? 400 : 500;
