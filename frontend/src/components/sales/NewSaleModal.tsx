@@ -1,11 +1,12 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Modal, Input, Select, Button, InputNumber, Table, Space, Typography,
-  Divider, Empty, Spin, Switch, message, AutoComplete,
+  Divider, Spin, Switch, message, AutoComplete, Badge, Tag,
 } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, ShoppingCartOutlined,
-  UserOutlined, MinusOutlined,
+  UserOutlined, MinusOutlined, BarcodeOutlined, ShopOutlined,
+  FileTextOutlined, SwapOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { salesApi } from '../../services/sales.api';
@@ -303,23 +304,23 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
 
   const cartColumns = [
     {
-      title: 'Producto', dataIndex: 'NOMBRE', key: 'name', ellipsis: true,
+      title: 'PRODUCTO', dataIndex: 'NOMBRE', key: 'name', ellipsis: true,
       render: (name: string, record: CartItem) => (
-        <div>
-          <Text strong style={{ fontSize: 13 }}>{name}</Text>
+        <div style={{ padding: '4px 0' }}>
+          <Text strong style={{ fontSize: 14 }}>{name}</Text>
           <br />
-          <Text type="secondary" style={{ fontSize: 11 }}>{record.CODIGO}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>{record.CODIGO}</Text>
         </div>
       ),
     },
     {
-      title: 'P. Unit.', dataIndex: 'PRECIO_UNITARIO', key: 'price', width: 120,
+      title: 'P. UNIT.', dataIndex: 'PRECIO_UNITARIO', key: 'price', width: 140,
       render: (val: number, record: CartItem) => (
         <InputNumber
           value={val}
           min={0}
           step={0.01}
-          size="small"
+          size="middle"
           style={{ width: '100%' }}
           formatter={v => `$ ${v}`}
           onChange={(v) => updateCartItem(record.key, 'PRECIO_UNITARIO', v || 0)}
@@ -327,223 +328,304 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
       ),
     },
     {
-      title: 'Cant.', dataIndex: 'CANTIDAD', key: 'qty', width: 100,
+      title: 'CANT.', dataIndex: 'CANTIDAD', key: 'qty', width: 140,
       render: (val: number, record: CartItem) => (
-        <Space size={2}>
+        <Space size={4}>
           <Button size="small" icon={<MinusOutlined />}
-            onClick={() => updateCartItem(record.key, 'CANTIDAD', Math.max(0.01, val - 1))} />
-          <InputNumber value={val} min={0.01} step={1} size="small" style={{ width: 60 }}
+            onClick={() => updateCartItem(record.key, 'CANTIDAD', Math.max(0.01, val - 1))}
+            style={{ borderColor: '#d9d9d9' }}
+          />
+          <InputNumber value={val} min={0.01} step={1} size="middle" style={{ width: 64 }}
             onChange={(v) => updateCartItem(record.key, 'CANTIDAD', v || 1)} />
           <Button size="small" icon={<PlusOutlined />}
-            onClick={() => updateCartItem(record.key, 'CANTIDAD', val + 1)} />
+            onClick={() => updateCartItem(record.key, 'CANTIDAD', val + 1)}
+            style={{ borderColor: '#d9d9d9' }}
+          />
         </Space>
       ),
     },
     {
-      title: 'Dto %', dataIndex: 'DESCUENTO', key: 'discount', width: 80,
+      title: 'DTO %', dataIndex: 'DESCUENTO', key: 'discount', width: 90,
       render: (val: number, record: CartItem) => (
-        <InputNumber value={val} min={0} max={100} size="small" style={{ width: '100%' }}
+        <InputNumber value={val} min={0} max={100} size="middle" style={{ width: '100%' }}
           onChange={(v) => updateCartItem(record.key, 'DESCUENTO', v || 0)} />
       ),
     },
     {
-      title: 'Subtotal', key: 'sub', width: 110, align: 'right' as const,
+      title: 'SUBTOTAL', key: 'sub', width: 120, align: 'right' as const,
       render: (_: unknown, record: CartItem) => {
         const precio = record.DESCUENTO > 0
           ? record.PRECIO_UNITARIO * (1 - record.DESCUENTO / 100)
           : record.PRECIO_UNITARIO;
-        return <Text strong>{fmtMoney(precio * record.CANTIDAD)}</Text>;
+        return <Text strong style={{ fontSize: 14 }}>{fmtMoney(precio * record.CANTIDAD)}</Text>;
       },
     },
     {
-      title: '', key: 'actions', width: 40,
+      title: '', key: 'actions', width: 48,
       render: (_: unknown, record: CartItem) => (
         <Button type="text" danger size="small" icon={<DeleteOutlined />}
-          onClick={() => removeCartItem(record.key)} />
+          onClick={() => removeCartItem(record.key)}
+          style={{ fontSize: 16 }}
+        />
       ),
     },
   ];
+
+  const totalItems = cart.length;
+  const totalUnits = cart.reduce((s, i) => s + i.CANTIDAD, 0);
 
   return (
     <Modal
       open={open}
       onCancel={handleClose}
-      width={1000}
-      title={
-        <Space>
-          <ShoppingCartOutlined style={{ color: '#EABD23', fontSize: 20 }} />
-          <span>Nueva Venta</span>
-        </Space>
-      }
+      width="95vw"
+      style={{ top: 20, maxWidth: 1400 }}
       footer={null}
       destroyOnClose
-      className="rg-drawer"
-      styles={{ body: { padding: '16px 24px' } }}
+      closable={false}
+      className="new-sale-modal"
+      styles={{ body: { padding: 0, overflow: 'hidden' } }}
     >
-      {/* Header: Client & options */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-        <div style={{ flex: 2, minWidth: 200 }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>Cliente</Text>
-          <Select
-            showSearch
-            placeholder="Seleccionar cliente"
-            style={{ width: '100%' }}
-            value={clienteId}
-            onChange={setClienteId}
-            optionFilterProp="label"
-            options={clientes.map((c: ClienteVenta) => ({
-              value: c.CLIENTE_ID,
-              label: `${c.NOMBRE || ''}  (${c.CODIGOPARTICULAR})`,
-            }))}
-            suffixIcon={<UserOutlined />}
-          />
+      {/* ── Dark header bar ─────────────────────── */}
+      <div className="nsm-header">
+        <div className="nsm-header-left">
+          <ShoppingCartOutlined className="nsm-header-icon" />
+          <Title level={4} style={{ margin: 0, color: '#fff' }}>Nueva Venta</Title>
         </div>
-        <div style={{ flex: 1, minWidth: 140 }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>Depósito</Text>
-          <Select
-            placeholder="Depósito"
-            style={{ width: '100%' }}
-            value={depositoId}
-            onChange={setDepositoId}
-            options={depositosPV.map(d => ({
-              value: d.DEPOSITO_ID,
-              label: d.NOMBRE,
-            }))}
-          />
-        </div>
-        <div style={{ flex: 1, minWidth: 120 }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>Tipo Comprobante</Text>
-          <Select
-            placeholder="Tipo"
-            style={{ width: '100%' }}
-            value={tipoComprobante || undefined}
-            onChange={setTipoComprobante}
-            disabled={esMonotributo}
-            options={comprobanteOptions}
-          />
-        </div>
-        <div style={{ minWidth: 140, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-          <Space>
-            <Switch size="small" checked={esCtaCorriente} onChange={setEsCtaCorriente} />
-            <Text style={{ fontSize: 12 }}>Cta. Corriente</Text>
-          </Space>
-        </div>
-      </div>
-
-      {/* Product search */}
-      <div style={{ marginBottom: 16 }}>
-        <AutoComplete
-          ref={searchRef}
-          value={searchText}
-          options={searchOptions}
-          onSearch={handleSearch}
-          onSelect={(val) => {
-            const opt = searchOptions.find(o => o.value === val);
-            if (opt) addProduct(opt.product);
-          }}
-          style={{ width: '100%' }}
-          notFoundContent={searching ? <Spin size="small" /> : searchText.length > 0 ? 'Sin resultados' : null}
+        <Button
+          type="text"
+          onClick={handleClose}
+          style={{ color: 'rgba(255,255,255,0.6)', fontSize: 22, lineHeight: 1 }}
         >
-          <Input
-            prefix={<SearchOutlined />}
-            placeholder="Buscar producto por nombre, código o código de barras (F2)"
-            size="large"
-            allowClear
-            onKeyDown={handleSearchKeyDown}
-          />
-        </AutoComplete>
+          ✕
+        </Button>
       </div>
 
-      {/* Cart table */}
-      <div style={{ marginBottom: 16, maxHeight: 350, overflow: 'auto' }}>
-        {cart.length === 0 ? (
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="Agregue productos usando el buscador"
-            style={{ padding: '40px 0' }}
-          />
-        ) : (
-          <Table
-            className="rg-table"
-            dataSource={cart}
-            columns={cartColumns}
-            rowKey="key"
-            pagination={false}
-            size="small"
-            scroll={{ x: 600 }}
-          />
-        )}
-      </div>
+      <div className="nsm-body">
+        {/* ══ LEFT COLUMN — Search + Cart ══════════ */}
+        <div className="nsm-main">
+          {/* Search bar */}
+          <div className="nsm-search-wrap">
+            <AutoComplete
+              ref={searchRef}
+              value={searchText}
+              options={searchOptions}
+              onSearch={handleSearch}
+              onSelect={(val) => {
+                const opt = searchOptions.find(o => o.value === val);
+                if (opt) addProduct(opt.product);
+              }}
+              style={{ width: '100%' }}
+              popupClassName="nsm-search-dropdown"
+              notFoundContent={searching ? <Spin size="small" /> : searchText.length > 0 ? 'Sin resultados' : null}
+            >
+              <Input
+                prefix={<SearchOutlined style={{ fontSize: 18, color: '#EABD23' }} />}
+                suffix={
+                  <Tag color="default" style={{ margin: 0, fontSize: 11, opacity: 0.5 }}>
+                    F2
+                  </Tag>
+                }
+                placeholder="Buscar por nombre, código o escanear código de barras..."
+                size="large"
+                allowClear
+                onKeyDown={handleSearchKeyDown}
+                className="nsm-search-input"
+              />
+            </AutoComplete>
+            <div className="nsm-search-hint">
+              <BarcodeOutlined style={{ marginRight: 4 }} />
+              Escanee o ingrese el código y presione Enter para agregar rápidamente
+            </div>
+          </div>
 
-      <Divider style={{ margin: '12px 0' }} />
+          {/* Cart area */}
+          <div className="nsm-cart-area">
+            {cart.length === 0 ? (
+              <div className="nsm-empty-state">
+                <ShoppingCartOutlined className="nsm-empty-icon" />
+                <Title level={5} style={{ color: '#999', margin: '12px 0 4px' }}>
+                  Carrito vacío
+                </Title>
+                <Text type="secondary">
+                  Busque y agregue productos usando el buscador superior
+                </Text>
+              </div>
+            ) : (
+              <Table
+                className="rg-table nsm-cart-table"
+                dataSource={cart}
+                columns={cartColumns}
+                rowKey="key"
+                pagination={false}
+                size="middle"
+                scroll={{ y: 'calc(100vh - 380px)' }}
+              />
+            )}
+          </div>
+        </div>
 
-      {/* Totals & actions */}
-      <div className="sale-footer">
-        <div className="sale-footer-left">
-          <Space align="center">
-            <Text type="secondary">Dto. General %</Text>
+        {/* ══ RIGHT COLUMN — Config + Totals ═══════ */}
+        <div className="nsm-sidebar">
+          {/* Client */}
+          <div className="nsm-field-group">
+            <label className="nsm-label">
+              <UserOutlined style={{ marginRight: 6 }} />
+              Cliente
+            </label>
+            <Select
+              showSearch
+              placeholder="Seleccionar cliente"
+              style={{ width: '100%' }}
+              value={clienteId}
+              onChange={setClienteId}
+              optionFilterProp="label"
+              size="large"
+              options={clientes.map((c: ClienteVenta) => ({
+                value: c.CLIENTE_ID,
+                label: `${c.NOMBRE || ''}  (${c.CODIGOPARTICULAR})`,
+              }))}
+            />
+          </div>
+
+          {/* Deposito */}
+          <div className="nsm-field-group">
+            <label className="nsm-label">
+              <ShopOutlined style={{ marginRight: 6 }} />
+              Depósito
+            </label>
+            <Select
+              placeholder="Depósito"
+              style={{ width: '100%' }}
+              value={depositoId}
+              onChange={setDepositoId}
+              size="large"
+              options={depositosPV.map(d => ({
+                value: d.DEPOSITO_ID,
+                label: d.NOMBRE,
+              }))}
+            />
+          </div>
+
+          {/* Comprobante */}
+          <div className="nsm-field-group">
+            <label className="nsm-label">
+              <FileTextOutlined style={{ marginRight: 6 }} />
+              Tipo Comprobante
+            </label>
+            <Select
+              placeholder="Tipo"
+              style={{ width: '100%' }}
+              value={tipoComprobante || undefined}
+              onChange={setTipoComprobante}
+              disabled={esMonotributo}
+              size="large"
+              options={comprobanteOptions}
+            />
+          </div>
+
+          {/* Cta Corriente switch */}
+          <div className="nsm-field-group">
+            <div className="nsm-switch-row">
+              <Switch size="default" checked={esCtaCorriente} onChange={setEsCtaCorriente} />
+              <span className="nsm-switch-label">
+                <SwapOutlined style={{ marginRight: 6 }} />
+                Cuenta Corriente
+              </span>
+            </div>
+          </div>
+
+          {/* Dto general */}
+          <div className="nsm-field-group">
+            <label className="nsm-label">Descuento General %</label>
             <InputNumber
               value={dtoGral}
               min={0}
               max={100}
-              size="small"
-              style={{ width: 70 }}
+              size="large"
+              style={{ width: '100%' }}
               onChange={(v) => setDtoGral(v || 0)}
             />
-          </Space>
-          <div style={{ marginTop: 8 }}>
-            <Text type="secondary">Ítems: {cart.length}</Text>
-            <Text type="secondary" style={{ marginLeft: 16 }}>
-              Unidades: {cart.reduce((s, i) => s + i.CANTIDAD, 0)}
-            </Text>
           </div>
-        </div>
-        <div className="sale-footer-right">
-          <div className="sale-totals">
-            {dtoGral > 0 && (
-              <>
-                <div className="sale-total-row">
-                  <Text type="secondary">Subtotal:</Text>
-                  <Text>{fmtMoney(subtotal)}</Text>
-                </div>
-                <div className="sale-total-row">
-                  <Text type="secondary">Descuento ({dtoGral}%):</Text>
-                  <Text type="danger">- {fmtMoney(descuentoMonto)}</Text>
-                </div>
-              </>
-            )}
-            <div className="sale-total-row sale-total-main">
-              <Title level={4} style={{ margin: 0 }}>TOTAL</Title>
-              <Title level={3} style={{ margin: 0, color: '#EABD23' }}>{fmtMoney(total)}</Title>
+
+          <Divider style={{ margin: '16px 0' }} />
+
+          {/* Stats */}
+          <div className="nsm-stats">
+            <div className="nsm-stat">
+              <Text type="secondary" style={{ fontSize: 12 }}>Ítems</Text>
+              <Badge
+                count={totalItems}
+                showZero
+                style={{ backgroundColor: totalItems > 0 ? '#EABD23' : '#d9d9d9', color: '#1E1F22', fontWeight: 600 }}
+              />
+            </div>
+            <div className="nsm-stat">
+              <Text type="secondary" style={{ fontSize: 12 }}>Unidades</Text>
+              <Badge
+                count={totalUnits}
+                showZero
+                style={{ backgroundColor: totalUnits > 0 ? '#EABD23' : '#d9d9d9', color: '#1E1F22', fontWeight: 600 }}
+              />
             </div>
           </div>
-          <Space style={{ marginTop: 12 }}>
-            <Button onClick={handleClose} size="large">
-              Cancelar
-            </Button>
+
+          {/* Totals */}
+          <div className="nsm-totals-box">
+            {dtoGral > 0 && (
+              <>
+                <div className="nsm-total-line">
+                  <Text type="secondary">Subtotal</Text>
+                  <Text>{fmtMoney(subtotal)}</Text>
+                </div>
+                <div className="nsm-total-line">
+                  <Text type="secondary">Dto. {dtoGral}%</Text>
+                  <Text type="danger">- {fmtMoney(descuentoMonto)}</Text>
+                </div>
+                <Divider style={{ margin: '8px 0' }} />
+              </>
+            )}
+            <div className="nsm-total-final">
+              <span>TOTAL</span>
+              <span className="nsm-total-amount">{fmtMoney(total)}</span>
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div className="nsm-actions">
             {esCtaCorriente && (
               <Button
-                type="default"
+                block
                 size="large"
                 onClick={() => handleSubmit(false)}
                 loading={createMutation.isPending}
                 disabled={cart.length === 0}
+                style={{ height: 48 }}
               >
                 Guardar (Cobro Pendiente)
               </Button>
             )}
             <Button
               type="primary"
+              block
               size="large"
-              className="btn-gold"
+              className="btn-gold nsm-btn-cobrar"
               onClick={() => handleSubmit(true)}
               loading={createMutation.isPending}
-                disabled={cart.length === 0}
+              disabled={cart.length === 0}
               icon={<ShoppingCartOutlined />}
             >
               Cobrar {fmtMoney(total)}
             </Button>
-          </Space>
+            <Button
+              block
+              size="large"
+              onClick={handleClose}
+              style={{ height: 44 }}
+            >
+              Cancelar
+            </Button>
+          </div>
         </div>
       </div>
     </Modal>
