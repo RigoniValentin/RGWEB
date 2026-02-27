@@ -472,6 +472,48 @@ body {
   color: var(--rg-gold);
 }
 
+/* ── Modal dark header (CRUD & general) ───────── */
+.rg-modal .ant-modal-header,
+.rg-drawer .ant-modal-header {
+  background: var(--rg-black) !important;
+  border-bottom: 3px solid var(--rg-gold);
+  padding: 16px 24px !important;
+  border-radius: 12px 12px 0 0;
+  margin-bottom: 0;
+}
+.rg-modal .ant-modal-title,
+.rg-drawer .ant-modal-title {
+  color: var(--rg-gold) !important;
+  font-weight: 700;
+  font-size: 16px;
+}
+.rg-modal .ant-modal-close,
+.rg-drawer .ant-modal-close {
+  color: rgba(255,255,255,0.5);
+  top: 14px;
+}
+.rg-modal .ant-modal-close:hover,
+.rg-drawer .ant-modal-close:hover {
+  color: var(--rg-gold);
+  background: transparent;
+}
+.rg-modal .ant-modal-content,
+.rg-drawer .ant-modal-content {
+  border-radius: 12px !important;
+  overflow: hidden;
+  padding: 0 !important;
+}
+.rg-modal .ant-modal-body,
+.rg-drawer .ant-modal-body {
+  padding: 20px 24px !important;
+}
+.rg-modal .ant-modal-footer,
+.rg-drawer .ant-modal-footer {
+  padding: 12px 24px 16px !important;
+  border-top: 1px solid var(--rg-border);
+  margin-top: 0;
+}
+
 /* ── Page Header ──────────────────────────────── */
 .page-header {
   display: flex;

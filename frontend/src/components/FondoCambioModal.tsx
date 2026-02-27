@@ -174,6 +174,7 @@ export function FondoCambioModal({ open, onClose, onSuccess, preselectedCajaId }
       okButtonProps={{ className: 'btn-gold', disabled: !canSubmit }}
       width={520}
       destroyOnClose
+      className="rg-modal"
     >
       {/* ── Balance info ────────────────────────── */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>

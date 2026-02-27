@@ -371,6 +371,7 @@ export function CajaCentralPage() {
         okText="Registrar"
         okButtonProps={{ className: nuevoTipo === 'INGRESO' ? 'btn-gold' : undefined, danger: nuevoTipo === 'EGRESO', disabled: !nuevoDesc.trim() || nuevoTotal <= 0 || !nuevoPvId }}
         width={500}
+        className="rg-modal"
       >
         <Form layout="vertical">
           <Row gutter={12}>

@@ -58,6 +58,7 @@ export function BulkPriceModal({ open, onClose, onDone, productIds }: Props) {
       cancelText="Cancelar"
       destroyOnHidden
       width={480}
+      className="rg-modal"
     >
       <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
         Se aplicará a <b>{productIds.length}</b> producto(s) seleccionado(s)

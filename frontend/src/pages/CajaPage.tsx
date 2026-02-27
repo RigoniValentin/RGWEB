@@ -550,6 +550,7 @@ export function CajaPage() {
         confirmLoading={abrirMutation.isPending}
         okText="Abrir Caja"
         okButtonProps={{ className: 'btn-gold' }}
+        className="rg-modal"
       >
         <div style={{ marginBottom: 16 }}>
           <Text>Punto de venta: <Text strong>{pvNombre}</Text></Text>
@@ -582,6 +583,7 @@ export function CajaPage() {
         okText="Cerrar Caja"
         okButtonProps={{ danger: true, disabled: cerrarDetailLoading || !cerrarBreakdown }}
         width={480}
+        className="rg-modal"
       >
         {cerrarDetailLoading ? (
           <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>
@@ -676,6 +678,7 @@ export function CajaPage() {
         confirmLoading={ieMutation.isPending}
         okText="Registrar"
         okButtonProps={{ className: ieType === 'INGRESO' ? 'btn-gold' : undefined, danger: ieType === 'EGRESO', disabled: !ieMonto || !ieDescripcion.trim() }}
+        className="rg-modal"
       >
         <Form layout="vertical">
           <Form.Item label="Descripción / Motivo" required>

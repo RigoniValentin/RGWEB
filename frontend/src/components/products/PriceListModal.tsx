@@ -92,6 +92,7 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
       cancelText="Cancelar"
       destroyOnHidden
       width={420}
+      className="rg-modal"
     >
       {product && (
         <>
