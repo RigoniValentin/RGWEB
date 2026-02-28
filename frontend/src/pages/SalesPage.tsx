@@ -8,6 +8,7 @@ import {
   EyeOutlined, PlusOutlined, DeleteOutlined, DollarOutlined,
   SearchOutlined, MoreOutlined, WalletOutlined, CloseCircleOutlined, ReloadOutlined,
   PrinterOutlined, WhatsAppOutlined, SendOutlined, UserOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
 import { printReceipt } from '../utils/printReceipt';
 import type { ReceiptData } from '../utils/printReceipt';
@@ -86,6 +87,15 @@ export function SalesPage() {
     queryFn: () => salesApi.getEmpresaInfo(),
     staleTime: 300000,
   });
+
+  // ── FE config ──────────────────────────────────
+  const { data: feConfig } = useQuery({
+    queryKey: ['sales-fe-config'],
+    queryFn: () => salesApi.getFEConfig(),
+    staleTime: 300000,
+  });
+  const utilizaFE = feConfig?.utilizaFE === true;
+  const [facturando, setFacturando] = useState(false);
 
   // ── Delete mutation ────────────────────────────
   const deleteMutation = useMutation({
@@ -203,6 +213,30 @@ export function SalesPage() {
   };
 
   // ── Action menu for each row ───────────────────
+  const handleFacturar = async (ventaId: number) => {
+    setFacturando(true);
+    try {
+      const result = await salesApi.facturar(ventaId);
+      if (result.success) {
+        message.success(
+          `Factura emitida: ${result.tipo_comprobante} Nº ${result.comprobante_nro} — CAE: ${result.cae}`,
+          6
+        );
+        refetch();
+        queryClient.invalidateQueries({ queryKey: ['sale', ventaId] });
+      } else {
+        message.error(
+          `Error al facturar: ${(result.errores || []).join(', ') || 'Error desconocido'}`,
+          8
+        );
+      }
+    } catch (err: any) {
+      message.error(`Error al emitir factura: ${err.response?.data?.error || err.message}`, 8);
+    } finally {
+      setFacturando(false);
+    }
+  };
+
   const getRowActions = (record: Venta) => {
     const items: any[] = [
       { key: 'detail', label: 'Ver detalle', icon: <EyeOutlined />, onClick: () => openDetail(record) },
@@ -220,6 +254,12 @@ export function SalesPage() {
     }
 
     if (!record.NUMERO_FISCAL) {
+      if (utilizaFE) {
+        items.push(
+          { type: 'divider' as const },
+          { key: 'facturar', label: 'Emitir Factura Electrónica', icon: <FileTextOutlined />, onClick: () => handleFacturar(record.VENTA_ID) },
+        );
+      }
       items.push(
         { type: 'divider' as const },
         { key: 'delete', label: 'Eliminar', icon: <DeleteOutlined />, danger: true, onClick: () => deleteMutation.mutate(record.VENTA_ID) },
@@ -359,6 +399,17 @@ export function SalesPage() {
                   onClick={() => openWspModal(detail as VentaDetalle)}
                 />
               </Tooltip>
+              {utilizaFE && !detail.NUMERO_FISCAL && (
+                <Tooltip title="Emitir Factura Electrónica">
+                  <Button
+                    size="small"
+                    icon={<FileTextOutlined />}
+                    loading={facturando}
+                    onClick={() => handleFacturar(detail.VENTA_ID)}
+                    style={{ color: '#1677ff', borderColor: '#1677ff' }}
+                  />
+                </Tooltip>
+              )}
               {!detail.COBRADA && (
                 <Button
                   type="primary"
@@ -401,6 +452,11 @@ export function SalesPage() {
               <Descriptions.Item label="Comprobante">{detail.TIPO_COMPROBANTE || '-'}</Descriptions.Item>
               <Descriptions.Item label="Nro. Fiscal">{detail.NUMERO_FISCAL || 'Sin emitir'}</Descriptions.Item>
               <Descriptions.Item label="CAE">{detail.CAE || '-'}</Descriptions.Item>
+              {detail.ERROR_FE === 'S' && (
+                <Descriptions.Item label="Error FE" span={2}>
+                  <Text type="danger">{detail.ERRORES || 'Error al emitir factura electrónica'}</Text>
+                </Descriptions.Item>
+              )}
               <Descriptions.Item label="Estado">
                 <Tag color={detail.COBRADA ? 'green' : 'orange'}>
                   {detail.COBRADA ? 'Cobrada' : 'Cobro Pendiente'}

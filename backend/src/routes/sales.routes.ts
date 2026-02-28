@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { salesService } from '../services/sales.service.js';
+import { facturacionService } from '../services/facturacion.service.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 
 const router = Router();
@@ -69,6 +70,39 @@ router.get('/empresa-iva', async (_req: Request, res: Response) => {
 router.get('/empresa-info', async (_req: Request, res: Response) => {
   try {
     const data = await salesService.getEmpresaInfo();
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/sales/fe-config  (FE configuration status)
+router.get('/fe-config', async (_req: Request, res: Response) => {
+  try {
+    const data = facturacionService.getConfig();
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sales/:id/facturar  (emit factura electrónica)
+router.post('/:id/facturar', async (req: AuthRequest, res: Response) => {
+  try {
+    const ventaId = parseInt(req.params.id as string);
+    const result = await facturacionService.emitirFactura(ventaId);
+    res.json(result);
+  } catch (err: any) {
+    const status = err.name === 'ValidationError' ? 400 : err.name === 'FEError' ? 502 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// GET /api/sales/:id/fe-respuesta  (get FE response data)
+router.get('/:id/fe-respuesta', async (req: Request, res: Response) => {
+  try {
+    const ventaId = parseInt(req.params.id as string);
+    const data = await facturacionService.getRespuestaFE(ventaId);
     res.json(data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

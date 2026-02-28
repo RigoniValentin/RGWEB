@@ -285,12 +285,12 @@ export const salesService = {
     const params: { name: string; type: any; value: any }[] = [];
 
     if (filter.fechaDesde) {
-      where += ' AND v.FECHA_VENTA >= @fechaDesde';
-      params.push({ name: 'fechaDesde', type: sql.DateTime, value: new Date(filter.fechaDesde) });
+      where += ' AND CAST(v.FECHA_VENTA AS DATE) >= @fechaDesde';
+      params.push({ name: 'fechaDesde', type: sql.VarChar(10), value: filter.fechaDesde });
     }
     if (filter.fechaHasta) {
-      where += ' AND v.FECHA_VENTA <= @fechaHasta';
-      params.push({ name: 'fechaHasta', type: sql.DateTime, value: new Date(filter.fechaHasta + 'T23:59:59') });
+      where += ' AND CAST(v.FECHA_VENTA AS DATE) <= @fechaHasta';
+      params.push({ name: 'fechaHasta', type: sql.VarChar(10), value: filter.fechaHasta });
     }
     if (filter.clienteId) {
       where += ' AND v.CLIENTE_ID = @clienteId';
@@ -478,7 +478,6 @@ export const salesService = {
       // ── 3. INSERT into VENTAS ──
       const ventaResult = await tx.request()
         .input('clienteId', sql.Int, input.CLIENTE_ID)
-        .input('fechaVenta', sql.DateTime, input.FECHA_VENTA ? new Date(input.FECHA_VENTA) : new Date())
         .input('total', sql.Decimal(18, 2), r2(total))
         .input('ganancias', sql.Decimal(18, 2), r2(ganancias))
         .input('esCtaCorriente', sql.Bit, input.ES_CTA_CORRIENTE ? 1 : 0)
@@ -505,7 +504,7 @@ export const salesService = {
             SUBTOTAL, BONIFICACIONES, IMPUESTO_INTERNO, IVA_TOTAL, MONTO_ANTICIPO,
             NETO_GRAVADO, NETO_NO_GRAVADO
           ) VALUES (
-            @clienteId, @fechaVenta, @total, @ganancias, @esCtaCorriente,
+            @clienteId, GETDATE(), @total, @ganancias, @esCtaCorriente,
             @montoEfectivo, @montoDigital, @vuelto, @tipoComprobante,
             @cobrada, @puntoVentaId, @usuarioId, @dtoGral,
             @subtotal, @bonificaciones, @impuestoInterno, @ivaTotal, @montoAnticipo,

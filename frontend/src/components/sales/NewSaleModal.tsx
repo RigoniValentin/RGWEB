@@ -65,11 +65,13 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
   // Print / WhatsApp toggles
   const [wantPrint, setWantPrint] = useState(true);
   const [wantWhatsApp, setWantWhatsApp] = useState(false);
+  const [wantFacturar, setWantFacturar] = useState(false);
   const [wspModalOpen, setWspModalOpen] = useState(false);
   const [wspTelefono, setWspTelefono] = useState('');
   const [wspNombre, setWspNombre] = useState('');
   const [wspSending, setWspSending] = useState(false);
   const [pendingVentaId, setPendingVentaId] = useState<number | null>(null);
+  const [facturando, setFacturando] = useState(false);
 
   // ── Check if user has an open caja ─────────────
   const [cajaCheckState, setCajaCheckState] = useState<'checking' | 'open' | 'closed'>('checking');
@@ -129,6 +131,21 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     staleTime: 300000,
   });
 
+  // Fetch FE config
+  const { data: feConfig } = useQuery({
+    queryKey: ['sales-fe-config'],
+    queryFn: () => salesApi.getFEConfig(),
+    enabled: open,
+    staleTime: 300000,
+  });
+
+  const utilizaFE = feConfig?.utilizaFE === true;
+
+  // Auto-enable facturar toggle when FE is active
+  useEffect(() => {
+    if (utilizaFE) setWantFacturar(true);
+  }, [utilizaFE]);
+
   // Set default deposito when data loads
   useEffect(() => {
     if (depositosPV.length > 0 && depositoId === null) {
@@ -158,7 +175,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
 
   // Derive the correct comprobante type
   const comprobanteAutoValue = useMemo(() => {
-    if (!empresaIva?.CONDICION_IVA) return '';
+    if (!empresaIva?.CONDICION_IVA) return 'Fa.B'; // default until loaded
     const empresaCond = empresaIva.CONDICION_IVA.toUpperCase();
 
     if (empresaCond === 'MONOTRIBUTO') return 'Fa.C';
@@ -167,7 +184,9 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
       const clienteCond = (selectedCliente?.CONDICION_IVA || '').toUpperCase();
       return clienteCond === 'RESPONSABLE INSCRIPTO' ? 'Fa.A' : 'Fa.B';
     }
-    return '';
+
+    // EXENTO, CONSUMIDOR FINAL, or any other condition
+    return 'Fa.C';
   }, [empresaIva, selectedCliente]);
 
   useEffect(() => {
@@ -202,8 +221,31 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
   // Create sale mutation
   const createMutation = useMutation({
     mutationFn: (data: VentaInput) => salesApi.create(data),
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       message.success(`Venta #${result.VENTA_ID} creada — Total: ${fmtMoney(result.TOTAL)}`);
+
+      // ── Post-sale: Facturación Electrónica ──
+      if (wantFacturar && utilizaFE) {
+        setFacturando(true);
+        try {
+          const feResult = await salesApi.facturar(result.VENTA_ID);
+          if (feResult.success) {
+            message.success(
+              `Factura emitida: ${feResult.tipo_comprobante} Nº ${feResult.comprobante_nro} — CAE: ${feResult.cae}`,
+              6
+            );
+          } else {
+            message.error(
+              `Error al facturar: ${(feResult.errores || []).join(', ') || 'Error desconocido'}`,
+              8
+            );
+          }
+        } catch (err: any) {
+          message.error(`Error al emitir factura: ${err.response?.data?.error || err.message}`, 8);
+        } finally {
+          setFacturando(false);
+        }
+      }
 
       // ── Post-sale: Print receipt ──
       if (wantPrint) {
@@ -291,7 +333,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     setCart([]);
     setClienteId(1);
     setDepositoId(null);
-    setTipoComprobante('');
+    setTipoComprobante(comprobanteAutoValue);
     setEsCtaCorriente(false);
     setDtoGral(0);
     setSearchText('');
@@ -302,7 +344,9 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     setPagoDigital(0);
     setWantPrint(true);
     setWantWhatsApp(false);
-  }, []);
+    setWantFacturar(utilizaFE);
+    setFacturando(false);
+  }, [utilizaFE, comprobanteAutoValue]);
 
   const handleClose = () => {
     resetForm();
@@ -426,7 +470,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     const input: VentaInput = {
       CLIENTE_ID: clienteId,
       PUNTO_VENTA_ID: puntoVentaActivo || 1,
-      TIPO_COMPROBANTE: tipoComprobante || undefined,
+      TIPO_COMPROBANTE: tipoComprobante || comprobanteAutoValue,
       ES_CTA_CORRIENTE: esCtaCorriente,
       DTO_GRAL: dtoGral,
       COBRADA: false,
@@ -486,7 +530,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     const input: VentaInput = {
       CLIENTE_ID: clienteId,
       PUNTO_VENTA_ID: puntoVentaActivo || 1,
-      TIPO_COMPROBANTE: tipoComprobante || undefined,
+      TIPO_COMPROBANTE: tipoComprobante || comprobanteAutoValue,
       ES_CTA_CORRIENTE: esCtaCorriente,
       DTO_GRAL: dtoGral,
       COBRADA: true,
@@ -1049,6 +1093,17 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
                     <span>Enviar por WhatsApp</span>
                   </Space>
                 </Checkbox>
+                {utilizaFE && (
+                  <Checkbox
+                    checked={wantFacturar}
+                    onChange={e => setWantFacturar(e.target.checked)}
+                  >
+                    <Space size={6}>
+                      <FileTextOutlined style={{ color: '#1677ff' }} />
+                      <span>Emitir Factura Electrónica</span>
+                    </Space>
+                  </Checkbox>
+                )}
               </div>
 
               {/* Cobro action buttons */}
@@ -1059,7 +1114,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
                   size="large"
                   className="btn-gold nsm-btn-cobrar"
                   onClick={handleConfirmCobro}
-                  loading={createMutation.isPending}
+                  loading={createMutation.isPending || facturando}
                   disabled={!pagoValido}
                   icon={<CheckCircleOutlined />}
                 >

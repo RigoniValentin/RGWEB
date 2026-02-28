@@ -178,6 +178,12 @@ export const cajaService = {
     // Check fondo de cambio for retiro on open
     const fondoSaldo = await this.getSaldoFondoCambio(input.PUNTO_VENTA_ID);
 
+    if (input.MONTO_APERTURA > 0 && input.MONTO_APERTURA > fondoSaldo) {
+      throw new ValidationError(
+        `El monto de apertura ($${input.MONTO_APERTURA.toFixed(2)}) supera el fondo de cambio disponible ($${fondoSaldo.toFixed(2)}).`
+      );
+    }
+
     const transaction = (pool as any).transaction();
     await transaction.begin();
 

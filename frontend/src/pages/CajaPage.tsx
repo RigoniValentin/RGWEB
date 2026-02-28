@@ -110,20 +110,36 @@ export function CajaPage() {
     queryFn: () => cajaApi.getFondoCambioSaldo(pvFilter || undefined),
   });
 
+  // Fondo específico para el modal de abrir caja (usa puntoVentaActivo, no pvFilter)
+  const { data: fondoApertura, refetch: refetchFondoApertura } = useQuery({
+    queryKey: ['fondo-cambio-apertura', puntoVentaActivo],
+    queryFn: () => cajaApi.getFondoCambioSaldo(puntoVentaActivo || undefined),
+    enabled: !!puntoVentaActivo,
+  });
+
   // ── Mutations ──────────────────────────────────
   const invalidateAll = () => {
     refetch();
     refetchMiCaja();
     queryClient.invalidateQueries({ queryKey: ['caja'] });
     queryClient.invalidateQueries({ queryKey: ['fondo-cambio'] });
+    queryClient.invalidateQueries({ queryKey: ['fondo-cambio-apertura'] });
     queryClient.invalidateQueries({ queryKey: ['fc-modal'] });
   };
 
+  const fondoDisponible = fondoApertura?.saldo ?? 0;
+  const montoExcedeFondo = montoApertura > fondoDisponible;
+
   const abrirMutation = useMutation({
-    mutationFn: () => cajaApi.abrir({
-      MONTO_APERTURA: montoApertura,
-      PUNTO_VENTA_ID: puntoVentaActivo!,
-    }),
+    mutationFn: () => {
+      if (montoApertura > fondoDisponible) {
+        return Promise.reject({ response: { data: { error: 'El monto de apertura no puede superar el fondo de cambio disponible' } } });
+      }
+      return cajaApi.abrir({
+        MONTO_APERTURA: montoApertura,
+        PUNTO_VENTA_ID: puntoVentaActivo!,
+      });
+    },
     onSuccess: (data) => {
       message.success(`Caja #${data.CAJA_ID} abierta exitosamente`);
       setAbrirModalOpen(false);
@@ -335,7 +351,7 @@ export function CajaPage() {
                   className="btn-gold"
                   size="small"
                   icon={<PlusOutlined />}
-                  onClick={() => setAbrirModalOpen(true)}
+                  onClick={() => { refetchFondoApertura(); setAbrirModalOpen(true); }}
                   disabled={!puntoVentaActivo}
                 >
                   Abrir Caja
@@ -549,17 +565,21 @@ export function CajaPage() {
         onOk={() => abrirMutation.mutate()}
         confirmLoading={abrirMutation.isPending}
         okText="Abrir Caja"
-        okButtonProps={{ className: 'btn-gold' }}
+        okButtonProps={{ className: 'btn-gold', disabled: montoExcedeFondo }}
         className="rg-modal"
       >
         <div style={{ marginBottom: 16 }}>
           <Text>Punto de venta: <Text strong>{pvNombre}</Text></Text>
         </div>
         <div style={{ marginBottom: 16 }}>
-          <Text>Fondo de cambio disponible: <Text strong style={{ color: '#52c41a' }}>{fmtMoney(fondoData?.saldo)}</Text></Text>
+          <Text>Fondo de cambio disponible: <Text strong style={{ color: fondoDisponible > 0 ? '#52c41a' : '#ff4d4f' }}>{fmtMoney(fondoDisponible)}</Text></Text>
         </div>
         <Form layout="vertical">
-          <Form.Item label="Monto de apertura">
+          <Form.Item
+            label="Monto de apertura"
+            validateStatus={montoExcedeFondo ? 'error' : undefined}
+            help={montoExcedeFondo ? `El monto no puede superar el fondo disponible (${fmtMoney(fondoDisponible)})` : undefined}
+          >
             <InputNumber
               style={{ width: '100%' }}
               min={0}
@@ -567,6 +587,7 @@ export function CajaPage() {
               prefix="$"
               value={montoApertura}
               onChange={v => setMontoApertura(v ?? 0)}
+              status={montoExcedeFondo ? 'error' : undefined}
               autoFocus
             />
           </Form.Item>

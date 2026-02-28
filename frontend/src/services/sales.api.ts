@@ -57,4 +57,22 @@ export const salesApi = {
 
   sendWhatsApp: (ventaId: number, telefono: string, nombreCliente: string) =>
     api.post<{ success: boolean }>(`/sales/${ventaId}/whatsapp`, { telefono, nombreCliente }).then(r => r.data),
+
+  // ── Facturación Electrónica ──
+  getFEConfig: () =>
+    api.get<{ utilizaFE: boolean }>('/sales/fe-config').then(r => r.data),
+
+  facturar: (ventaId: number) =>
+    api.post<{
+      success: boolean;
+      comprobante_nro: string;
+      cae: string;
+      tipo_comprobante: string;
+      pdf_url: string;
+      ticket_url: string;
+      errores?: string[];
+    }>(`/sales/${ventaId}/facturar`).then(r => r.data),
+
+  getFERespuesta: (ventaId: number) =>
+    api.get(`/sales/${ventaId}/fe-respuesta`).then(r => r.data),
 };
