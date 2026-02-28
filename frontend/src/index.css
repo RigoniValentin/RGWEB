@@ -403,6 +403,31 @@ body {
   background: rgba(234, 189, 35, 0.12) !important;
   color: var(--rg-gold) !important;
 }
+/* Nested submenu titles inside popup (e.g. Cuentas Corrientes) */
+:where(.ant-menu-submenu-popup) .ant-menu-submenu > .ant-menu-submenu-title,
+.ant-menu-submenu-popup .ant-menu-submenu > .ant-menu-submenu-title {
+  color: rgba(255,255,255,0.85) !important;
+  border-radius: 6px !important;
+  margin: 2px 6px !important;
+  height: 38px !important;
+  line-height: 38px !important;
+  font-size: 13px;
+  transition: var(--rg-transition);
+}
+:where(.ant-menu-submenu-popup) .ant-menu-submenu > .ant-menu-submenu-title .anticon,
+.ant-menu-submenu-popup .ant-menu-submenu > .ant-menu-submenu-title .anticon {
+  color: var(--rg-gold) !important;
+  font-size: 14px !important;
+}
+:where(.ant-menu-submenu-popup) .ant-menu-submenu > .ant-menu-submenu-title:hover,
+.ant-menu-submenu-popup .ant-menu-submenu > .ant-menu-submenu-title:hover {
+  background: rgba(234, 189, 35, 0.12) !important;
+  color: var(--rg-gold) !important;
+}
+:where(.ant-menu-submenu-popup) .ant-menu-submenu > .ant-menu-submenu-title .ant-menu-submenu-arrow,
+.ant-menu-submenu-popup .ant-menu-submenu > .ant-menu-submenu-title .ant-menu-submenu-arrow {
+  color: rgba(255,255,255,0.45) !important;
+}
 /* Popup selected item */
 :where(.ant-menu-submenu-popup) .ant-menu-item-selected,
 .ant-menu-submenu-popup .ant-menu-item-selected {
@@ -1147,6 +1172,51 @@ body {
 .nsm-cobro-vuelto-amount {
   font-size: 22px;
   color: #52c41a !important;
+}
+
+/* ── Segmented Gold (Cta Corriente tabs) ─────── */
+.rg-segmented-gold.ant-segmented {
+  background: var(--rg-black);
+  border-radius: 10px;
+  padding: 3px;
+  border: 1px solid rgba(234, 189, 35, 0.25);
+}
+
+.rg-segmented-gold .ant-segmented-item {
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 500;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.rg-segmented-gold .ant-segmented-item:hover:not(.ant-segmented-item-selected) {
+  color: var(--rg-gold-light) !important;
+}
+
+.rg-segmented-gold .ant-segmented-item-selected {
+  background: linear-gradient(135deg, var(--rg-gold), var(--rg-gold-dark)) !important;
+  color: var(--rg-black) !important;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(234, 189, 35, 0.35);
+}
+
+.rg-segmented-gold .ant-segmented-item-selected:hover {
+  color: var(--rg-black) !important;
+}
+
+.rg-segmented-gold .ant-segmented-item-selected .ant-segmented-item-icon,
+.rg-segmented-gold .ant-segmented-item-selected .anticon {
+  color: var(--rg-black) !important;
+}
+
+.rg-segmented-gold .ant-segmented-item .ant-segmented-item-icon,
+.rg-segmented-gold .ant-segmented-item .anticon {
+  color: inherit;
+}
+
+.rg-segmented-gold .ant-segmented-thumb {
+  background: linear-gradient(135deg, var(--rg-gold), var(--rg-gold-dark)) !important;
+  box-shadow: 0 2px 8px rgba(234, 189, 35, 0.35);
 }
 
 /* Responsive: stack on narrow screens */

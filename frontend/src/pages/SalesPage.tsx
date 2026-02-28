@@ -8,8 +8,9 @@ import {
   EyeOutlined, PlusOutlined, DeleteOutlined, DollarOutlined,
   SearchOutlined, MoreOutlined, WalletOutlined, CloseCircleOutlined, ReloadOutlined,
   PrinterOutlined, WhatsAppOutlined, SendOutlined, UserOutlined,
-  FileTextOutlined, FilePdfOutlined,
+  FileTextOutlined, FilePdfOutlined, SwapOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { printReceipt, printFETicket, openFEPdf } from '../utils/printReceipt';
 import type { ReceiptData } from '../utils/printReceipt';
 import dayjs from 'dayjs';
@@ -19,6 +20,8 @@ import { PaymentModal } from '../components/sales/PaymentModal';
 import { DateFilterPopover, type DatePreset } from '../components/DateFilterPopover';
 import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
 import { useAuthStore } from '../store/authStore';
+import { useTabStore } from '../store/tabStore';
+import { useNavigationStore } from '../store/navigationStore';
 import { fmtMoney, fmtNum } from '../utils/format';
 import type { Venta, VentaDetalle } from '../types';
 
@@ -26,6 +29,9 @@ const { Title, Text } = Typography;
 
 export function SalesPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const openTab = useTabStore(s => s.openTab);
+  const navTo = useNavigationStore(s => s.navigate);
   const { puntoVentaActivo } = useAuthStore();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -298,6 +304,23 @@ export function SalesPage() {
       items.push(
         { type: 'divider' as const },
         { key: 'delete', label: 'Eliminar', icon: <DeleteOutlined />, danger: true, onClick: () => deleteMutation.mutate(record.VENTA_ID) },
+      );
+    }
+
+    // Cta. Corriente — show for ES_CTA_CORRIENTE sales
+    if (record.ES_CTA_CORRIENTE) {
+      items.push(
+        { type: 'divider' as const },
+        {
+          key: 'cta-corriente',
+          label: 'Ver Cta. Corriente',
+          icon: <SwapOutlined />,
+          onClick: () => {
+            openTab({ key: '/cta-corriente', label: 'Cta. Corriente', closable: true });
+            navTo('/cta-corriente', { clienteId: record.CLIENTE_ID });
+            navigate('/cta-corriente');
+          },
+        },
       );
     }
 

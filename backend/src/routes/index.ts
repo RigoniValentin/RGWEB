@@ -11,6 +11,7 @@ import cajaCentralRoutes from './cajaCentral.routes.js';
 import depositRoutes from './deposit.routes.js';
 import categoryRoutes from './category.routes.js';
 import brandRoutes from './brand.routes.js';
+import ctaCorrienteRoutes from './ctaCorriente.routes.js';
 
 const router = Router();
 
@@ -26,5 +27,6 @@ router.use('/caja-central', cajaCentralRoutes);
 router.use('/deposits', depositRoutes);
 router.use('/categories', categoryRoutes);
 router.use('/brands', brandRoutes);
+router.use('/cta-corriente', ctaCorrienteRoutes);
 
 export default router;

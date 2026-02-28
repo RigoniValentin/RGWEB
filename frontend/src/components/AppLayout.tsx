@@ -54,6 +54,7 @@ import { CajaCentralPage } from '../pages/CajaCentralPage';
 import { DepositsPage } from '../pages/DepositsPage';
 import { CategoriesPage } from '../pages/CategoriesPage';
 import { BrandsPage } from '../pages/BrandsPage';
+import { CtaCorrientePage } from '../pages/CtaCorrientePage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -77,6 +78,7 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/deposits':       { label: 'Depósitos',    icon: <InboxOutlined />,        component: DepositsPage,     closable: true },
   '/categories':     { label: 'Categorías',   icon: <TagsOutlined />,         component: CategoriesPage,   closable: true },
   '/brands':         { label: 'Marcas',        icon: <TagOutlined />,          component: BrandsPage,       closable: true },
+  '/cta-corriente':  { label: 'Cta. Corriente', icon: <WalletOutlined />,       component: CtaCorrientePage, closable: true },
 };
 
 /** Icon map for TabBar */
@@ -117,6 +119,10 @@ const menuItems = [
         { key: '/purchases', icon: <ShoppingCartOutlined />, label: 'Compras' },
         { key: '/cashregisters', icon: <BankOutlined />, label: 'Cajas' },
         { key: '/cashcentral', icon: <WalletOutlined />, label: 'Caja Central' },
+        { key: 'ctas-corrientes', icon: <WalletOutlined />, label: 'Cuentas Corrientes', children: [
+          { key: '/cta-corriente', icon: <TeamOutlined />, label: 'Cta Cte Clientes' },
+          { key: '/cta-corriente-prov', icon: <ShopOutlined />, label: 'Cta Cte Proveedores' },
+        ]},
         { key: '/arca', icon: <FileProtectOutlined />, label: 'ARCA' },
         { key: '/expenses', icon: <CreditCardOutlined />, label: 'Gastos y Servicios' },
         { key: '/audit', icon: <AuditOutlined />, label: 'Auditorías' },

@@ -583,6 +583,16 @@ export const salesService = {
 
       // ── 6. CTA_CORRIENTE (if cuenta corriente sale) ──
       if (input.ES_CTA_CORRIENTE) {
+        // Validate customer has CTA_CORRIENTE enabled
+        const clienteCheck = await tx.request()
+          .input('cid2', sql.Int, input.CLIENTE_ID)
+          .query(`SELECT CTA_CORRIENTE FROM CLIENTES WHERE CLIENTE_ID = @cid2`);
+        if (!clienteCheck.recordset[0]?.CTA_CORRIENTE) {
+          throw Object.assign(
+            new Error('El cliente no tiene habilitada la cuenta corriente'),
+            { name: 'ValidationError' }
+          );
+        }
         const ctaCteId = await ensureCtaCorriente(tx, input.CLIENTE_ID);
         await tx.request()
           .input('comprobanteId', sql.Int, ventaId)

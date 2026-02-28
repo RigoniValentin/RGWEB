@@ -205,6 +205,14 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     }
   }, [comprobanteAutoValue]);
 
+  // Auto-disable cta corriente if selected customer doesn't have CTA_CORRIENTE
+  const clienteTieneCtaCte = selectedCliente?.CTA_CORRIENTE === true;
+  useEffect(() => {
+    if (!clienteTieneCtaCte) {
+      setEsCtaCorriente(false);
+    }
+  }, [clienteTieneCtaCte]);
+
   // Product search
   const { mutate: doSearch, isPending: searching } = useMutation({
     mutationFn: (text: string) => salesApi.searchProducts(text),
@@ -1038,11 +1046,16 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
                 />
               </div>
 
-              {/* Cta Corriente switch */}
+              {/* Cta Corriente switch — only enabled if customer has CTA_CORRIENTE */}
               <div className="nsm-field-group">
                 <div className="nsm-switch-row">
-                  <Switch size="default" checked={esCtaCorriente} onChange={setEsCtaCorriente} />
-                  <span className="nsm-switch-label">
+                  <Switch
+                    size="default"
+                    checked={esCtaCorriente}
+                    onChange={setEsCtaCorriente}
+                    disabled={!clienteTieneCtaCte}
+                  />
+                  <span className="nsm-switch-label" style={{ opacity: clienteTieneCtaCte ? 1 : 0.45 }}>
                     <SwapOutlined style={{ marginRight: 6 }} />
                     Cuenta Corriente
                   </span>
