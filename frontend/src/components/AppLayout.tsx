@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type ComponentType } from 'react';
+import { useState, useEffect, useMemo, useRef, type ComponentType } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Layout, Menu, Button, Typography, Avatar, Dropdown, Select, Tag } from 'antd';
 import {
@@ -40,6 +40,7 @@ import {
 } from '@ant-design/icons';
 import { useAuthStore } from '../store/authStore';
 import { useTabStore } from '../store/tabStore';
+import { useQueryClient } from '@tanstack/react-query';
 import { RGLogo } from './RGLogo';
 import { TabBar } from './TabBar';
 
@@ -192,6 +193,16 @@ export function AppLayout() {
   const location = useLocation();
   const { user, puntosVenta, puntoVentaActivo, setPuntoVentaActivo, logout } = useAuthStore();
   const { tabs, activeKey, openTab } = useTabStore();
+  const queryClient = useQueryClient();
+
+  // Auto-refresh data when switching tabs
+  const prevActiveKey = useRef(activeKey);
+  useEffect(() => {
+    if (activeKey !== prevActiveKey.current) {
+      prevActiveKey.current = activeKey;
+      queryClient.invalidateQueries();
+    }
+  }, [activeKey, queryClient]);
 
   // Sync: if URL changes externally (e.g. browser back/forward), open/activate the tab
   useEffect(() => {

@@ -213,6 +213,15 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     }
   }, [clienteTieneCtaCte]);
 
+  // When switching to CTA CTE, turn off auto-facturación so user must explicitly opt-in
+  useEffect(() => {
+    if (esCtaCorriente) {
+      setWantFacturar(false);
+    } else if (utilizaFE) {
+      setWantFacturar(true);
+    }
+  }, [esCtaCorriente]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Product search
   const { mutate: doSearch, isPending: searching } = useMutation({
     mutationFn: (text: string) => salesApi.searchProducts(text),
@@ -1121,29 +1130,85 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
               {/* Action buttons */}
               <div className="nsm-actions">
                 {esCtaCorriente && (
+                  <>
+                    {/* Print & FE options inline for CTA CTE (payment step is skipped) */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                      {!wantFacturar && (
+                        <Checkbox
+                          checked={wantPrint}
+                          onChange={e => setWantPrint(e.target.checked)}
+                        >
+                          <Space size={6}>
+                            <PrinterOutlined />
+                            <span>Imprimir ticket</span>
+                          </Space>
+                        </Checkbox>
+                      )}
+                      {utilizaFE && (
+                        <>
+                          <Checkbox
+                            checked={wantFacturar}
+                            onChange={e => {
+                              setWantFacturar(e.target.checked);
+                              if (e.target.checked) setWantPrint(false);
+                            }}
+                          >
+                            <Space size={6}>
+                              <FileTextOutlined style={{ color: '#1677ff' }} />
+                              <span>Emitir Factura Electrónica</span>
+                            </Space>
+                          </Checkbox>
+                          {wantFacturar && (
+                            <div style={{ marginLeft: 24, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              <Checkbox
+                                checked={wantFETicket}
+                                onChange={e => setWantFETicket(e.target.checked)}
+                              >
+                                <Space size={6}>
+                                  <PrinterOutlined />
+                                  <span>Descargar ticket 80mm</span>
+                                </Space>
+                              </Checkbox>
+                              <Checkbox
+                                checked={wantFEPdf}
+                                onChange={e => setWantFEPdf(e.target.checked)}
+                              >
+                                <Space size={6}>
+                                  <FileTextOutlined style={{ color: '#ff4d4f' }} />
+                                  <span>Descargar PDF</span>
+                                </Space>
+                              </Checkbox>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                    <Button
+                      block
+                      size="large"
+                      onClick={() => handleSubmit(false)}
+                      loading={createMutation.isPending}
+                      disabled={cart.length === 0}
+                      style={{ height: 48 }}
+                    >
+                      Guardar (Cobro Pendiente)
+                    </Button>
+                  </>
+                )}
+                {!esCtaCorriente && (
                   <Button
+                    type="primary"
                     block
                     size="large"
-                    onClick={() => handleSubmit(false)}
+                    className="btn-gold nsm-btn-cobrar"
+                    onClick={() => handleSubmit(true)}
                     loading={createMutation.isPending}
                     disabled={cart.length === 0}
-                    style={{ height: 48 }}
+                    icon={<ShoppingCartOutlined />}
                   >
-                    Guardar (Cobro Pendiente)
+                    Cobrar {fmtMoney(total)}
                   </Button>
                 )}
-                <Button
-                  type="primary"
-                  block
-                  size="large"
-                  className="btn-gold nsm-btn-cobrar"
-                  onClick={() => handleSubmit(true)}
-                  loading={createMutation.isPending}
-                  disabled={cart.length === 0}
-                  icon={<ShoppingCartOutlined />}
-                >
-                  Cobrar {fmtMoney(total)}
-                </Button>
                 <Button
                   block
                   size="large"

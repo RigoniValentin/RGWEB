@@ -273,18 +273,8 @@ export function printReceipt(data: ReceiptData): void {
       iframe.contentWindow?.print();
       // Clean up after a delay
       setTimeout(() => {
-        document.body.removeChild(iframe);
+        try { document.body.removeChild(iframe); } catch { /* ignore */ }
       }, 2000);
     }, 300);
   };
-
-  // Fallback if onload doesn't fire
-  setTimeout(() => {
-    try {
-      iframe.contentWindow?.print();
-    } catch { /* ignore */ }
-    setTimeout(() => {
-      try { document.body.removeChild(iframe); } catch { /* ignore */ }
-    }, 2000);
-  }, 1000);
 }

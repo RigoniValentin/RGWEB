@@ -594,12 +594,13 @@ export const salesService = {
           );
         }
         const ctaCteId = await ensureCtaCorriente(tx, input.CLIENTE_ID);
+        const tipoCompCtaCte = input.TIPO_COMPROBANTE || 'Fa.C';
         await tx.request()
           .input('comprobanteId', sql.Int, ventaId)
           .input('ctaCteId', sql.Int, ctaCteId)
           .input('fecha', sql.DateTime, input.FECHA_VENTA ? new Date(input.FECHA_VENTA) : new Date())
           .input('concepto', sql.NVarChar(255), `Venta #${ventaId}`)
-          .input('tipoComp', sql.NVarChar(50), 'VENTA')
+          .input('tipoComp', sql.NVarChar(50), tipoCompCtaCte)
           .input('debe', sql.Decimal(18, 2), r2(total))
           .input('haber', sql.Decimal(18, 2), 0)
           .query(`
