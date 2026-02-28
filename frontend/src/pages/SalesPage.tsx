@@ -8,9 +8,9 @@ import {
   EyeOutlined, PlusOutlined, DeleteOutlined, DollarOutlined,
   SearchOutlined, MoreOutlined, WalletOutlined, CloseCircleOutlined, ReloadOutlined,
   PrinterOutlined, WhatsAppOutlined, SendOutlined, UserOutlined,
-  FileTextOutlined,
+  FileTextOutlined, FilePdfOutlined,
 } from '@ant-design/icons';
-import { printReceipt } from '../utils/printReceipt';
+import { printReceipt, printFETicket, openFEPdf } from '../utils/printReceipt';
 import type { ReceiptData } from '../utils/printReceipt';
 import dayjs from 'dayjs';
 import { salesApi } from '../services/sales.api';
@@ -149,7 +149,21 @@ export function SalesPage() {
   };
 
   // ── Reprint receipt ────────────────────────────
-  const handleReprint = (v: VentaDetalle) => {
+  const handleReprint = async (v: VentaDetalle) => {
+    // If the sale has a fiscal number (FE emitted), try to use the TusFacturas ticket
+    if (v.NUMERO_FISCAL) {
+      try {
+        const feResp = await salesApi.getFERespuesta(v.VENTA_ID);
+        if (feResp?.COMPROBANTE_TICKET_URL) {
+          printFETicket(feResp.COMPROBANTE_TICKET_URL);
+          return;
+        }
+      } catch {
+        // FE response not available, fall through to local receipt
+      }
+    }
+
+    // Fallback: local receipt
     const receiptData: ReceiptData = {
       ventaId: v.VENTA_ID,
       nombreFantasia: empresaInfo?.NOMBRE_FANTASIA || 'Empresa',
@@ -222,6 +236,27 @@ export function SalesPage() {
           `Factura emitida: ${result.tipo_comprobante} Nº ${result.comprobante_nro} — CAE: ${result.cae}`,
           6
         );
+
+        // Offer ticket/PDF download via confirmation dialogs
+        if (result.ticket_url) {
+          Modal.confirm({
+            title: 'Ticket 80mm',
+            content: '¿Desea descargar el ticket 80mm?',
+            okText: 'Sí',
+            cancelText: 'No',
+            onOk: () => printFETicket(result.ticket_url),
+          });
+        }
+        if (result.pdf_url) {
+          Modal.confirm({
+            title: 'Comprobante PDF',
+            content: '¿Desea descargar el PDF del comprobante?',
+            okText: 'Sí',
+            cancelText: 'No',
+            onOk: () => openFEPdf(result.pdf_url),
+          });
+        }
+
         refetch();
         queryClient.invalidateQueries({ queryKey: ['sale', ventaId] });
       } else {
@@ -407,6 +442,27 @@ export function SalesPage() {
                     loading={facturando}
                     onClick={() => handleFacturar(detail.VENTA_ID)}
                     style={{ color: '#1677ff', borderColor: '#1677ff' }}
+                  />
+                </Tooltip>
+              )}
+              {detail.NUMERO_FISCAL && (
+                <Tooltip title="Ver PDF del comprobante">
+                  <Button
+                    size="small"
+                    icon={<FilePdfOutlined />}
+                    style={{ color: '#e74c3c', borderColor: '#e74c3c' }}
+                    onClick={async () => {
+                      try {
+                        const feResp = await salesApi.getFERespuesta(detail.VENTA_ID);
+                        if (feResp?.COMPROBANTE_PDF_URL) {
+                          openFEPdf(feResp.COMPROBANTE_PDF_URL);
+                        } else {
+                          message.warning('No se encontró el PDF del comprobante');
+                        }
+                      } catch {
+                        message.error('Error al obtener el PDF');
+                      }
+                    }}
                   />
                 </Tooltip>
               )}

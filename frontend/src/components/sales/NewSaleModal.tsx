@@ -19,6 +19,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useTabStore } from '../../store/tabStore';
 import { fmtMoney } from '../../utils/format';
 import { printReceipt } from '../../utils/printReceipt';
+import { printFETicket, openFEPdf } from '../../utils/printReceipt';
 import type { ReceiptData } from '../../utils/printReceipt';
 import type { VentaItemInput, ProductoSearch, VentaInput, ClienteVenta } from '../../types';
 
@@ -33,6 +34,7 @@ interface CartItem extends VentaItemInput {
   CODIGO: string;
   STOCK: number;
   UNIDAD: string;
+  UNIDAD_NOMBRE: string;
 }
 
 interface Props {
@@ -55,6 +57,12 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
   const [searchOptions, setSearchOptions] = useState<{ value: string; label: React.ReactNode; product: ProductoSearch }[]>([]);
   const searchRef = useRef<any>(null);
 
+  // Track which cart items are in grams mode (key -> true)
+  const [gramosMode, setGramosMode] = useState<Record<string, boolean>>({});
+  // Track which cart items are in "precio final" mode (key -> target price)
+  const [precioFinalMode, setPrecioFinalMode] = useState<Record<string, boolean>>({});
+  const [precioFinalValues, setPrecioFinalValues] = useState<Record<string, number>>({});
+
   // Payment step state
   const [step, setStep] = useState<ModalStep>('cart');
   const [metodoPago, setMetodoPago] = useState<MetodoPago>('efectivo');
@@ -66,6 +74,8 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
   const [wantPrint, setWantPrint] = useState(true);
   const [wantWhatsApp, setWantWhatsApp] = useState(false);
   const [wantFacturar, setWantFacturar] = useState(false);
+  const [wantFETicket, setWantFETicket] = useState(true);
+  const [wantFEPdf, setWantFEPdf] = useState(false);
   const [wspModalOpen, setWspModalOpen] = useState(false);
   const [wspTelefono, setWspTelefono] = useState('');
   const [wspNombre, setWspNombre] = useState('');
@@ -224,12 +234,20 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     onSuccess: async (result) => {
       message.success(`Venta #${result.VENTA_ID} creada — Total: ${fmtMoney(result.TOTAL)}`);
 
+      // Track whether FE succeeded and has ticket/pdf URLs
+      let feTicketUrl = '';
+      let fePdfUrl = '';
+      let feSuccess = false;
+
       // ── Post-sale: Facturación Electrónica ──
       if (wantFacturar && utilizaFE) {
         setFacturando(true);
         try {
           const feResult = await salesApi.facturar(result.VENTA_ID);
           if (feResult.success) {
+            feSuccess = true;
+            feTicketUrl = feResult.ticket_url || '';
+            fePdfUrl = feResult.pdf_url || '';
             message.success(
               `Factura emitida: ${feResult.tipo_comprobante} Nº ${feResult.comprobante_nro} — CAE: ${feResult.cae}`,
               6
@@ -247,8 +265,18 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
         }
       }
 
-      // ── Post-sale: Print receipt ──
-      if (wantPrint) {
+      // ── Post-sale: FE ticket 80mm (from TusFacturas) ──
+      if (feSuccess && wantFETicket && feTicketUrl) {
+        printFETicket(feTicketUrl);
+      }
+
+      // ── Post-sale: FE PDF download ──
+      if (feSuccess && wantFEPdf && fePdfUrl) {
+        openFEPdf(fePdfUrl);
+      }
+
+      // ── Post-sale: Print local receipt (only when FE is NOT used or FE failed) ──
+      if (wantPrint && !feSuccess) {
         const receiptData: ReceiptData = {
           ventaId: result.VENTA_ID,
           nombreFantasia: empresaInfo?.NOMBRE_FANTASIA || 'Empresa',
@@ -345,6 +373,8 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     setWantPrint(true);
     setWantWhatsApp(false);
     setWantFacturar(utilizaFE);
+    setWantFETicket(true);
+    setWantFEPdf(false);
     setFacturando(false);
   }, [utilizaFE, comprobanteAutoValue]);
 
@@ -376,17 +406,21 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
             : i
         );
       }
+      const isKg = (product.UNIDAD_NOMBRE || '').toUpperCase().includes('KILOGRAMO');
+      const isLt = (product.UNIDAD_NOMBRE || '').toUpperCase().includes('LITRO');
+      const isWeightOrVolume = isKg || isLt;
       return [...prev, {
         key: `${product.PRODUCTO_ID}-${Date.now()}`,
         PRODUCTO_ID: product.PRODUCTO_ID,
         NOMBRE: product.NOMBRE,
         CODIGO: product.CODIGOPARTICULAR,
         PRECIO_UNITARIO: product.PRECIO_VENTA,
-        CANTIDAD: 1,
+        CANTIDAD: isWeightOrVolume ? 0 : 1,
         DESCUENTO: 0,
         PRECIO_COMPRA: product.PRECIO_COMPRA || 0,
         STOCK: product.STOCK,
         UNIDAD: product.UNIDAD_ABREVIACION || 'u',
+        UNIDAD_NOMBRE: product.UNIDAD_NOMBRE || '',
         DEPOSITO_ID: depositoId || undefined,
         LISTA_ID: product.LISTA_DEFECTO || 1,
       }];
@@ -594,26 +628,123 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
           size="middle"
           style={{ width: '100%' }}
           formatter={v => `$ ${v}`}
-          onChange={(v) => updateCartItem(record.key, 'PRECIO_UNITARIO', v || 0)}
+          onChange={(v) => {
+            const newPrice = v || 0;
+            updateCartItem(record.key, 'PRECIO_UNITARIO', newPrice);
+            const upperUnidad = (record.UNIDAD_NOMBRE || '').toUpperCase();
+            const isWeightOrVolume = upperUnidad.includes('KILOGRAMO') || upperUnidad.includes('LITRO');
+            if (isWeightOrVolume && precioFinalMode[record.key] && newPrice > 0) {
+              const pf = precioFinalValues[record.key] ?? 0;
+              if (pf > 0) {
+                const qty = Math.round((pf / newPrice) * 10000) / 10000;
+                updateCartItem(record.key, 'CANTIDAD', qty);
+              }
+            }
+          }}
         />
       ),
     },
     {
-      title: 'CANT.', dataIndex: 'CANTIDAD', key: 'qty', width: 140,
-      render: (val: number, record: CartItem) => (
-        <Space size={4}>
-          <Button size="small" icon={<MinusOutlined />}
-            onClick={() => updateCartItem(record.key, 'CANTIDAD', Math.max(0.01, val - 1))}
-            style={{ borderColor: '#d9d9d9' }}
-          />
-          <InputNumber value={val} min={0.01} step={1} size="middle" style={{ width: 64 }}
-            onChange={(v) => updateCartItem(record.key, 'CANTIDAD', v || 1)} />
-          <Button size="small" icon={<PlusOutlined />}
-            onClick={() => updateCartItem(record.key, 'CANTIDAD', val + 1)}
-            style={{ borderColor: '#d9d9d9' }}
-          />
-        </Space>
-      ),
+      title: 'CANT.', dataIndex: 'CANTIDAD', key: 'qty', width: 220,
+      render: (val: number, record: CartItem) => {
+        const upperUnidad = (record.UNIDAD_NOMBRE || '').toUpperCase();
+        const isKg = upperUnidad.includes('KILOGRAMO');
+        const isLt = upperUnidad.includes('LITRO');
+        const isWeightOrVolume = isKg || isLt;
+        const inGramos = isKg && gramosMode[record.key];
+        const inPrecioFinal = isWeightOrVolume && precioFinalMode[record.key];
+        const displayVal = inGramos ? Math.round(val * 1000) : val;
+        const step = inGramos ? 1 : (isWeightOrVolume ? 0.1 : 1);
+        const unitLabel = isKg ? 'kg' : (isLt ? 'lt' : record.UNIDAD);
+
+        const handleChange = (v: number | null) => {
+          const raw = v ?? (inGramos ? 0 : 1);
+          const finalVal = inGramos ? raw / 1000 : raw;
+          updateCartItem(record.key, 'CANTIDAD', Math.max(0, finalVal));
+          if (inPrecioFinal && record.PRECIO_UNITARIO > 0) {
+            const newTotal = finalVal * record.PRECIO_UNITARIO;
+            setPrecioFinalValues(prev => ({ ...prev, [record.key]: Math.round(newTotal * 100) / 100 }));
+          }
+        };
+
+        const handleStep = (delta: number) => {
+          let newVal: number;
+          if (inGramos) {
+            const newG = Math.max(0, Math.round(val * 1000) + delta);
+            newVal = newG / 1000;
+          } else {
+            newVal = Math.max(0.01, val + delta);
+          }
+          updateCartItem(record.key, 'CANTIDAD', newVal);
+          if (inPrecioFinal) setPrecioFinalValues(prev => ({ ...prev, [record.key]: Math.round(newVal * record.PRECIO_UNITARIO * 100) / 100 }));
+        };
+
+        // Non-weight/volume: simple inline controls
+        if (!isWeightOrVolume) {
+          return (
+            <Space size={4}>
+              <Button size="small" icon={<MinusOutlined />}
+                onClick={() => handleStep(-1)}
+                style={{ borderColor: '#d9d9d9' }}
+              />
+              <InputNumber value={val} min={0.01} step={1} size="middle" style={{ width: 64 }}
+                onChange={(v) => updateCartItem(record.key, 'CANTIDAD', v || 1)} />
+              <Button size="small" icon={<PlusOutlined />}
+                onClick={() => handleStep(1)}
+                style={{ borderColor: '#d9d9d9' }}
+              />
+            </Space>
+          );
+        }
+
+        // Weight/volume: main row always has the quantity input/display, extras below
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {/* Row 1: always the quantity value */}
+            {inPrecioFinal ? (
+              <div style={{ height: 32, display: 'flex', alignItems: 'center' }}>
+                <Text strong style={{ fontSize: 14 }}>{val.toFixed(4)} {unitLabel}</Text>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Button size="small" icon={<MinusOutlined />}
+                  onClick={() => handleStep(inGramos ? -10 : -1)}
+                  style={{ borderColor: '#d9d9d9' }}
+                />
+                <InputNumber
+                  value={inGramos ? displayVal : val}
+                  min={0}
+                  step={step}
+                  size="middle"
+                  style={{ width: 90 }}
+                  precision={inGramos ? 0 : 3}
+                  onChange={handleChange}
+                />
+                <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{inGramos ? 'g' : unitLabel}</Text>
+                <Button size="small" icon={<PlusOutlined />}
+                  onClick={() => handleStep(inGramos ? 10 : 1)}
+                  style={{ borderColor: '#d9d9d9' }}
+                />
+              </div>
+            )}
+            {/* Row 2: secondary controls */}
+            {inPrecioFinal ? (
+              <Text type="secondary" style={{ fontSize: 11 }}>Calculado</Text>
+            ) : isKg ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Switch
+                  size="small"
+                  checked={!!gramosMode[record.key]}
+                  onChange={(checked) => setGramosMode(prev => ({ ...prev, [record.key]: checked }))}
+                />
+                <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
+                  {gramosMode[record.key] ? `= ${val.toFixed(3)} kg` : 'gramos'}
+                </Text>
+              </div>
+            ) : null}
+          </div>
+        );
+      },
     },
     {
       title: 'DTO %', dataIndex: 'DESCUENTO', key: 'discount', width: 90,
@@ -623,12 +754,74 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
       ),
     },
     {
-      title: 'SUBTOTAL', key: 'sub', width: 120, align: 'right' as const,
+      title: 'SUBTOTAL', key: 'sub', width: 150, align: 'right' as const,
       render: (_: unknown, record: CartItem) => {
+        const upperUnidad = (record.UNIDAD_NOMBRE || '').toUpperCase();
+        const isKg = upperUnidad.includes('KILOGRAMO');
+        const isLt = upperUnidad.includes('LITRO');
+        const isWeightOrVolume = isKg || isLt;
+        const inPrecioFinal = isWeightOrVolume && precioFinalMode[record.key];
+
         const precio = record.DESCUENTO > 0
           ? record.PRECIO_UNITARIO * (1 - record.DESCUENTO / 100)
           : record.PRECIO_UNITARIO;
-        return <Text strong style={{ fontSize: 14 }}>{fmtMoney(precio * record.CANTIDAD)}</Text>;
+        const subtotalCalculado = precio * record.CANTIDAD;
+
+        const handlePrecioFinalChange = (v: number | null) => {
+          const precioFinal = v ?? 0;
+          setPrecioFinalValues(prev => ({ ...prev, [record.key]: precioFinal }));
+          if (record.PRECIO_UNITARIO > 0 && precioFinal > 0) {
+            const rawQty = precioFinal / record.PRECIO_UNITARIO;
+            const qty = Math.round(rawQty * 10000) / 10000;
+            updateCartItem(record.key, 'CANTIDAD', qty);
+          } else {
+            updateCartItem(record.key, 'CANTIDAD', 0);
+          }
+        };
+
+        // Non-weight/volume: just show the subtotal
+        if (!isWeightOrVolume) {
+          return <Text strong style={{ fontSize: 14 }}>{fmtMoney(subtotalCalculado)}</Text>;
+        }
+
+        // Weight/volume: main row is always the subtotal value, switch below
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+            {/* Row 1: always the subtotal value or editable input */}
+            {inPrecioFinal ? (
+              <InputNumber
+                value={precioFinalValues[record.key] ?? 0}
+                min={0}
+                step={100}
+                size="middle"
+                style={{ width: '100%' }}
+                precision={2}
+                prefix="$"
+                onChange={handlePrecioFinalChange}
+              />
+            ) : (
+              <div style={{ height: 32, display: 'flex', alignItems: 'center' }}>
+                <Text strong style={{ fontSize: 14 }}>{fmtMoney(subtotalCalculado)}</Text>
+              </div>
+            )}
+            {/* Row 2: toggle switch */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Switch
+                size="small"
+                checked={!!precioFinalMode[record.key]}
+                onChange={(checked) => {
+                  setPrecioFinalMode(prev => ({ ...prev, [record.key]: checked }));
+                  if (checked) {
+                    const currentTotal = Math.round(subtotalCalculado * 100) / 100;
+                    setPrecioFinalValues(prev => ({ ...prev, [record.key]: currentTotal }));
+                    setGramosMode(prev => ({ ...prev, [record.key]: false }));
+                  }
+                }}
+              />
+              <DollarOutlined style={{ fontSize: 11, color: inPrecioFinal ? '#d4a017' : '#999' }} />
+            </div>
+          </div>
+        );
       },
     },
     {
@@ -713,7 +906,12 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
           </Space>
         </div>
       ) : (
-      <div className="nsm-body">
+      <div className="nsm-body" onFocusCapture={(e) => {
+        const target = e.target as HTMLInputElement;
+        if (target.tagName === 'INPUT' && target.type === 'text') {
+          requestAnimationFrame(() => target.select());
+        }
+      }}>
         {/* ══ LEFT COLUMN — Search + Cart ══════════ */}
         <div className="nsm-main">
           {/* Search bar */}
@@ -1075,15 +1273,17 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
 
               {/* Print / WhatsApp toggles */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, margin: '12px 0' }}>
-                <Checkbox
-                  checked={wantPrint}
-                  onChange={e => setWantPrint(e.target.checked)}
-                >
-                  <Space size={6}>
-                    <PrinterOutlined />
-                    <span>Imprimir ticket</span>
-                  </Space>
-                </Checkbox>
+                {!wantFacturar && (
+                  <Checkbox
+                    checked={wantPrint}
+                    onChange={e => setWantPrint(e.target.checked)}
+                  >
+                    <Space size={6}>
+                      <PrinterOutlined />
+                      <span>Imprimir ticket</span>
+                    </Space>
+                  </Checkbox>
+                )}
                 <Checkbox
                   checked={wantWhatsApp}
                   onChange={e => setWantWhatsApp(e.target.checked)}
@@ -1103,6 +1303,28 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
                       <span>Emitir Factura Electrónica</span>
                     </Space>
                   </Checkbox>
+                )}
+                {wantFacturar && (
+                  <div style={{ marginLeft: 24, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <Checkbox
+                      checked={wantFETicket}
+                      onChange={e => setWantFETicket(e.target.checked)}
+                    >
+                      <Space size={6}>
+                        <PrinterOutlined />
+                        <span>Descargar ticket 80mm</span>
+                      </Space>
+                    </Checkbox>
+                    <Checkbox
+                      checked={wantFEPdf}
+                      onChange={e => setWantFEPdf(e.target.checked)}
+                    >
+                      <Space size={6}>
+                        <FileTextOutlined />
+                        <span>Descargar PDF</span>
+                      </Space>
+                    </Checkbox>
+                  </div>
                 )}
               </div>
 

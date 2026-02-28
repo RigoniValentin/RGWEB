@@ -225,6 +225,24 @@ function escapeHTML(str: string): string {
 }
 
 /**
+ * Opens a TusFacturas 80mm ticket URL in a new browser tab.
+ * The ticket is a PDF hosted by TusFacturas (cross-origin),
+ * so we simply open it for the user to print/download from the browser.
+ */
+export function printFETicket(ticketUrl: string): void {
+  if (!ticketUrl) return;
+  window.open(ticketUrl, '_blank');
+}
+
+/**
+ * Opens a TusFacturas PDF URL in a new browser tab.
+ */
+export function openFEPdf(pdfUrl: string): void {
+  if (!pdfUrl) return;
+  window.open(pdfUrl, '_blank');
+}
+
+/**
  * Opens a print dialog for an 80mm receipt.
  * Uses a hidden iframe to avoid disrupting the current page.
  */
