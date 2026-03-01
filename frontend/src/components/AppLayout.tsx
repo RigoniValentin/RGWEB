@@ -297,7 +297,7 @@ export function AppLayout() {
   };
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ minHeight: '100vh', paddingBottom: 42 }}>
       {/* ── Sidebar ─────────────────────────── */}
       <Sider
         trigger={null}
@@ -308,17 +308,21 @@ export function AppLayout() {
         className={`rg-sidebar ${collapsed ? 'rg-sidebar-collapsed' : ''}`}
         style={{
           background: collapsed
-            ? 'linear-gradient(180deg, #1A1B1E 0%, #222326 100%)'
-            : 'linear-gradient(180deg, #1E1F22 0%, #2A2B2F 100%)',
-          height: '100vh',
+            ? 'linear-gradient(180deg, #1A1B1E 50%, #1A1B1E 100%)'
+            : 'linear-gradient(180deg, #1A1B1E 50%, #1A1B1E 100%)',
+          height: 'calc(100dvh - 42px)',
           position: 'sticky',
           top: 0,
           left: 0,
+          zIndex: 101,
           display: 'flex',
           flexDirection: 'column',
-          borderBottomRightRadius: collapsed ? 12 : 20,
+          borderLeft: '1px solid rgba(234, 189, 35, 1)',
+          borderTop: '1px solid rgba(234, 189, 35, 1)',
+          borderTopLeftRadius: 20,
+          borderBottomLeftRadius: 0,
+          borderBottomRightRadius: collapsed ? 0 : 20,
           overflow: 'hidden',
-          borderRight: collapsed ? '1px solid rgba(234, 189, 35, 0.15)' : 'none',
         }}
       >
         {/* Logo + Collapse toggle */}
@@ -414,13 +418,19 @@ export function AppLayout() {
         {/* ── Header ──────────────────────────── */}
         <Header style={{
           padding: '0 24px',
-          background: '#1E1F22',
+          background: collapsed
+            ? 'linear-gradient(90deg, #1A1B1E 50%, #1A1B1E 100%)'
+            : 'linear-gradient(90deg, #1A1B1E 0%, #1A1B1E 100%)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          borderBottom: '1px solid rgba(234, 189, 35, 0.15)',
-          height: 56,
-          lineHeight: '56px',
+           borderBottom: '1px solid rgba(234, 189, 35, 1)',
+           borderTop: '1px solid rgba(234, 189, 35, 1)',
+           borderRight: '1px solid rgba(234, 189, 35, 1)',
+          borderTopRightRadius: 20,
+            borderBottomRightRadius: 0,
+          lineHeight: '54px',
+          height: 54,
           position: 'sticky',
           top: 0,
           zIndex: 100,
@@ -495,20 +505,20 @@ export function AppLayout() {
           </div>
         </Header>
 
-        {/* ── Tab Bar ──────────────────────────── */}
-        <TabBar iconMap={ICON_MAP} />
-
         {/* ── Content ─────────────────────────── */}
         <Content style={{
-          margin: '0 20px 20px',
+          margin: '10px 10px',
           padding: 24,
           background: '#FFFFFF',
-          borderRadius: '0 0 12px 12px',
+          borderRadius: '12px 12px 12px 12px',
           minHeight: 280,
-          boxShadow: '0 1px 8px rgba(0,0,0,0.04)',
+          boxShadow: '0 1px 8px rgba(0,0,0,0.1)',
         }}>
           {tabPanels}
         </Content>
+
+        {/* ── Tab Bar (bottom) ─────────────────── */}
+        <TabBar iconMap={ICON_MAP} />
       </Layout>
     </Layout>
   );

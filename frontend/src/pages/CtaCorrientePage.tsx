@@ -256,7 +256,7 @@ export function CtaCorrientePage() {
     },
     {
       title: 'Haber', dataIndex: 'HABER', width: 120, align: 'center',
-      render: (v: number) => v > 0 ? <Text type="success">{fmtMoney(v)}</Text> : '-',
+      render: (v: number) => v > 0 ? <Text type="success">{fmtMoney(v)}</Text> : '-', 
     },
     {
       title: 'Saldo', dataIndex: 'SALDO', width: 120, align: 'center',
@@ -478,17 +478,48 @@ export function CtaCorrientePage() {
             </Row>
 
             {/* Tab selector */}
-            <Segmented
-              className="rg-segmented-gold"
-              value={activeTab}
-              onChange={v => setActiveTab(v as any)}
-              options={[
-                { label: 'Cuenta Corriente', value: 'movimientos', icon: <DollarOutlined /> },
-                { label: 'Cobranzas', value: 'cobranzas', icon: <BankOutlined /> },
-              ]}
-              block
-              style={{ marginBottom: 12 }}
-            />
+            <Row gutter={16} style={{ marginBottom: 12 }}>
+              <Col span={12}>
+                <Card
+                  size="small"
+                  hoverable
+                  onClick={() => setActiveTab('movimientos')}
+                  style={{
+                    cursor: 'pointer',
+                    borderColor: activeTab === 'movimientos' ? 'var(--rg-gold)' : undefined,
+                    background: activeTab === 'movimientos' ? 'rgba(234, 189, 35, 0.08)' : undefined,
+                    transition: 'all 0.25s',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                    <DollarOutlined style={{ color: activeTab === 'movimientos' ? 'var(--rg-gold)' : 'rgba(255,255,255,0.45)', fontSize: 16 }} />
+                    <Text strong style={{ color: activeTab === 'movimientos' ? 'var(--rg-gold)' : 'var(--rg-gold)' }}>
+                      Cuenta Corriente
+                    </Text>
+                  </div>
+                </Card>
+              </Col>
+              <Col span={12}>
+                <Card
+                  size="small"
+                  hoverable
+                  onClick={() => setActiveTab('cobranzas')}
+                  style={{
+                    cursor: 'pointer',
+                    borderColor: activeTab === 'cobranzas' ? 'var(--rg-gold)' : undefined,
+                    background: activeTab === 'cobranzas' ? 'rgba(234, 189, 35, 0.08)' : undefined,
+                    transition: 'all 0.25s',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                    <BankOutlined style={{ color: activeTab === 'cobranzas' ? 'var(--rg-gold)' : 'rgba(255,255,255,0.45)', fontSize: 16 }} />
+                    <Text strong style={{ color: activeTab === 'cobranzas' ? 'var(--rg-gold)' : 'var(--rg-gold)' }}>
+                      Cobranzas
+                    </Text>
+                  </div>
+                </Card>
+              </Col>
+            </Row>
 
             {/* ── Movimientos tab ── */}
             {activeTab === 'movimientos' && (

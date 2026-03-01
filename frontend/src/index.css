@@ -187,10 +187,22 @@ body {
   background: rgba(245, 245, 245, 0.5);
 }
 
-/* ── Sidebar ──────────────────────────────────── */
+/* ── Sidebar ──────────────────────
+  bottom: 42px;────────────── */
 .rg-sidebar .ant-layout-sider-children {
   display: flex;
   flex-direction: column;
+}
+.rg-sidebar::after {
+  content: '';
+  position: absolute;
+  top: 52px;
+  bottom: 0;
+  right: 0;
+  width: 1px;
+  background: rgba(234, 189, 35, 1);
+  pointer-events: none;
+  z-index: 1;
 }
 .rg-sidebar .ant-menu-dark {
   background: transparent !important;
@@ -713,21 +725,32 @@ body {
    ══════════════════════════════════════════════════ */
 .rg-tabbar {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 2px;
-  padding: 0 20px;
-  background: #1E1F22;
-  min-height: 38px;
+  padding: 0 20px 0 62px;
+  background: #1A1B1E;
+  height: 42px;
+  min-height: 42px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none;
-  border-bottom: 2px solid var(--rg-gold);
-  position: sticky;
-  top: 56px;
+  border-left: 1px solid rgba(234, 189, 35,1);
+  border-right: 1px solid rgba(234, 189, 35,1);
+  border-bottom: 1px solid rgba(234, 189, 35, 1);
+  border-top: none;
+  background-image: linear-gradient(to right, transparent 51px, rgba(234, 189, 35, 1) 54px);
+  background-size: 100% 1px;
+  background-position: top;
+  background-repeat: no-repeat;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
   z-index: 99;
-  border-bottom-right-radius: 20px;
   border-bottom-left-radius: 20px;
+  border-bottom-right-radius: 20px;
+  border-top-right-radius: 0px;
 }
 .rg-tabbar::-webkit-scrollbar {
   display: none;
@@ -742,18 +765,18 @@ body {
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
-  border-radius: 8px 8px 0 0;
+  border-radius: 0 0 8px 8px;
   font-size: 12.5px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.822);
   background: transparent;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   min-width: 0;
   flex-shrink: 0;
   border: 1px solid transparent;
-  border-bottom: none;
-  margin-bottom: -2px;
+  border-top: none;
+  margin-top: -6px;
 }
 .rg-tab:hover {
   color: rgba(255, 255, 255, 0.85);
@@ -761,10 +784,11 @@ body {
 }
 .rg-tab-active {
   color: var(--rg-gold) !important;
-  background: var(--rg-white) !important;
+  background: rgb(245, 245, 245) !important;
   font-weight: 600;
   border-color: var(--rg-gold);
-  border-bottom-color: var(--rg-white);
+  border-top-color: var(--rg-gold);
+    border-top: 1px solid transparent;
 }
 
 /* ── Tab icon ─────────────────────────────────── */
