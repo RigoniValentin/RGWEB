@@ -274,6 +274,25 @@ function r2(n: number): number {
 // ═══════════════════════════════════════════════════
 
 export const salesService = {
+  // ── Get saldo CTA CTE for a customer ────────────
+  async getSaldoCtaCte(clienteId: number): Promise<{ saldo: number; ctaCorrienteId: number | null }> {
+    const pool = await getPool();
+    const cta = await pool.request()
+      .input('cid', sql.Int, clienteId)
+      .query(`SELECT CTA_CORRIENTE_ID FROM CTA_CORRIENTE_C WHERE CLIENTE_ID = @cid`);
+
+    if (cta.recordset.length === 0) {
+      return { saldo: 0, ctaCorrienteId: null };
+    }
+
+    const ctaId = cta.recordset[0].CTA_CORRIENTE_ID;
+    const result = await pool.request()
+      .input('ctaId', sql.Int, ctaId)
+      .query(`SELECT ISNULL(SUM(DEBE - HABER), 0) AS SALDO FROM VENTAS_CTA_CORRIENTE WHERE CTA_CORRIENTE_ID = @ctaId`);
+
+    return { saldo: result.recordset[0]?.SALDO || 0, ctaCorrienteId: ctaId };
+  },
+
   // ── List with pagination & filters ─────────────
   async getAll(filter: VentaFilter = {}): Promise<PaginatedResult<Venta>> {
     const pool = await getPool();
@@ -467,15 +486,45 @@ export const salesService = {
         netoNoGravado *= factor;
       }
 
-      const cobrada = input.COBRADA !== undefined ? input.COBRADA : !input.ES_CTA_CORRIENTE;
+      let cobrada = input.COBRADA !== undefined ? input.COBRADA : !input.ES_CTA_CORRIENTE;
       const montoEfectivo = input.MONTO_EFECTIVO || 0;
       const montoDigital = input.MONTO_DIGITAL || 0;
       const vuelto = input.VUELTO || 0;
+      let montoAnticipo = 0;
 
-      // ── 2. Get caja abierta ──
+      // ── 2. CTA CTE: Check saldo and apply anticipo if available ──
+      if (input.ES_CTA_CORRIENTE) {
+        const ctaCheck = await tx.request()
+          .input('cid', sql.Int, input.CLIENTE_ID)
+          .query(`SELECT CTA_CORRIENTE_ID FROM CTA_CORRIENTE_C WHERE CLIENTE_ID = @cid`);
+
+        if (ctaCheck.recordset.length > 0) {
+          const ctaIdForSaldo = ctaCheck.recordset[0].CTA_CORRIENTE_ID;
+          const saldoResult = await tx.request()
+            .input('ctaId', sql.Int, ctaIdForSaldo)
+            .query(`SELECT ISNULL(SUM(DEBE - HABER), 0) AS SALDO FROM VENTAS_CTA_CORRIENTE WHERE CTA_CORRIENTE_ID = @ctaId`);
+          const saldo = saldoResult.recordset[0]?.SALDO || 0;
+
+          // saldo < 0 means client has credit (HABER > DEBE)
+          if (saldo < 0) {
+            const creditoDisponible = Math.abs(saldo);
+            if (creditoDisponible >= r2(total)) {
+              // Full coverage: sale is fully paid via anticipo
+              montoAnticipo = r2(total);
+              cobrada = true;
+            } else {
+              // Partial coverage: use all available credit
+              montoAnticipo = r2(creditoDisponible);
+              cobrada = false;
+            }
+          }
+        }
+      }
+
+      // ── 3. Get caja abierta ──
       const caja = await getCajaAbiertaTx(tx, usuarioId);
 
-      // ── 3. INSERT into VENTAS ──
+      // ── 4. INSERT into VENTAS ──
       const ventaResult = await tx.request()
         .input('clienteId', sql.Int, input.CLIENTE_ID)
         .input('total', sql.Decimal(18, 2), r2(total))
@@ -493,7 +542,7 @@ export const salesService = {
         .input('bonificaciones', sql.Decimal(18, 2), r2(bonificaciones))
         .input('impuestoInterno', sql.Decimal(18, 2), r2(impuestoInternoTotal))
         .input('ivaTotal', sql.Decimal(18, 2), r2(ivaTotal))
-        .input('montoAnticipo', sql.Decimal(18, 2), 0)
+        .input('montoAnticipo', sql.Decimal(18, 2), montoAnticipo)
         .input('netoGravado', sql.Decimal(18, 2), r2(netoGravado))
         .input('netoNoGravado', sql.Decimal(18, 2), r2(netoNoGravado))
         .query(`
@@ -595,11 +644,14 @@ export const salesService = {
         }
         const ctaCteId = await ensureCtaCorriente(tx, input.CLIENTE_ID);
         const tipoCompCtaCte = input.TIPO_COMPROBANTE || 'Fa.C';
+        const fechaVenta = input.FECHA_VENTA ? new Date(input.FECHA_VENTA) : new Date();
+
+        // Insert the sale movement (DEBE)
         await tx.request()
           .input('comprobanteId', sql.Int, ventaId)
           .input('ctaCteId', sql.Int, ctaCteId)
-          .input('fecha', sql.DateTime, input.FECHA_VENTA ? new Date(input.FECHA_VENTA) : new Date())
-          .input('concepto', sql.NVarChar(255), `Venta #${ventaId}`)
+          .input('fecha', sql.DateTime, fechaVenta)
+          .input('concepto', sql.NVarChar(255), `Venta ${tipoCompCtaCte} - ${ventaId}`)
           .input('tipoComp', sql.NVarChar(50), tipoCompCtaCte)
           .input('debe', sql.Decimal(18, 2), r2(total))
           .input('haber', sql.Decimal(18, 2), 0)
@@ -609,6 +661,55 @@ export const salesService = {
             VALUES
               (@comprobanteId, @ctaCteId, @fecha, @concepto, @tipoComp, @debe, @haber)
           `);
+
+        // ── Consume anticipos if montoAnticipo > 0 ──
+        if (montoAnticipo > 0) {
+          // Get available anticipos for this client, oldest first
+          const anticipos = await tx.request()
+            .input('clienteId', sql.Int, input.CLIENTE_ID)
+            .query(`
+              SELECT ANTICIPO_ID, PAGO_ID, MONTO_DISPONIBLE
+              FROM ANTICIPOS_CLIENTES
+              WHERE CLIENTE_ID = @clienteId AND MONTO_DISPONIBLE > 0
+              ORDER BY FECHA_ANTICIPO, ANTICIPO_ID
+            `);
+
+          let restante = montoAnticipo;
+          for (const ant of anticipos.recordset) {
+            if (restante <= 0.01) break;
+            const consumir = Math.min(restante, ant.MONTO_DISPONIBLE);
+
+            // Create IMPUTACIONES_PAGOS record
+            await tx.request()
+              .input('pagoId', sql.Int, ant.PAGO_ID)
+              .input('ventaId', sql.Int, ventaId)
+              .input('tipoComp', sql.NVarChar, tipoCompCtaCte)
+              .input('monto', sql.Decimal(18, 2), consumir)
+              .input('fecha', sql.DateTime, fechaVenta)
+              .input('usuarioId', sql.Int, usuarioId)
+              .query(`
+                INSERT INTO IMPUTACIONES_PAGOS
+                  (PAGO_ID, VENTA_ID, TIPO_COMPROBANTE, MONTO_IMPUTADO, FECHA_IMPUTACION, USUARIO_ID)
+                VALUES (@pagoId, @ventaId, @tipoComp, @monto, @fecha, @usuarioId)
+              `);
+
+            // Reduce MONTO_DISPONIBLE in ANTICIPOS_CLIENTES
+            const nuevoDisponible = r2(ant.MONTO_DISPONIBLE - consumir);
+            if (nuevoDisponible <= 0.01) {
+              // Fully consumed — delete the anticipo
+              await tx.request()
+                .input('anticipoId', sql.Int, ant.ANTICIPO_ID)
+                .query('DELETE FROM ANTICIPOS_CLIENTES WHERE ANTICIPO_ID = @anticipoId');
+            } else {
+              await tx.request()
+                .input('anticipoId', sql.Int, ant.ANTICIPO_ID)
+                .input('nuevoMonto', sql.Decimal(18, 2), nuevoDisponible)
+                .query('UPDATE ANTICIPOS_CLIENTES SET MONTO_DISPONIBLE = @nuevoMonto WHERE ANTICIPO_ID = @anticipoId');
+            }
+
+            restante = r2(restante - consumir);
+          }
+        }
       }
 
       // ── 7. AUDITORIA ──
@@ -619,7 +720,7 @@ export const salesService = {
       );
 
       await tx.commit();
-      return { VENTA_ID: ventaId, TOTAL: r2(total) };
+      return { VENTA_ID: ventaId, TOTAL: r2(total), MONTO_ANTICIPO: montoAnticipo, COBRADA: cobrada };
     } catch (err) {
       await tx.rollback();
       throw err;
@@ -895,6 +996,47 @@ export const salesService = {
 
       // ── 3. Remove CTA_CORRIENTE records (both VENTA and PAGO entries) ──
       if (venta.ES_CTA_CORRIENTE) {
+        // Restore anticipos from any imputaciones linked to this sale
+        const imputaciones = await tx.request()
+          .input('ventaId', sql.Int, id)
+          .query(`
+            SELECT ip.PAGO_ID, ip.MONTO_IMPUTADO
+            FROM IMPUTACIONES_PAGOS ip
+            WHERE ip.VENTA_ID = @ventaId
+          `);
+
+        for (const imp of imputaciones.recordset) {
+          // Check if anticipo still exists for this pago
+          const antCheck = await tx.request()
+            .input('pagoId', sql.Int, imp.PAGO_ID)
+            .input('clienteId', sql.Int, venta.CLIENTE_ID)
+            .query('SELECT ANTICIPO_ID, MONTO_DISPONIBLE FROM ANTICIPOS_CLIENTES WHERE PAGO_ID = @pagoId AND CLIENTE_ID = @clienteId');
+
+          if (antCheck.recordset.length > 0) {
+            // Restore monto to existing anticipo
+            await tx.request()
+              .input('anticipoId', sql.Int, antCheck.recordset[0].ANTICIPO_ID)
+              .input('monto', sql.Decimal(18, 2), imp.MONTO_IMPUTADO)
+              .query('UPDATE ANTICIPOS_CLIENTES SET MONTO_DISPONIBLE = MONTO_DISPONIBLE + @monto WHERE ANTICIPO_ID = @anticipoId');
+          } else {
+            // Re-create the anticipo record
+            await tx.request()
+              .input('pagoId', sql.Int, imp.PAGO_ID)
+              .input('clienteId', sql.Int, venta.CLIENTE_ID)
+              .input('monto', sql.Decimal(18, 2), imp.MONTO_IMPUTADO)
+              .input('usuarioId', sql.Int, usuarioId)
+              .query(`
+                INSERT INTO ANTICIPOS_CLIENTES (PAGO_ID, CLIENTE_ID, MONTO_DISPONIBLE, FECHA_ANTICIPO, USUARIO_ID)
+                VALUES (@pagoId, @clienteId, @monto, GETDATE(), @usuarioId)
+              `);
+          }
+        }
+
+        // Delete imputaciones for this sale
+        await tx.request()
+          .input('ventaId', sql.Int, id)
+          .query('DELETE FROM IMPUTACIONES_PAGOS WHERE VENTA_ID = @ventaId');
+
         await tx.request().input('comprobanteId', sql.Int, id)
           .query(`DELETE FROM VENTAS_CTA_CORRIENTE WHERE COMPROBANTE_ID = @comprobanteId`);
       }

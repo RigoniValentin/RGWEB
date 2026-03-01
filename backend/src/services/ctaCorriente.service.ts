@@ -459,14 +459,16 @@ export const ctaCorrienteService = {
     usuarioId: number,
   ): Promise<void> {
     // Get pending sales ordered oldest first
+    // IMPUTACIONES_PAGOS already tracks anticipo consumption, so no need to subtract MONTO_ANTICIPO
     const pending = await tx.request()
       .input('ctaId', sql.Int, ctaCorrienteId)
       .query(`
         SELECT v.COMPROBANTE_ID, v.FECHA, v.TIPO_COMPROBANTE,
-          v.DEBE - ISNULL((SELECT SUM(MONTO_IMPUTADO) 
-                          FROM IMPUTACIONES_PAGOS 
-                          WHERE VENTA_ID = v.COMPROBANTE_ID 
-                          AND TIPO_COMPROBANTE = v.TIPO_COMPROBANTE), 0) AS SALDO_PENDIENTE
+          v.DEBE 
+            - ISNULL((SELECT SUM(MONTO_IMPUTADO) 
+                      FROM IMPUTACIONES_PAGOS 
+                      WHERE VENTA_ID = v.COMPROBANTE_ID 
+                      AND TIPO_COMPROBANTE = v.TIPO_COMPROBANTE), 0) AS SALDO_PENDIENTE
         FROM VENTAS_CTA_CORRIENTE v
         WHERE v.CTA_CORRIENTE_ID = @ctaId
           AND v.TIPO_COMPROBANTE IN ('Fa.A', 'Fa.B', 'Fa.C', 'Nd.A', 'Nd.B', 'Nd.C')
@@ -532,6 +534,7 @@ export const ctaCorrienteService = {
     }
 
     // Update COBRADA status for all cta corriente sales
+    // IMPUTACIONES_PAGOS already includes anticipo consumption records
     await tx.request()
       .input('ctaId', sql.Int, ctaCorrienteId)
       .query(`
@@ -572,7 +575,7 @@ export const ctaCorrienteService = {
       .input('pagoId', sql.Int, pagoId)
       .query('DELETE FROM ANTICIPOS_CLIENTES WHERE PAGO_ID = @pagoId');
 
-    // Update COBRADA for affected sales
+    // Update COBRADA and reset MONTO_ANTICIPO for affected sales
     if (ventaIds.length > 0) {
       const ids = ventaIds.join(',');
       await tx.request().query(`
@@ -582,11 +585,16 @@ export const ctaCorrienteService = {
                                   FROM IMPUTACIONES_PAGOS 
                                   WHERE VENTA_ID = v.VENTA_ID), 0) THEN 1
           ELSE 0
-        END
+        END,
+        v.MONTO_ANTICIPO = ISNULL((SELECT SUM(MONTO_IMPUTADO) 
+                                   FROM IMPUTACIONES_PAGOS ip2
+                                   INNER JOIN ANTICIPOS_CLIENTES ac ON ip2.PAGO_ID = ac.PAGO_ID
+                                   WHERE ip2.VENTA_ID = v.VENTA_ID), 0)
         FROM VENTAS v
         INNER JOIN VENTAS_CTA_CORRIENTE vc ON v.VENTA_ID = vc.COMPROBANTE_ID
         WHERE v.VENTA_ID IN (${ids})
           AND v.ES_CTA_CORRIENTE = 1
+          AND vc.TIPO_COMPROBANTE IN ('Fa.A', 'Fa.B', 'Fa.C', 'Nd.A', 'Nd.B', 'Nd.C')
       `);
     }
   },

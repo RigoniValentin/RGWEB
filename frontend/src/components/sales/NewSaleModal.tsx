@@ -83,6 +83,11 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
   const [pendingVentaId, setPendingVentaId] = useState<number | null>(null);
   const [facturando, setFacturando] = useState(false);
 
+  // Saldo CTA CTE confirmation
+  const [saldoModalOpen, setSaldoModalOpen] = useState(false);
+  const [saldoInfo, setSaldoInfo] = useState<{ saldo: number; creditoDisponible: number; cobertura: 'total' | 'parcial' } | null>(null);
+  const [checkingSaldo, setCheckingSaldo] = useState(false);
+
   // ── Check if user has an open caja ─────────────
   const [cajaCheckState, setCajaCheckState] = useState<'checking' | 'open' | 'closed'>('checking');
 
@@ -249,7 +254,22 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
   const createMutation = useMutation({
     mutationFn: (data: VentaInput) => salesApi.create(data),
     onSuccess: async (result) => {
-      message.success(`Venta #${result.VENTA_ID} creada — Total: ${fmtMoney(result.TOTAL)}`);
+      // Show appropriate message based on anticipo usage
+      if (result.MONTO_ANTICIPO && result.MONTO_ANTICIPO > 0) {
+        if (result.COBRADA) {
+          message.success(
+            `Venta #${result.VENTA_ID} creada — Total: ${fmtMoney(result.TOTAL)}. Cobrada con saldo de cta corriente.`,
+            5
+          );
+        } else {
+          message.success(
+            `Venta #${result.VENTA_ID} creada — Total: ${fmtMoney(result.TOTAL)}. Anticipo aplicado: ${fmtMoney(result.MONTO_ANTICIPO)}. Pendiente: ${fmtMoney(result.TOTAL - result.MONTO_ANTICIPO)}`,
+            5
+          );
+        }
+      } else {
+        message.success(`Venta #${result.VENTA_ID} creada — Total: ${fmtMoney(result.TOTAL)}`);
+      }
 
       // Track whether FE succeeded and has ticket/pdf URLs
       let feTicketUrl = '';
@@ -502,7 +522,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
   const total = subtotal - descuentoMonto;
 
   // Submit sale
-  const handleSubmit = (cobrar: boolean) => {
+  const handleSubmit = async (cobrar: boolean) => {
     if (cart.length === 0) {
       message.warning('Agregue al menos un producto');
       return;
@@ -517,14 +537,42 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
       return;
     }
 
-    // Save as pending (cta corriente)
+    // CTA CTE: check saldo before saving
+    if (esCtaCorriente) {
+      setCheckingSaldo(true);
+      try {
+        const { saldo } = await salesApi.getSaldoCtaCte(clienteId);
+        // saldo < 0 means client has credit
+        if (saldo < 0) {
+          const creditoDisponible = Math.abs(saldo);
+          const cobertura = creditoDisponible >= total ? 'total' : 'parcial';
+          setSaldoInfo({ saldo, creditoDisponible, cobertura });
+          setSaldoModalOpen(true);
+          setCheckingSaldo(false);
+          return; // Wait for user confirmation
+        }
+      } catch {
+        // Ignore saldo check errors, proceed without anticipo
+      } finally {
+        setCheckingSaldo(false);
+      }
+    }
+
+    // Save as pending (cta corriente) — no saldo disponible
+    doSaveCtaCte();
+  };
+
+  // Confirmed save after saldo modal
+  const doSaveCtaCte = () => {
+    setSaldoModalOpen(false);
+    setSaldoInfo(null);
     const input: VentaInput = {
       CLIENTE_ID: clienteId,
       PUNTO_VENTA_ID: puntoVentaActivo || 1,
       TIPO_COMPROBANTE: tipoComprobante || comprobanteAutoValue,
       ES_CTA_CORRIENTE: esCtaCorriente,
       DTO_GRAL: dtoGral,
-      COBRADA: false,
+      COBRADA: false, // backend will override if anticipo covers total
       MONTO_EFECTIVO: 0,
       MONTO_DIGITAL: 0,
       VUELTO: 0,
@@ -1187,7 +1235,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
                       block
                       size="large"
                       onClick={() => handleSubmit(false)}
-                      loading={createMutation.isPending}
+                      loading={createMutation.isPending || checkingSaldo}
                       disabled={cart.length === 0}
                       style={{ height: 48 }}
                     >
@@ -1434,6 +1482,91 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
           )}
         </div>
       </div>
+      )}
+    </Modal>
+
+    {/* ── Saldo CTA CTE confirmation modal ── */}
+    <Modal
+      open={saldoModalOpen}
+      title={
+        <Space>
+          <WalletOutlined style={{ color: '#52c41a', fontSize: 20 }} />
+          <span>Saldo disponible en cuenta corriente</span>
+        </Space>
+      }
+      onCancel={() => { setSaldoModalOpen(false); setSaldoInfo(null); }}
+      centered
+      width={460}
+      destroyOnClose
+      footer={
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <Button onClick={() => { setSaldoModalOpen(false); setSaldoInfo(null); }}>
+            Cancelar
+          </Button>
+          <Button
+            type="primary"
+            onClick={doSaveCtaCte}
+            loading={createMutation.isPending}
+            icon={<CheckCircleOutlined />}
+          >
+            Confirmar
+          </Button>
+        </div>
+      }
+    >
+      {saldoInfo && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
+          {saldoInfo.cobertura === 'total' ? (
+            <>
+              <Text>
+                El cliente tiene un saldo a favor de <Text strong style={{ color: '#52c41a' }}>{fmtMoney(saldoInfo.creditoDisponible)}</Text> en su cuenta corriente.
+              </Text>
+              <Text>
+                Se utilizará el saldo para cubrir el total de la venta de <Text strong>{fmtMoney(total)}</Text>.
+                La venta quedará registrada como <Tag color="green">COBRADA</Tag>.
+              </Text>
+              <div style={{ background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 6, padding: '10px 14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Text type="secondary">Saldo anterior:</Text>
+                  <Text strong>{fmtMoney(saldoInfo.creditoDisponible)}</Text>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Text type="secondary">Monto venta:</Text>
+                  <Text strong style={{ color: '#cf1322' }}>-{fmtMoney(total)}</Text>
+                </div>
+                <Divider style={{ margin: '6px 0' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Text type="secondary">Saldo resultante:</Text>
+                  <Text strong style={{ color: '#52c41a' }}>{fmtMoney(saldoInfo.creditoDisponible - total)}</Text>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <Text>
+                El cliente tiene un saldo a favor de <Text strong style={{ color: '#52c41a' }}>{fmtMoney(saldoInfo.creditoDisponible)}</Text> en su cuenta corriente.
+              </Text>
+              <Text>
+                Se aplicará como anticipo parcial. Quedan pendientes <Text strong style={{ color: '#cf1322' }}>{fmtMoney(total - saldoInfo.creditoDisponible)}</Text>.
+              </Text>
+              <div style={{ background: '#fff7e6', border: '1px solid #ffd591', borderRadius: 6, padding: '10px 14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Text type="secondary">Monto venta:</Text>
+                  <Text strong>{fmtMoney(total)}</Text>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Text type="secondary">Saldo aplicado:</Text>
+                  <Text strong style={{ color: '#52c41a' }}>-{fmtMoney(saldoInfo.creditoDisponible)}</Text>
+                </div>
+                <Divider style={{ margin: '6px 0' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Text type="secondary">Pendiente de cobro:</Text>
+                  <Text strong style={{ color: '#cf1322' }}>{fmtMoney(total - saldoInfo.creditoDisponible)}</Text>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       )}
     </Modal>
 

@@ -16,7 +16,7 @@ export const salesApi = {
     api.get<VentaDetalle>(`/sales/${id}`).then(r => r.data),
 
   create: (data: VentaInput) =>
-    api.post<{ VENTA_ID: number; TOTAL: number }>('/sales', data).then(r => r.data),
+    api.post<{ VENTA_ID: number; TOTAL: number; MONTO_ANTICIPO?: number; COBRADA?: boolean }>('/sales', data).then(r => r.data),
 
   update: (id: number, data: VentaInput) =>
     api.put(`/sales/${id}`, data).then(r => r.data),
@@ -32,6 +32,9 @@ export const salesApi = {
 
   searchProducts: (search: string, listaId?: number) =>
     api.get<ProductoSearch[]>('/sales/search-products', { params: { search, listaId } }).then(r => r.data),
+
+  getSaldoCtaCte: (clienteId: number) =>
+    api.get<{ saldo: number; ctaCorrienteId: number | null }>(`/sales/saldo-cta-cte/${clienteId}`).then(r => r.data),
 
   getClientes: () =>
     api.get<ClienteVenta[]>('/sales/clientes').then(r => r.data),

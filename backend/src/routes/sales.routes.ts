@@ -126,6 +126,17 @@ router.post('/:id/whatsapp', async (req: AuthRequest, res: Response) => {
   }
 });
 
+// GET /api/sales/saldo-cta-cte/:clienteId
+router.get('/saldo-cta-cte/:clienteId', async (req: Request, res: Response) => {
+  try {
+    const clienteId = parseInt(req.params.clienteId as string);
+    const data = await salesService.getSaldoCtaCte(clienteId);
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/sales/search-products
 router.get('/search-products', async (req: Request, res: Response) => {
   try {
