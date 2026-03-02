@@ -7,7 +7,7 @@ import {
 import type { TableColumnType } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
-  ReloadOutlined, InboxOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import { depositApi, type DepositoInput } from '../services/deposit.api';
 import type { Deposito } from '../types';

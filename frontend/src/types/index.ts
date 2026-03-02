@@ -405,6 +405,113 @@ export interface VentaDiaria {
   ganancia: number;
 }
 
+// ── Compras ──────────────────────────────────────
+export interface Compra {
+  COMPRA_ID: number;
+  PROVEEDOR_ID: number;
+  FECHA_COMPRA: string;
+  TOTAL: number;
+  ES_CTA_CORRIENTE: boolean;
+  COBRADA: boolean;
+  TIPO_COMPROBANTE: string | null;
+  PTO_VTA: string | null;
+  NRO_COMPROBANTE: string | null;
+  MONTO_EFECTIVO: number;
+  MONTO_DIGITAL: number;
+  VUELTO: number;
+  MONTO_ANTICIPO: number;
+  PRECIOS_SIN_IVA: boolean;
+  PERCEPCION_IVA: number;
+  PERCEPCION_IIBB: number;
+  IMPUESTO_INTERNO: number;
+  IVA_TOTAL: number;
+  BONIFICACION_TOTAL: number;
+  IMP_INT_GRAVA_IVA: boolean;
+  PROVEEDOR_NOMBRE?: string;
+  PROVEEDOR_CODIGO?: string;
+}
+
+export interface CompraItem {
+  COMPRA_ID: number;
+  PRODUCTO_ID: number;
+  PRECIO_COMPRA: number;
+  CANTIDAD: number;
+  TOTAL_PRODUCTO: number;
+  DEPOSITO_ID: number | null;
+  PORCENTAJE_DESCUENTO: number;
+  DESCUENTO_IMPORTE: number;
+  TASA_IVA_ID: number | null;
+  IVA_ALICUOTA: number;
+  IVA_IMPORTE: number;
+  IMP_INTERNO_IMPORTE: number;
+  PRODUCTO_NOMBRE?: string;
+  PRODUCTO_CODIGO?: string;
+  UNIDAD_ABREVIACION?: string;
+}
+
+export interface CompraDetalle extends Compra {
+  items: CompraItem[];
+}
+
+export interface CompraItemInput {
+  PRODUCTO_ID: number;
+  PRECIO_COMPRA: number;
+  CANTIDAD: number;
+  DEPOSITO_ID?: number;
+  BONIFICACION: number;
+  IMP_INTERNOS: number;
+  IVA_ALICUOTA?: number;
+  TASA_IVA_ID?: number | null;
+  NOMBRE?: string;
+  CODIGO?: string;
+}
+
+export interface CompraInput {
+  PROVEEDOR_ID: number;
+  FECHA_COMPRA?: string;
+  TIPO_COMPROBANTE?: string;
+  PTO_VTA?: string;
+  NRO_COMPROBANTE?: string;
+  ES_CTA_CORRIENTE?: boolean;
+  MONTO_EFECTIVO?: number;
+  MONTO_DIGITAL?: number;
+  VUELTO?: number;
+  COBRADA?: boolean;
+  PRECIOS_SIN_IVA?: boolean;
+  IMP_INT_GRAVA_IVA?: boolean;
+  PERCEPCION_IVA?: number;
+  PERCEPCION_IIBB?: number;
+  IVA_TOTAL?: number;
+  ACTUALIZAR_COSTOS?: boolean;
+  ACTUALIZAR_PRECIOS?: boolean;
+  items: CompraItemInput[];
+}
+
+export interface ProveedorCompra {
+  PROVEEDOR_ID: number;
+  CODIGOPARTICULAR: string;
+  NOMBRE: string;
+  CTA_CORRIENTE: boolean;
+  TIPO_DOCUMENTO: string | null;
+  NUMERO_DOC: string | null;
+}
+
+export interface ProductoSearchCompra {
+  PRODUCTO_ID: number;
+  CODIGOPARTICULAR: string;
+  NOMBRE: string;
+  PRECIO_COMPRA: number;
+  STOCK: number;
+  ES_CONJUNTO: boolean | null;
+  DESCUENTA_STOCK: boolean;
+  IMP_INT: number;
+  TASA_IVA_ID: number | null;
+  UNIDAD_ID: number | null;
+  UNIDAD_NOMBRE: string;
+  UNIDAD_ABREVIACION: string;
+  IVA_PORCENTAJE: number;
+}
+
 // ── Pagination ───────────────────────────────────
 export interface PaginatedResponse<T> {
   data: T[];

@@ -56,6 +56,7 @@ import { DepositsPage } from '../pages/DepositsPage';
 import { CategoriesPage } from '../pages/CategoriesPage';
 import { BrandsPage } from '../pages/BrandsPage';
 import { CtaCorrientePage } from '../pages/CtaCorrientePage';
+import { PurchasesPage } from '../pages/PurchasesPage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -80,6 +81,7 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/categories':     { label: 'Categorías',   icon: <TagsOutlined />,         component: CategoriesPage,   closable: true },
   '/brands':         { label: 'Marcas',        icon: <TagOutlined />,          component: BrandsPage,       closable: true },
   '/cta-corriente':  { label: 'Cta. Corriente', icon: <WalletOutlined />,       component: CtaCorrientePage, closable: true },
+  '/purchases':      { label: 'Compras',       icon: <ShoppingCartOutlined />, component: PurchasesPage,    closable: true },
 };
 
 /** Icon map for TabBar */

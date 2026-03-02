@@ -178,8 +178,39 @@ export interface Compra {
   TIPO_COMPROBANTE: string | null;
   PTO_VTA: string;
   NRO_COMPROBANTE: string;
+  MONTO_EFECTIVO: number | null;
+  MONTO_DIGITAL: number | null;
+  VUELTO: number | null;
+  MONTO_ANTICIPO: number | null;
+  PRECIOS_SIN_IVA: boolean;
+  PERCEPCION_IVA: number | null;
+  PERCEPCION_IIBB: number | null;
+  IMPUESTO_INTERNO: number | null;
+  IVA_TOTAL: number | null;
+  BONIFICACION_TOTAL: number | null;
+  IMP_INT_GRAVA_IVA: boolean;
   // Joined
   PROVEEDOR_NOMBRE?: string;
+  PROVEEDOR_CODIGO?: string;
+}
+
+export interface CompraItem {
+  COMPRA_ID: number;
+  PRODUCTO_ID: number;
+  PRECIO_COMPRA: number;
+  CANTIDAD: number;
+  TOTAL_PRODUCTO: number;
+  DEPOSITO_ID: number | null;
+  PORCENTAJE_DESCUENTO: number;
+  DESCUENTO_IMPORTE: number;
+  TASA_IVA_ID: number | null;
+  IVA_ALICUOTA: number;
+  IVA_IMPORTE: number;
+  IMP_INTERNO_IMPORTE: number;
+  // Joined
+  PRODUCTO_NOMBRE?: string;
+  PRODUCTO_CODIGO?: string;
+  UNIDAD_ABREVIACION?: string;
 }
 
 // ── Caja ─────────────────────────────────────────
