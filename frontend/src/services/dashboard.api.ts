@@ -7,4 +7,13 @@ export const dashboardApi = {
 
   getVentasPorDia: (dias?: number, puntoVentaId?: number) =>
     api.get<VentaDiaria[]>('/dashboard/ventas-por-dia', { params: { dias, puntoVentaId } }).then(r => r.data),
+
+  getLogo: async (): Promise<string | null> => {
+    try {
+      const res = await api.get('/dashboard/logo', { responseType: 'blob' });
+      return URL.createObjectURL(res.data);
+    } catch {
+      return null;
+    }
+  },
 };

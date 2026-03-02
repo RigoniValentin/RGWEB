@@ -18,6 +18,13 @@ export function DashboardPage() {
   const puntoVentaActivo = useAuthStore((s) => s.puntoVentaActivo);
   const [pvFilter, setPvFilter] = useState<number | undefined>(() => puntoVentaActivo ?? undefined);
 
+  const { data: logoUrl } = useQuery({
+    queryKey: ['empresa-logo'],
+    queryFn: () => dashboardApi.getLogo(),
+    staleTime: Infinity,
+    retry: false,
+  });
+
   const { data: stats, isLoading } = useQuery({
     queryKey: ['dashboard-stats', pvFilter],
     queryFn: () => dashboardApi.getStats(pvFilter),
@@ -57,8 +64,11 @@ export function DashboardPage() {
             <PuntoVentaFilter value={pvFilter} onChange={setPvFilter} />
           </Space>
         </div>
-        <div style={{ opacity: 0.15 }}>
-          <RGLogo size={80} showText={false} variant="white" />
+        <div style={{ opacity: 1 }}>
+          {logoUrl
+            ? <img src={logoUrl} alt="Logo empresa" style={{ width: 80, height: 80, objectFit: 'contain' }} />
+            : <RGLogo size={80} showText={false} variant="white" />
+          }
         </div>
         {/* Gold accent line */}
         <div style={{

@@ -437,7 +437,7 @@ export function SalesPage() {
         title={`Venta #${selectedId}`}
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); setSelectedId(null); }}
-        width={680}
+        width={900}
         className="rg-drawer"
         extra={
           detail && (
@@ -583,24 +583,24 @@ export function SalesPage() {
                   size="middle"
                   pagination={false}
                   columns={[
-                    { title: 'Código', dataIndex: 'PRODUCTO_CODIGO', width: 90 },
+                    { title: 'Código', dataIndex: 'PRODUCTO_CODIGO', width: 90 , align: 'center' as const },
                     { title: 'Producto', dataIndex: 'PRODUCTO_NOMBRE', ellipsis: true },
                     {
                       title: 'Cant', dataIndex: 'CANTIDAD', width: 65, align: 'center' as const,
                       render: (v: number) => v % 1 === 0 ? v : fmtNum(v),
                     },
                     {
-                      title: 'P. Unit', dataIndex: 'PRECIO_UNITARIO', width: 100,
-                      align: 'right' as const,
+                      title: 'P. Unit', dataIndex: 'PRECIO_UNITARIO', width: 120,
+                      align: 'center' as const,
                       render: (v: number) => fmtMoney(v),
                     },
                     {
-                      title: 'Dto', dataIndex: 'DESCUENTO', width: 55,
-                      align: 'right' as const,
+                      title: 'Dto', dataIndex: 'DESCUENTO', width: 60,
+                      align: 'center' as const,
                       render: (v: number) => v > 0 ? `${v}%` : '-',
                     },
                     {
-                      title: 'Subtotal', key: 'sub', width: 120, align: 'right' as const,
+                      title: 'Subtotal', key: 'sub', width: 120, align: 'center' as const,
                       render: (_: unknown, r: any) => (
                         <Text strong>{fmtMoney(r.PRECIO_UNITARIO_DTO * r.CANTIDAD)}</Text>
                       ),
@@ -609,9 +609,9 @@ export function SalesPage() {
                   summary={() => (
                     <Table.Summary.Row>
                       <Table.Summary.Cell index={0} colSpan={5}>
-                        <Text strong>Total</Text>
+                        <Text strong style={{marginLeft: 13}}>Total</Text>
                       </Table.Summary.Cell>
-                      <Table.Summary.Cell index={5} align="right">
+                      <Table.Summary.Cell index={5} align="center">
                         <Text strong style={{ color: '#EABD23' }}>
                           {fmtMoney(detail.items.reduce((s, i) => s + (i.PRECIO_UNITARIO_DTO * i.CANTIDAD), 0))}
                         </Text>

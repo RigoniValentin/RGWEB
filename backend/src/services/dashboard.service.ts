@@ -119,4 +119,14 @@ export const dashboardService = {
 
     return result.recordset;
   },
+
+  async getLogo(): Promise<Buffer | null> {
+    const pool = await getPool();
+    const result = await pool.request().query(`
+      SELECT LOGO FROM EMPRESA_CLIENTE
+    `);
+    const row = result.recordset[0];
+    if (!row || !row.LOGO) return null;
+    return row.LOGO;
+  },
 };

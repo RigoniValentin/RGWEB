@@ -195,12 +195,28 @@ export function AppLayout() {
   const { tabs, activeKey, openTab } = useTabStore();
   const queryClient = useQueryClient();
 
-  // Auto-refresh data when switching tabs
+  // Auto-refresh data when switching tabs (only the active tab's queries)
   const prevActiveKey = useRef(activeKey);
   useEffect(() => {
     if (activeKey !== prevActiveKey.current) {
       prevActiveKey.current = activeKey;
-      queryClient.invalidateQueries();
+      const keyMap: Record<string, string[]> = {
+        '/dashboard':     ['dashboard-stats', 'ventas-por-dia'],
+        '/customers':     ['customers'],
+        '/products':      ['products'],
+        '/sales':         ['sales'],
+        '/suppliers':     ['suppliers'],
+        '/cashregisters': ['cajas', 'mi-caja', 'fondo-cambio', 'fondo-cambio-apertura'],
+        '/cashcentral':   ['caja-central-mov', 'caja-central-totales', 'caja-central-historico', 'caja-central-fondo'],
+        '/deposits':      ['deposits'],
+        '/categories':    ['categories'],
+        '/brands':        ['brands'],
+        '/cta-corriente': ['cta-corriente-list', 'cta-movimientos', 'cta-cobranzas'],
+      };
+      const keys = keyMap[activeKey];
+      if (keys) {
+        keys.forEach(k => queryClient.invalidateQueries({ queryKey: [k] }));
+      }
     }
   }, [activeKey, queryClient]);
 
@@ -342,7 +358,7 @@ export function AppLayout() {
             style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}
             onClick={() => handleMenuClick('/dashboard')}
           >
-            <RGLogo size={collapsed ? 34 : 38} collapsed={collapsed} variant="white" />
+            <RGLogo size={collapsed ? 40 : 40} collapsed={collapsed} variant="white" />
           </div>
           {!collapsed && (
             <Button
@@ -444,6 +460,7 @@ export function AppLayout() {
               fontStyle: 'Normal',
             }}>
               <span style={{ color: '#EABD23', fontWeight: 700 }}>Río</span> <span style={{ fontWeight: 700, fontStyle: 'normal', color: '#FFFFFF' }}>gestión</span>
+              <span className="rg-header-web">Web</span>
             </Text>
           </div>
 

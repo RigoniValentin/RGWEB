@@ -113,6 +113,35 @@ body {
 .stagger > *:nth-child(6) { animation-delay: 0.30s; }
 
 /* ── Page Transition Wrapper ──────────────────── */
+
+/* ── Header "Web" badge ───────────────────────── */
+@keyframes webShimmer {
+  0%, 100% { background-position: 100% 0; }
+  50%      { background-position: 0% 0; }
+}
+.rg-header-web {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    rgba(234, 189, 35, 0.15) 0%,
+    rgba(234, 189, 35, 0.35) 50%,
+    rgba(234, 189, 35, 0.15) 100%
+  );
+  background-size: 200% 100%;
+  color: var(--rg-gold);
+  border: 1px solid rgba(234, 189, 35, 0.3);
+  animation: webShimmer 3s ease-in-out infinite;
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
+}
 .page-enter {
   animation: fadeIn 0.4s ease-out both;
 }

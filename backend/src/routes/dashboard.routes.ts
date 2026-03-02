@@ -28,4 +28,20 @@ router.get('/ventas-por-dia', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/dashboard/logo
+router.get('/logo', async (_req: Request, res: Response) => {
+  try {
+    const logo = await dashboardService.getLogo();
+    if (!logo) {
+      res.status(404).json({ error: 'Logo not found' });
+      return;
+    }
+    res.set('Content-Type', 'image/png');
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(logo);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
