@@ -545,12 +545,42 @@ export const purchasesService = {
 
       let total = r2(netoTotal + ivaTotal + impInternoTotal + percIVA + percIIBB);
 
-      const cobrada = input.COBRADA !== undefined ? input.COBRADA : !input.ES_CTA_CORRIENTE;
+      let cobrada = input.COBRADA !== undefined ? input.COBRADA : !input.ES_CTA_CORRIENTE;
       const montoEfectivo = input.MONTO_EFECTIVO || 0;
       const montoDigital = input.MONTO_DIGITAL || 0;
       const vuelto = input.VUELTO || 0;
+      let montoAnticipo = 0;
 
-      // ── 2. Get next COMPRA_ID (not identity) ──
+      // ── 2. CTA CTE: Check saldo and apply anticipo if available ──
+      if (input.ES_CTA_CORRIENTE) {
+        const ctaCheck = await tx.request()
+          .input('pid', sql.Int, input.PROVEEDOR_ID)
+          .query(`SELECT CTA_CORRIENTE_ID FROM CTA_CORRIENTE_P WHERE PROVEEDOR_ID = @pid`);
+
+        if (ctaCheck.recordset.length > 0) {
+          const ctaIdForSaldo = ctaCheck.recordset[0].CTA_CORRIENTE_ID;
+          const saldoResult = await tx.request()
+            .input('ctaId', sql.Int, ctaIdForSaldo)
+            .query(`SELECT ISNULL(SUM(DEBE - HABER), 0) AS SALDO FROM COMPRAS_CTA_CORRIENTE WHERE CTA_CORRIENTE_ID = @ctaId`);
+          const saldo = saldoResult.recordset[0]?.SALDO || 0;
+
+          // saldo < 0 means supplier has credit (HABER > DEBE) — overpayment / anticipo available
+          if (saldo < 0) {
+            const creditoDisponible = Math.abs(saldo);
+            if (creditoDisponible >= r2(total)) {
+              // Full coverage: purchase is fully paid via anticipo
+              montoAnticipo = r2(total);
+              cobrada = true;
+            } else {
+              // Partial coverage: use all available credit
+              montoAnticipo = r2(creditoDisponible);
+              cobrada = false;
+            }
+          }
+        }
+      }
+
+      // ── 2b. Get next COMPRA_ID (not identity) ──
       const nextIdResult = await tx.request()
         .query(`SELECT ISNULL(MAX(COMPRA_ID), 0) + 1 AS NEXT_ID FROM COMPRAS WITH (UPDLOCK, HOLDLOCK)`);
       const compraId = nextIdResult.recordset[0].NEXT_ID;
@@ -576,7 +606,7 @@ export const purchasesService = {
         .input('ivaTotal', sql.Decimal(18, 2), r2(ivaTotal))
         .input('bonifTotal', sql.Decimal(18, 2), r2(bonifTotal))
         .input('fechaCompra', sql.DateTime, input.FECHA_COMPRA ? new Date(input.FECHA_COMPRA) : new Date())
-        .input('montoAnticipo', sql.Decimal(18, 2), 0)
+        .input('montoAnticipo', sql.Decimal(18, 2), montoAnticipo)
         .query(`
           INSERT INTO COMPRAS (
             COMPRA_ID, PROVEEDOR_ID, FECHA_COMPRA, TOTAL, ES_CTA_CORRIENTE,
@@ -685,6 +715,55 @@ export const purchasesService = {
             VALUES
               (@comprobanteId, @ctaCteId, @fecha, @concepto, @tipoComp, @debe, @haber)
           `);
+
+        // ── Consume anticipos if montoAnticipo > 0 ──
+        if (montoAnticipo > 0) {
+          // Get available anticipos for this supplier, oldest first
+          const anticipos = await tx.request()
+            .input('proveedorId', sql.Int, input.PROVEEDOR_ID)
+            .query(`
+              SELECT ANTICIPO_ID, PAGO_ID, MONTO_DISPONIBLE
+              FROM ANTICIPOS_PROVEEDORES
+              WHERE PROVEEDOR_ID = @proveedorId AND MONTO_DISPONIBLE > 0
+              ORDER BY FECHA_ANTICIPO, ANTICIPO_ID
+            `);
+
+          let restante = montoAnticipo;
+          for (const ant of anticipos.recordset) {
+            if (restante <= 0.01) break;
+            const consumir = Math.min(restante, ant.MONTO_DISPONIBLE);
+
+            // Create IMPUTACIONES_PAGOS_P record
+            await tx.request()
+              .input('pagoId', sql.Int, ant.PAGO_ID)
+              .input('compraId', sql.Int, compraId)
+              .input('tipoComp', sql.NVarChar, tipoComp)
+              .input('monto', sql.Decimal(18, 2), consumir)
+              .input('fecha', sql.DateTime, fechaCompra)
+              .input('usuarioId', sql.Int, usuarioId)
+              .query(`
+                INSERT INTO IMPUTACIONES_PAGOS_P
+                  (PAGO_ID, COMPRA_ID, TIPO_COMPROBANTE, MONTO_IMPUTADO, FECHA_IMPUTACION, USUARIO_ID)
+                VALUES (@pagoId, @compraId, @tipoComp, @monto, @fecha, @usuarioId)
+              `);
+
+            // Reduce MONTO_DISPONIBLE in ANTICIPOS_PROVEEDORES
+            const nuevoDisponible = r2(ant.MONTO_DISPONIBLE - consumir);
+            if (nuevoDisponible <= 0.01) {
+              // Fully consumed — delete the anticipo
+              await tx.request()
+                .input('anticipoId', sql.Int, ant.ANTICIPO_ID)
+                .query('DELETE FROM ANTICIPOS_PROVEEDORES WHERE ANTICIPO_ID = @anticipoId');
+            } else {
+              await tx.request()
+                .input('anticipoId', sql.Int, ant.ANTICIPO_ID)
+                .input('nuevoMonto', sql.Decimal(18, 2), nuevoDisponible)
+                .query('UPDATE ANTICIPOS_PROVEEDORES SET MONTO_DISPONIBLE = @nuevoMonto WHERE ANTICIPO_ID = @anticipoId');
+            }
+
+            restante = r2(restante - consumir);
+          }
+        }
       }
 
       // ── 5. REGISTRAR EGRESO (if not cta corriente and has payment) ──
@@ -756,7 +835,7 @@ export const purchasesService = {
       );
 
       await tx.commit();
-      return { COMPRA_ID: compraId, TOTAL: r2(total), COBRADA: cobrada };
+      return { COMPRA_ID: compraId, TOTAL: r2(total), MONTO_ANTICIPO: montoAnticipo, COBRADA: cobrada };
     } catch (err) {
       await tx.rollback();
       throw err;
@@ -1073,6 +1152,47 @@ export const purchasesService = {
 
       // ── 3. Remove CTA_CORRIENTE records ──
       if (compra.ES_CTA_CORRIENTE) {
+        // Restore anticipos from any imputaciones linked to this purchase
+        const imputaciones = await tx.request()
+          .input('compraId', sql.Int, id)
+          .query(`
+            SELECT ip.PAGO_ID, ip.MONTO_IMPUTADO
+            FROM IMPUTACIONES_PAGOS_P ip
+            WHERE ip.COMPRA_ID = @compraId
+          `);
+
+        for (const imp of imputaciones.recordset) {
+          // Check if anticipo still exists for this pago
+          const antCheck = await tx.request()
+            .input('pagoId', sql.Int, imp.PAGO_ID)
+            .input('proveedorId', sql.Int, compra.PROVEEDOR_ID)
+            .query('SELECT ANTICIPO_ID, MONTO_DISPONIBLE FROM ANTICIPOS_PROVEEDORES WHERE PAGO_ID = @pagoId AND PROVEEDOR_ID = @proveedorId');
+
+          if (antCheck.recordset.length > 0) {
+            // Restore monto to existing anticipo
+            await tx.request()
+              .input('anticipoId', sql.Int, antCheck.recordset[0].ANTICIPO_ID)
+              .input('monto', sql.Decimal(18, 2), imp.MONTO_IMPUTADO)
+              .query('UPDATE ANTICIPOS_PROVEEDORES SET MONTO_DISPONIBLE = MONTO_DISPONIBLE + @monto WHERE ANTICIPO_ID = @anticipoId');
+          } else {
+            // Re-create the anticipo record
+            await tx.request()
+              .input('pagoId', sql.Int, imp.PAGO_ID)
+              .input('proveedorId', sql.Int, compra.PROVEEDOR_ID)
+              .input('monto', sql.Decimal(18, 2), imp.MONTO_IMPUTADO)
+              .input('usuarioId', sql.Int, usuarioId)
+              .query(`
+                INSERT INTO ANTICIPOS_PROVEEDORES (PAGO_ID, PROVEEDOR_ID, MONTO_DISPONIBLE, FECHA_ANTICIPO, USUARIO_ID)
+                VALUES (@pagoId, @proveedorId, @monto, GETDATE(), @usuarioId)
+              `);
+          }
+        }
+
+        // Delete imputaciones for this purchase
+        await tx.request()
+          .input('compraId', sql.Int, id)
+          .query('DELETE FROM IMPUTACIONES_PAGOS_P WHERE COMPRA_ID = @compraId');
+
         await tx.request().input('comprobanteId', sql.Int, id)
           .query(`DELETE FROM COMPRAS_CTA_CORRIENTE WHERE COMPROBANTE_ID = @comprobanteId`);
 

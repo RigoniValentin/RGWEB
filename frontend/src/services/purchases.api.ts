@@ -49,7 +49,7 @@ export const purchasesApi = {
     api.get<CompraDetalle>(`/purchases/${id}`).then(r => r.data),
 
   create: (data: CompraInput) =>
-    api.post<{ COMPRA_ID: number; TOTAL: number; COBRADA?: boolean }>('/purchases', data).then(r => r.data),
+    api.post<{ COMPRA_ID: number; TOTAL: number; MONTO_ANTICIPO?: number; COBRADA?: boolean }>('/purchases', data).then(r => r.data),
 
   update: (id: number, data: CompraInput) =>
     api.put(`/purchases/${id}`, data).then(r => r.data),

@@ -216,6 +216,7 @@ export function AppLayout() {
         '/categories':    ['categories'],
         '/brands':        ['brands'],
         '/cta-corriente': ['cta-corriente-list', 'cta-movimientos', 'cta-cobranzas'],
+        '/cta-corriente-prov': ['cta-corriente-prov-list', 'cta-prov-movimientos', 'cta-prov-ordenes-pago'],
       };
       const keys = keyMap[activeKey];
       if (keys) {

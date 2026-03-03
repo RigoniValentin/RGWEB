@@ -354,10 +354,10 @@ export function CtaCorrientePage() {
 
   // ── Render ──────────────────────────────────────
   return (
-    <div style={{ padding: '0 4px' }}>
+    <div className="page-enter">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>Cuentas Corrientes — Clientes</Title>
+      <div className="page-header">
+        <Title level={3}>Cuentas Corrientes — Clientes</Title>
         <Button icon={<ReloadOutlined />} onClick={() => qc.invalidateQueries({ queryKey: ['cta-corriente-list'] })}>
           Actualizar
         </Button>

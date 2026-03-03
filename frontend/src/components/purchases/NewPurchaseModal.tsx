@@ -69,6 +69,11 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const [destinoPago, setDestinoPago] = useState<'CAJA_CENTRAL' | 'CAJA'>('CAJA_CENTRAL');
   const efectivoRef = useRef<any>(null);
 
+  // Saldo CTA CTE state
+  const [saldoModalOpen, setSaldoModalOpen] = useState(false);
+  const [saldoInfo, setSaldoInfo] = useState<{ saldo: number; creditoDisponible: number; cobertura: 'total' | 'parcial' } | null>(null);
+  const [checkingSaldo, setCheckingSaldo] = useState(false);
+
   // Fetch proveedores
   const { data: proveedores = [] } = useQuery({
     queryKey: ['purchases-proveedores'],
@@ -332,6 +337,8 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     setPagoEfectivo(0);
     setPagoDigital(0);
     setDestinoPago('CAJA_CENTRAL');
+    setSaldoModalOpen(false);
+    setSaldoInfo(null);
     onClose();
   };
 
@@ -339,7 +346,22 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const createMutation = useMutation({
     mutationFn: (data: CompraInput) => purchasesApi.create(data),
     onSuccess: (result) => {
-      message.success(`Compra #${result.COMPRA_ID} registrada — Total: ${fmtMoney(result.TOTAL)}`);
+      // Show appropriate message based on anticipo usage
+      if (result.MONTO_ANTICIPO && result.MONTO_ANTICIPO > 0) {
+        if (result.COBRADA) {
+          message.success(
+            `Compra #${result.COMPRA_ID} registrada — Total: ${fmtMoney(result.TOTAL)}. Pagada con saldo de cta corriente.`,
+            5
+          );
+        } else {
+          message.success(
+            `Compra #${result.COMPRA_ID} registrada — Total: ${fmtMoney(result.TOTAL)}. Anticipo aplicado: ${fmtMoney(result.MONTO_ANTICIPO)}. Pendiente: ${fmtMoney(result.TOTAL - result.MONTO_ANTICIPO)}`,
+            5
+          );
+        }
+      } else {
+        message.success(`Compra #${result.COMPRA_ID} registrada — Total: ${fmtMoney(result.TOTAL)}`);
+      }
       const didUpdateCosts = actualizarCostos;
       handleClose();
       onSuccess({ compraId: result.COMPRA_ID, actualizoCostos: didUpdateCosts });
@@ -402,7 +424,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   };
 
   // ── Going to payment step ──────────────────────
-  const goToPayment = () => {
+  const goToPayment = async () => {
     if (!proveedorId) {
       message.warning('Seleccione un proveedor');
       return;
@@ -414,7 +436,26 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
 
     // Auto-fill for cta corriente
     if (esCtaCorriente) {
-      handleSubmit();
+      // Check saldo before saving
+      setCheckingSaldo(true);
+      try {
+        const { saldo } = await purchasesApi.getSaldoCtaCteP(proveedorId);
+        // saldo < 0 means supplier has credit (overpayment / anticipo available)
+        if (saldo < 0) {
+          const creditoDisponible = Math.abs(saldo);
+          const cobertura = creditoDisponible >= total ? 'total' : 'parcial';
+          setSaldoInfo({ saldo, creditoDisponible, cobertura });
+          setSaldoModalOpen(true);
+          setCheckingSaldo(false);
+          return; // Wait for user confirmation
+        }
+      } catch {
+        // Ignore saldo check errors, proceed without anticipo
+      } finally {
+        setCheckingSaldo(false);
+      }
+      // No saldo available — save directly
+      doSaveCtaCte();
       return;
     }
 
@@ -422,6 +463,13 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     setPagoEfectivo(total);
     setPagoDigital(0);
     setTimeout(() => efectivoRef.current?.focus(), 100);
+  };
+
+  // Confirmed save after saldo modal (or direct cta cte save)
+  const doSaveCtaCte = () => {
+    setSaldoModalOpen(false);
+    setSaldoInfo(null);
+    handleSubmit();
   };
 
   // ── Item columns ───────────────────────────────
@@ -929,6 +977,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   };
 
   return (
+    <>
     <Modal
       open={open}
       onCancel={handleClose}
@@ -952,6 +1001,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
               icon={<CheckCircleOutlined />}
               disabled={cart.length === 0 || !proveedorId}
               onClick={goToPayment}
+              loading={checkingSaldo}
             >
               {esCtaCorriente ? 'Registrar Compra' : 'Continuar al Pago'}
             </Button>
@@ -976,5 +1026,91 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     >
       {step === 'cart' ? renderCartStep() : renderPaymentStep()}
     </Modal>
+
+    {/* ── Saldo CTA CTE confirmation modal ── */}
+    <Modal
+      open={saldoModalOpen}
+      title={
+        <Space>
+          <WalletOutlined style={{ color: '#52c41a', fontSize: 20 }} />
+          <span>Saldo disponible en cuenta corriente</span>
+        </Space>
+      }
+      onCancel={() => { setSaldoModalOpen(false); setSaldoInfo(null); }}
+      centered
+      width={460}
+      destroyOnClose
+      footer={
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <Button onClick={() => { setSaldoModalOpen(false); setSaldoInfo(null); }}>
+            Cancelar
+          </Button>
+          <Button
+            type="primary"
+            onClick={doSaveCtaCte}
+            loading={createMutation.isPending}
+            icon={<CheckCircleOutlined />}
+          >
+            Confirmar
+          </Button>
+        </div>
+      }
+    >
+      {saldoInfo && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
+          {saldoInfo.cobertura === 'total' ? (
+            <>
+              <Text>
+                El proveedor tiene un saldo a favor de <Text strong style={{ color: '#52c41a' }}>{fmtMoney(saldoInfo.creditoDisponible)}</Text> en su cuenta corriente.
+              </Text>
+              <Text>
+                Se utilizará el saldo para cubrir el total de la compra de <Text strong>{fmtMoney(total)}</Text>.
+                La compra quedará registrada como <Tag color="green">PAGADA</Tag>.
+              </Text>
+              <div style={{ background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 6, padding: '10px 14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Text type="secondary">Saldo anterior:</Text>
+                  <Text strong>{fmtMoney(saldoInfo.creditoDisponible)}</Text>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Text type="secondary">Monto compra:</Text>
+                  <Text strong style={{ color: '#cf1322' }}>-{fmtMoney(total)}</Text>
+                </div>
+                <Divider style={{ margin: '6px 0' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Text type="secondary">Saldo resultante:</Text>
+                  <Text strong style={{ color: '#52c41a' }}>{fmtMoney(saldoInfo.creditoDisponible - total)}</Text>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <Text>
+                El proveedor tiene un saldo a favor de <Text strong style={{ color: '#52c41a' }}>{fmtMoney(saldoInfo.creditoDisponible)}</Text> en su cuenta corriente.
+              </Text>
+              <Text>
+                Se aplicará como anticipo parcial. Quedan pendientes <Text strong style={{ color: '#cf1322' }}>{fmtMoney(total - saldoInfo.creditoDisponible)}</Text>.
+              </Text>
+              <div style={{ background: '#fff7e6', border: '1px solid #ffd591', borderRadius: 6, padding: '10px 14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Text type="secondary">Monto compra:</Text>
+                  <Text strong>{fmtMoney(total)}</Text>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Text type="secondary">Saldo aplicado:</Text>
+                  <Text strong style={{ color: '#52c41a' }}>-{fmtMoney(saldoInfo.creditoDisponible)}</Text>
+                </div>
+                <Divider style={{ margin: '6px 0' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Text type="secondary">Pendiente de pago:</Text>
+                  <Text strong style={{ color: '#cf1322' }}>{fmtMoney(total - saldoInfo.creditoDisponible)}</Text>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </Modal>
+    </>
   );
 }

@@ -90,6 +90,12 @@ export function CtaCorrienteProvPage() {
   useEffect(() => {
     if (!navEvent || navEvent.target !== '/cta-corriente-prov' || !navEvent.payload?.proveedorId) return;
     if (navEvent.timestamp === lastNavTimestamp.current) return;
+
+    // Invalidate queries so data is fresh when navigating from another page
+    qc.invalidateQueries({ queryKey: ['cta-corriente-prov-list'] });
+    qc.invalidateQueries({ queryKey: ['cta-prov-movimientos'] });
+    qc.invalidateQueries({ queryKey: ['cta-prov-ordenes-pago'] });
+
     if (!proveedores || proveedores.length === 0) return;
 
     lastNavTimestamp.current = navEvent.timestamp;
@@ -354,10 +360,10 @@ export function CtaCorrienteProvPage() {
 
   // ── Render ──────────────────────────────────────
   return (
-    <div style={{ padding: '0 4px' }}>
+    <div className="page-enter">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>Cuentas Corrientes — Proveedores</Title>
+      <div className="page-header">
+        <Title level={3}>Cuentas Corrientes — Proveedores</Title>
         <Button icon={<ReloadOutlined />} onClick={() => qc.invalidateQueries({ queryKey: ['cta-corriente-prov-list'] })}>
           Actualizar
         </Button>
