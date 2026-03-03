@@ -1,11 +1,11 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Dropdown } from 'antd';
 import { CloseOutlined } from '@ant-design/icons';
 import { useTabStore } from '../store/tabStore';
 
 // ═══════════════════════════════════════════════════
-//  TabBar — Professional multi-tab workspace strip
+//  TabBar — Modern draggable tab strip
 // ═══════════════════════════════════════════════════
 
 /** Route → icon mapping (React nodes). Passed from AppLayout to avoid circular deps. */
@@ -15,9 +15,13 @@ export interface TabBarProps {
 
 export function TabBar({ iconMap }: TabBarProps) {
   const navigate = useNavigate();
-  const { tabs, activeKey, setActiveTab, closeTab, closeAll, closeOthers } = useTabStore();
+  const { tabs, activeKey, setActiveTab, closeTab, closeAll, closeOthers, reorderTabs } = useTabStore();
   const barRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
+
+  // ── Drag state ──────────────────────────────────
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   // Auto-scroll to active tab
   useEffect(() => {
@@ -59,6 +63,36 @@ export function TabBar({ iconMap }: TabBarProps) {
     }
   }, [tabs, closeTab, navigate]);
 
+  // ── Drag handlers ──────────────────────────────
+  const handleDragStart = useCallback((e: React.DragEvent, index: number) => {
+    // Dashboard (index 0, non-closable) is pinned — can't drag it
+    if (!tabs[index]?.closable) { e.preventDefault(); return; }
+    setDragIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    // Use a transparent drag image for a cleaner look
+    const ghost = document.createElement('div');
+    ghost.style.opacity = '0';
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, 0, 0);
+    setTimeout(() => document.body.removeChild(ghost), 0);
+  }, [tabs]);
+
+  const handleDragOver = useCallback((e: React.DragEvent, index: number) => {
+    // Don't allow dropping on the pinned Dashboard tab (index 0)
+    if (!tabs[index]?.closable) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverIndex(index);
+  }, [tabs]);
+
+  const handleDragEnd = useCallback(() => {
+    if (dragIndex !== null && dragOverIndex !== null && dragIndex !== dragOverIndex) {
+      reorderTabs(dragIndex, dragOverIndex);
+    }
+    setDragIndex(null);
+    setDragOverIndex(null);
+  }, [dragIndex, dragOverIndex, reorderTabs]);
+
   const getContextMenu = (key: string) => ({
     items: [
       {
@@ -82,15 +116,27 @@ export function TabBar({ iconMap }: TabBarProps) {
 
   return (
     <div className="rg-tabbar" ref={barRef}>
-      {tabs.map((tab) => {
+      {tabs.map((tab, index) => {
         const isActive = tab.key === activeKey;
+        const isDragging = dragIndex === index;
+        const isOver = dragOverIndex === index && dragIndex !== index;
+
         return (
           <Dropdown key={tab.key} menu={getContextMenu(tab.key)} trigger={['contextMenu']}>
             <div
               ref={isActive ? activeRef : undefined}
-              className={`rg-tab ${isActive ? 'rg-tab-active' : ''}`}
+              className={
+                `rg-tab${isActive ? ' rg-tab-active' : ''}` +
+                `${isDragging ? ' rg-tab-dragging' : ''}` +
+                `${isOver ? ' rg-tab-dragover' : ''}`
+              }
+              draggable={tab.closable}
               onClick={() => handleActivate(tab.key)}
               onMouseDown={(e) => handleMiddleClick(e, tab.key)}
+              onDragStart={(e) => handleDragStart(e, index)}
+              onDragOver={(e) => handleDragOver(e, index)}
+              onDragEnd={handleDragEnd}
+              onDragLeave={() => setDragOverIndex(null)}
             >
               <span className="rg-tab-icon">{iconMap[tab.key]}</span>
               <span className="rg-tab-label">{tab.label}</span>
@@ -103,6 +149,7 @@ export function TabBar({ iconMap }: TabBarProps) {
                   <CloseOutlined />
                 </span>
               )}
+              {isActive && <span className="rg-tab-indicator" />}
             </div>
           </Dropdown>
         );

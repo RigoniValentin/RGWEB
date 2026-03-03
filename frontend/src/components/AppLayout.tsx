@@ -94,11 +94,6 @@ const ICON_MAP: Record<string, React.ReactNode> = Object.fromEntries(
 /* ── Menu sections matching Río Gestión desktop ─ */
 const menuItems = [
   {
-    key: '/dashboard',
-    icon: <DashboardOutlined />,
-    label: 'Dashboard',
-  },
-  {
     key: 'archivos',
     icon: <FolderOutlined />,
     label: 'Archivos',

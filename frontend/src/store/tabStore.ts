@@ -23,6 +23,8 @@ interface TabState {
   closeAll: () => string;
   /** Close all closable tabs *except* the given key. */
   closeOthers: (key: string) => void;
+  /** Reorder tabs (drag & drop). */
+  reorderTabs: (fromIndex: number, toIndex: number) => void;
 }
 
 const DEFAULT_TAB: TabItem = { key: '/dashboard', label: 'Dashboard', closable: false };
@@ -74,5 +76,15 @@ export const useTabStore = create<TabState>((set, get) => ({
     const kept = tabs.filter(t => !t.closable || t.key === key);
     const newActive = kept.find(t => t.key === key) ? key : '/dashboard';
     set({ tabs: kept, activeKey: newActive });
+  },
+
+  reorderTabs: (fromIndex, toIndex) => {
+    const { tabs } = get();
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= tabs.length || toIndex >= tabs.length) return;
+    const updated = [...tabs];
+    const [moved] = updated.splice(fromIndex, 1);
+    if (!moved) return;
+    updated.splice(toIndex, 0, moved);
+    set({ tabs: updated });
   },
 }));
