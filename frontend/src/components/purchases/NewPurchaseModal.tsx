@@ -753,10 +753,9 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
         options={searchOptions}
         onSearch={handleSearch}
         onSelect={handleSelectProduct}
-        placeholder="Buscar producto por código o nombre..."
         style={{ width: '100%', marginBottom: 12 }}
       >
-        <Input prefix={<SearchOutlined />} size="large" />
+        <Input prefix={<SearchOutlined />} size="large" placeholder="Buscar producto por código o nombre..." />
       </AutoComplete>
 
       {/* ── Cart table ── */}
@@ -984,6 +983,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       width={step === 'cart' ? (isDetallada ? 1150 : 1050) : 500}
       centered
       destroyOnClose
+      className="rg-modal"
       title={
         <Space>
           <ShoppingCartOutlined style={{ color: '#EABD23' }} />

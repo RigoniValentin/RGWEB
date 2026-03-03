@@ -443,7 +443,7 @@ body {
 }
 :where(.ant-menu-submenu-popup) .ant-menu-item:hover,
 .ant-menu-submenu-popup .ant-menu-item:hover {
-  background: rgba(234, 189, 35, 0.12) !important;
+  background: rgba(234, 189, 35, 0.5) !important;
   color: var(--rg-black) !important;
 }
 :where(.ant-menu-submenu-popup) .ant-menu-item:hover .anticon,
@@ -469,7 +469,7 @@ body {
 }
 :where(.ant-menu-submenu-popup) .ant-menu-submenu > .ant-menu-submenu-title:hover,
 .ant-menu-submenu-popup .ant-menu-submenu > .ant-menu-submenu-title:hover {
-  background: rgba(234, 189, 35, 0.12) !important;
+  background: rgba(234, 189, 35, 0.5) !important;
   color: var(--rg-black) !important;
 }
 :where(.ant-menu-submenu-popup) .ant-menu-submenu > .ant-menu-submenu-title .ant-menu-submenu-arrow,
@@ -496,7 +496,7 @@ body {
 /* ── Popup Group Title (module name header) ─────── */
 :where(.ant-menu-submenu-popup) .ant-menu-item-group-title,
 .ant-menu-submenu-popup .ant-menu-item-group-title {
-  color: var(--rg-white) !important;
+  color: var(--rg-gold) !important;
   background: var(--rg-black) !important;
   font-size: 11.5px !important;
   font-weight: 700 !important;
