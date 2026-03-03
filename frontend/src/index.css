@@ -416,93 +416,99 @@ body {
    The popup wrapper uses .ant-menu-submenu-popup with child .ant-menu */
 :where(.ant-menu-submenu-popup) .ant-menu,
 .ant-menu-submenu-popup .ant-menu {
-  background: var(--rg-black) !important;
+  background: var(--rg-white) !important;
   border-radius: 10px !important;
-  border: 1px solid rgba(234, 189, 35, 0.25) !important;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
-  padding: 6px 0 !important;
-  min-width: 190px;
+  border: 1.5px solid var(--rg-gold) !important;
+  box-shadow: 0 8px 28px rgba(30, 31, 35, 0.18), 0 2px 8px rgba(234, 189, 35, 0.10) !important;
+  padding: 0 0 6px 0 !important;
+  min-width: 200px;
+  overflow: hidden;
 }
 /* Popup items */
 :where(.ant-menu-submenu-popup) .ant-menu-item,
 .ant-menu-submenu-popup .ant-menu-item {
-  color: rgba(255,255,255,0.85) !important;
+  color: var(--rg-black) !important;
   border-radius: 6px !important;
   margin: 2px 6px !important;
   height: 38px !important;
   line-height: 38px !important;
   font-size: 13px;
+  font-weight: 500;
   transition: var(--rg-transition);
 }
 :where(.ant-menu-submenu-popup) .ant-menu-item .anticon,
 .ant-menu-submenu-popup .ant-menu-item .anticon {
-  color: var(--rg-gold) !important;
-  font-size: 14px !important;
+  color: var(--rg-gold-dark) !important;
+  font-size: 15px !important;
 }
 :where(.ant-menu-submenu-popup) .ant-menu-item:hover,
 .ant-menu-submenu-popup .ant-menu-item:hover {
   background: rgba(234, 189, 35, 0.12) !important;
+  color: var(--rg-black) !important;
+}
+:where(.ant-menu-submenu-popup) .ant-menu-item:hover .anticon,
+.ant-menu-submenu-popup .ant-menu-item:hover .anticon {
   color: var(--rg-gold) !important;
 }
 /* Nested submenu titles inside popup (e.g. Cuentas Corrientes) */
 :where(.ant-menu-submenu-popup) .ant-menu-submenu > .ant-menu-submenu-title,
 .ant-menu-submenu-popup .ant-menu-submenu > .ant-menu-submenu-title {
-  color: rgba(255,255,255,0.85) !important;
+  color: var(--rg-black) !important;
   border-radius: 6px !important;
   margin: 2px 6px !important;
   height: 38px !important;
   line-height: 38px !important;
   font-size: 13px;
+  font-weight: 500;
   transition: var(--rg-transition);
 }
 :where(.ant-menu-submenu-popup) .ant-menu-submenu > .ant-menu-submenu-title .anticon,
 .ant-menu-submenu-popup .ant-menu-submenu > .ant-menu-submenu-title .anticon {
-  color: var(--rg-gold) !important;
-  font-size: 14px !important;
+  color: var(--rg-gold-dark) !important;
+  font-size: 15px !important;
 }
 :where(.ant-menu-submenu-popup) .ant-menu-submenu > .ant-menu-submenu-title:hover,
 .ant-menu-submenu-popup .ant-menu-submenu > .ant-menu-submenu-title:hover {
   background: rgba(234, 189, 35, 0.12) !important;
-  color: var(--rg-gold) !important;
+  color: var(--rg-black) !important;
 }
 :where(.ant-menu-submenu-popup) .ant-menu-submenu > .ant-menu-submenu-title .ant-menu-submenu-arrow,
 .ant-menu-submenu-popup .ant-menu-submenu > .ant-menu-submenu-title .ant-menu-submenu-arrow {
-  color: rgba(255,255,255,0.45) !important;
+  color: var(--rg-gold-dark) !important;
 }
 /* Popup selected item */
 :where(.ant-menu-submenu-popup) .ant-menu-item-selected,
 .ant-menu-submenu-popup .ant-menu-item-selected {
   background: linear-gradient(135deg, var(--rg-gold), var(--rg-gold-dark)) !important;
   color: var(--rg-black) !important;
-  font-weight: 600;
+  font-weight: 700;
 }
 :where(.ant-menu-submenu-popup) .ant-menu-item-selected .anticon,
 .ant-menu-submenu-popup .ant-menu-item-selected .anticon {
   color: var(--rg-black) !important;
 }
-/* Gold strip at the top of each popup (like WinForms section header) */
+/* Gold strip at the top of each popup — remove default pseudo-element */
 :where(.ant-menu-submenu-popup) .ant-menu::before,
 .ant-menu-submenu-popup .ant-menu::before {
-  content: '';
-  display: block;
-  height: 3px;
-  background: linear-gradient(90deg, var(--rg-gold), var(--rg-gold-dark));
-  border-radius: 10px 10px 0 0;
-  margin-bottom: 0;
+  display: none !important;
 }
 
 /* ── Popup Group Title (module name header) ─────── */
 :where(.ant-menu-submenu-popup) .ant-menu-item-group-title,
 .ant-menu-submenu-popup .ant-menu-item-group-title {
-  color: var(--rg-gold) !important;
-  font-size: 13px !important;
+  color: var(--rg-white) !important;
+  background: var(--rg-black) !important;
+  font-size: 11.5px !important;
   font-weight: 700 !important;
   text-transform: uppercase !important;
-  letter-spacing: 0.8px !important;
-  padding: 10px 16px 6px !important;
-  margin-bottom: 2px;
-  border-bottom: 1px solid rgba(234, 189, 35, 0.2);
+  letter-spacing: 1.2px !important;
+  padding: 10px 16px !important;
+  margin: 0 0 4px 0 !important;
+  border-radius: 8px 8px 0 0 !important;
   text-align: center !important;
+  border-bottom: 2px solid var(--rg-gold) !important;
+  border-top: none !important;
+  position: relative;
 }
 /* Hide the group title in expanded sidebar (only show in popup) */
 .rg-sidebar .ant-menu-item-group-title {

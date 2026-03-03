@@ -284,8 +284,8 @@ export function CajaPage() {
     {
       title: 'Tipo', dataIndex: 'ORIGEN_TIPO', key: 'tipo', width: 100, align: 'center' as const,
       render: (v: string) => {
-        const colorMap: Record<string, string> = { VENTA: 'green', INGRESO: 'blue', EGRESO: 'red', FONDO_CAMBIO: 'orange' };
-        const labelMap: Record<string, string> = { FONDO_CAMBIO: 'FC' };
+        const colorMap: Record<string, string> = { VENTA: 'green', INGRESO: 'blue', EGRESO: 'red', FONDO_CAMBIO: 'orange', ORDEN_PAGO: 'red', COMPRA: 'red' };
+        const labelMap: Record<string, string> = { FONDO_CAMBIO: 'FC', ORDEN_PAGO: 'OP' };
         return <Tag color={colorMap[v] || 'default'}>{labelMap[v] || v}</Tag>;
       },
     },
@@ -294,11 +294,11 @@ export function CajaPage() {
       render: (v: string, r: any) => r.ORIGEN_TIPO === 'FONDO_CAMBIO' ? v?.replace(/Fondo de Cambio/gi, 'FC') : v,
     },
     {
-      title: 'Efectivo', dataIndex: 'MONTO_EFECTIVO', key: 'cash', width: 110, align: 'right' as const,
+      title: 'Efectivo', dataIndex: 'MONTO_EFECTIVO', key: 'cash', width: 120, align: 'center' as const,
       render: (v: number) => <Text type={v < 0 ? 'danger' : undefined}>{fmtMoney(v)}</Text>,
     },
     {
-      title: 'Digital', dataIndex: 'MONTO_DIGITAL', key: 'digital', width: 110, align: 'right' as const,
+      title: 'Digital', dataIndex: 'MONTO_DIGITAL', key: 'digital', width: 120, align: 'center' as const,
       render: (v: number) => fmtMoney(v),
     },
   ];
@@ -452,7 +452,7 @@ export function CajaPage() {
         title={`Caja #${selectedId}`}
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); setSelectedId(null); }}
-        width={720}
+        width={900}
         className="rg-drawer"
         extra={
           detail && detail.ESTADO === 'ACTIVA' && detail.USUARIO_ID === user?.USUARIO_ID && (

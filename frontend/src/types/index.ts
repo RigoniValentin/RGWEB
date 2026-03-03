@@ -484,6 +484,7 @@ export interface CompraInput {
   IVA_TOTAL?: number;
   ACTUALIZAR_COSTOS?: boolean;
   ACTUALIZAR_PRECIOS?: boolean;
+  DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
   items: CompraItemInput[];
 }
 

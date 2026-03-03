@@ -12,6 +12,7 @@ import depositRoutes from './deposit.routes.js';
 import categoryRoutes from './category.routes.js';
 import brandRoutes from './brand.routes.js';
 import ctaCorrienteRoutes from './ctaCorriente.routes.js';
+import ctaCorrienteProvRoutes from './ctaCorrienteProv.routes.js';
 import purchasesRoutes from './purchases.routes.js';
 
 const router = Router();
@@ -29,6 +30,7 @@ router.use('/deposits', depositRoutes);
 router.use('/categories', categoryRoutes);
 router.use('/brands', brandRoutes);
 router.use('/cta-corriente', ctaCorrienteRoutes);
+router.use('/cta-corriente-prov', ctaCorrienteProvRoutes);
 router.use('/purchases', purchasesRoutes);
 
 export default router;

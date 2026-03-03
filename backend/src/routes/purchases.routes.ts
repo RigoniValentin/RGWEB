@@ -43,6 +43,28 @@ router.get('/depositos', async (_req: Request, res: Response) => {
   }
 });
 
+// GET /api/purchases/price-check/:compraId
+router.get('/price-check/:compraId', async (req: Request, res: Response) => {
+  try {
+    const compraId = parseInt(req.params.compraId as string);
+    const data = await purchasesService.getPriceCheckData(compraId);
+    res.json(data);
+  } catch (err: any) {
+    const status = err.name === 'ValidationError' ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// POST /api/purchases/price-check
+router.post('/price-check', async (req: Request, res: Response) => {
+  try {
+    const result = await purchasesService.savePriceCheck(req.body.updates || []);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/purchases/saldo-cta-cte/:proveedorId
 router.get('/saldo-cta-cte/:proveedorId', async (req: Request, res: Response) => {
   try {

@@ -46,6 +46,7 @@ export interface CompraInput {
   IVA_TOTAL?: number;
   ACTUALIZAR_COSTOS?: boolean;
   ACTUALIZAR_PRECIOS?: boolean;
+  DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
   items: CompraItemInput[];
 }
 
@@ -53,6 +54,18 @@ export interface CompraInput {
 
 function r2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+// ── Caja helper ──────────────────────────────────
+
+async function getCajaAbiertaTx(
+  tx: any,
+  usuarioId: number
+): Promise<{ CAJA_ID: number; PUNTO_VENTA_ID: number | null } | null> {
+  const result = await tx.request()
+    .input('uid', sql.Int, usuarioId)
+    .query(`SELECT CAJA_ID, PUNTO_VENTA_ID FROM CAJA WHERE USUARIO_ID = @uid AND ESTADO = 'ACTIVA'`);
+  return result.recordset.length > 0 ? result.recordset[0] : null;
 }
 
 // ── Stock helpers ────────────────────────────────
@@ -237,12 +250,47 @@ async function ensureCtaCorrienteP(tx: any, proveedorId: number): Promise<number
 async function actualizarPrecioCompra(
   tx: any,
   productoId: number,
-  precioNetoUnitario: number
+  precioNetoUnitario: number,
+  impIntUnitario: number = 0,
+  ivaAlicuota: number = 0,
+  impIntGravaIva: boolean = false,
+  preciosSinIva: boolean = false
 ) {
+  const precioCompraBase = r2(precioNetoUnitario);
+
+  let precioCompra: number;
+  if (preciosSinIva) {
+    // Prices without IVA — both fields are the same
+    precioCompra = precioCompraBase;
+  } else {
+    // Calculate full purchase price with IVA + internal taxes
+    let baseParaIva: number;
+    if (impIntGravaIva) {
+      // Internal taxes already included in base → subtract to get IVA base
+      baseParaIva = Math.max(0, precioCompraBase - impIntUnitario);
+    } else {
+      baseParaIva = precioCompraBase;
+    }
+    const montoIva = r2(baseParaIva * ivaAlicuota);
+    if (impIntGravaIva) {
+      // II already in base, just add IVA
+      precioCompra = r2(precioCompraBase + montoIva);
+    } else {
+      // Add both II and IVA
+      precioCompra = r2(precioCompraBase + impIntUnitario + montoIva);
+    }
+  }
+
   await tx.request()
     .input('prodId', sql.Int, productoId)
-    .input('precio', sql.Decimal(18, 4), precioNetoUnitario)
-    .query(`UPDATE PRODUCTOS SET PRECIO_COMPRA_BASE = @precio WHERE PRODUCTO_ID = @prodId`);
+    .input('precioBase', sql.Decimal(18, 4), precioCompraBase)
+    .input('precioCompra', sql.Decimal(18, 4), precioCompra)
+    .input('impInt', sql.Decimal(18, 4), impIntUnitario)
+    .query(`UPDATE PRODUCTOS
+            SET PRECIO_COMPRA_BASE = @precioBase,
+                PRECIO_COMPRA = @precioCompra,
+                IMP_INT = @impInt
+            WHERE PRODUCTO_ID = @prodId`);
 }
 
 async function actualizarPreciosVenta(
@@ -254,13 +302,21 @@ async function actualizarPreciosVenta(
   const listasResult = await tx.request()
     .query(`SELECT LISTA_ID, MARGEN FROM LISTA_PRECIOS WHERE ACTIVA = 1 ORDER BY LISTA_ID`);
 
-  // Check if product has individual margins
+  // Check if product has individual margins + get IVA aliquot
   const prodInfo = await tx.request()
     .input('pid', sql.Int, productoId)
-    .query(`SELECT MARGEN_INDIVIDUAL, IMP_INT FROM PRODUCTOS WHERE PRODUCTO_ID = @pid`);
+    .query(`SELECT p.MARGEN_INDIVIDUAL, ISNULL(p.IMP_INT, 0) AS IMP_INT,
+                   ISNULL(ti.PORCENTAJE, 0) AS IVA_PORCENTAJE
+            FROM PRODUCTOS p
+            LEFT JOIN TASAS_IMPUESTOS ti ON p.TASA_IVA_ID = ti.TASA_ID
+            WHERE p.PRODUCTO_ID = @pid`);
 
   const margenIndividual = prodInfo.recordset[0]?.MARGEN_INDIVIDUAL;
   const impInt = prodInfo.recordset[0]?.IMP_INT || 0;
+  const ivaPct = prodInfo.recordset[0]?.IVA_PORCENTAJE || 0;
+
+  // Base for margin: cost with IVA + imp.int (IVA only on net cost, not on imp.int)
+  const baseConIva = r2(costoBase * (1 + ivaPct / 100) + impInt);
 
   if (margenIndividual) {
     // Use individual margins from PRODUCTO_MARGENES table (single row, columns per list)
@@ -273,7 +329,7 @@ async function actualizarPreciosVenta(
     if (row) {
       for (let i = 1; i <= 5; i++) {
         const margen = row[`MARGEN_LISTA_${i}`] || 0;
-        const precio = r2((costoBase + impInt) * (1 + margen / 100));
+        const precio = r2(baseConIva * (1 + margen / 100));
         await tx.request()
           .input('pid', sql.Int, productoId)
           .input('precio', sql.Decimal(18, 4), precio)
@@ -285,7 +341,7 @@ async function actualizarPreciosVenta(
     for (const lista of listasResult.recordset) {
       const listaId = lista.LISTA_ID;
       if (listaId >= 1 && listaId <= 5) {
-        const precio = r2((costoBase + impInt) * (1 + lista.MARGEN / 100));
+        const precio = r2(baseConIva * (1 + lista.MARGEN / 100));
         await tx.request()
           .input('pid', sql.Int, productoId)
           .input('precio', sql.Decimal(18, 4), precio)
@@ -591,7 +647,14 @@ export const purchasesService = {
         // Update costs if requested
         if (input.ACTUALIZAR_COSTOS) {
           const precioNetoUnitario = precioNeto; // net after discount, before IVA
-          await actualizarPrecioCompra(tx, item.PRODUCTO_ID, precioNetoUnitario);
+          const impIntUnit = (item.IMP_INTERNOS || 0);
+          const ivaAliCost = discriminaIva ? (item.IVA_ALICUOTA || 0) : 0;
+          await actualizarPrecioCompra(
+            tx, item.PRODUCTO_ID, precioNetoUnitario,
+            impIntUnit, ivaAliCost,
+            input.IMP_INT_GRAVA_IVA || false,
+            input.PRECIOS_SIN_IVA || false
+          );
 
           if (input.ACTUALIZAR_PRECIOS) {
             await actualizarPreciosVenta(tx, item.PRODUCTO_ID, precioNetoUnitario);
@@ -606,12 +669,13 @@ export const purchasesService = {
         const ptoVta = input.PTO_VTA || '0000';
         const nroComp = input.NRO_COMPROBANTE || '00000000';
         const tipoComp = input.TIPO_COMPROBANTE || 'FB';
+        const tipoLabel = tipoComp.startsWith('F') ? `Fact.${tipoComp.slice(1)}` : tipoComp;
 
         await tx.request()
           .input('comprobanteId', sql.Int, compraId)
           .input('ctaCteId', sql.Int, ctaCteId)
           .input('fecha', sql.DateTime, fechaCompra)
-          .input('concepto', sql.NVarChar(255), `Compra ${ptoVta}-${nroComp}`)
+          .input('concepto', sql.NVarChar(255), `Compra ${tipoLabel} ${ptoVta}-${nroComp}`)
           .input('tipoComp', sql.NVarChar(50), tipoComp)
           .input('debe', sql.Decimal(18, 2), r2(total))
           .input('haber', sql.Decimal(18, 2), 0)
@@ -623,7 +687,69 @@ export const purchasesService = {
           `);
       }
 
-      // ── 5. AUDITORIA ──
+      // ── 5. REGISTRAR EGRESO (if not cta corriente and has payment) ──
+      if (!input.ES_CTA_CORRIENTE) {
+        const efectivoNeto = Math.max(0, montoEfectivo - vuelto);
+        if (efectivoNeto > 0 || montoDigital > 0) {
+          const destino = input.DESTINO_PAGO || 'CAJA_CENTRAL';
+
+          // Build descriptive text: "Pago compra: Fact.A 0001-00000013 - PROVEEDOR"
+          const provNombre = await tx.request()
+            .input('pid', sql.Int, input.PROVEEDOR_ID)
+            .query(`SELECT NOMBRE FROM PROVEEDORES WHERE PROVEEDOR_ID = @pid`);
+          const nombreProv = provNombre.recordset[0]?.NOMBRE || '';
+          const tipoComp = input.TIPO_COMPROBANTE || 'FB';
+          const tipoLabel = tipoComp.startsWith('F') ? `Fact.${tipoComp.slice(1)}` : tipoComp;
+          const ptoVta = input.PTO_VTA || '0000';
+          const nroComp = input.NRO_COMPROBANTE || '00000000';
+          const descEgreso = `Pago compra: ${tipoLabel} ${ptoVta}-${nroComp} - ${nombreProv}`;
+
+          if (destino === 'CAJA') {
+            // Register in CAJA_ITEMS (user's open register)
+            const caja = await getCajaAbiertaTx(tx, usuarioId);
+            if (!caja) {
+              throw Object.assign(
+                new Error('No se encontró una caja abierta para el usuario'),
+                { name: 'ValidationError' }
+              );
+            }
+            await tx.request()
+              .input('cajaId', sql.Int, caja.CAJA_ID)
+              .input('origenTipo', sql.VarChar(30), 'COMPRA')
+              .input('origenId', sql.Int, compraId)
+              .input('efectivo', sql.Decimal(18, 2), -efectivoNeto)
+              .input('digital', sql.Decimal(18, 2), -montoDigital)
+              .input('desc', sql.NVarChar(255), descEgreso)
+              .input('uid', sql.Int, usuarioId)
+              .query(`
+                INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
+                  MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
+                VALUES (@cajaId, GETDATE(), @origenTipo, @origenId,
+                  @efectivo, @digital, @desc, @uid)
+              `);
+          } else {
+            // Register in MOVIMIENTOS_CAJA (Caja Central)
+            const totalEgreso = r2(efectivoNeto + montoDigital);
+            const caja = await getCajaAbiertaTx(tx, usuarioId);
+            const pvId = caja?.PUNTO_VENTA_ID || null;
+            await tx.request()
+              .input('idEntidad', sql.Int, compraId)
+              .input('tipoEntidad', sql.VarChar(20), 'COMPRA')
+              .input('movimiento', sql.NVarChar(500), descEgreso)
+              .input('uid', sql.Int, usuarioId)
+              .input('efectivo', sql.Decimal(18, 2), -efectivoNeto)
+              .input('digital', sql.Decimal(18, 2), -montoDigital)
+              .input('total', sql.Decimal(18, 2), -totalEgreso)
+              .input('pvId', sql.Int, pvId)
+              .query(`
+                INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+                VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, 0, 0, @total, @pvId, 0)
+              `);
+          }
+        }
+      }
+
+      // ── 6. AUDITORIA ──
       await registrarAuditoria(
         tx, compraId, 'CREACION', usuarioId,
         r2(total), `Compra #${compraId} creada`
@@ -673,6 +799,12 @@ export const purchasesService = {
         await tx.request().input('comprobanteId', sql.Int, id)
           .query(`DELETE FROM COMPRAS_CTA_CORRIENTE WHERE COMPROBANTE_ID = @comprobanteId`);
       }
+
+      // ── 3b. Remove old egreso records ──
+      await tx.request().input('origenId', sql.Int, id)
+        .query(`DELETE FROM CAJA_ITEMS WHERE ORIGEN_ID = @origenId AND ORIGEN_TIPO = 'COMPRA'`);
+      await tx.request().input('origenId', sql.Int, id)
+        .query(`DELETE FROM MOVIMIENTOS_CAJA WHERE ID_ENTIDAD = @origenId AND TIPO_ENTIDAD = 'COMPRA'`);
 
       // ── 4. Calculate new totals ──
       let netoTotal = 0;
@@ -794,7 +926,14 @@ export const purchasesService = {
         await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, depositoId);
 
         if (input.ACTUALIZAR_COSTOS) {
-          await actualizarPrecioCompra(tx, item.PRODUCTO_ID, precioNeto);
+          const impIntUnit = (item.IMP_INTERNOS || 0);
+          const ivaAliCost = item.IVA_ALICUOTA || 0;
+          await actualizarPrecioCompra(
+            tx, item.PRODUCTO_ID, precioNeto,
+            impIntUnit, ivaAliCost,
+            input.IMP_INT_GRAVA_IVA || false,
+            input.PRECIOS_SIN_IVA || false
+          );
           if (input.ACTUALIZAR_PRECIOS) {
             await actualizarPreciosVenta(tx, item.PRODUCTO_ID, precioNeto);
           }
@@ -806,12 +945,14 @@ export const purchasesService = {
         const ctaCteId = await ensureCtaCorrienteP(tx, input.PROVEEDOR_ID);
         const ptoVta = input.PTO_VTA || '0000';
         const nroComp = input.NRO_COMPROBANTE || '00000000';
+        const tipoCompUpd2 = input.TIPO_COMPROBANTE || 'FB';
+        const tipoLabelUpd2 = tipoCompUpd2.startsWith('F') ? `Fact.${tipoCompUpd2.slice(1)}` : tipoCompUpd2;
         await tx.request()
           .input('comprobanteId', sql.Int, id)
           .input('ctaCteId', sql.Int, ctaCteId)
           .input('fecha', sql.DateTime, input.FECHA_COMPRA ? new Date(input.FECHA_COMPRA) : new Date())
-          .input('concepto', sql.NVarChar(255), `Compra ${ptoVta}-${nroComp}`)
-          .input('tipoComp', sql.NVarChar(50), input.TIPO_COMPROBANTE || 'FB')
+          .input('concepto', sql.NVarChar(255), `Compra ${tipoLabelUpd2} ${ptoVta}-${nroComp}`)
+          .input('tipoComp', sql.NVarChar(50), tipoCompUpd2)
           .input('debe', sql.Decimal(18, 2), r2(total))
           .input('haber', sql.Decimal(18, 2), 0)
           .query(`
@@ -822,7 +963,70 @@ export const purchasesService = {
           `);
       }
 
-      // ── 8. AUDITORIA ──
+      // ── 8. REGISTRAR EGRESO (if not cta corriente and has payment) ──
+      if (!input.ES_CTA_CORRIENTE) {
+        const montoEfectivoUpd = input.MONTO_EFECTIVO || 0;
+        const montoDigitalUpd = input.MONTO_DIGITAL || 0;
+        const vueltoUpd = input.VUELTO || 0;
+        const efectivoNetoUpd = Math.max(0, montoEfectivoUpd - vueltoUpd);
+        if (efectivoNetoUpd > 0 || montoDigitalUpd > 0) {
+          const destino = input.DESTINO_PAGO || 'CAJA_CENTRAL';
+
+          // Build descriptive text: "Pago compra: Fact.A 0001-00000013 - PROVEEDOR"
+          const provNombreUpd = await tx.request()
+            .input('pid', sql.Int, input.PROVEEDOR_ID)
+            .query(`SELECT NOMBRE FROM PROVEEDORES WHERE PROVEEDOR_ID = @pid`);
+          const nombreProvUpd = provNombreUpd.recordset[0]?.NOMBRE || '';
+          const tipoCompUpd = input.TIPO_COMPROBANTE || 'FB';
+          const tipoLabelUpd = tipoCompUpd.startsWith('F') ? `Fact.${tipoCompUpd.slice(1)}` : tipoCompUpd;
+          const ptoVtaUpd = input.PTO_VTA || '0000';
+          const nroCompUpd = input.NRO_COMPROBANTE || '00000000';
+          const descEgresoUpd = `Pago compra: ${tipoLabelUpd} ${ptoVtaUpd}-${nroCompUpd} - ${nombreProvUpd}`;
+
+          if (destino === 'CAJA') {
+            const caja = await getCajaAbiertaTx(tx, usuarioId);
+            if (!caja) {
+              throw Object.assign(
+                new Error('No se encontró una caja abierta para el usuario'),
+                { name: 'ValidationError' }
+              );
+            }
+            await tx.request()
+              .input('cajaId', sql.Int, caja.CAJA_ID)
+              .input('origenTipo', sql.VarChar(30), 'COMPRA')
+              .input('origenId', sql.Int, id)
+              .input('efectivo', sql.Decimal(18, 2), -efectivoNetoUpd)
+              .input('digital', sql.Decimal(18, 2), -montoDigitalUpd)
+              .input('desc', sql.NVarChar(255), descEgresoUpd)
+              .input('uid', sql.Int, usuarioId)
+              .query(`
+                INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
+                  MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
+                VALUES (@cajaId, GETDATE(), @origenTipo, @origenId,
+                  @efectivo, @digital, @desc, @uid)
+              `);
+          } else {
+            const totalEgresoUpd = r2(efectivoNetoUpd + montoDigitalUpd);
+            const caja = await getCajaAbiertaTx(tx, usuarioId);
+            const pvId = caja?.PUNTO_VENTA_ID || null;
+            await tx.request()
+              .input('idEntidad', sql.Int, id)
+              .input('tipoEntidad', sql.VarChar(20), 'COMPRA')
+              .input('movimiento', sql.NVarChar(500), descEgresoUpd)
+              .input('uid', sql.Int, usuarioId)
+              .input('efectivo', sql.Decimal(18, 2), -efectivoNetoUpd)
+              .input('digital', sql.Decimal(18, 2), -montoDigitalUpd)
+              .input('total', sql.Decimal(18, 2), -totalEgresoUpd)
+              .input('pvId', sql.Int, pvId)
+              .query(`
+                INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+                VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, 0, 0, @total, @pvId, 0)
+              `);
+          }
+        }
+      }
+
+      // ── 9. AUDITORIA ──
       await registrarAuditoria(
         tx, id, 'MODIFICACION', usuarioId,
         r2(total), `Compra #${id} modificada`
@@ -975,6 +1179,176 @@ export const purchasesService = {
       SELECT DEPOSITO_ID, CODIGOPARTICULAR, NOMBRE FROM DEPOSITOS ORDER BY NOMBRE
     `);
     return result.recordset;
+  },
+
+  // ── Price check data for a purchase ─────────────
+  async getPriceCheckData(compraId: number) {
+    const pool = await getPool();
+
+    // 1. Get purchase header info
+    const compraResult = await pool.request()
+      .input('id', sql.Int, compraId)
+      .query(`
+        SELECT COMPRA_ID, PRECIOS_SIN_IVA, IMP_INT_GRAVA_IVA
+        FROM COMPRAS WHERE COMPRA_ID = @id
+      `);
+    if (compraResult.recordset.length === 0) {
+      throw Object.assign(new Error('Compra no encontrada'), { name: 'ValidationError' });
+    }
+    const compra = compraResult.recordset[0];
+
+    // 2. Get distinct product IDs from purchase items
+    const itemsResult = await pool.request()
+      .input('compraId', sql.Int, compraId)
+      .query(`SELECT DISTINCT PRODUCTO_ID FROM COMPRAS_ITEMS WHERE COMPRA_ID = @compraId`);
+    const productIds = itemsResult.recordset.map((r: any) => r.PRODUCTO_ID);
+
+    if (productIds.length === 0) {
+      return { products: [], listNames: {}, preciosSinIva: !!compra.PRECIOS_SIN_IVA, impIntGravaIva: !!compra.IMP_INT_GRAVA_IVA };
+    }
+
+    // 3. Get product data with margins
+    const idList = productIds.join(',');
+    const productsResult = await pool.request()
+      .input('preciosSinIva', sql.Bit, compra.PRECIOS_SIN_IVA ? 1 : 0)
+      .query(`
+        SELECT
+          p.PRODUCTO_ID,
+          p.CODIGOPARTICULAR AS CODIGO,
+          p.NOMBRE AS DESCRIPCION,
+          ISNULL(
+            CASE WHEN ISNULL(p.PRECIO_COMPRA_BASE, 0) > 0 THEN p.PRECIO_COMPRA_BASE ELSE p.PRECIO_COMPRA END,
+            0
+          ) AS COSTO,
+          ISNULL(p.IMP_INT, 0) AS IMP_INTERNO,
+          CASE
+            WHEN @preciosSinIva = 1 THEN 0
+            ELSE ISNULL(ti.PORCENTAJE, 0)
+          END AS IVA_ALICUOTA,
+          ISNULL(pm.MARGEN_LISTA_1, 0) AS MARGEN_1,
+          ISNULL(pm.MARGEN_LISTA_2, 0) AS MARGEN_2,
+          ISNULL(pm.MARGEN_LISTA_3, 0) AS MARGEN_3,
+          ISNULL(pm.MARGEN_LISTA_4, 0) AS MARGEN_4,
+          ISNULL(pm.MARGEN_LISTA_5, 0) AS MARGEN_5,
+          p.LISTA_1,
+          p.LISTA_2,
+          p.LISTA_3,
+          p.LISTA_4,
+          p.LISTA_5,
+          CASE WHEN pm.PRODUCTO_ID IS NOT NULL THEN 1 ELSE 0 END AS TIENE_MARGENES_INDIV
+        FROM PRODUCTOS p
+        LEFT JOIN TASAS_IMPUESTOS ti ON p.TASA_IVA_ID = ti.TASA_ID
+        LEFT JOIN PRODUCTO_MARGENES pm ON p.PRODUCTO_ID = pm.PRODUCTO_ID
+        WHERE p.PRODUCTO_ID IN (${idList})
+        ORDER BY p.NOMBRE
+      `);
+
+    // 4. Get list names and global margins
+    const listasResult = await pool.request()
+      .query(`SELECT LISTA_ID, NOMBRE, MARGEN FROM LISTA_PRECIOS WHERE LISTA_ID BETWEEN 1 AND 5 ORDER BY LISTA_ID`);
+    const listNames: Record<number, string> = {};
+    const listMargins: Record<number, number> = {};
+    for (const lista of listasResult.recordset) {
+      listNames[lista.LISTA_ID] = lista.NOMBRE;
+      listMargins[lista.LISTA_ID] = lista.MARGEN || 0;
+    }
+
+    return {
+      products: productsResult.recordset,
+      listNames,
+      listMargins,
+      preciosSinIva: !!compra.PRECIOS_SIN_IVA,
+      impIntGravaIva: !!compra.IMP_INT_GRAVA_IVA,
+    };
+  },
+
+  // ── Save price check updates ──────────────────
+  async savePriceCheck(updates: { PRODUCTO_ID: number; LISTA_1: number; LISTA_2: number; LISTA_3: number; LISTA_4: number; LISTA_5: number }[]) {
+    if (updates.length === 0) return { updated: 0 };
+
+    const pool = await getPool();
+    const tx = pool.transaction();
+    await tx.begin();
+
+    try {
+      let count = 0;
+      for (const item of updates) {
+        // 1. Update list prices on PRODUCTOS
+        await tx.request()
+          .input('pid', sql.Int, item.PRODUCTO_ID)
+          .input('l1', sql.Decimal(18, 4), item.LISTA_1)
+          .input('l2', sql.Decimal(18, 4), item.LISTA_2)
+          .input('l3', sql.Decimal(18, 4), item.LISTA_3)
+          .input('l4', sql.Decimal(18, 4), item.LISTA_4)
+          .input('l5', sql.Decimal(18, 4), item.LISTA_5)
+          .query(`UPDATE PRODUCTOS SET LISTA_1=@l1, LISTA_2=@l2, LISTA_3=@l3, LISTA_4=@l4, LISTA_5=@l5
+                  WHERE PRODUCTO_ID = @pid`);
+
+        // 2. Recalculate and update individual margins in PRODUCTO_MARGENES
+        const prodInfo = await tx.request()
+          .input('pid', sql.Int, item.PRODUCTO_ID)
+          .query(`SELECT
+                    CASE WHEN ISNULL(PRECIO_COMPRA_BASE, 0) > 0 THEN PRECIO_COMPRA_BASE ELSE ISNULL(PRECIO_COMPRA, 0) END AS COSTO,
+                    ISNULL(IMP_INT, 0) AS IMP_INT,
+                    ISNULL(ti.PORCENTAJE, 0) AS IVA_PORCENTAJE
+                  FROM PRODUCTOS p
+                  LEFT JOIN TASAS_IMPUESTOS ti ON p.TASA_IVA_ID = ti.TASA_ID
+                  WHERE p.PRODUCTO_ID = @pid`);
+        const costo = prodInfo.recordset[0]?.COSTO || 0;
+        const impInt = prodInfo.recordset[0]?.IMP_INT || 0;
+        const ivaPct = prodInfo.recordset[0]?.IVA_PORCENTAJE || 0;
+        // Base for margin: cost with IVA + imp.int (IVA only on net cost)
+        const base = r2(costo * (1 + ivaPct / 100) + impInt);
+
+        if (base > 0) {
+          const m1 = r2(((item.LISTA_1 / base) - 1) * 100);
+          const m2 = r2(((item.LISTA_2 / base) - 1) * 100);
+          const m3 = r2(((item.LISTA_3 / base) - 1) * 100);
+          const m4 = r2(((item.LISTA_4 / base) - 1) * 100);
+          const m5 = r2(((item.LISTA_5 / base) - 1) * 100);
+
+          // Upsert PRODUCTO_MARGENES
+          const exists = await tx.request()
+            .input('pid', sql.Int, item.PRODUCTO_ID)
+            .query(`SELECT 1 AS E FROM PRODUCTO_MARGENES WHERE PRODUCTO_ID = @pid`);
+
+          if (exists.recordset.length > 0) {
+            await tx.request()
+              .input('pid', sql.Int, item.PRODUCTO_ID)
+              .input('m1', sql.Decimal(9, 4), m1)
+              .input('m2', sql.Decimal(9, 4), m2)
+              .input('m3', sql.Decimal(9, 4), m3)
+              .input('m4', sql.Decimal(9, 4), m4)
+              .input('m5', sql.Decimal(9, 4), m5)
+              .query(`UPDATE PRODUCTO_MARGENES SET MARGEN_LISTA_1=@m1, MARGEN_LISTA_2=@m2, MARGEN_LISTA_3=@m3, MARGEN_LISTA_4=@m4, MARGEN_LISTA_5=@m5
+                      WHERE PRODUCTO_ID = @pid`);
+          } else {
+            await tx.request()
+              .input('pid', sql.Int, item.PRODUCTO_ID)
+              .input('m1', sql.Decimal(9, 4), m1)
+              .input('m2', sql.Decimal(9, 4), m2)
+              .input('m3', sql.Decimal(9, 4), m3)
+              .input('m4', sql.Decimal(9, 4), m4)
+              .input('m5', sql.Decimal(9, 4), m5)
+              .query(`INSERT INTO PRODUCTO_MARGENES (PRODUCTO_ID, MARGEN_LISTA_1, MARGEN_LISTA_2, MARGEN_LISTA_3, MARGEN_LISTA_4, MARGEN_LISTA_5)
+                      VALUES (@pid, @m1, @m2, @m3, @m4, @m5)`);
+          }
+
+          // Also flag the product as using individual margins
+          await tx.request()
+            .input('pid', sql.Int, item.PRODUCTO_ID)
+            .query(`UPDATE PRODUCTOS SET MARGEN_INDIVIDUAL = 1 WHERE PRODUCTO_ID = @pid`);
+        }
+
+        count++;
+      }
+
+      await tx.commit();
+      return { updated: count };
+    } catch (err) {
+      await tx.rollback();
+      throw err;
+    }
   },
 
   // ── Saldo CTA CTE for a supplier ──────────────

@@ -148,7 +148,7 @@ export function CajaCentralPage() {
       render: (v: number | null) => v ? `#${v}` : '-',
     },
     {
-      title: 'Fecha', dataIndex: 'FECHA', key: 'date', width: 120, align: 'center' as const,
+      title: 'Fecha', dataIndex: 'FECHA', key: 'date', width: 160, align: 'center' as const,
       render: (v: string) => new Date(v).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }),
     },
     { title: 'Movimiento', dataIndex: 'MOVIMIENTO', key: 'mov', ellipsis: true },

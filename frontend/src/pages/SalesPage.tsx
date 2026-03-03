@@ -337,8 +337,38 @@ export function SalesPage() {
     { title: 'Cliente', dataIndex: 'CLIENTE_NOMBRE', key: 'client', ellipsis: true },
     { title: 'Vendedor', dataIndex: 'USUARIO_NOMBRE', key: 'user', width: 120, ellipsis: true },
     {
-      title: 'Tipo', dataIndex: 'TIPO_COMPROBANTE', key: 'type', width: 65, align: 'center' as const,
-      render: (v: string | null) => v ? <Tag>{v.replace('Fa.', '')}</Tag> : '-',
+      title: 'Comprobante', key: 'voucher', width: 210, align: 'center' as const,
+      render: (_: unknown, record: Venta) => {
+        if (record.NUMERO_FISCAL) {
+          const tipo = record.TIPO_COMPROBANTE || '';
+          const pv = record.PUNTO_VENTA || '0000';
+          const nro = record.NUMERO_FISCAL;
+          const tipoLabel = tipo.startsWith('F') ? `Fact.${tipo.slice(1)}` : tipo;
+          return <Text style={{ fontSize: 12.5 }}>{`${tipoLabel} ${pv}-${nro}`}</Text>;
+        }
+        if (utilizaFE) {
+          return (
+            <Popconfirm
+              title="Emitir Factura Electrónica"
+              description="¿Desea emitir el comprobante fiscal para esta venta?"
+              onConfirm={() => handleFacturar(record.VENTA_ID)}
+              okText="Sí, emitir"
+              cancelText="Cancelar"
+              okButtonProps={{ className: 'btn-gold' }}
+            >
+              <Tag
+                color="orange"
+                style={{ cursor: 'pointer', fontWeight: 600 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <FileTextOutlined style={{ marginRight: 4 }} />
+                Sin Emitir
+              </Tag>
+            </Popconfirm>
+          );
+        }
+        return <Text type="secondary" style={{ fontSize: 12 }}>-</Text>;
+      },
     },
     {
       title: 'Total', dataIndex: 'TOTAL', key: 'total', width: 120, align: 'right' as const,

@@ -7,11 +7,13 @@ import {
 import {
   EyeOutlined, PlusOutlined, DeleteOutlined,
   SearchOutlined, MoreOutlined, ReloadOutlined, SwapOutlined,
+  CheckCircleOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchasesApi } from '../services/purchases.api';
 import { NewPurchaseModal } from '../components/purchases/NewPurchaseModal';
+import { PriceCheckModal } from '../components/purchases/PriceCheckModal';
 import { DateFilterPopover, type DatePreset } from '../components/DateFilterPopover';
 import { useTabStore } from '../store/tabStore';
 import { useNavigationStore } from '../store/navigationStore';
@@ -35,6 +37,8 @@ export function PurchasesPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [newPurchaseOpen, setNewPurchaseOpen] = useState(false);
+  const [priceCheckCompraId, setPriceCheckCompraId] = useState<number | null>(null);
+  const [priceCheckOpen, setPriceCheckOpen] = useState(false);
 
   // ── Debounced search ───────────────────────────
   const [searchTimer, setSearchTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
@@ -90,15 +94,23 @@ export function PurchasesPage() {
     setDrawerOpen(true);
   };
 
-  const handlePurchaseCreated = () => {
+  const handlePurchaseCreated = (result?: { compraId: number; actualizoCostos: boolean }) => {
     setNewPurchaseOpen(false);
     refetch();
+    if (result?.actualizoCostos) {
+      setPriceCheckCompraId(result.compraId);
+      setPriceCheckOpen(true);
+    }
   };
 
   // ── Action menu for each row ───────────────────
   const getRowActions = (record: Compra) => {
     const items: any[] = [
       { key: 'detail', label: 'Ver detalle', icon: <EyeOutlined />, onClick: () => openDetail(record) },
+      {
+        key: 'price-check', label: 'Chequeo de precios', icon: <CheckCircleOutlined />,
+        onClick: () => { setPriceCheckCompraId(record.COMPRA_ID); setPriceCheckOpen(true); },
+      },
     ];
 
     items.push(
@@ -134,13 +146,14 @@ export function PurchasesPage() {
     },
     { title: 'Proveedor', dataIndex: 'PROVEEDOR_NOMBRE', key: 'provider', ellipsis: true },
     {
-      title: 'Comprobante', key: 'voucher', width: 180, align: 'center' as const,
+      title: 'Comprobante', key: 'voucher', width: 210, align: 'center' as const,
       render: (_: unknown, record: Compra) => {
         const tipo = record.TIPO_COMPROBANTE || '';
         const pv = record.PTO_VTA || '0000';
         const nro = record.NRO_COMPROBANTE || '00000000';
         if (!tipo && pv === '0000' && nro === '00000000') return '-';
-        return `${tipo} ${pv}-${nro}`;
+        const tipoLabel = tipo.startsWith('F') ? `Fact.${tipo.slice(1)}` : tipo;
+        return `${tipoLabel} ${pv}-${nro}`;
       },
     },
     {
@@ -273,7 +286,7 @@ export function PurchasesPage() {
               <Descriptions.Item label="Proveedor">{detail.PROVEEDOR_NOMBRE}</Descriptions.Item>
               <Descriptions.Item label="Comprobante">
                 {detail.TIPO_COMPROBANTE
-                  ? `${detail.TIPO_COMPROBANTE} ${detail.PTO_VTA || '0000'}-${detail.NRO_COMPROBANTE || '00000000'}`
+                  ? `${detail.TIPO_COMPROBANTE.startsWith('F') ? `Fact.${detail.TIPO_COMPROBANTE.slice(1)}` : detail.TIPO_COMPROBANTE} ${detail.PTO_VTA || '0000'}-${detail.NRO_COMPROBANTE || '00000000'}`
                   : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="Estado">
@@ -387,6 +400,13 @@ export function PurchasesPage() {
         open={newPurchaseOpen}
         onClose={() => setNewPurchaseOpen(false)}
         onSuccess={handlePurchaseCreated}
+      />
+
+      {/* ── Price Check Modal ─────────────────── */}
+      <PriceCheckModal
+        open={priceCheckOpen}
+        compraId={priceCheckCompraId}
+        onClose={() => { setPriceCheckOpen(false); setPriceCheckCompraId(null); }}
       />
     </div>
   );

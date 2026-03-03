@@ -1,20 +1,26 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Modal, Input, Select, Button, InputNumber, Table, Space, Typography,
-  Divider, message, AutoComplete, Tag, Checkbox,
+  Divider, message, AutoComplete, Tag, Checkbox, Segmented,
 } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, ShoppingCartOutlined,
   MinusOutlined, BarcodeOutlined, ShopOutlined,
   ArrowLeftOutlined, CheckCircleOutlined,
   DollarOutlined, CreditCardOutlined, WalletOutlined,
+  BankOutlined, InboxOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { purchasesApi } from '../../services/purchases.api';
+import { cajaApi } from '../../services/caja.api';
 import { fmtMoney } from '../../utils/format';
 import type { CompraItemInput, CompraInput, ProductoSearchCompra } from '../../types';
 
 const { Title, Text } = Typography;
+
+function r2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
 
 type ModalStep = 'cart' | 'pago';
 type MetodoPago = 'efectivo' | 'digital' | 'mixto';
@@ -32,7 +38,7 @@ interface CartItem extends CompraItemInput {
 interface Props {
   open: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (result?: { compraId: number; actualizoCostos: boolean }) => void;
 }
 
 export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
@@ -49,6 +55,8 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const [actualizarPrecios, setActualizarPrecios] = useState(true);
   const [percepcionIva, setPercepcionIva] = useState(0);
   const [percepcionIibb, setPercepcionIibb] = useState(0);
+  const [tipoCarga, setTipoCarga] = useState<'simple' | 'detallada'>('simple');
+  const [impIntGravaIva, setImpIntGravaIva] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [searchOptions, setSearchOptions] = useState<{ value: string; label: React.ReactNode; product: ProductoSearchCompra }[]>([]);
   const searchRef = useRef<any>(null);
@@ -58,6 +66,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const [metodoPago, setMetodoPago] = useState<MetodoPago>('efectivo');
   const [pagoEfectivo, setPagoEfectivo] = useState(0);
   const [pagoDigital, setPagoDigital] = useState(0);
+  const [destinoPago, setDestinoPago] = useState<'CAJA_CENTRAL' | 'CAJA'>('CAJA_CENTRAL');
   const efectivoRef = useRef<any>(null);
 
   // Fetch proveedores
@@ -74,6 +83,14 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     queryFn: () => purchasesApi.getDepositos(),
     enabled: open,
     staleTime: 60000,
+  });
+
+  // Check if user has an open cash register
+  const { data: miCaja } = useQuery({
+    queryKey: ['mi-caja'],
+    queryFn: () => cajaApi.getMiCaja(),
+    enabled: open,
+    staleTime: 30000,
   });
 
   // Set default deposit
@@ -117,64 +134,115 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     }
   }, []);
 
+  const isDetallada = tipoCarga === 'detallada';
+
   const handleSelectProduct = useCallback((_value: string, option: any) => {
     const p = option.product as ProductoSearchCompra;
     const existingIndex = cart.findIndex(item => item.PRODUCTO_ID === p.PRODUCTO_ID && item.DEPOSITO_ID === depositoId);
 
-    if (existingIndex >= 0) {
-      const updated = [...cart];
-      const existing = updated[existingIndex]!;
-      const newQty = existing.CANTIDAD + 1;
-      const unitPriceRaw = existing.PRECIO_FINAL / newQty;
-      const ivaAliE = existing.IVA_ALICUOTA || 0;
-      const extractIva = tipoComprobante === 'FA' && ivaIncluido;
-      updated[existingIndex] = {
-        ...existing,
-        CANTIDAD: newQty,
-        PRECIO_COMPRA: extractIva ? unitPriceRaw / (1 + ivaAliE) : unitPriceRaw,
-      };
-      setCart(updated);
+    if (isDetallada) {
+      // ── Detailed mode: base price + bonif + imp int ──
+      if (existingIndex >= 0) {
+        const updated = [...cart];
+        const existing = updated[existingIndex]!;
+        const newQty = existing.CANTIDAD + 1;
+        const bonif = existing.BONIFICACION || 0;
+        const netoUnit = existing.PRECIO_COMPRA * (1 - bonif / 100);
+        updated[existingIndex] = {
+          ...existing,
+          CANTIDAD: newQty,
+          PRECIO_FINAL: r2(netoUnit * newQty),
+        };
+        setCart(updated);
+      } else {
+        const newItem: CartItem = {
+          key: `${p.PRODUCTO_ID}-${Date.now()}`,
+          PRODUCTO_ID: p.PRODUCTO_ID,
+          PRECIO_COMPRA: p.PRECIO_COMPRA, // base price (PRECIO_COMPRA_BASE from search)
+          CANTIDAD: 1,
+          DEPOSITO_ID: depositoId || undefined,
+          BONIFICACION: 0,
+          IMP_INTERNOS: p.IMP_INT || 0,
+          IVA_ALICUOTA: p.IVA_PORCENTAJE / 100,
+          TASA_IVA_ID: p.TASA_IVA_ID,
+          NOMBRE: p.NOMBRE,
+          CODIGO: p.CODIGOPARTICULAR,
+          STOCK: p.STOCK,
+          UNIDAD: p.UNIDAD_ABREVIACION || 'u',
+          IVA_PORCENTAJE: p.IVA_PORCENTAJE,
+          PRECIO_FINAL: p.PRECIO_COMPRA, // net = base * 1 qty, no discount
+        };
+        setCart(prev => [...prev, newItem]);
+      }
     } else {
-      const ivaAliN = p.IVA_PORCENTAJE / 100;
-      const extractIva = tipoComprobante === 'FA' && ivaIncluido;
-      const newItem: CartItem = {
-        key: `${p.PRODUCTO_ID}-${Date.now()}`,
-        PRODUCTO_ID: p.PRODUCTO_ID,
-        PRECIO_COMPRA: extractIva ? p.PRECIO_COMPRA / (1 + ivaAliN) : p.PRECIO_COMPRA,
-        CANTIDAD: 1,
-        DEPOSITO_ID: depositoId || undefined,
-        BONIFICACION: 0,
-        IMP_INTERNOS: 0,
-        IVA_ALICUOTA: p.IVA_PORCENTAJE / 100,
-        TASA_IVA_ID: p.TASA_IVA_ID,
-        NOMBRE: p.NOMBRE,
-        CODIGO: p.CODIGOPARTICULAR,
-        STOCK: p.STOCK,
-        UNIDAD: p.UNIDAD_ABREVIACION || 'u',
-        IVA_PORCENTAJE: p.IVA_PORCENTAJE,
-        PRECIO_FINAL: p.PRECIO_COMPRA,
-      };
-      setCart(prev => [...prev, newItem]);
+      // ── Simple mode (current behavior): price final / qty ──
+      if (existingIndex >= 0) {
+        const updated = [...cart];
+        const existing = updated[existingIndex]!;
+        const newQty = existing.CANTIDAD + 1;
+        const unitPriceRaw = existing.PRECIO_FINAL / newQty;
+        const ivaAliE = existing.IVA_ALICUOTA || 0;
+        const extractIva = tipoComprobante === 'FA' && ivaIncluido;
+        updated[existingIndex] = {
+          ...existing,
+          CANTIDAD: newQty,
+          PRECIO_COMPRA: extractIva ? unitPriceRaw / (1 + ivaAliE) : unitPriceRaw,
+        };
+        setCart(updated);
+      } else {
+        const ivaAliN = p.IVA_PORCENTAJE / 100;
+        const extractIva = tipoComprobante === 'FA' && ivaIncluido;
+        const newItem: CartItem = {
+          key: `${p.PRODUCTO_ID}-${Date.now()}`,
+          PRODUCTO_ID: p.PRODUCTO_ID,
+          PRECIO_COMPRA: extractIva ? p.PRECIO_COMPRA / (1 + ivaAliN) : p.PRECIO_COMPRA,
+          CANTIDAD: 1,
+          DEPOSITO_ID: depositoId || undefined,
+          BONIFICACION: 0,
+          IMP_INTERNOS: 0,
+          IVA_ALICUOTA: p.IVA_PORCENTAJE / 100,
+          TASA_IVA_ID: p.TASA_IVA_ID,
+          NOMBRE: p.NOMBRE,
+          CODIGO: p.CODIGOPARTICULAR,
+          STOCK: p.STOCK,
+          UNIDAD: p.UNIDAD_ABREVIACION || 'u',
+          IVA_PORCENTAJE: p.IVA_PORCENTAJE,
+          PRECIO_FINAL: p.PRECIO_COMPRA,
+        };
+        setCart(prev => [...prev, newItem]);
+      }
     }
 
     setSearchText('');
     setSearchOptions([]);
     setTimeout(() => searchRef.current?.focus(), 50);
-  }, [cart, depositoId, tipoComprobante, ivaIncluido]);
+  }, [cart, depositoId, tipoComprobante, ivaIncluido, isDetallada]);
 
   // ── Update cart item ───────────────────────────
   const updateCartItem = (key: string, field: keyof CartItem, value: any) => {
     setCart(prev => prev.map(item => {
       if (item.key !== key) return item;
       const updated = { ...item, [field]: value };
-      // Recalculate net unit price when precio final or cantidad changes
-      if (field === 'PRECIO_FINAL' || field === 'CANTIDAD') {
-        const pf = field === 'PRECIO_FINAL' ? (value as number) : item.PRECIO_FINAL;
-        const qty = field === 'CANTIDAD' ? (value as number) : item.CANTIDAD;
-        const unitPrice = qty > 0 ? pf / qty : 0;
-        const extractIva = tipoComprobante === 'FA' && ivaIncluido;
-        const ivaAli = updated.IVA_ALICUOTA || 0;
-        updated.PRECIO_COMPRA = extractIva ? unitPrice / (1 + ivaAli) : unitPrice;
+
+      if (isDetallada) {
+        // Detailed: recalculate net total when base price, qty, or bonif changes
+        if (field === 'PRECIO_COMPRA' || field === 'CANTIDAD' || field === 'BONIFICACION') {
+          const pc = field === 'PRECIO_COMPRA' ? (value as number) : item.PRECIO_COMPRA;
+          const qty = field === 'CANTIDAD' ? (value as number) : item.CANTIDAD;
+          const bonif = field === 'BONIFICACION' ? (value as number) : item.BONIFICACION;
+          const netoUnit = pc * (1 - (bonif || 0) / 100);
+          updated.PRECIO_FINAL = r2(netoUnit * qty);
+        }
+      } else {
+        // Simple: recalculate net unit price when precio final or cantidad changes
+        if (field === 'PRECIO_FINAL' || field === 'CANTIDAD') {
+          const pf = field === 'PRECIO_FINAL' ? (value as number) : item.PRECIO_FINAL;
+          const qty = field === 'CANTIDAD' ? (value as number) : item.CANTIDAD;
+          const unitPrice = qty > 0 ? pf / qty : 0;
+          const extractIva = tipoComprobante === 'FA' && ivaIncluido;
+          const ivaAli = updated.IVA_ALICUOTA || 0;
+          updated.PRECIO_COMPRA = extractIva ? unitPrice / (1 + ivaAli) : unitPrice;
+        }
       }
       return updated;
     }));
@@ -204,12 +272,35 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const subtotal = useMemo(() =>
     cart.reduce((s, i) => s + i.PRECIO_FINAL, 0), [cart]);
 
+  // Detailed mode memos
+  const ivaCalculado = useMemo(() => {
+    if (!isDetallada || !isFacturaA) return 0;
+    return cart.reduce((s, item) => {
+      const iva = (item as any).IVA_PORCENTAJE ?? 21;
+      const impInt = (item as any).IMP_INTERNOS ?? 0;
+      const netoUnit = item.PRECIO_COMPRA;
+      const bonifPct = (item as any).BONIFICACION ?? 0;
+      const netoConBonif = netoUnit * (1 - bonifPct / 100);
+      const baseIva = impIntGravaIva ? (netoConBonif - impInt) : netoConBonif;
+      return s + baseIva * item.CANTIDAD * (iva / 100);
+    }, 0);
+  }, [cart, isDetallada, isFacturaA, impIntGravaIva]);
+
+  const impInternoCalculado = useMemo(() => {
+    if (!isDetallada) return 0;
+    return cart.reduce((s, item) => s + ((item as any).IMP_INTERNOS ?? 0) * item.CANTIDAD, 0);
+  }, [cart, isDetallada]);
+
   const total = useMemo(() => {
     let t = subtotal;
-    if (isFacturaA && !ivaIncluido) t += ivaManual;
+    if (isDetallada) {
+      t += ivaCalculado + impInternoCalculado;
+    } else {
+      if (isFacturaA && !ivaIncluido) t += ivaManual;
+    }
     t += percepcionIva + percepcionIibb;
     return Math.round(t * 100) / 100;
-  }, [subtotal, isFacturaA, ivaIncluido, ivaManual, percepcionIva, percepcionIibb]);
+  }, [subtotal, isDetallada, isFacturaA, ivaIncluido, ivaManual, ivaCalculado, impInternoCalculado, percepcionIva, percepcionIibb]);
 
   const vuelto = useMemo(() => {
     if (esCtaCorriente) return 0;
@@ -232,12 +323,15 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     setActualizarPrecios(true);
     setPercepcionIva(0);
     setPercepcionIibb(0);
+    setTipoCarga('simple');
+    setImpIntGravaIva(false);
     setSearchText('');
     setSearchOptions([]);
     setStep('cart');
     setMetodoPago('efectivo');
     setPagoEfectivo(0);
     setPagoDigital(0);
+    setDestinoPago('CAJA_CENTRAL');
     onClose();
   };
 
@@ -246,8 +340,9 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     mutationFn: (data: CompraInput) => purchasesApi.create(data),
     onSuccess: (result) => {
       message.success(`Compra #${result.COMPRA_ID} registrada — Total: ${fmtMoney(result.TOTAL)}`);
+      const didUpdateCosts = actualizarCostos;
       handleClose();
-      onSuccess();
+      onSuccess({ compraId: result.COMPRA_ID, actualizoCostos: didUpdateCosts });
     },
     onError: (err: any) => {
       message.error(err.response?.data?.error || 'Error al registrar compra');
@@ -283,19 +378,21 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       MONTO_DIGITAL: montoDigital,
       VUELTO: vuelto,
       COBRADA: !esCtaCorriente,
-      PRECIOS_SIN_IVA: isFacturaA ? !ivaIncluido : true,
+      PRECIOS_SIN_IVA: isDetallada ? !isFacturaA : (isFacturaA ? !ivaIncluido : true),
+      IMP_INT_GRAVA_IVA: isDetallada ? impIntGravaIva : false,
       PERCEPCION_IVA: percepcionIva,
       PERCEPCION_IIBB: percepcionIibb,
-      IVA_TOTAL: isFacturaA ? ivaManual : 0,
+      IVA_TOTAL: isDetallada && isFacturaA ? r2(ivaCalculado) : (isFacturaA ? ivaManual : 0),
       ACTUALIZAR_COSTOS: actualizarCostos,
       ACTUALIZAR_PRECIOS: actualizarPrecios,
+      DESTINO_PAGO: esCtaCorriente ? undefined : destinoPago,
       items: cart.map(item => ({
         PRODUCTO_ID: item.PRODUCTO_ID,
         PRECIO_COMPRA: item.PRECIO_COMPRA,
         CANTIDAD: item.CANTIDAD,
         DEPOSITO_ID: item.DEPOSITO_ID,
-        BONIFICACION: item.BONIFICACION,
-        IMP_INTERNOS: item.IMP_INTERNOS,
+        BONIFICACION: isDetallada ? item.BONIFICACION : 0,
+        IMP_INTERNOS: isDetallada ? item.IMP_INTERNOS : 0,
         IVA_ALICUOTA: isFacturaA ? item.IVA_ALICUOTA : 0,
         TASA_IVA_ID: isFacturaA ? item.TASA_IVA_ID : null,
       })),
@@ -328,7 +425,95 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   };
 
   // ── Item columns ───────────────────────────────
-  const cartColumns = [
+  const cartColumns = isDetallada ? [
+    // ── DETAILED MODE COLUMNS ──
+    {
+      title: 'Código', dataIndex: 'CODIGO', width: 80, align: 'center' as const,
+      render: (v: string) => <Text type="secondary" style={{ fontSize: 12 }}>{v}</Text>,
+    },
+    { title: 'Producto', dataIndex: 'NOMBRE', ellipsis: true },
+    {
+      title: 'P. Compra', width: 110, align: 'center' as const,
+      render: (_: unknown, record: CartItem) => (
+        <InputNumber
+          size="small"
+          value={record.PRECIO_COMPRA}
+          min={0}
+          step={0.01}
+          onChange={val => updateCartItem(record.key, 'PRECIO_COMPRA', val || 0)}
+          style={{ width: 95 }}
+          controls={false}
+          prefix="$"
+        />
+      ),
+    },
+    {
+      title: 'Cant.', dataIndex: 'CANTIDAD', width: 90, align: 'center' as const,
+      render: (_: number, record: CartItem) => (
+        <InputNumber
+          size="small"
+          value={record.CANTIDAD}
+          min={0.01}
+          step={1}
+          onChange={val => updateCartItem(record.key, 'CANTIDAD', val || 1)}
+          style={{ width: 70 }}
+          controls={false}
+        />
+      ),
+    },
+    {
+      title: 'Bonif.%', width: 75, align: 'center' as const,
+      render: (_: unknown, record: CartItem) => (
+        <InputNumber
+          size="small"
+          value={record.BONIFICACION}
+          min={0}
+          max={100}
+          step={1}
+          onChange={val => updateCartItem(record.key, 'BONIFICACION', val || 0)}
+          style={{ width: 58 }}
+          controls={false}
+        />
+      ),
+    },
+    {
+      title: 'Imp.Int.', width: 90, align: 'center' as const,
+      render: (_: unknown, record: CartItem) => (
+        <InputNumber
+          size="small"
+          value={record.IMP_INTERNOS}
+          min={0}
+          step={0.01}
+          onChange={val => updateCartItem(record.key, 'IMP_INTERNOS', val || 0)}
+          style={{ width: 75 }}
+          controls={false}
+          prefix="$"
+        />
+      ),
+    },
+    ...(isFacturaA ? [{
+      title: 'IVA %', width: 60, align: 'center' as const,
+      render: (_: unknown, record: CartItem) => (
+        <Text type="secondary">{((record.IVA_ALICUOTA || 0) * 100).toFixed(0)}%</Text>
+      ),
+    }] : []),
+    {
+      title: 'Total s/Imp', width: 100, align: 'right' as const,
+      render: (_: unknown, record: CartItem) => (
+        <Text strong>{fmtMoney(record.PRECIO_FINAL)}</Text>
+      ),
+    },
+    {
+      title: '', width: 40, align: 'center' as const,
+      render: (_: unknown, record: CartItem) => (
+        <DeleteOutlined
+          style={{ cursor: 'pointer', color: '#ff4d4f' }}
+          onClick={() => removeCartItem(record.key)}
+        />
+      ),
+    },
+  ] : [
+    // ── SIMPLE MODE COLUMNS (current) ──
     {
       title: 'Código', dataIndex: 'CODIGO', width: 80, align: 'center' as const,
       render: (v: string) => <Text type="secondary" style={{ fontSize: 12 }}>{v}</Text>,
@@ -436,7 +621,13 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
           value={tipoComprobante}
           onChange={val => {
             setTipoComprobante(val);
-            if (val !== 'FA') { setIvaManual(0); setIvaIncluido(true); }
+            if (val === 'FA') {
+              setTipoCarga('detallada');
+              setIvaIncluido(true);
+            } else {
+              setIvaManual(0);
+              setIvaIncluido(true);
+            }
           }}
           style={{ width: 120 }}
           options={[
@@ -469,7 +660,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
           maxLength={8}
         />
         <Divider type="vertical" />
-        {isFacturaA && (
+        {isFacturaA && !isDetallada && (
           <Checkbox checked={ivaIncluido} onChange={e => setIvaIncluido(e.target.checked)}>
             IVA incluido
           </Checkbox>
@@ -477,6 +668,34 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
         <Checkbox checked={esCtaCorriente} onChange={e => setEsCtaCorriente(e.target.checked)}>
           Cta. Corriente
         </Checkbox>
+      </div>
+
+      {/* ── Tipo de carga toggle ── */}
+      <div style={{ display: 'flex', gap: 12, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <Text type="secondary" style={{ fontSize: 13 }}>Tipo de carga:</Text>
+        <Segmented
+          value={tipoCarga}
+          onChange={val => {
+            const v = val as 'simple' | 'detallada';
+            if (v === 'simple' && isFacturaA) {
+              message.info('Factura A requiere carga detallada');
+              return;
+            }
+            setTipoCarga(v);
+            // When switching, clear cart to avoid inconsistencies
+            if (cart.length > 0) setCart([]);
+          }}
+          options={[
+            { value: 'simple', label: 'Simple' },
+            { value: 'detallada', label: 'Detallada' },
+          ]}
+          size="small"
+        />
+        {isDetallada && (
+          <Checkbox checked={impIntGravaIva} onChange={e => setImpIntGravaIva(e.target.checked)}>
+            Imp. Int. grava IVA
+          </Checkbox>
+        )}
       </div>
 
       {/* ── Product search ── */}
@@ -505,7 +724,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
 
       {/* ── Percepciones & Cost Update ── */}
       <div style={{ display: 'flex', gap: 16, marginTop: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-        {isFacturaA && (
+        {isFacturaA && !isDetallada && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <Text type="secondary">IVA:</Text>
             <InputNumber
@@ -557,7 +776,15 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
         <div>
           <Text type="secondary" style={{ display: 'block' }}>Subtotal: {fmtMoney(subtotal)}</Text>
-          {isFacturaA && ivaManual > 0 && <Text type="secondary" style={{ display: 'block' }}>IVA: {fmtMoney(ivaManual)}</Text>}
+          {isDetallada && isFacturaA && ivaCalculado > 0 && (
+            <Text type="secondary" style={{ display: 'block' }}>IVA: {fmtMoney(r2(ivaCalculado))}</Text>
+          )}
+          {!isDetallada && isFacturaA && ivaManual > 0 && (
+            <Text type="secondary" style={{ display: 'block' }}>IVA: {fmtMoney(ivaManual)}</Text>
+          )}
+          {isDetallada && impInternoCalculado > 0 && (
+            <Text type="secondary" style={{ display: 'block' }}>Imp. Int.: {fmtMoney(r2(impInternoCalculado))}</Text>
+          )}
           {percepcionIva > 0 && <Text type="secondary" style={{ display: 'block' }}>Perc. IVA: {fmtMoney(percepcionIva)}</Text>}
           {percepcionIibb > 0 && <Text type="secondary" style={{ display: 'block' }}>Perc. IIBB: {fmtMoney(percepcionIibb)}</Text>}
         </div>
@@ -613,6 +840,40 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
               {m === 'efectivo' ? 'Efectivo' : m === 'digital' ? 'Digital' : 'Mixto'}
             </Button>
           ))}
+        </div>
+
+        {/* Payment destination selector */}
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>Origen del pago</Text>
+          <Segmented
+            value={destinoPago}
+            onChange={val => setDestinoPago(val as 'CAJA_CENTRAL' | 'CAJA')}
+            options={[
+              {
+                value: 'CAJA_CENTRAL',
+                label: (
+                  <Space>
+                    <BankOutlined />
+                    <span>Caja Central</span>
+                  </Space>
+                ),
+              },
+              ...(miCaja ? [{
+                value: 'CAJA',
+                label: (
+                  <Space>
+                    <InboxOutlined />
+                    <span>Mi Caja</span>
+                  </Space>
+                ),
+              }] : []),
+            ]}
+          />
+          {!miCaja && (
+            <div style={{ marginTop: 4 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>No tenés una caja abierta — el egreso se registra en Caja Central</Text>
+            </div>
+          )}
         </div>
 
         {/* Payment fields */}
@@ -671,7 +932,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     <Modal
       open={open}
       onCancel={handleClose}
-      width={step === 'cart' ? 1050 : 500}
+      width={step === 'cart' ? (isDetallada ? 1150 : 1050) : 500}
       centered
       destroyOnClose
       title={

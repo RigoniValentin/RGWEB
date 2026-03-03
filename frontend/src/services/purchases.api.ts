@@ -4,6 +4,43 @@ import type {
   PaginatedResponse, ProductoSearchCompra, ProveedorCompra, Deposito,
 } from '../types';
 
+export interface PriceCheckProduct {
+  PRODUCTO_ID: number;
+  CODIGO: string;
+  DESCRIPCION: string;
+  COSTO: number;
+  IMP_INTERNO: number;
+  IVA_ALICUOTA: number;
+  MARGEN_1: number;
+  MARGEN_2: number;
+  MARGEN_3: number;
+  MARGEN_4: number;
+  MARGEN_5: number;
+  LISTA_1: number;
+  LISTA_2: number;
+  LISTA_3: number;
+  LISTA_4: number;
+  LISTA_5: number;
+  TIENE_MARGENES_INDIV: boolean | number;
+}
+
+export interface PriceCheckData {
+  products: PriceCheckProduct[];
+  listNames: Record<number, string>;
+  listMargins: Record<number, number>;
+  preciosSinIva: boolean;
+  impIntGravaIva: boolean;
+}
+
+export interface PriceCheckUpdate {
+  PRODUCTO_ID: number;
+  LISTA_1: number;
+  LISTA_2: number;
+  LISTA_3: number;
+  LISTA_4: number;
+  LISTA_5: number;
+}
+
 export const purchasesApi = {
   getAll: (params?: Record<string, any>) =>
     api.get<PaginatedResponse<Compra>>('/purchases', { params }).then(r => r.data),
@@ -31,4 +68,10 @@ export const purchasesApi = {
 
   getSaldoCtaCteP: (proveedorId: number) =>
     api.get<{ saldo: number; ctaCorrienteId: number | null }>(`/purchases/saldo-cta-cte/${proveedorId}`).then(r => r.data),
+
+  getPriceCheckData: (compraId: number) =>
+    api.get<PriceCheckData>(`/purchases/price-check/${compraId}`).then(r => r.data),
+
+  savePriceCheck: (updates: PriceCheckUpdate[]) =>
+    api.post<{ updated: number }>('/purchases/price-check', { updates }).then(r => r.data),
 };

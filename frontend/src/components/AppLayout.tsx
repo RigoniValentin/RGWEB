@@ -56,6 +56,7 @@ import { DepositsPage } from '../pages/DepositsPage';
 import { CategoriesPage } from '../pages/CategoriesPage';
 import { BrandsPage } from '../pages/BrandsPage';
 import { CtaCorrientePage } from '../pages/CtaCorrientePage';
+import { CtaCorrienteProvPage } from '../pages/CtaCorrienteProvPage';
 import { PurchasesPage } from '../pages/PurchasesPage';
 
 const { Header, Sider, Content } = Layout;
@@ -80,7 +81,8 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/deposits':       { label: 'Depósitos',    icon: <InboxOutlined />,        component: DepositsPage,     closable: true },
   '/categories':     { label: 'Categorías',   icon: <TagsOutlined />,         component: CategoriesPage,   closable: true },
   '/brands':         { label: 'Marcas',        icon: <TagOutlined />,          component: BrandsPage,       closable: true },
-  '/cta-corriente':  { label: 'Cta. Corriente', icon: <WalletOutlined />,       component: CtaCorrientePage, closable: true },
+  '/cta-corriente':  { label: 'Cta. Cte. Cli. ', icon: <WalletOutlined />,       component: CtaCorrientePage, closable: true },
+  '/cta-corriente-prov': { label: 'Cta. Cte. Prov.', icon: <ShopOutlined />,     component: CtaCorrienteProvPage, closable: true },
   '/purchases':      { label: 'Compras',       icon: <ShoppingCartOutlined />, component: PurchasesPage,    closable: true },
 };
 
