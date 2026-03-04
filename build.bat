@@ -1,24 +1,25 @@
 @echo off
-REM ═══════════════════════════════════════════════════
-REM   Río Gestión WEB — Build & Package Script
+REM ===================================================
+REM   Rio Gestion WEB - Build & Package Script
 REM   Compiles frontend + backend into a distributable
-REM ═══════════════════════════════════════════════════
+REM ===================================================
 setlocal enabledelayedexpansion
+chcp 65001 > nul
 
 set ROOT=%~dp0
 set FRONTEND=%ROOT%frontend
 set BACKEND=%ROOT%backend
-set INSTALLER_DIR=%ROOT%installer
+set INSTALLER_DIR=%ROOT%Rio Gestion WEB
 set OUTPUT_EXE=%INSTALLER_DIR%\RGWeb.exe
 set PUBLIC_DIR=%INSTALLER_DIR%\public
 
 echo.
-echo ══════════════════════════════════════════════════
-echo   Rio Gestion WEB — Build ^& Package
-echo ══════════════════════════════════════════════════
+echo   ====================================================
+echo     Rio Gestion WEB - Build ^& Package
+echo   ====================================================
 echo.
 
-REM ── Step 1: Clean previous build ────────────────
+REM -- Step 1: Clean previous build --------------------
 echo [1/6] Cleaning previous builds...
 if exist "%INSTALLER_DIR%" rmdir /s /q "%INSTALLER_DIR%"
 if exist "%BACKEND%\dist" rmdir /s /q "%BACKEND%\dist"
@@ -27,7 +28,7 @@ mkdir "%INSTALLER_DIR%"
 echo       Done.
 echo.
 
-REM ── Step 2: Build Frontend ──────────────────────
+REM -- Step 2: Build Frontend --------------------------
 echo [2/6] Building frontend (Vite)...
 cd /d "%FRONTEND%"
 call npm run build
@@ -39,13 +40,13 @@ if errorlevel 1 (
 echo       Done.
 echo.
 
-REM ── Step 3: Copy frontend dist → installer/public
-echo [3/6] Copying frontend to installer/public...
+REM -- Step 3: Copy frontend dist ----------------------
+echo [3/6] Copying frontend to public...
 xcopy /s /e /i /q "%FRONTEND%\dist" "%PUBLIC_DIR%" > nul
 echo       Done.
 echo.
 
-REM ── Step 4: Build Backend (TypeScript → JS) ────
+REM -- Step 4: Build Backend (TypeScript) --------------
 echo [4/6] Compiling backend (TypeScript)...
 cd /d "%BACKEND%"
 call npm run build
@@ -57,13 +58,14 @@ if errorlevel 1 (
 echo       Done.
 echo.
 
-REM ── Step 5: Copy utility scripts ────────────────
+REM -- Step 5: Copy utility scripts --------------------
 echo [5/6] Copying utility scripts...
 copy /y "%ROOT%enable-tcp-admin.ps1" "%INSTALLER_DIR%\enable-tcp-admin.ps1" > nul
+copy /y "%BACKEND%\RGWeb-hidden.vbs" "%INSTALLER_DIR%\RGWeb-hidden.vbs" > nul
 echo       Done.
 echo.
 
-REM ── Step 6: Package with pkg ────────────────────
+REM -- Step 6: Package with pkg ------------------------
 echo [6/6] Packaging into executable (pkg)...
 call npx pkg dist/index.js --targets node18-win-x64 --output "%OUTPUT_EXE%" --compress GZip --icon "%ROOT%frontend\src\assets\logos\RioGestionWhite.ico"
 if errorlevel 1 (
@@ -75,22 +77,23 @@ if errorlevel 1 (
 echo       Done.
 echo.
 
-REM ── Step 6: Info ────────────────────────────────
+REM -- Build complete ----------------------------------
 echo.
-echo ══════════════════════════════════════════════════
-echo   BUILD COMPLETE!
-echo ══════════════════════════════════════════════════
+echo   ====================================================
+echo     BUILD COMPLETE
+echo   ====================================================
 echo.
-echo   Output directory: %INSTALLER_DIR%
+echo   Output: %INSTALLER_DIR%
 echo.
 echo   Contents:
-echo     RGWeb.exe              — Server executable
-echo     public/                — Frontend files
-echo     enable-tcp-admin.ps1   — Habilitar TCP en SQL Server
+echo     RGWeb.exe            - Server executable
+echo     RGWeb-hidden.vbs     - Launcher sin ventana de consola
+echo     public/              - Frontend files
+echo     enable-tcp-admin.ps1 - Habilitar TCP en SQL Server
 echo.
-echo   To deploy, copy the installer/ folder to the
-echo   client PC and place appdata.ini next to
-echo   RGWeb.exe, then run it. No .env needed.
+echo   Para desplegar, copiar la carpeta "Rio Gestion WEB"
+echo   a la PC del cliente, colocar appdata.ini junto a
+echo   RGWeb.exe y ejecutarlo.
 echo.
-echo ══════════════════════════════════════════════════
+echo   ====================================================
 pause

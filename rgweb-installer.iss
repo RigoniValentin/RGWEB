@@ -2,11 +2,11 @@
 ;   Río Gestión WEB — Inno Setup Installer Script
 ; ═══════════════════════════════════════════════════════════
 ; Requirements:
-;   1. Run build.bat first to generate installer/ folder
+;   1. Run build.bat first to generate "Rio Gestion WEB" folder
 ;   2. Compile this .iss with Inno Setup Compiler
 ;      (https://jrsoftware.org/isinfo.php)
 ;
-; Structure expected in installer/:
+; Structure expected in Rio Gestion WEB/:
 ;   RGWeb.exe
 ;   RGWeb-hidden.vbs
 ;   public/
@@ -26,7 +26,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 DefaultDirName={autopf}\RioGestionWEB
 DefaultGroupName={#MyAppName}
-OutputDir=installer\output
+OutputDir=Rio Gestion WEB\output
 OutputBaseFilename=RGWeb_Setup_{#MyAppVersion}
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -50,16 +50,16 @@ Name: "enabletcp"; Description: "Habilitar TCP/IP en SQL Server (necesario si us
 
 [Files]
 ; Main executable
-Source: "installer\RGWeb.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Rio Gestion WEB\RGWeb.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Hidden launcher (runs without console window)
-Source: "installer\RGWeb-hidden.vbs"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Rio Gestion WEB\RGWeb-hidden.vbs"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Frontend files
-Source: "installer\public\*"; DestDir: "{app}\public"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "Rio Gestion WEB\public\*"; DestDir: "{app}\public"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; TCP enabler script
-Source: "installer\enable-tcp-admin.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Rio Gestion WEB\enable-tcp-admin.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "wscript.exe"; Parameters: """{app}\RGWeb-hidden.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"

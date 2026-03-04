@@ -11,6 +11,7 @@
 import fs from 'fs';
 import crypto from 'crypto';
 import { appdataPath } from './paths.js';
+import readline from 'readline';
 
 // ── Same key/IV as the C# desktop app ────────────────
 const ENCRYPTION_KEY = Buffer.from('RioGestionEncryptionKey32Bytes!!', 'utf8'); // 32 bytes → AES-256
@@ -20,6 +21,15 @@ const ALGORITHM = 'aes-256-cbc';
 
 // ── INI file path (resolved from paths.ts) ───────────
 const INI_PATH = appdataPath;
+
+/** Block until user presses Enter (sync-compatible via spawnSync) */
+function fatalExit(): never {
+  try {
+    const { spawnSync } = require('child_process');
+    spawnSync('cmd', ['/c', 'pause'], { stdio: 'inherit' });
+  } catch { /* fallback: just exit */ }
+  process.exit(1);
+}
 
 // ── Parsed settings ──────────────────────────────────
 export interface AppDataSettings {
@@ -104,12 +114,12 @@ function parseIni(content: string): Record<string, Record<string, string>> {
 // ── Main loader ──────────────────────────────────────
 export function loadAppData(): AppDataSettings {
   if (!fs.existsSync(INI_PATH)) {
-    console.error('\n══════════════════════════════════════════════════════════');
-    console.error('  ❌  ERROR FATAL: No se encontró el archivo appdata.ini');
+    console.error('\n======================================================');
+    console.error('  ERROR FATAL: No se encontro el archivo appdata.ini');
     console.error(`  Ruta esperada: ${INI_PATH}`);
     console.error('  El sistema no puede iniciar sin este archivo.');
-    console.error('══════════════════════════════════════════════════════════\n');
-    process.exit(1);
+    console.error('======================================================\n');
+    fatalExit();
   }
 
   let fileContent = fs.readFileSync(INI_PATH, 'utf8');
@@ -129,11 +139,11 @@ export function loadAppData(): AppDataSettings {
   const db = data['DatabaseSettings'];
 
   if (!db) {
-    console.error('\n══════════════════════════════════════════════════════════');
-    console.error('  ❌  ERROR FATAL: Sección [DatabaseSettings] no encontrada');
-    console.error('  El archivo appdata.ini no contiene la configuración requerida.');
-    console.error('══════════════════════════════════════════════════════════\n');
-    process.exit(1);
+    console.error('\n======================================================');
+    console.error('  ERROR FATAL: Seccion [DatabaseSettings] no encontrada');
+    console.error('  El archivo appdata.ini no contiene la configuracion requerida.');
+    console.error('======================================================\n');
+    fatalExit();
   }
 
   // Optional [ServerSettings] section for port/JWT
@@ -159,6 +169,5 @@ export function loadAppData(): AppDataSettings {
     jwtExpiresIn: srv['JwtExpiresIn'] || '8h',
   };
 
-  console.log(`[appdata] ✅ Loaded config for "${settings.nombreFantasia}" → ${settings.initialCatalog}`);
   return settings;
 }

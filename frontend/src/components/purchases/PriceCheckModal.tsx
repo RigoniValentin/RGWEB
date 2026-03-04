@@ -11,7 +11,6 @@ import {
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { purchasesApi, type PriceCheckProduct, type PriceCheckUpdate } from '../../services/purchases.api';
 import { ProductPriceEditorModal } from './ProductPriceEditorModal';
-import { fmtMoney } from '../../utils/format';
 
 const { Text } = Typography;
 

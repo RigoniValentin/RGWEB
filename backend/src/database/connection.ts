@@ -44,7 +44,6 @@ export async function getPool(): Promise<sql.ConnectionPool> {
     if (config.db.port || config.db.instanceName) {
       try {
         pool = await sql.connect(sqlConfigFallback);
-        console.log('✅ Connected to SQL Server (direct port)');
         return pool;
       } catch {
         // If direct port fails and we have an instanceName, try via SQL Browser
@@ -56,7 +55,6 @@ export async function getPool(): Promise<sql.ConnectionPool> {
 
     // Fallback: try with instanceName via SQL Browser
     pool = await sql.connect(sqlConfig);
-    console.log('✅ Connected to SQL Server');
   }
   return pool;
 }
@@ -65,7 +63,6 @@ export async function closePool(): Promise<void> {
   if (pool) {
     await pool.close();
     pool = null;
-    console.log('🔌 SQL Server connection closed');
   }
 }
 

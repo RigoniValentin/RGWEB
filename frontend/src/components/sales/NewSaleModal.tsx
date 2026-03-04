@@ -116,6 +116,13 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     return () => { cancelled = true; };
   }, [open]);
 
+  // Auto-focus search when modal opens
+  useEffect(() => {
+    if (open) {
+      setTimeout(() => searchRef.current?.focus(), 150);
+    }
+  }, [open]);
+
   const handleGoToCaja = () => {
     handleClose();
     openTab({ key: '/cashregisters', label: 'Cajas', closable: true });
@@ -1044,7 +1051,6 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
       closable={false}
       className="new-sale-modal"
       styles={{ body: { padding: 0, overflow: 'hidden' } }}
-      afterOpenChange={(isOpen) => { if (isOpen) setTimeout(() => searchRef.current?.focus(), 80); }}
     >
       {/* ── Dark header bar ─────────────────────── */}
       <div className="nsm-header">
@@ -1170,6 +1176,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
           {step === 'cart' ? (
             /* ── STEP 1: Cart configuration ───────── */
             <>
+              <div className="npm-sidebar-scroll">
               {/* Client */}
               <div className="nsm-field-group">
                 <label className="nsm-label">
@@ -1256,7 +1263,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
                 />
               </div>
 
-              <Divider style={{ margin: '16px 0' }} />
+              <Divider style={{ margin: '10px 0' }} />
 
               {/* Stats */}
               <div className="nsm-stats">
@@ -1277,6 +1284,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
                   />
                 </div>
               </div>
+              </div>{/* /npm-sidebar-scroll */}
 
               {/* Totals */}
               <div className="nsm-totals-box">
@@ -1381,19 +1389,12 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
                     Cobrar {fmtMoney(total)}
                   </Button>
                 )}
-                <Button
-                  block
-                  size="large"
-                  onClick={handleClose}
-                  style={{ height: 44 }}
-                >
-                  Cancelar
-                </Button>
               </div>
             </>
           ) : (
             /* ── STEP 2: Payment / Cobro ──────────── */
             <>
+              <div className="npm-sidebar-scroll">
               {/* Total a cobrar - prominent */}
               <div className="nsm-cobro-total-box">
                 <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
@@ -1577,6 +1578,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
                   </div>
                 )}
               </div>
+              </div>{/* /npm-sidebar-scroll */}
 
               {/* Cobro action buttons */}
               <div className="nsm-actions">
