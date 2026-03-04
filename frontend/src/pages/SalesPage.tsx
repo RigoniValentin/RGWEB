@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Drawer, Descriptions, Spin,
@@ -55,6 +55,13 @@ export function SalesPage() {
   const [wspNombre, setWspNombre] = useState('');
   const [wspSending, setWspSending] = useState(false);
   const [wspVentaId, setWspVentaId] = useState<number | null>(null);
+
+  // ── Listen for global shortcut event ───────────
+  useEffect(() => {
+    const handler = () => setNewSaleOpen(true);
+    window.addEventListener('rg:open-new-sale', handler);
+    return () => window.removeEventListener('rg:open-new-sale', handler);
+  }, []);
 
   // ── Debounced search ───────────────────────────
   const [searchTimer, setSearchTimer] = useState<ReturnType<typeof setTimeout> | null>(null);

@@ -40,6 +40,13 @@ export function PurchasesPage() {
   const [priceCheckCompraId, setPriceCheckCompraId] = useState<number | null>(null);
   const [priceCheckOpen, setPriceCheckOpen] = useState(false);
 
+  // ── Listen for global shortcut event ───────────
+  useEffect(() => {
+    const handler = () => setNewPurchaseOpen(true);
+    window.addEventListener('rg:open-new-purchase', handler);
+    return () => window.removeEventListener('rg:open-new-purchase', handler);
+  }, []);
+
   // ── Debounced search ───────────────────────────
   const [searchTimer, setSearchTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
   const handleSearchChange = (value: string) => {

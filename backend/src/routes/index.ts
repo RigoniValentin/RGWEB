@@ -14,6 +14,8 @@ import brandRoutes from './brand.routes.js';
 import ctaCorrienteRoutes from './ctaCorriente.routes.js';
 import ctaCorrienteProvRoutes from './ctaCorrienteProv.routes.js';
 import purchasesRoutes from './purchases.routes.js';
+import ncComprasRoutes from './ncCompras.routes.js';
+import settingsRoutes from './settings.routes.js';
 
 const router = Router();
 
@@ -32,5 +34,7 @@ router.use('/brands', brandRoutes);
 router.use('/cta-corriente', ctaCorrienteRoutes);
 router.use('/cta-corriente-prov', ctaCorrienteProvRoutes);
 router.use('/purchases', purchasesRoutes);
+router.use('/nc-compras', ncComprasRoutes);
+router.use('/settings', settingsRoutes);
 
 export default router;

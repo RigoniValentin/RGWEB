@@ -5,18 +5,19 @@ import {
 } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, ShoppingCartOutlined,
-  UserOutlined, MinusOutlined, BarcodeOutlined, ShopOutlined,
+  UserOutlined, MinusOutlined, ShopOutlined,
   FileTextOutlined, SwapOutlined, DollarOutlined, CreditCardOutlined,
   WalletOutlined, ArrowLeftOutlined, CheckCircleOutlined,
   WarningOutlined, BankOutlined, PrinterOutlined, WhatsAppOutlined,
   SendOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { salesApi } from '../../services/sales.api';
 import { cajaApi } from '../../services/caja.api';
 import { useAuthStore } from '../../store/authStore';
 import { useTabStore } from '../../store/tabStore';
+import { useSettingsStore } from '../../store/settingsStore';
 import { fmtMoney } from '../../utils/format';
 import { printReceipt } from '../../utils/printReceipt';
 import { printFETicket, openFEPdf } from '../../utils/printReceipt';
@@ -45,6 +46,7 @@ interface Props {
 
 export function NewSaleModal({ open, onClose, onSuccess }: Props) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const openTab = useTabStore(s => s.openTab);
   const { puntoVentaActivo, user } = useAuthStore();
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -71,11 +73,17 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
   const efectivoRef = useRef<any>(null);
 
   // Print / WhatsApp toggles
-  const [wantPrint, setWantPrint] = useState(true);
+  const [wantPrint, setWantPrint] = useState(false);
   const [wantWhatsApp, setWantWhatsApp] = useState(false);
   const [wantFacturar, setWantFacturar] = useState(false);
-  const [wantFETicket, setWantFETicket] = useState(true);
+  const [wantFETicket, setWantFETicket] = useState(false);
   const [wantFEPdf, setWantFEPdf] = useState(false);
+
+  // ── Refs for Enter-flow: qty → dto → search ──
+  const qtyRefs = useRef<Record<string, any>>({});
+  const dtoRefs = useRef<Record<string, any>>({});
+  // Track last added item key for auto-focus
+  const [lastAddedKey, setLastAddedKey] = useState<string | null>(null);
   const [wspModalOpen, setWspModalOpen] = useState(false);
   const [wspTelefono, setWspTelefono] = useState('');
   const [wspNombre, setWspNombre] = useState('');
@@ -111,7 +119,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
   const handleGoToCaja = () => {
     handleClose();
     openTab({ key: '/cashregisters', label: 'Cajas', closable: true });
-    navigate('/cashregisters');
+    navigate('/cashregisters', { state: { autoAbrirCaja: true } });
   };
 
   // Fetch clients
@@ -155,11 +163,6 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
   });
 
   const utilizaFE = feConfig?.utilizaFE === true;
-
-  // Auto-enable facturar toggle when FE is active
-  useEffect(() => {
-    if (utilizaFE) setWantFacturar(true);
-  }, [utilizaFE]);
 
   // Set default deposito when data loads
   useEffect(() => {
@@ -218,34 +221,43 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     }
   }, [clienteTieneCtaCte]);
 
-  // When switching to CTA CTE, turn off auto-facturación so user must explicitly opt-in
+  // When switching to CTA CTE, turn off facturación
   useEffect(() => {
     if (esCtaCorriente) {
       setWantFacturar(false);
-    } else if (utilizaFE) {
-      setWantFacturar(true);
     }
-  }, [esCtaCorriente]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [esCtaCorriente]);
 
   // Product search
   const { mutate: doSearch, isPending: searching } = useMutation({
     mutationFn: (text: string) => salesApi.searchProducts(text),
     onSuccess: (products) => {
       setSearchOptions(
-        products.map(p => ({
-          value: `${p.PRODUCTO_ID}`,
-          label: (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <Text strong style={{ fontSize: 13 }}>{p.NOMBRE}</Text>
-                <br />
-                <Text type="secondary" style={{ fontSize: 11 }}>{p.CODIGOPARTICULAR} · Stock: {p.STOCK} {p.UNIDAD_ABREVIACION}</Text>
+        products.map(p => {
+          const stockOk = p.STOCK > 0;
+          const stockLow = p.STOCK > 0 && p.STOCK <= 5;
+          return {
+            value: `${p.PRODUCTO_ID}`,
+            label: (
+              <div className="nsm-search-item">
+                <div className="nsm-search-item-left">
+                  <div className="nsm-search-item-name">{p.NOMBRE}</div>
+                  <div className="nsm-search-item-meta">
+                    <span className="nsm-search-item-code">{p.CODIGOPARTICULAR}</span>
+                    <span className={`nsm-search-item-stock ${stockLow ? 'low' : ''} ${!stockOk ? 'out' : ''}`}>
+                      {stockOk ? `${p.STOCK} ${p.UNIDAD_ABREVIACION}` : 'Sin stock'}
+                    </span>
+                  </div>
+                </div>
+                <div className="nsm-search-item-right">
+                  <div className="nsm-search-item-price">{fmtMoney(p.PRECIO_VENTA)}</div>
+                  <div className="nsm-search-item-unit">/{p.UNIDAD_ABREVIACION}</div>
+                </div>
               </div>
-              <Text strong style={{ color: '#EABD23' }}>{fmtMoney(p.PRECIO_VENTA)}</Text>
-            </div>
-          ),
-          product: p,
-        }))
+            ),
+            product: p,
+          };
+        })
       );
     },
   });
@@ -354,8 +366,17 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
         return;
       }
 
+      // Check if the user wants to reopen the new sale form
+      const reabrir = useSettingsStore.getState().getBool('reabrir_nueva_venta');
       resetForm();
-      onSuccess();
+      if (reabrir) {
+        // Refetch sales list but keep modal open for the next sale
+        queryClient.invalidateQueries({ queryKey: ['sales'] });
+        // Focus product search for the next sale
+        setTimeout(() => searchRef.current?.focus(), 120);
+      } else {
+        onSuccess();
+      }
     },
     onError: (err: any) => {
       message.error(err.response?.data?.error || 'Error al crear la venta');
@@ -407,13 +428,14 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     setMetodoPago('efectivo');
     setPagoEfectivo(0);
     setPagoDigital(0);
-    setWantPrint(true);
+    setWantPrint(false);
     setWantWhatsApp(false);
-    setWantFacturar(utilizaFE);
-    setWantFETicket(true);
+    setWantFacturar(false);
+    setWantFETicket(false);
     setWantFEPdf(false);
+    setLastAddedKey(null);
     setFacturando(false);
-  }, [utilizaFE, comprobanteAutoValue]);
+  }, [comprobanteAutoValue]);
 
   const handleClose = () => {
     resetForm();
@@ -446,8 +468,10 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
       const isKg = (product.UNIDAD_NOMBRE || '').toUpperCase().includes('KILOGRAMO');
       const isLt = (product.UNIDAD_NOMBRE || '').toUpperCase().includes('LITRO');
       const isWeightOrVolume = isKg || isLt;
+      const newKey = `${product.PRODUCTO_ID}-${Date.now()}`;
+      setLastAddedKey(newKey);
       return [...prev, {
-        key: `${product.PRODUCTO_ID}-${Date.now()}`,
+        key: newKey,
         PRODUCTO_ID: product.PRODUCTO_ID,
         NOMBRE: product.NOMBRE,
         CODIGO: product.CODIGOPARTICULAR,
@@ -464,8 +488,23 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     });
     setSearchText('');
     setSearchOptions([]);
-    setTimeout(() => searchRef.current?.focus(), 100);
   }, [depositoId]);
+
+  // Auto-focus qty field when a new product is added
+  useEffect(() => {
+    if (!lastAddedKey) return;
+    const timer = setTimeout(() => {
+      const qtyEl = qtyRefs.current[lastAddedKey];
+      if (qtyEl) {
+        qtyEl.focus();
+        // select the value for quick overwrite
+        const input = qtyEl?.input || qtyEl?.nativeElement?.querySelector?.('input');
+        if (input) input.select();
+      }
+      setLastAddedKey(null);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [lastAddedKey]);
 
   // Barcode quick-pick: on Enter, search immediately and auto-add if single result
   // If dropdown is already showing options, let AutoComplete handle the selection natively
@@ -659,39 +698,84 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     }
   }, [metodoPago, step, total]);
 
-  // Handle keyboard shortcut for search focus
+  // Handle keyboard shortcuts from settings (ir a cobro, confirmar cobro, buscar producto)
+  // Use capture phase + stopImmediatePropagation so this fires BEFORE AppLayout's handler
+  // (allows same shortcut for nueva_venta and ir_cobro — when modal is open, it goes to cobro)
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'F2') {
+      const settings = useSettingsStore.getState();
+      const atajoIrCobro = (settings.get('atajo_ir_cobro') || 'F2').toUpperCase();
+      const atajoCobrar = (settings.get('atajo_cobrar') || 'F4').toUpperCase();
+      const atajoBuscar = (settings.get('atajo_buscar_producto') || 'F3').toUpperCase();
+
+      // Build the pressed key combo
+      const parts: string[] = [];
+      if (e.ctrlKey) parts.push('CTRL');
+      if (e.altKey) parts.push('ALT');
+      if (e.shiftKey) parts.push('SHIFT');
+      const key = e.key.startsWith('F') && e.key.length <= 3
+        ? e.key.toUpperCase()
+        : e.key.toUpperCase();
+      parts.push(key);
+      const combo = parts.join('+');
+
+      if (step === 'cart' && combo === atajoIrCobro && cart.length > 0) {
         e.preventDefault();
+        e.stopImmediatePropagation();
+        handleSubmit(true);
+        return;
+      }
+
+      if (step === 'cobro' && combo === atajoCobrar && pagoValido) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        handleConfirmCobro();
+        return;
+      }
+
+      if (step === 'cart' && combo === atajoBuscar) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
         searchRef.current?.focus();
+        return;
       }
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [open]);
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [open, step, cart.length, pagoValido]);
 
   const cartColumns = [
     {
       title: 'PRODUCTO', dataIndex: 'NOMBRE', key: 'name', ellipsis: true,
-      render: (name: string, record: CartItem) => (
-        <div style={{ padding: '4px 0' }}>
-          <Text strong style={{ fontSize: 14 }}>{name}</Text>
-          <br />
-          <Text type="secondary" style={{ fontSize: 12 }}>{record.CODIGO}</Text>
-        </div>
-      ),
+      render: (name: string, record: CartItem) => {
+        const upperUnidad = (record.UNIDAD_NOMBRE || '').toUpperCase();
+        const isKg = upperUnidad.includes('KILOGRAMO');
+        const isLt = upperUnidad.includes('LITRO');
+        const unitTag = isKg ? 'Peso' : isLt ? 'Volumen' : null;
+        return (
+          <div className="nsm-cart-product">
+            <div className="nsm-cart-product-name">{name}</div>
+            <div className="nsm-cart-product-meta">
+              <span className="nsm-cart-product-code">{record.CODIGO}</span>
+              {unitTag && <span className="nsm-cart-product-unit-tag">{unitTag}</span>}
+              <span className="nsm-cart-product-stock">Stock: {record.STOCK} {record.UNIDAD}</span>
+            </div>
+          </div>
+        );
+      },
     },
     {
-      title: 'P. UNIT.', dataIndex: 'PRECIO_UNITARIO', key: 'price', width: 140,
-      render: (val: number, record: CartItem) => (
+      title: 'P. UNIT.', dataIndex: 'PRECIO_UNITARIO', key: 'price', width: 140, align: 'center' as const,
+      render: (val: number, record: CartItem) => {
+        return (
         <InputNumber
           value={val}
           min={0}
           step={0.01}
           size="middle"
           style={{ width: '100%' }}
+          className="nsm-cart-input"
           formatter={v => `$ ${v}`}
           onChange={(v) => {
             const newPrice = v || 0;
@@ -707,10 +791,11 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
             }
           }}
         />
-      ),
+      );
+      },
     },
     {
-      title: 'CANT.', dataIndex: 'CANTIDAD', key: 'qty', width: 220,
+      title: 'CANT.', dataIndex: 'CANTIDAD', key: 'qty', width: 220, align: 'center' as const,
       render: (val: number, record: CartItem) => {
         const upperUnidad = (record.UNIDAD_NOMBRE || '').toUpperCase();
         const isKg = upperUnidad.includes('KILOGRAMO');
@@ -750,13 +835,28 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
             <Space size={4}>
               <Button size="small" icon={<MinusOutlined />}
                 onClick={() => handleStep(-1)}
-                style={{ borderColor: '#d9d9d9' }}
+                className="nsm-qty-btn"
               />
-              <InputNumber value={val} min={0.01} step={1} size="middle" style={{ width: 64 }}
-                onChange={(v) => updateCartItem(record.key, 'CANTIDAD', v || 1)} />
+              <InputNumber
+                ref={el => { if (el) qtyRefs.current[record.key] = el; }}
+                value={val} min={0.01} step={1} size="middle" style={{ width: 64 }}
+                className="nsm-cart-input"
+                onChange={(v) => updateCartItem(record.key, 'CANTIDAD', v || 1)}
+                onPressEnter={() => {
+                  // Enter flow: qty → dto
+                  setTimeout(() => {
+                    const dtoEl = dtoRefs.current[record.key];
+                    if (dtoEl) {
+                      dtoEl.focus();
+                      const inp = dtoEl?.input || dtoEl?.nativeElement?.querySelector?.('input');
+                      if (inp) inp.select();
+                    }
+                  }, 50);
+                }}
+              />
               <Button size="small" icon={<PlusOutlined />}
                 onClick={() => handleStep(1)}
-                style={{ borderColor: '#d9d9d9' }}
+                className="nsm-qty-btn"
               />
             </Space>
           );
@@ -774,21 +874,33 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Button size="small" icon={<MinusOutlined />}
                   onClick={() => handleStep(inGramos ? -10 : -1)}
-                  style={{ borderColor: '#d9d9d9' }}
+                  className="nsm-qty-btn"
                 />
                 <InputNumber
+                  ref={el => { if (el) qtyRefs.current[record.key] = el; }}
                   value={inGramos ? displayVal : val}
                   min={0}
                   step={step}
                   size="middle"
                   style={{ width: 90 }}
+                  className="nsm-cart-input"
                   precision={inGramos ? 0 : 3}
                   onChange={handleChange}
+                  onPressEnter={() => {
+                    setTimeout(() => {
+                      const dtoEl = dtoRefs.current[record.key];
+                      if (dtoEl) {
+                        dtoEl.focus();
+                        const inp = dtoEl?.input || dtoEl?.nativeElement?.querySelector?.('input');
+                        if (inp) inp.select();
+                      }
+                    }, 50);
+                  }}
                 />
                 <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{inGramos ? 'g' : unitLabel}</Text>
                 <Button size="small" icon={<PlusOutlined />}
                   onClick={() => handleStep(inGramos ? 10 : 1)}
-                  style={{ borderColor: '#d9d9d9' }}
+                  className="nsm-qty-btn"
                 />
               </div>
             )}
@@ -812,14 +924,24 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
       },
     },
     {
-      title: 'DTO %', dataIndex: 'DESCUENTO', key: 'discount', width: 90,
-      render: (val: number, record: CartItem) => (
-        <InputNumber value={val} min={0} max={100} size="middle" style={{ width: '100%' }}
-          onChange={(v) => updateCartItem(record.key, 'DESCUENTO', v || 0)} />
-      ),
+      title: 'DTO %', dataIndex: 'DESCUENTO', key: 'discount', width: 90, align: 'center' as const,
+      render: (val: number, record: CartItem) => {
+        return (
+        <InputNumber
+          ref={el => { if (el) dtoRefs.current[record.key] = el; }}
+          value={val} min={0} max={100} size="middle" style={{ width: '100%' }}
+          className="nsm-cart-input"
+          onChange={(v) => updateCartItem(record.key, 'DESCUENTO', v || 0)}
+          onPressEnter={() => {
+            // Enter flow: dto → back to search
+            setTimeout(() => searchRef.current?.focus(), 50);
+          }}
+        />
+      );
+      },
     },
     {
-      title: 'SUBTOTAL', key: 'sub', width: 150, align: 'right' as const,
+      title: 'SUBTOTAL', key: 'sub', width: 150, align: 'center' as const,
       render: (_: unknown, record: CartItem) => {
         const upperUnidad = (record.UNIDAD_NOMBRE || '').toUpperCase();
         const isKg = upperUnidad.includes('KILOGRAMO');
@@ -851,7 +973,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
 
         // Weight/volume: main row is always the subtotal value, switch below
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
             {/* Row 1: always the subtotal value or editable input */}
             {inPrecioFinal ? (
               <InputNumber
@@ -890,13 +1012,20 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
       },
     },
     {
-      title: '', key: 'actions', width: 48,
-      render: (_: unknown, record: CartItem) => (
-        <Button type="text" danger size="small" icon={<DeleteOutlined />}
-          onClick={() => removeCartItem(record.key)}
-          style={{ fontSize: 16 }}
-        />
-      ),
+      title: '', key: 'actions', width: 48, align: 'center' as const,
+      render: (_: unknown, record: CartItem) => {
+        return (
+          <Button type="text" danger size="small" icon={<DeleteOutlined />}
+            onClick={() => {
+              // Clean up refs
+              delete qtyRefs.current[record.key];
+              delete dtoRefs.current[record.key];
+              removeCartItem(record.key);
+            }}
+            className="nsm-cart-delete"
+          />
+        );
+      },
     },
   ];
 
@@ -915,6 +1044,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
       closable={false}
       className="new-sale-modal"
       styles={{ body: { padding: 0, overflow: 'hidden' } }}
+      afterOpenChange={(isOpen) => { if (isOpen) setTimeout(() => searchRef.current?.focus(), 80); }}
     >
       {/* ── Dark header bar ─────────────────────── */}
       <div className="nsm-header">
@@ -962,6 +1092,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
               icon={<BankOutlined />}
               className="btn-gold"
               onClick={handleGoToCaja}
+              autoFocus
             >
               Ir a Cajas
             </Button>
@@ -979,44 +1110,37 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
       }}>
         {/* ══ LEFT COLUMN — Search + Cart ══════════ */}
         <div className="nsm-main">
-          {/* Search bar */}
-          <div className="nsm-search-wrap">
-            <AutoComplete
-              ref={searchRef}
-              value={searchText}
-              options={searchOptions}
-              onSearch={handleSearch}
-              onSelect={(val) => {
-                const opt = searchOptions.find(o => o.value === val);
-                if (opt) addProduct(opt.product);
-              }}
-              style={{ width: '100%' }}
-              popupClassName="nsm-search-dropdown"
-              popupMatchSelectWidth={true}
-              notFoundContent={searching ? <Spin size="small" /> : searchText.length > 0 ? 'Sin resultados' : null}
-            >
-              <Input
-                prefix={<SearchOutlined style={{ fontSize: 18, color: '#EABD23' }} />}
-                suffix={
-                  <Tag color="default" style={{ margin: 0, fontSize: 11, opacity: 0.5 }}>
-                    F2
-                  </Tag>
-                }
-                placeholder="Buscar por nombre, código o escanear código de barras..."
-                size="large"
-                allowClear
-                onKeyDown={handleSearchKeyDown}
-                className="nsm-search-input"
-              />
-            </AutoComplete>
-            <div className="nsm-search-hint">
-              <BarcodeOutlined style={{ marginRight: 4 }} />
-              Escanee o ingrese busqueda manual. Presione Enter para confirmar. 
-            </div>
-          </div>
-
-          {/* Cart area */}
+          {/* Cart container (search embedded inside) */}
           <div className="nsm-cart-area">
+            {/* Embedded search */}
+            <div className="nsm-search-embedded">
+              <AutoComplete
+                ref={searchRef}
+                value={searchText}
+                options={searchOptions}
+                onSearch={handleSearch}
+                onSelect={(val) => {
+                  const opt = searchOptions.find(o => o.value === val);
+                  if (opt) addProduct(opt.product);
+                }}
+                style={{ width: '100%' }}
+                popupClassName="nsm-search-dropdown"
+                popupMatchSelectWidth={true}
+                notFoundContent={searching ? <Spin size="small" /> : searchText.length > 0 ? 'Sin resultados' : null}
+              >
+                <Input
+                  prefix={<SearchOutlined style={{ fontSize: 16, color: '#bbb' }} />}
+                  suffix={
+                    <Tag color="default" style={{ margin: 0, fontSize: 11, opacity: 0.45 }}>F2</Tag>
+                  }
+                  placeholder="Buscar producto, código o escanear..."
+                  size="large"
+                  allowClear
+                  onKeyDown={handleSearchKeyDown}
+                  className="nsm-search-input"
+                />
+              </AutoComplete>
+            </div>
             {cart.length === 0 ? (
               <div className="nsm-empty-state">
                 <ShoppingCartOutlined className="nsm-empty-icon" />
@@ -1024,7 +1148,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
                   Carrito vacío
                 </Title>
                 <Text type="secondary">
-                  Busque y agregue productos usando el buscador superior
+                  Busque y agregue productos con el buscador
                 </Text>
               </div>
             ) : (
@@ -1035,7 +1159,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
                 rowKey="key"
                 pagination={false}
                 size="middle"
-                scroll={{ y: 'calc(100vh - 380px)' }}
+                scroll={{ y: 'calc(100vh - 340px)' }}
               />
             )}
           </div>

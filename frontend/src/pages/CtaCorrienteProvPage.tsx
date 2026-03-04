@@ -220,7 +220,7 @@ export function CtaCorrienteProvPage() {
       sorter: (a, b) => a.SALDO_ACTUAL - b.SALDO_ACTUAL,
     },
     {
-      title: 'Últ. Movimiento', dataIndex: 'ULTIMA_TRANSACCION', width: 145,
+      title: 'Últ. Movimiento', dataIndex: 'ULTIMA_TRANSACCION', width: 175,
       align: 'center',
       render: (v: string | null) => v ? dayjs(v).format('DD/MM/YYYY HH:mm') : '-',
       sorter: (a, b) => {
@@ -230,7 +230,7 @@ export function CtaCorrienteProvPage() {
       },
     },
     {
-      title: 'Acciones', width: 90, align: 'center',
+      title: 'Acciones', width: 110, align: 'center',
       render: (_: any, record: CtaCorrienteProvListItem) => (
         <Tooltip title="Ver detalle">
           <Button
@@ -372,22 +372,22 @@ export function CtaCorrienteProvPage() {
       {/* Stats */}
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col xs={12} sm={6}>
-          <Card size="small">
+          <Card size="small" className="rg-card">
             <Statistic title="Total proveedores" value={stats.total} prefix={<ShopOutlined />} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card size="small">
+          <Card size="small" className="rg-card">
             <Statistic title="Cuentas activas" value={stats.activas} valueStyle={{ color: '#3f8600' }} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card size="small">
+          <Card size="small" className="rg-card">
             <Statistic title="Sin crear" value={stats.sinCrear} valueStyle={{ color: '#999' }} />
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card size="small">
+          <Card size="small" className="rg-card">
             <Statistic
               title="Saldo total"
               value={stats.saldoTotal}
@@ -413,6 +413,7 @@ export function CtaCorrienteProvPage() {
 
       {/* Main table */}
       <Table<CtaCorrienteProvListItem>
+        className="rg-table"
         rowKey="PROVEEDOR_ID"
         columns={columns}
         dataSource={proveedores}
@@ -446,7 +447,7 @@ export function CtaCorrienteProvPage() {
             {/* Totals summary */}
             <Row gutter={16} style={{ marginBottom: 16 }}>
               <Col span={8}>
-                <Card size="small">
+                <Card size="small" className="rg-card">
                   <Statistic
                     title="Total Debe"
                     value={movData?.totales?.TOTAL_DEBE ?? 0}
@@ -457,7 +458,7 @@ export function CtaCorrienteProvPage() {
                 </Card>
               </Col>
               <Col span={8}>
-                <Card size="small">
+                <Card size="small" className="rg-card">
                   <Statistic
                     title="Total Haber"
                     value={movData?.totales?.TOTAL_HABER ?? 0}
@@ -468,7 +469,7 @@ export function CtaCorrienteProvPage() {
                 </Card>
               </Col>
               <Col span={8}>
-                <Card size="small">
+                <Card size="small" className="rg-card">
                   <Statistic
                     title="Saldo"
                     value={movData?.totales?.SALDO ?? 0}
@@ -487,6 +488,7 @@ export function CtaCorrienteProvPage() {
             <Row gutter={16} style={{ marginBottom: 12 }}>
               <Col span={12}>
                 <Card
+                  className="rg-card"
                   size="small"
                   hoverable
                   onClick={() => setActiveTab('movimientos')}
@@ -507,6 +509,7 @@ export function CtaCorrienteProvPage() {
               </Col>
               <Col span={12}>
                 <Card
+                  className="rg-card"
                   size="small"
                   hoverable
                   onClick={() => setActiveTab('ordenes-pago')}
@@ -551,6 +554,7 @@ export function CtaCorrienteProvPage() {
                   )}
                 </Space>
                 <Table<MovimientoCtaCteProv>
+                  className="rg-table"
                   rowKey={(r, i) => `${r.COMPROBANTE_ID}-${i}`}
                   columns={movColumns}
                   dataSource={movimientosData}
@@ -600,6 +604,7 @@ export function CtaCorrienteProvPage() {
                   </Button>
                 </div>
                 <Table<OrdenPagoItem>
+                  className="rg-table"
                   rowKey="PAGO_ID"
                   columns={opColumns}
                   dataSource={ordenesPago}

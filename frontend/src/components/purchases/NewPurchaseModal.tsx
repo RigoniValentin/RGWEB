@@ -1,11 +1,11 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Modal, Input, Select, Button, InputNumber, Table, Space, Typography,
-  Divider, message, AutoComplete, Tag, Checkbox, Segmented,
+  Divider, Spin, message, AutoComplete, Tag, Checkbox, Segmented, Badge, Switch,
 } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, ShoppingCartOutlined,
-  MinusOutlined, BarcodeOutlined, ShopOutlined,
+  MinusOutlined, ShopOutlined, FileTextOutlined, SwapOutlined,
   ArrowLeftOutlined, CheckCircleOutlined,
   DollarOutlined, CreditCardOutlined, WalletOutlined,
   BankOutlined, InboxOutlined,
@@ -55,11 +55,15 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const [actualizarPrecios, setActualizarPrecios] = useState(true);
   const [percepcionIva, setPercepcionIva] = useState(0);
   const [percepcionIibb, setPercepcionIibb] = useState(0);
-  const [tipoCarga, setTipoCarga] = useState<'simple' | 'detallada'>('simple');
+  const [tipoCarga, setTipoCarga] = useState<'simple' | 'detallada'>('detallada');
   const [impIntGravaIva, setImpIntGravaIva] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [searchOptions, setSearchOptions] = useState<{ value: string; label: React.ReactNode; product: ProductoSearchCompra }[]>([]);
   const searchRef = useRef<any>(null);
+
+  // ── Refs for Enter-flow: editable fields navigation ──
+  const fieldRefs = useRef<Record<string, Record<string, any>>>({});
+  const [lastAddedKey, setLastAddedKey] = useState<string | null>(null);
 
   // Payment step state
   const [step, setStep] = useState<ModalStep>('cart');
@@ -105,39 +109,51 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     }
   }, [depositos]);
 
-  // ── Product search ─────────────────────────────
-  const handleSearch = useCallback(async (value: string) => {
-    setSearchText(value);
-    if (!value || value.length < 1) {
-      setSearchOptions([]);
-      return;
-    }
+  // ── Product search (debounced) ─────────────────
+  const [searching, setSearching] = useState(false);
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const doSearch = useCallback(async (text: string) => {
+    setSearching(true);
     try {
-      const products = await purchasesApi.searchProducts(value);
-      const opts = products.map((p) => ({
-        value: `${p.PRODUCTO_ID}`,
-        label: (
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
-            <span>
-              <BarcodeOutlined style={{ marginRight: 4, color: '#999' }} />
-              <Text type="secondary" style={{ fontSize: 12 }}>{p.CODIGOPARTICULAR}</Text>
-              {' '}
-              {p.NOMBRE}
-            </span>
-            <span style={{ whiteSpace: 'nowrap' }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>Stock: {p.STOCK}</Text>
-              {' · '}
-              <Text strong>{fmtMoney(p.PRECIO_COMPRA)}</Text>
-            </span>
-          </div>
-        ),
-        product: p,
-      }));
-      setSearchOptions(opts);
+      const products = await purchasesApi.searchProducts(text);
+      setSearchOptions(
+        products.map(p => ({
+          value: `${p.PRODUCTO_ID}`,
+          label: (
+            <div className="nsm-search-item">
+              <div className="nsm-search-item-left">
+                <div className="nsm-search-item-name">{p.NOMBRE}</div>
+                <div className="nsm-search-item-meta">
+                  <span className="nsm-search-item-code">{p.CODIGOPARTICULAR}</span>
+                  <span className="nsm-search-item-stock">Stock: {p.STOCK} {p.UNIDAD_ABREVIACION || 'u'}</span>
+                </div>
+              </div>
+              <div className="nsm-search-item-right">
+                <div className="nsm-search-item-price">{fmtMoney(p.PRECIO_COMPRA)}</div>
+                <div className="nsm-search-item-unit">costo</div>
+              </div>
+            </div>
+          ),
+          product: p,
+        }))
+      );
     } catch {
       setSearchOptions([]);
+    } finally {
+      setSearching(false);
     }
   }, []);
+
+  const handleSearch = (text: string) => {
+    setSearchText(text);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    if (text.length >= 1) {
+      searchTimeout.current = setTimeout(() => doSearch(text), 300);
+    } else {
+      setSearchOptions([]);
+    }
+  };
 
   const isDetallada = tipoCarga === 'detallada';
 
@@ -159,9 +175,12 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
           PRECIO_FINAL: r2(netoUnit * newQty),
         };
         setCart(updated);
+        setLastAddedKey(existing.key);
       } else {
+        const newKey = `${p.PRODUCTO_ID}-${Date.now()}`;
+        setLastAddedKey(newKey);
         const newItem: CartItem = {
-          key: `${p.PRODUCTO_ID}-${Date.now()}`,
+          key: newKey,
           PRODUCTO_ID: p.PRODUCTO_ID,
           PRECIO_COMPRA: p.PRECIO_COMPRA, // base price (PRECIO_COMPRA_BASE from search)
           CANTIDAD: 1,
@@ -194,11 +213,14 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
           PRECIO_COMPRA: extractIva ? unitPriceRaw / (1 + ivaAliE) : unitPriceRaw,
         };
         setCart(updated);
+        setLastAddedKey(existing.key);
       } else {
         const ivaAliN = p.IVA_PORCENTAJE / 100;
         const extractIva = tipoComprobante === 'FA' && ivaIncluido;
+        const newKey = `${p.PRODUCTO_ID}-${Date.now()}`;
+        setLastAddedKey(newKey);
         const newItem: CartItem = {
-          key: `${p.PRODUCTO_ID}-${Date.now()}`,
+          key: newKey,
           PRODUCTO_ID: p.PRODUCTO_ID,
           PRECIO_COMPRA: extractIva ? p.PRECIO_COMPRA / (1 + ivaAliN) : p.PRECIO_COMPRA,
           CANTIDAD: 1,
@@ -220,8 +242,62 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
 
     setSearchText('');
     setSearchOptions([]);
-    setTimeout(() => searchRef.current?.focus(), 50);
   }, [cart, depositoId, tipoComprobante, ivaIncluido, isDetallada]);
+
+  // Auto-focus first editable field when a new product is added
+  useEffect(() => {
+    if (!lastAddedKey) return;
+    const timer = setTimeout(() => {
+      const firstField = isDetallada ? 'precioCompra' : 'cantidad';
+      const el = fieldRefs.current[lastAddedKey]?.[firstField];
+      if (el) {
+        el.focus();
+        const inp = el?.input || el?.nativeElement?.querySelector?.('input');
+        if (inp) inp.select();
+      }
+      setLastAddedKey(null);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [lastAddedKey, isDetallada]);
+
+  // Helper: focus a field ref and select its value
+  const focusField = (key: string, field: string) => {
+    setTimeout(() => {
+      const el = fieldRefs.current[key]?.[field];
+      if (el) {
+        el.focus();
+        const inp = el?.input || el?.nativeElement?.querySelector?.('input');
+        if (inp) inp.select();
+      } else {
+        // If field doesn't exist (e.g. no IVA column), go to search
+        searchRef.current?.focus();
+      }
+    }, 50);
+  };
+
+  const focusSearch = () => {
+    setTimeout(() => searchRef.current?.focus(), 50);
+  };
+
+  // Auto-focus search input when modal opens
+  useEffect(() => {
+    if (open) {
+      setTimeout(() => searchRef.current?.focus(), 150);
+    }
+  }, [open]);
+
+  // Handle F2 keyboard shortcut for search focus
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'F2') {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [open]);
 
   // ── Update cart item ───────────────────────────
   const updateCartItem = (key: string, field: keyof CartItem, value: any) => {
@@ -328,7 +404,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     setActualizarPrecios(true);
     setPercepcionIva(0);
     setPercepcionIibb(0);
-    setTipoCarga('simple');
+    setTipoCarga('detallada');
     setImpIntGravaIva(false);
     setSearchText('');
     setSearchOptions([]);
@@ -473,558 +549,783 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   };
 
   // ── Item columns ───────────────────────────────
+  const productColumn = {
+    title: 'PRODUCTO', dataIndex: 'NOMBRE', key: 'name', ellipsis: true,
+    render: (name: string, record: CartItem) => (
+      <div className="nsm-cart-product">
+        <div className="nsm-cart-product-name">{name}</div>
+        <div className="nsm-cart-product-meta">
+          <span className="nsm-cart-product-code">{record.CODIGO}</span>
+          <span className="nsm-cart-product-stock">Stock: {record.STOCK} {record.UNIDAD}</span>
+        </div>
+      </div>
+    ),
+  };
+
+  const deleteColumn = {
+    title: '', key: 'actions', width: 48, align: 'center' as const,
+    render: (_: unknown, record: CartItem) => (
+      <Button type="text" danger size="small" icon={<DeleteOutlined />}
+        onClick={() => {
+          delete fieldRefs.current[record.key];
+          removeCartItem(record.key);
+        }}
+        className="nsm-cart-delete"
+      />
+    ),
+  };
+
   const cartColumns = isDetallada ? [
     // ── DETAILED MODE COLUMNS ──
+    productColumn,
     {
-      title: 'Código', dataIndex: 'CODIGO', width: 80, align: 'center' as const,
-      render: (v: string) => <Text type="secondary" style={{ fontSize: 12 }}>{v}</Text>,
-    },
-    { title: 'Producto', dataIndex: 'NOMBRE', ellipsis: true },
-    {
-      title: 'P. Compra', width: 110, align: 'center' as const,
+      title: 'P. COMPRA', width: 120, align: 'center' as const,
       render: (_: unknown, record: CartItem) => (
         <InputNumber
-          size="small"
+          ref={el => { if (el) { if (!fieldRefs.current[record.key]) fieldRefs.current[record.key] = {}; fieldRefs.current[record.key]!.precioCompra = el; } }}
           value={record.PRECIO_COMPRA}
-          min={0}
-          step={0.01}
+          min={0} step={0.01} size="middle"
+          style={{ width: '100%' }}
+          className="nsm-cart-input"
           onChange={val => updateCartItem(record.key, 'PRECIO_COMPRA', val || 0)}
-          style={{ width: 95 }}
-          controls={false}
-          prefix="$"
+          formatter={v => `$ ${v}`}
+          onPressEnter={() => focusField(record.key, 'cantidad')}
         />
       ),
     },
     {
-      title: 'Cant.', dataIndex: 'CANTIDAD', width: 90, align: 'center' as const,
-      render: (_: number, record: CartItem) => (
-        <InputNumber
-          size="small"
-          value={record.CANTIDAD}
-          min={0.01}
-          step={1}
-          onChange={val => updateCartItem(record.key, 'CANTIDAD', val || 1)}
-          style={{ width: 70 }}
-          controls={false}
-        />
-      ),
-    },
-    {
-      title: 'Bonif.%', width: 75, align: 'center' as const,
-      render: (_: unknown, record: CartItem) => (
-        <InputNumber
-          size="small"
-          value={record.BONIFICACION}
-          min={0}
-          max={100}
-          step={1}
-          onChange={val => updateCartItem(record.key, 'BONIFICACION', val || 0)}
-          style={{ width: 58 }}
-          controls={false}
-        />
-      ),
-    },
-    {
-      title: 'Imp.Int.', width: 90, align: 'center' as const,
-      render: (_: unknown, record: CartItem) => (
-        <InputNumber
-          size="small"
-          value={record.IMP_INTERNOS}
-          min={0}
-          step={0.01}
-          onChange={val => updateCartItem(record.key, 'IMP_INTERNOS', val || 0)}
-          style={{ width: 75 }}
-          controls={false}
-          prefix="$"
-        />
-      ),
-    },
-    ...(isFacturaA ? [{
-      title: 'IVA %', width: 60, align: 'center' as const,
-      render: (_: unknown, record: CartItem) => (
-        <Text type="secondary">{((record.IVA_ALICUOTA || 0) * 100).toFixed(0)}%</Text>
-      ),
-    }] : []),
-    {
-      title: 'Total s/Imp', width: 100, align: 'right' as const,
-      render: (_: unknown, record: CartItem) => (
-        <Text strong>{fmtMoney(record.PRECIO_FINAL)}</Text>
-      ),
-    },
-    {
-      title: '', width: 40, align: 'center' as const,
-      render: (_: unknown, record: CartItem) => (
-        <DeleteOutlined
-          style={{ cursor: 'pointer', color: '#ff4d4f' }}
-          onClick={() => removeCartItem(record.key)}
-        />
-      ),
-    },
-  ] : [
-    // ── SIMPLE MODE COLUMNS (current) ──
-    {
-      title: 'Código', dataIndex: 'CODIGO', width: 80, align: 'center' as const,
-      render: (v: string) => <Text type="secondary" style={{ fontSize: 12 }}>{v}</Text>,
-    },
-    { title: 'Producto', dataIndex: 'NOMBRE', ellipsis: true },
-     {
-      title: 'P. Unit.', width: 100, align: 'center' as const,
-      render: (_: unknown, record: CartItem) => (
-        <Text type="secondary">{fmtMoney(record.PRECIO_COMPRA)}</Text>
-      ),
-    },
-    {
-      title: 'Cantidad', dataIndex: 'CANTIDAD', width: 130, align: 'center' as const,
+      title: 'CANT.', dataIndex: 'CANTIDAD', width: 100, align: 'center' as const,
       render: (_: number, record: CartItem) => (
         <Space size={4}>
-          <Button
-            size="small" type="text" icon={<MinusOutlined />}
+          <Button size="small" icon={<MinusOutlined />} className="nsm-qty-btn"
             onClick={() => {
               if (record.CANTIDAD <= 1) removeCartItem(record.key);
               else updateCartItem(record.key, 'CANTIDAD', record.CANTIDAD - 1);
             }}
           />
           <InputNumber
-            size="small"
-            value={record.CANTIDAD}
-            min={0.01}
-            step={1}
+            ref={el => { if (el) { if (!fieldRefs.current[record.key]) fieldRefs.current[record.key] = {}; fieldRefs.current[record.key]!.cantidad = el; } }}
+            value={record.CANTIDAD} min={0.01} step={1} size="middle"
+            style={{ width: 64 }}
+            className="nsm-cart-input"
             onChange={val => updateCartItem(record.key, 'CANTIDAD', val || 1)}
-            style={{ width: 60 }}
-            controls={false}
+            onPressEnter={() => focusField(record.key, 'bonificacion')}
           />
-          <Button
-            size="small" type="text" icon={<PlusOutlined />}
+          <Button size="small" icon={<PlusOutlined />} className="nsm-qty-btn"
             onClick={() => updateCartItem(record.key, 'CANTIDAD', record.CANTIDAD + 1)}
           />
         </Space>
       ),
     },
     {
-      title: 'Precio Final', width: 130, align: 'center' as const,
+      title: 'BONIF. %', width: 90, align: 'center' as const,
       render: (_: unknown, record: CartItem) => (
         <InputNumber
-          size="small"
-          value={record.PRECIO_FINAL}
-          min={0}
-          step={0.01}
-          onChange={val => updateCartItem(record.key, 'PRECIO_FINAL', val || 0)}
-          style={{ width: 110 }}
-          controls={false}
-          prefix="$"
+          ref={el => { if (el) { if (!fieldRefs.current[record.key]) fieldRefs.current[record.key] = {}; fieldRefs.current[record.key]!.bonificacion = el; } }}
+          value={record.BONIFICACION} min={0} max={100} step={1} size="middle"
+          style={{ width: '100%' }}
+          className="nsm-cart-input"
+          onChange={val => updateCartItem(record.key, 'BONIFICACION', val || 0)}
+          onPressEnter={() => focusField(record.key, 'impInternos')}
         />
       ),
     },
-   
+    {
+      title: 'IMP. INT.', width: 100, align: 'center' as const,
+      render: (_: unknown, record: CartItem) => (
+        <InputNumber
+          ref={el => { if (el) { if (!fieldRefs.current[record.key]) fieldRefs.current[record.key] = {}; fieldRefs.current[record.key]!.impInternos = el; } }}
+          value={record.IMP_INTERNOS} min={0} step={0.01} size="middle"
+          style={{ width: '100%' }}
+          className="nsm-cart-input"
+          onChange={val => updateCartItem(record.key, 'IMP_INTERNOS', val || 0)}
+          formatter={v => `$ ${v}`}
+          onPressEnter={focusSearch}
+        />
+      ),
+    },
+    ...(isFacturaA ? [{
+      title: 'IVA %', width: 65, align: 'center' as const,
+      render: (_: unknown, record: CartItem) => (
+        <Text type="secondary">{((record.IVA_ALICUOTA || 0) * 100).toFixed(0)}%</Text>
+      ),
+    }] : []),
+    {
+      title: 'SUBTOTAL', width: 110, align: 'right' as const,
+      render: (_: unknown, record: CartItem) => (
+        <Text strong style={{ fontSize: 14 }}>{fmtMoney(record.PRECIO_FINAL)}</Text>
+      ),
+    },
+    deleteColumn,
+  ] : [
+    // ── SIMPLE MODE COLUMNS ──
+    productColumn,
+    {
+      title: 'P. UNIT.', width: 110, align: 'center' as const,
+      render: (_: unknown, record: CartItem) => (
+        <Text type="secondary" style={{ fontSize: 13 }}>{fmtMoney(record.PRECIO_COMPRA)}</Text>
+      ),
+    },
+    {
+      title: 'CANT.', dataIndex: 'CANTIDAD', width: 140, align: 'center' as const,
+      render: (_: number, record: CartItem) => (
+        <Space size={4}>
+          <Button size="small" icon={<MinusOutlined />} className="nsm-qty-btn"
+            onClick={() => {
+              if (record.CANTIDAD <= 1) removeCartItem(record.key);
+              else updateCartItem(record.key, 'CANTIDAD', record.CANTIDAD - 1);
+            }}
+          />
+          <InputNumber
+            ref={el => { if (el) { if (!fieldRefs.current[record.key]) fieldRefs.current[record.key] = {}; fieldRefs.current[record.key]!.cantidad = el; } }}
+            value={record.CANTIDAD} min={0.01} step={1} size="middle"
+            style={{ width: 64 }}
+            className="nsm-cart-input"
+            onChange={val => updateCartItem(record.key, 'CANTIDAD', val || 1)}
+            onPressEnter={() => focusField(record.key, 'precioFinal')}
+          />
+          <Button size="small" icon={<PlusOutlined />} className="nsm-qty-btn"
+            onClick={() => updateCartItem(record.key, 'CANTIDAD', record.CANTIDAD + 1)}
+          />
+        </Space>
+      ),
+    },
+    {
+      title: 'PRECIO FINAL', width: 140, align: 'center' as const,
+      render: (_: unknown, record: CartItem) => (
+        <InputNumber
+          ref={el => { if (el) { if (!fieldRefs.current[record.key]) fieldRefs.current[record.key] = {}; fieldRefs.current[record.key]!.precioFinal = el; } }}
+          value={record.PRECIO_FINAL} min={0} step={0.01} size="middle"
+          style={{ width: '100%' }}
+          className="nsm-cart-input"
+          onChange={val => updateCartItem(record.key, 'PRECIO_FINAL', val || 0)}
+          formatter={v => `$ ${v}`}
+          onPressEnter={focusSearch}
+        />
+      ),
+    },
     ...(isFacturaA ? [{
       title: 'IVA %', width: 70, align: 'center' as const,
       render: (_: unknown, record: CartItem) => (
         <Text type="secondary">{((record.IVA_ALICUOTA || 0) * 100).toFixed(0)}%</Text>
       ),
     }] : []),
-    {
-      title: '', width: 40, align: 'center' as const,
-      render: (_: unknown, record: CartItem) => (
-        <DeleteOutlined
-          style={{ cursor: 'pointer', color: '#ff4d4f' }}
-          onClick={() => removeCartItem(record.key)}
-        />
-      ),
-    },
+    deleteColumn,
   ];
 
-  // ── Render cart step ───────────────────────────
-  const renderCartStep = () => (
-    <>
-      {/* ── Header controls ── */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-        <Select
-          showSearch
-          placeholder="Proveedor"
-          optionFilterProp="label"
-          value={proveedorId}
-          onChange={val => setProveedorId(val)}
-          style={{ minWidth: 250, flex: 1 }}
-          options={proveedores.map(p => ({
-            value: p.PROVEEDOR_ID,
-            label: `${p.CODIGOPARTICULAR} - ${p.NOMBRE}`,
-          }))}
-          suffixIcon={<ShopOutlined />}
-        />
-        <Select
-          placeholder="Depósito"
-          value={depositoId}
-          onChange={val => setDepositoId(val)}
-          style={{ width: 180 }}
-          options={depositos.map(d => ({
-            value: d.DEPOSITO_ID,
-            label: d.NOMBRE,
-          }))}
-        />
-      </div>
 
-      {/* ── Comprobante info ── */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-        <Select
-          value={tipoComprobante}
-          onChange={val => {
-            setTipoComprobante(val);
-            if (val === 'FA') {
-              setTipoCarga('detallada');
-              setIvaIncluido(true);
-            } else {
-              setIvaManual(0);
-              setIvaIncluido(true);
-            }
-          }}
-          style={{ width: 120 }}
-          options={[
-            { value: 'FA', label: 'Factura A' },
-            { value: 'FB', label: 'Factura B' },
-            { value: 'FC', label: 'Factura C' },
-            { value: 'FM', label: 'Factura M' },
-            { value: 'NCA', label: 'NC A' },
-            { value: 'NCB', label: 'NC B' },
-            { value: 'NCC', label: 'NC C' },
-            { value: 'R', label: 'Remito' },
-            { value: 'X', label: 'Comprobante X' },
-          ]}
-        />
-        <Input
-          value={ptoVta}
-          onChange={e => setPtoVta(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
-          onBlur={() => setPtoVta(prev => prev.padStart(4, '0'))}
-          onFocus={e => e.target.select()}
-          style={{ width: 65, fontFamily: 'monospace', textAlign: 'center', letterSpacing: 1 }}
-          maxLength={4}
-        />
-        <span style={{ fontFamily: 'monospace', fontSize: 16, lineHeight: '32px', userSelect: 'none' }}>-</span>
-        <Input
-          value={nroComprobante}
-          onChange={e => setNroComprobante(e.target.value.replace(/[^0-9]/g, '').slice(0, 8))}
-          onBlur={() => setNroComprobante(prev => prev.padStart(8, '0'))}
-          onFocus={e => e.target.select()}
-          style={{ width: 110, fontFamily: 'monospace', textAlign: 'center', letterSpacing: 1 }}
-          maxLength={8}
-        />
-        <Divider type="vertical" />
-        {isFacturaA && !isDetallada && (
-          <Checkbox checked={ivaIncluido} onChange={e => setIvaIncluido(e.target.checked)}>
-            IVA incluido
-          </Checkbox>
-        )}
-        <Checkbox checked={esCtaCorriente} onChange={e => setEsCtaCorriente(e.target.checked)}>
-          Cta. Corriente
-        </Checkbox>
-      </div>
-
-      {/* ── Tipo de carga toggle ── */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Text type="secondary" style={{ fontSize: 13 }}>Tipo de carga:</Text>
-        <Segmented
-          value={tipoCarga}
-          onChange={val => {
-            const v = val as 'simple' | 'detallada';
-            if (v === 'simple' && isFacturaA) {
-              message.info('Factura A requiere carga detallada');
-              return;
-            }
-            setTipoCarga(v);
-            // When switching, clear cart to avoid inconsistencies
-            if (cart.length > 0) setCart([]);
-          }}
-          options={[
-            { value: 'simple', label: 'Simple' },
-            { value: 'detallada', label: 'Detallada' },
-          ]}
-          size="small"
-        />
-        {isDetallada && (
-          <Checkbox checked={impIntGravaIva} onChange={e => setImpIntGravaIva(e.target.checked)}>
-            Imp. Int. grava IVA
-          </Checkbox>
-        )}
-      </div>
-
-      {/* ── Product search ── */}
-      <AutoComplete
-        ref={searchRef}
-        value={searchText}
-        options={searchOptions}
-        onSearch={handleSearch}
-        onSelect={handleSelectProduct}
-        style={{ width: '100%', marginBottom: 12 }}
-      >
-        <Input prefix={<SearchOutlined />} size="large" placeholder="Buscar producto por código o nombre..." />
-      </AutoComplete>
-
-      {/* ── Cart table ── */}
-      <Table
-        dataSource={cart}
-        columns={cartColumns}
-        rowKey="key"
-        size="small"
-        pagination={false}
-        scroll={{ y: 300 }}
-        locale={{ emptyText: 'Agregue productos a la compra' }}
-      />
-
-      {/* ── Percepciones & Cost Update ── */}
-      <div style={{ display: 'flex', gap: 16, marginTop: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-        {isFacturaA && !isDetallada && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <Text type="secondary">IVA:</Text>
-            <InputNumber
-              size="small"
-              value={ivaManual}
-              min={0}
-              onChange={val => setIvaManual(val || 0)}
-              style={{ width: 100 }}
-              prefix="$"
-              controls={false}
-            />
-          </div>
-        )}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <Text type="secondary">Perc. IVA:</Text>
-          <InputNumber
-            size="small"
-            value={percepcionIva}
-            min={0}
-            onChange={val => setPercepcionIva(val || 0)}
-            style={{ width: 90 }}
-            prefix="$"
-            controls={false}
-          />
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <Text type="secondary">Perc. IIBB:</Text>
-          <InputNumber
-            size="small"
-            value={percepcionIibb}
-            min={0}
-            onChange={val => setPercepcionIibb(val || 0)}
-            style={{ width: 90 }}
-            prefix="$"
-            controls={false}
-          />
-        </div>
-        <Divider type="vertical" />
-        <Checkbox checked={actualizarCostos} onChange={e => setActualizarCostos(e.target.checked)}>
-          Actualizar costos
-        </Checkbox>
-        <Checkbox checked={actualizarPrecios} onChange={e => setActualizarPrecios(e.target.checked)} disabled={!actualizarCostos}>
-          Actualizar precios
-        </Checkbox>
-      </div>
-
-      {/* ── Footer totals ── */}
-      <Divider />
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-        <div>
-          <Text type="secondary" style={{ display: 'block' }}>Subtotal: {fmtMoney(subtotal)}</Text>
-          {isDetallada && isFacturaA && ivaCalculado > 0 && (
-            <Text type="secondary" style={{ display: 'block' }}>IVA: {fmtMoney(r2(ivaCalculado))}</Text>
-          )}
-          {!isDetallada && isFacturaA && ivaManual > 0 && (
-            <Text type="secondary" style={{ display: 'block' }}>IVA: {fmtMoney(ivaManual)}</Text>
-          )}
-          {isDetallada && impInternoCalculado > 0 && (
-            <Text type="secondary" style={{ display: 'block' }}>Imp. Int.: {fmtMoney(r2(impInternoCalculado))}</Text>
-          )}
-          {percepcionIva > 0 && <Text type="secondary" style={{ display: 'block' }}>Perc. IVA: {fmtMoney(percepcionIva)}</Text>}
-          {percepcionIibb > 0 && <Text type="secondary" style={{ display: 'block' }}>Perc. IIBB: {fmtMoney(percepcionIibb)}</Text>}
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <Text style={{ fontSize: 14 }}>TOTAL</Text>
-          <Title level={2} style={{ margin: 0, color: '#EABD23' }}>
-            {fmtMoney(total)}
-          </Title>
-        </div>
-      </div>
-    </>
-  );
-
-  // ── Render payment step ────────────────────────
-  const renderPaymentStep = () => {
-    const pagado = metodoPago === 'efectivo'
-      ? pagoEfectivo
-      : metodoPago === 'digital'
-        ? pagoDigital
-        : pagoEfectivo + pagoDigital;
-
-    const faltante = Math.max(0, Math.round((total - pagado) * 100) / 100);
-
-    return (
-      <>
-        <Button
-          type="text"
-          icon={<ArrowLeftOutlined />}
-          onClick={() => setStep('cart')}
-          style={{ marginBottom: 16 }}
-        >
-          Volver al detalle
-        </Button>
-
-        <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <Text type="secondary">Total a pagar</Text>
-          <Title level={2} style={{ margin: '4px 0 0', color: '#EABD23' }}>
-            {fmtMoney(total)}
-          </Title>
-        </div>
-
-        {/* Method selector */}
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 24 }}>
-          {(['efectivo', 'digital', 'mixto'] as MetodoPago[]).map(m => (
-            <Button
-              key={m}
-              type={metodoPago === m ? 'primary' : 'default'}
-              className={metodoPago === m ? 'btn-gold' : ''}
-              icon={m === 'efectivo' ? <WalletOutlined /> : m === 'digital' ? <CreditCardOutlined /> : <DollarOutlined />}
-              onClick={() => { setMetodoPago(m); if (m === 'efectivo') setPagoEfectivo(total); if (m === 'digital') setPagoDigital(total); }}
-              style={{ textTransform: 'capitalize' }}
-            >
-              {m === 'efectivo' ? 'Efectivo' : m === 'digital' ? 'Digital' : 'Mixto'}
-            </Button>
-          ))}
-        </div>
-
-        {/* Payment destination selector */}
-        <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>Origen del pago</Text>
-          <Segmented
-            value={destinoPago}
-            onChange={val => setDestinoPago(val as 'CAJA_CENTRAL' | 'CAJA')}
-            options={[
-              {
-                value: 'CAJA_CENTRAL',
-                label: (
-                  <Space>
-                    <BankOutlined />
-                    <span>Caja Central</span>
-                  </Space>
-                ),
-              },
-              ...(miCaja ? [{
-                value: 'CAJA',
-                label: (
-                  <Space>
-                    <InboxOutlined />
-                    <span>Mi Caja</span>
-                  </Space>
-                ),
-              }] : []),
-            ]}
-          />
-          {!miCaja && (
-            <div style={{ marginTop: 4 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>No tenés una caja abierta — el egreso se registra en Caja Central</Text>
-            </div>
-          )}
-        </div>
-
-        {/* Payment fields */}
-        <div style={{ maxWidth: 350, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {(metodoPago === 'efectivo' || metodoPago === 'mixto') && (
-            <div>
-              <Text strong style={{ display: 'block', marginBottom: 4 }}>Efectivo</Text>
-              <InputNumber
-                ref={efectivoRef}
-                value={pagoEfectivo}
-                onChange={val => setPagoEfectivo(val || 0)}
-                min={0}
-                style={{ width: '100%' }}
-                prefix="$"
-                size="large"
-                controls={false}
-              />
-            </div>
-          )}
-          {(metodoPago === 'digital' || metodoPago === 'mixto') && (
-            <div>
-              <Text strong style={{ display: 'block', marginBottom: 4 }}>Digital</Text>
-              <InputNumber
-                value={pagoDigital}
-                onChange={val => setPagoDigital(val || 0)}
-                min={0}
-                style={{ width: '100%' }}
-                prefix="$"
-                size="large"
-                controls={false}
-              />
-            </div>
-          )}
-          {vuelto > 0 && (
-            <div style={{ textAlign: 'center', padding: 12, background: '#f6ffed', borderRadius: 8 }}>
-              <Text type="secondary">Vuelto</Text>
-              <Title level={4} style={{ margin: 0, color: '#52c41a' }}>
-                {fmtMoney(vuelto)}
-              </Title>
-            </div>
-          )}
-          {faltante > 0 && (
-            <div style={{ textAlign: 'center', padding: 12, background: '#fff2e8', borderRadius: 8 }}>
-              <Text type="secondary">Faltante</Text>
-              <Title level={4} style={{ margin: 0, color: '#fa8c16' }}>
-                {fmtMoney(faltante)}
-              </Title>
-            </div>
-          )}
-        </div>
-      </>
-    );
-  };
+  const totalItems = cart.length;
+  const totalUnits = cart.reduce((s, i) => s + i.CANTIDAD, 0);
+  const pagado = metodoPago === 'efectivo' ? pagoEfectivo : metodoPago === 'digital' ? pagoDigital : pagoEfectivo + pagoDigital;
+  const faltante = Math.max(0, r2(total - pagado));
 
   return (
     <>
     <Modal
       open={open}
       onCancel={handleClose}
-      width={step === 'cart' ? (isDetallada ? 1150 : 1050) : 500}
-      centered
+      width="95vw"
+      style={{ top: 20, maxWidth: 1400 }}
+      footer={null}
       destroyOnClose
-      className="rg-modal"
-      title={
-        <Space>
-          <ShoppingCartOutlined style={{ color: '#EABD23' }} />
-          <span>{step === 'cart' ? 'Nueva Compra' : 'Registrar Pago'}</span>
-          {cart.length > 0 && <Tag color="gold">{cart.length} ítems</Tag>}
-        </Space>
-      }
-      footer={
-        step === 'cart' ? (
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <Button onClick={handleClose}>Cancelar</Button>
-            <Button
-              type="primary"
-              className="btn-gold"
-              icon={<CheckCircleOutlined />}
-              disabled={cart.length === 0 || !proveedorId}
-              onClick={goToPayment}
-              loading={checkingSaldo}
-            >
-              {esCtaCorriente ? 'Registrar Compra' : 'Continuar al Pago'}
-            </Button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <Button onClick={() => setStep('cart')} icon={<ArrowLeftOutlined />}>
-              Volver
-            </Button>
-            <Button
-              type="primary"
-              className="btn-gold"
-              icon={<CheckCircleOutlined />}
-              loading={createMutation.isPending}
-              onClick={handleSubmit}
-            >
-              Confirmar Compra
-            </Button>
-          </div>
-        )
-      }
+      closable={false}
+      className="new-sale-modal"
+      styles={{ body: { padding: 0, overflow: 'hidden' } }}
     >
-      {step === 'cart' ? renderCartStep() : renderPaymentStep()}
+      {/* ── Dark header bar ─────────────────────── */}
+      <div className="nsm-header">
+        <div className="nsm-header-left">
+          {step === 'pago' ? (
+            <>
+              <WalletOutlined className="nsm-header-icon" />
+              <Title level={4} style={{ margin: 0, color: '#fff' }}>Registrar Pago</Title>
+            </>
+          ) : (
+            <>
+              <ShoppingCartOutlined className="nsm-header-icon" />
+              <Title level={4} style={{ margin: 0, color: '#fff' }}>Nueva Compra</Title>
+            </>
+          )}
+        </div>
+        <Button
+          type="text"
+          onClick={handleClose}
+          style={{ color: 'rgba(255,255,255,0.6)', fontSize: 22, lineHeight: 1 }}
+        >
+          ✕
+        </Button>
+      </div>
+
+      <div className="nsm-body" onFocusCapture={(e) => {
+        const target = e.target as HTMLInputElement;
+        if (target.tagName === 'INPUT' && target.type === 'text') {
+          requestAnimationFrame(() => target.select());
+        }
+      }}>
+        {/* ══ LEFT COLUMN — Search + Cart ══════════ */}
+        <div className="nsm-main">
+          <div className="nsm-cart-area">
+            {/* Embedded search */}
+            <div className="nsm-search-embedded">
+              <AutoComplete
+                ref={searchRef}
+                value={searchText}
+                options={searchOptions}
+                onSearch={handleSearch}
+                onSelect={handleSelectProduct}
+                style={{ width: '100%' }}
+                popupClassName="nsm-search-dropdown"
+                popupMatchSelectWidth={true}
+                notFoundContent={searching ? <Spin size="small" /> : searchText.length > 0 ? 'Sin resultados' : null}
+              >
+                <Input
+                  prefix={<SearchOutlined style={{ fontSize: 16, color: '#EABD23' }} />}
+                  suffix={
+                    <Tag color="default" style={{ margin: 0, fontSize: 11, opacity: 0.5 }}>
+                      F2
+                    </Tag>
+                  }
+                  placeholder="Buscar producto por código o nombre..."
+                  size="large"
+                  allowClear
+                  className="nsm-search-input"
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    if (searchOptions.length > 0) return;
+                    const text = searchText.trim();
+                    if (!text) return;
+                    e.preventDefault();
+                    purchasesApi.searchProducts(text).then(products => {
+                      if (products.length === 1) {
+                        handleSelectProduct(`${products[0]!.PRODUCTO_ID}`, { product: products[0] });
+                      } else if (products.length > 1) {
+                        const exact = products.find(p => p.CODIGOPARTICULAR?.toUpperCase() === text.toUpperCase());
+                        if (exact) {
+                          handleSelectProduct(`${exact.PRODUCTO_ID}`, { product: exact });
+                        } else {
+                          handleSearch(text);
+                        }
+                      } else {
+                        message.warning('No se encontró ningún producto');
+                      }
+                    });
+                  }}
+                />
+              </AutoComplete>
+            </div>
+            {cart.length === 0 ? (
+              <div className="nsm-empty-state">
+                <ShoppingCartOutlined className="nsm-empty-icon" />
+                <Title level={5} style={{ color: '#999', margin: '12px 0 4px' }}>
+                  Carrito vacío
+                </Title>
+                <Text type="secondary">
+                  Busque y agregue productos con el buscador
+                </Text>
+              </div>
+            ) : (
+              <Table
+                className="rg-table nsm-cart-table"
+                dataSource={cart}
+                columns={cartColumns}
+                rowKey="key"
+                pagination={false}
+                size="middle"
+                scroll={{ y: 'calc(100vh - 340px)' }}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* ══ RIGHT COLUMN — Config / Pago ═══════ */}
+        <div className="nsm-sidebar">
+          {step === 'cart' ? (
+            /* ── STEP 1: Cart configuration ───────── */
+            <>
+              <div className="npm-sidebar-scroll">
+              {/* Proveedor */}
+              <div className="nsm-field-group">
+                <label className="nsm-label">
+                  <ShopOutlined style={{ marginRight: 6 }} />
+                  Proveedor
+                </label>
+                <Select
+                  showSearch
+                  placeholder="Seleccionar proveedor"
+                  optionFilterProp="label"
+                  value={proveedorId}
+                  onChange={val => setProveedorId(val)}
+                  style={{ width: '100%' }}
+                  size="large"
+                  options={proveedores.map(p => ({
+                    value: p.PROVEEDOR_ID,
+                    label: `${p.CODIGOPARTICULAR} - ${p.NOMBRE}`,
+                  }))}
+                />
+              </div>
+
+              {/* Depósito */}
+              <div className="nsm-field-group">
+                <label className="nsm-label">
+                  <InboxOutlined style={{ marginRight: 6 }} />
+                  Depósito
+                </label>
+                <Select
+                  placeholder="Depósito"
+                  value={depositoId}
+                  onChange={val => setDepositoId(val)}
+                  style={{ width: '100%' }}
+                  size="large"
+                  options={depositos.map(d => ({
+                    value: d.DEPOSITO_ID,
+                    label: d.NOMBRE,
+                  }))}
+                />
+              </div>
+
+              {/* Comprobante */}
+              <div className="nsm-field-group">
+                <label className="nsm-label">
+                  <FileTextOutlined style={{ marginRight: 6 }} />
+                  Comprobante
+                </label>
+                <Select
+                  value={tipoComprobante}
+                  onChange={val => {
+                    setTipoComprobante(val);
+                    if (val === 'FA') {
+                      setTipoCarga('detallada');
+                      setIvaIncluido(true);
+                    } else {
+                      setIvaManual(0);
+                      setIvaIncluido(true);
+                    }
+                  }}
+                  style={{ width: '100%' }}
+                  size="large"
+                  options={[
+                    { value: 'FA', label: 'Factura A' },
+                    { value: 'FB', label: 'Factura B' },
+                    { value: 'FC', label: 'Factura C' },
+                    { value: 'FM', label: 'Factura M' },
+                    { value: 'NCA', label: 'NC A' },
+                    { value: 'NCB', label: 'NC B' },
+                    { value: 'NCC', label: 'NC C' },
+                    { value: 'R', label: 'Remito' },
+                    { value: 'X', label: 'Comprobante X' },
+                  ]}
+                />
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                  <Input
+                    value={ptoVta}
+                    onChange={e => setPtoVta(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+                    onBlur={() => setPtoVta(prev => prev.padStart(4, '0'))}
+                    onFocus={e => e.target.select()}
+                    style={{ width: 65, fontFamily: 'monospace', textAlign: 'center', letterSpacing: 1 }}
+                    maxLength={4}
+                    size="large"
+                  />
+                  <span style={{ fontFamily: 'monospace', fontSize: 16, userSelect: 'none' }}>-</span>
+                  <Input
+                    value={nroComprobante}
+                    onChange={e => setNroComprobante(e.target.value.replace(/[^0-9]/g, '').slice(0, 8))}
+                    onBlur={() => setNroComprobante(prev => prev.padStart(8, '0'))}
+                    onFocus={e => e.target.select()}
+                    style={{ flex: 1, fontFamily: 'monospace', textAlign: 'center', letterSpacing: 1 }}
+                    maxLength={8}
+                    size="large"
+                  />
+                </div>
+              </div>
+
+              {/* Tipo de carga */}
+              <div className="nsm-field-group">
+                <label className="nsm-label">Tipo de carga</label>
+                <Segmented
+                  value={tipoCarga}
+                  onChange={val => {
+                    const v = val as 'simple' | 'detallada';
+                    if (v === 'simple' && isFacturaA) {
+                      message.info('Factura A requiere carga detallada');
+                      return;
+                    }
+                    setTipoCarga(v);
+                    if (cart.length > 0) setCart([]);
+                  }}
+                  options={[
+                    { value: 'detallada', label: 'Detallada' },
+                    { value: 'simple', label: 'Simple' },
+                  ]}
+                  size="middle"
+                  block
+                />
+              </div>
+
+              {/* Options */}
+              <div className="nsm-field-group">
+                {isFacturaA && !isDetallada && (
+                  <Checkbox checked={ivaIncluido} onChange={e => setIvaIncluido(e.target.checked)} style={{ marginBottom: 8, display: 'block' }}>
+                    IVA incluido
+                  </Checkbox>
+                )}
+                <div className="nsm-switch-row">
+                  <Switch
+                    size="default"
+                    checked={esCtaCorriente}
+                    onChange={setEsCtaCorriente}
+                  />
+                  <span className="nsm-switch-label">
+                    <SwapOutlined style={{ marginRight: 6 }} />
+                    Cuenta Corriente
+                  </span>
+                </div>
+              </div>
+
+              {/* Percepciones */}
+              <div className="nsm-field-group">
+                <label className="nsm-label">Percepciones e impuestos</label>
+                {isFacturaA && !isDetallada && (
+                  <div style={{ marginBottom: 8 }}>
+                    <Text type="secondary" style={{ fontSize: 11 }}>IVA manual</Text>
+                    <InputNumber
+                      size="small"
+                      value={ivaManual}
+                      min={0}
+                      onChange={val => setIvaManual(val || 0)}
+                      style={{ width: '100%' }}
+                      prefix="$"
+                      controls={false}
+                    />
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <Text type="secondary" style={{ fontSize: 11 }}>Perc. IVA</Text>
+                    <InputNumber
+                      size="small"
+                      value={percepcionIva}
+                      min={0}
+                      onChange={val => setPercepcionIva(val || 0)}
+                      style={{ width: '100%' }}
+                      prefix="$"
+                      controls={false}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <Text type="secondary" style={{ fontSize: 11 }}>Perc. IIBB</Text>
+                    <InputNumber
+                      size="small"
+                      value={percepcionIibb}
+                      min={0}
+                      onChange={val => setPercepcionIibb(val || 0)}
+                      style={{ width: '100%' }}
+                      prefix="$"
+                      controls={false}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Actualizar costos / precios */}
+              <div className="nsm-field-group" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <Checkbox checked={actualizarCostos} onChange={e => setActualizarCostos(e.target.checked)}>
+                  Actualizar costos
+                </Checkbox>
+                <Checkbox checked={actualizarPrecios} onChange={e => setActualizarPrecios(e.target.checked)} disabled={!actualizarCostos}>
+                  Actualizar precios
+                </Checkbox>
+              </div>
+
+              <Divider style={{ margin: '10px 0' }} />
+
+              {/* Stats */}
+              <div className="nsm-stats">
+                <div className="nsm-stat">
+                  <Text type="secondary" style={{ fontSize: 12 }}>Ítems</Text>
+                  <Badge
+                    count={totalItems}
+                    showZero
+                    style={{ backgroundColor: totalItems > 0 ? '#EABD23' : '#d9d9d9', color: '#1E1F22', fontWeight: 600 }}
+                  />
+                </div>
+                <div className="nsm-stat">
+                  <Text type="secondary" style={{ fontSize: 12 }}>Unidades</Text>
+                  <Badge
+                    count={totalUnits}
+                    showZero
+                    style={{ backgroundColor: totalUnits > 0 ? '#EABD23' : '#d9d9d9', color: '#1E1F22', fontWeight: 600 }}
+                  />
+                </div>
+              </div>
+              </div>{/* /npm-sidebar-scroll */}
+
+              {/* Totals */}
+              <div className="nsm-totals-box">
+                <div className="nsm-total-line">
+                  <Text type="secondary">Subtotal</Text>
+                  <Text>{fmtMoney(subtotal)}</Text>
+                </div>
+                {isDetallada && isFacturaA && ivaCalculado > 0 && (
+                  <div className="nsm-total-line">
+                    <Text type="secondary">IVA</Text>
+                    <Text>{fmtMoney(r2(ivaCalculado))}</Text>
+                  </div>
+                )}
+                {!isDetallada && isFacturaA && ivaManual > 0 && (
+                  <div className="nsm-total-line">
+                    <Text type="secondary">IVA</Text>
+                    <Text>{fmtMoney(ivaManual)}</Text>
+                  </div>
+                )}
+                {isDetallada && impInternoCalculado > 0 && (
+                  <div className="nsm-total-line">
+                    <Text type="secondary">Imp. Int.</Text>
+                    <Text>{fmtMoney(r2(impInternoCalculado))}</Text>
+                  </div>
+                )}
+                {percepcionIva > 0 && (
+                  <div className="nsm-total-line">
+                    <Text type="secondary">Perc. IVA</Text>
+                    <Text>{fmtMoney(percepcionIva)}</Text>
+                  </div>
+                )}
+                {percepcionIibb > 0 && (
+                  <div className="nsm-total-line">
+                    <Text type="secondary">Perc. IIBB</Text>
+                    <Text>{fmtMoney(percepcionIibb)}</Text>
+                  </div>
+                )}
+                <Divider style={{ margin: '8px 0' }} />
+                <div className="nsm-total-final">
+                  <span>TOTAL</span>
+                  <span className="nsm-total-amount">{fmtMoney(total)}</span>
+                </div>
+              </div>
+
+              {/* Action buttons */}
+              <div className="nsm-actions">
+                {esCtaCorriente ? (
+                  <Button
+                    block
+                    size="large"
+                    onClick={goToPayment}
+                    loading={checkingSaldo}
+                    disabled={cart.length === 0 || !proveedorId}
+                    style={{ height: 48 }}
+                  >
+                    Registrar Compra (Cta. Cte.)
+                  </Button>
+                ) : (
+                  <Button
+                    type="primary"
+                    block
+                    size="large"
+                    className="btn-gold nsm-btn-cobrar"
+                    onClick={goToPayment}
+                    disabled={cart.length === 0 || !proveedorId}
+                    icon={<ShoppingCartOutlined />}
+                  >
+                    Continuar al Pago {fmtMoney(total)}
+                  </Button>
+                )}
+              </div>
+            </>
+          ) : (
+            /* ── STEP 2: Payment ──────────────────── */
+            <>
+              <div className="npm-sidebar-scroll">
+              {/* Total a pagar */}
+              <div className="nsm-cobro-total-box">
+                <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Total a pagar
+                </Text>
+                <div className="nsm-cobro-total-amount">{fmtMoney(total)}</div>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {totalItems} ítem{totalItems !== 1 ? 's' : ''} · {totalUnits} unidad{totalUnits !== 1 ? 'es' : ''}
+                </Text>
+              </div>
+
+              <Divider style={{ margin: '16px 0' }} />
+
+              {/* Payment method */}
+              <div className="nsm-field-group">
+                <label className="nsm-label">Método de pago</label>
+                <div className="nsm-metodo-group">
+                  {[
+                    { key: 'efectivo' as MetodoPago, icon: <DollarOutlined />, label: 'Efectivo' },
+                    { key: 'digital' as MetodoPago, icon: <CreditCardOutlined />, label: 'Digital' },
+                    { key: 'mixto' as MetodoPago, icon: <SwapOutlined />, label: 'Mixto' },
+                  ].map(m => (
+                    <button
+                      key={m.key}
+                      type="button"
+                      className={`nsm-metodo-btn${metodoPago === m.key ? ' active' : ''}`}
+                      onClick={() => {
+                        setMetodoPago(m.key);
+                        if (m.key === 'efectivo') setPagoEfectivo(total);
+                        if (m.key === 'digital') setPagoDigital(total);
+                      }}
+                    >
+                      <span className="nsm-metodo-icon">{m.icon}</span>
+                      <span className="nsm-metodo-label">{m.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Payment destination */}
+              <div className="nsm-field-group">
+                <label className="nsm-label">Origen del pago</label>
+                <Segmented
+                  value={destinoPago}
+                  onChange={val => setDestinoPago(val as 'CAJA_CENTRAL' | 'CAJA')}
+                  options={[
+                    {
+                      value: 'CAJA_CENTRAL',
+                      label: (
+                        <Space>
+                          <BankOutlined />
+                          <span>Caja Central</span>
+                        </Space>
+                      ),
+                    },
+                    ...(miCaja ? [{
+                      value: 'CAJA',
+                      label: (
+                        <Space>
+                          <InboxOutlined />
+                          <span>Mi Caja</span>
+                        </Space>
+                      ),
+                    }] : []),
+                  ]}
+                  block
+                />
+                {!miCaja && (
+                  <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
+                    No tenés una caja abierta — el egreso se registra en Caja Central
+                  </Text>
+                )}
+              </div>
+
+              {/* Cash input */}
+              {(metodoPago === 'efectivo' || metodoPago === 'mixto') && (
+                <div className="nsm-field-group">
+                  <label className="nsm-label">
+                    <DollarOutlined style={{ marginRight: 6 }} />
+                    Monto Efectivo
+                  </label>
+                  <InputNumber
+                    ref={efectivoRef}
+                    value={pagoEfectivo}
+                    onChange={val => setPagoEfectivo(val || 0)}
+                    min={0}
+                    step={100}
+                    size="large"
+                    style={{ width: '100%' }}
+                    formatter={v => `$ ${v}`}
+                    autoFocus
+                    onPressEnter={() => {
+                      if (metodoPago === 'efectivo' && faltante <= 0) handleSubmit();
+                    }}
+                  />
+                  {metodoPago === 'efectivo' && (
+                    <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
+                      Puede ingresar un monto mayor — se calculará el vuelto
+                    </Text>
+                  )}
+                </div>
+              )}
+
+              {/* Digital input */}
+              {(metodoPago === 'digital' || metodoPago === 'mixto') && (
+                <div className="nsm-field-group">
+                  <label className="nsm-label">
+                    <CreditCardOutlined style={{ marginRight: 6 }} />
+                    Monto Digital
+                  </label>
+                  <InputNumber
+                    value={pagoDigital}
+                    onChange={val => setPagoDigital(val || 0)}
+                    min={0}
+                    step={100}
+                    size="large"
+                    style={{ width: '100%' }}
+                    formatter={v => `$ ${v}`}
+                    autoFocus={metodoPago === 'digital'}
+                    onPressEnter={() => {
+                      if (faltante <= 0) handleSubmit();
+                    }}
+                  />
+                  {metodoPago === 'digital' && (
+                    <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
+                      El monto digital debe ser exacto
+                    </Text>
+                  )}
+                  {metodoPago === 'mixto' && (
+                    <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
+                      La suma de efectivo + digital debe ser exacta
+                    </Text>
+                  )}
+                </div>
+              )}
+
+              <Divider style={{ margin: '12px 0' }} />
+
+              {/* Payment summary */}
+              <div className="nsm-cobro-summary">
+                <div className="nsm-cobro-line">
+                  <Text type="secondary">Total recibido</Text>
+                  <Text strong>{fmtMoney(pagado)}</Text>
+                </div>
+                <div className="nsm-cobro-line">
+                  <Text type="secondary">Total a abonar</Text>
+                  <Text strong>{fmtMoney(total)}</Text>
+                </div>
+                {vuelto > 0 && (
+                  <div className="nsm-cobro-vuelto">
+                    <Text strong>Vuelto</Text>
+                    <Text strong className="nsm-cobro-vuelto-amount">{fmtMoney(vuelto)}</Text>
+                  </div>
+                )}
+                {faltante > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <Text type="danger" style={{ fontSize: 12 }}>
+                      Faltan {fmtMoney(faltante)}
+                    </Text>
+                  </div>
+                )}
+              </div>
+              </div>{/* /npm-sidebar-scroll */}
+
+              {/* Cobro action buttons */}
+              <div className="nsm-actions">
+                <Button
+                  type="primary"
+                  block
+                  size="large"
+                  className="btn-gold nsm-btn-cobrar"
+                  onClick={handleSubmit}
+                  loading={createMutation.isPending}
+                  disabled={faltante > 0}
+                  icon={<CheckCircleOutlined />}
+                >
+                  Confirmar Compra
+                </Button>
+                <Button
+                  block
+                  size="large"
+                  onClick={() => setStep('cart')}
+                  icon={<ArrowLeftOutlined />}
+                  style={{ height: 44 }}
+                >
+                  Volver al detalle
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </Modal>
 
     {/* ── Saldo CTA CTE confirmation modal ── */}

@@ -37,9 +37,12 @@ import {
   HomeOutlined,
   EnvironmentOutlined,
   WalletOutlined,
+  FileDoneOutlined,
+  FileAddOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../store/authStore';
 import { useTabStore } from '../store/tabStore';
+import { useSettingsStore } from '../store/settingsStore';
 import { useQueryClient } from '@tanstack/react-query';
 import { RGLogo } from './RGLogo';
 import { TabBar } from './TabBar';
@@ -58,6 +61,8 @@ import { BrandsPage } from '../pages/BrandsPage';
 import { CtaCorrientePage } from '../pages/CtaCorrientePage';
 import { CtaCorrienteProvPage } from '../pages/CtaCorrienteProvPage';
 import { PurchasesPage } from '../pages/PurchasesPage';
+import { SettingsPage } from '../pages/SettingsPage';
+import { NCComprasPage } from '../pages/NCComprasPage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -84,6 +89,8 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/cta-corriente':  { label: 'Cta. Cte. Cli. ', icon: <WalletOutlined />,       component: CtaCorrientePage, closable: true },
   '/cta-corriente-prov': { label: 'Cta. Cte. Prov.', icon: <ShopOutlined />,     component: CtaCorrienteProvPage, closable: true },
   '/purchases':      { label: 'Compras',       icon: <ShoppingCartOutlined />, component: PurchasesPage,    closable: true },
+  '/nc-compras':        { label: 'NC Compras',      icon: <FileAddOutlined />,         component: NCComprasPage,   closable: true },
+  '/settings/general': { label: 'Configuración', icon: <SettingOutlined />,       component: SettingsPage,     closable: true },
 };
 
 /** Icon map for TabBar */
@@ -122,6 +129,14 @@ const menuItems = [
         { key: 'ctas-corrientes', icon: <WalletOutlined />, label: 'Cuentas Corrientes', children: [
           { key: '/cta-corriente', icon: <TeamOutlined />, label: 'Cta Cte Clientes' },
           { key: '/cta-corriente-prov', icon: <ShopOutlined />, label: 'Cta Cte Proveedores' },
+        ]},
+        { key: 'notas-credito', icon: <FileAddOutlined />, label: 'Notas de Crédito', children: [
+          { key: '/nc-ventas', icon: <DollarOutlined />, label: 'Ventas' },
+          { key: '/nc-compras', icon: <ShoppingCartOutlined />, label: 'Compras' },
+        ]},
+        { key: 'notas-debito', icon: <FileDoneOutlined />, label: 'Notas de Débito', children: [
+          { key: '/nd-ventas', icon: <DollarOutlined />, label: 'Ventas' },
+          { key: '/nd-compras', icon: <ShoppingCartOutlined />, label: 'Compras' },
         ]},
         { key: '/arca', icon: <FileProtectOutlined />, label: 'ARCA' },
         { key: '/expenses', icon: <CreditCardOutlined />, label: 'Gastos y Servicios' },
@@ -179,6 +194,7 @@ const menuItems = [
     label: 'Configuración',
     children: [
       { type: 'group' as const, label: 'Configuración', className: 'rg-popup-group-title', children: [
+        { key: '/settings/general', icon: <SettingOutlined />, label: 'Generales' },
         { key: '/settings/company', icon: <HomeOutlined />, label: 'Mi Empresa' },
         { key: '/settings/pos', icon: <EnvironmentOutlined />, label: 'Puntos de Venta' },
       ]},
@@ -192,7 +208,80 @@ export function AppLayout() {
   const location = useLocation();
   const { user, puntosVenta, puntoVentaActivo, setPuntoVentaActivo, logout } = useAuthStore();
   const { tabs, activeKey, openTab } = useTabStore();
+  const { fetchSettings, loaded: settingsLoaded } = useSettingsStore();
   const queryClient = useQueryClient();
+
+  // Load user settings on mount
+  useEffect(() => {
+    if (!settingsLoaded) fetchSettings();
+  }, [settingsLoaded, fetchSettings]);
+
+  // ── Global keyboard shortcuts ──────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Don't fire shortcuts when typing in inputs/textareas
+      const tag = (e.target as HTMLElement).tagName;
+      const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+      const isContentEditable = (e.target as HTMLElement).isContentEditable;
+
+      // Build the combo string to match against settings
+      const parts: string[] = [];
+      if (e.ctrlKey) parts.push('Ctrl');
+      if (e.altKey) parts.push('Alt');
+      if (e.shiftKey) parts.push('Shift');
+      const key = e.key;
+      if (['Control', 'Alt', 'Shift', 'Meta'].includes(key)) return;
+      const keyMap: Record<string, string> = {
+        ' ': 'Space', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
+        Escape: 'Esc', Delete: 'Del',
+      };
+      const mapped = key.startsWith('F') && key.length <= 3
+        ? key.toUpperCase()
+        : keyMap[key] || key.toUpperCase();
+      parts.push(mapped);
+      const combo = parts.join('+');
+
+      // Check against configured shortcuts
+      const settings = useSettingsStore.getState().settings;
+      const shortcuts = settings.filter(s => s.TIPO === 'shortcut');
+      
+      for (const sc of shortcuts) {
+        const val = sc.VALOR ?? sc.VALOR_DEFECTO;
+        if (val && val.toUpperCase() === combo.toUpperCase()) {
+          // For function keys, always intercept. For other combos, skip if in input
+          const isFnKey = /^F\d+$/i.test(val);
+          if (!isFnKey && isInput) continue;
+          if (!isFnKey && isContentEditable) continue;
+          
+          e.preventDefault();
+          e.stopPropagation();
+
+          // Dispatch based on clave
+          switch (sc.CLAVE) {
+            case 'atajo_nueva_venta':
+              openTab({ key: '/sales', label: 'Ventas', closable: true });
+              navigate('/sales');
+              // Dispatch custom event for SalesPage to open the modal
+              window.dispatchEvent(new CustomEvent('rg:open-new-sale'));
+              break;
+            case 'atajo_nueva_compra':
+              openTab({ key: '/purchases', label: 'Compras', closable: true });
+              navigate('/purchases');
+              window.dispatchEvent(new CustomEvent('rg:open-new-purchase'));
+              break;
+            case 'atajo_abrir_caja':
+              openTab({ key: '/cashregisters', label: 'Cajas', closable: true });
+              navigate('/cashregisters');
+              break;
+          }
+          return;
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [navigate, openTab]);
 
   // Auto-refresh data when switching tabs (only the active tab's queries)
   const prevActiveKey = useRef(activeKey);
@@ -259,6 +348,7 @@ export function AppLayout() {
   }, [tabs, activeKey]);
 
   const handleLogout = () => {
+    useSettingsStore.getState().clear();
     logout();
     navigate('/login');
   };
@@ -292,7 +382,7 @@ export function AppLayout() {
       gastronomia: ['/gastronomy/tables'],
       reportes: ['/reports/reports', '/reports/listings'],
       usuarios: ['/users/users', '/users/staff', '/users/permissions'],
-      configuracion: ['/settings/company', '/settings/pos'],
+      configuracion: ['/settings/general', '/settings/company', '/settings/pos'],
     };
     for (const [group, paths] of Object.entries(groups)) {
       if (paths.includes(activeKey)) return [group];

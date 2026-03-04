@@ -737,6 +737,11 @@ body {
   }
 }
 
+/* ── Settings page row hover ──────────────────── */
+.setting-row:hover {
+  background: rgba(234, 189, 35, 0.04) !important;
+}
+
 /* ── Loading skeleton shimmer ─────────────────── */
 .skeleton-shimmer {
   background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
@@ -983,8 +988,8 @@ body {
 /* Two-column body */
 .nsm-body {
   display: flex;
-  min-height: calc(100vh - 160px);
-  max-height: calc(100vh - 100px);
+  min-height: calc(100vh - 200px);
+  max-height: calc(100vh - 140px);
 }
 
 /* Left: main area (search + cart) */
@@ -996,65 +1001,105 @@ body {
   overflow: hidden;
 }
 
-/* Search wrapper */
-.nsm-search-wrap {
-  margin-bottom: 16px;
-}
-.nsm-search-input {
-  border-radius: 12px !important;
-  border: 2px solid var(--rg-border) !important;
-  font-size: 15px !important;
-  height: 52px !important;
-  transition: all 0.3s ease !important;
-}
-.nsm-search-input:focus,
-.nsm-search-input:hover {
-  border-color: var(--rg-gold) !important;
-  box-shadow: 0 0 0 3px rgba(234, 189, 35, 0.12) !important;
-}
-.nsm-search-hint {
-  font-size: 11px;
-  color: #aaa;
-  margin-top: 6px;
-  padding-left: 4px;
-  position: relative;
-  z-index: 1;
-}
-.nsm-search-wrap .ant-select {
-  height: 52px !important;
-}
-.nsm-search-dropdown {
-  border-radius: 12px !important;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.12) !important;
-  margin-top: 4px !important;
-}
-.nsm-search-dropdown .ant-select-item {
-  padding: 10px 14px !important;
-  border-radius: 8px;
-  margin: 2px 4px;
-}
-
 /* Cart area */
 .nsm-cart-area {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   border-radius: 12px;
   border: 1px solid var(--rg-border);
-  background: #fafafa;
+  background: linear-gradient(180deg, #ffffff 0%, #fafafa 40%, #f5f5f5 100%);
 }
+
+/* ── Embedded search inside cart ─────── */
+.nsm-search-embedded {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--rg-border);
+}
+.nsm-search-input {
+  border-radius: 8px !important;
+  border: 1px solid #e0e0e0 !important;
+  background: #f7f7f7 !important;
+  font-size: 14px !important;
+  height: 40px !important;
+  transition: all 0.25s ease !important;
+}
+.nsm-search-input:focus,
+.nsm-search-input:hover,
+.nsm-search-input:focus-within {
+  border-color: var(--rg-gold) !important;
+  box-shadow: 0 0 0 2px rgba(234, 189, 35, 0.1) !important;
+  background: #fff !important;
+}
+.nsm-search-input .ant-input {
+  background: transparent !important;
+  color: var(--rg-text) !important;
+  font-size: 14px !important;
+}
+.nsm-search-input .ant-input::placeholder {
+  color: #bbb !important;
+}
+.nsm-search-input .ant-input-clear-icon {
+  color: #ccc !important;
+}
+.nsm-search-embedded .ant-select {
+  height: 40px !important;
+}
+
+/* Purchase modal cart area */
+.npm-cart-area {
+  border-radius: 8px;
+  border: 1px solid var(--rg-border);
+  background: #fafafa;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.npm-cart-table .ant-table-thead > tr > th {
+  background: #2a2b2e !important;
+  color: var(--rg-gold) !important;
+  font-weight: 700 !important;
+  font-size: 11px !important;
+  letter-spacing: 0.3px;
+  padding: 8px 10px !important;
+  border-bottom: none !important;
+}
+.npm-cart-table .ant-table-tbody > tr > td {
+  padding: 8px 10px !important;
+  vertical-align: middle;
+  border-bottom: 1px solid #f0f0f0 !important;
+}
+.npm-cart-table .ant-table-tbody > tr:hover > td {
+  background: rgba(234, 189, 35, 0.04) !important;
+}
+
 .nsm-cart-table .ant-table-thead > tr > th {
   background: var(--rg-black) !important;
   color: var(--rg-gold) !important;
   font-weight: 700 !important;
   font-size: 12px !important;
   letter-spacing: 0.5px;
-  padding: 12px 16px !important;
+  padding: 10px 12px !important;
   border-bottom: none !important;
+  text-align: center !important;
+}
+/* PRODUCTO column fills — no centering */
+.nsm-cart-table .ant-table-thead > tr > th:first-child {
+  text-align: left !important;
 }
 .nsm-cart-table .ant-table-tbody > tr > td {
-  padding: 12px 16px !important;
+  padding: 10px 12px !important;
   vertical-align: middle;
   border-bottom: 1px solid #f0f0f0 !important;
+  text-align: center;
+}
+.nsm-cart-table .ant-table-tbody > tr > td:first-child {
+  text-align: left;
 }
 .nsm-cart-table .ant-table-tbody > tr:hover > td {
   background: rgba(234, 189, 35, 0.04) !important;
@@ -1083,13 +1128,19 @@ body {
   min-width: 320px;
   background: var(--rg-white-smoke);
   border-left: 1px solid var(--rg-border);
-  padding: 20px;
+  padding: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+.npm-sidebar-scroll {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  padding: 16px 20px;
 }
 .nsm-field-group {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 .nsm-label {
   display: block;
@@ -1119,7 +1170,7 @@ body {
 .nsm-stats {
   display: flex;
   gap: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 0;
 }
 .nsm-stat {
   display: flex;
@@ -1129,11 +1180,12 @@ body {
 
 /* Totals box */
 .nsm-totals-box {
+  flex-shrink: 0;
   background: #fff;
-  border: 2px solid var(--rg-border);
-  border-radius: 12px;
-  padding: 16px;
-  margin-bottom: 20px;
+  border-top: 1px solid var(--rg-border);
+  border-radius: 0;
+  padding: 14px 20px;
+  margin-bottom: 0;
 }
 .nsm-total-line {
   display: flex;
@@ -1158,10 +1210,13 @@ body {
 
 /* Action buttons */
 .nsm-actions {
-  margin-top: auto;
+  flex-shrink: 0;
+  padding: 12px 20px 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  background: var(--rg-white-smoke);
+  border-top: 1px solid var(--rg-border);
 }
 .nsm-btn-cobrar {
   height: 56px !important;
@@ -1318,5 +1373,421 @@ body {
     min-width: auto;
     border-left: none;
     border-top: 1px solid var(--rg-border);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   NEW SALE MODAL — PREMIUM SEARCH + CART + GAMING ANIMATIONS
+   GPU-accelerated · CSS-only · Entry/Exit/Hover · 60fps
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ─── Keyframes ────────────────────────────────────────────────────── */
+
+@keyframes nsm-shine {
+  0%   { left: -80%; }
+  100% { left: 130%; }
+}
+@keyframes nsm-pulse-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(234, 189, 35, 0.4); }
+  70%  { box-shadow: 0 0 0 6px rgba(234, 189, 35, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(234, 189, 35, 0); }
+}
+
+
+/* ─── 1. MODAL ENTRANCE — uses Ant Design default transition ──────── */
+
+
+/* ─── 2. HEADER — Animated gold bar ───────────────────────────────── */
+
+.nsm-header {
+  position: relative;
+  overflow: hidden;
+}
+.nsm-header::after {
+  content: '';
+  position: absolute;
+  bottom: -3px;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--rg-gold-dark),
+    var(--rg-gold-light),
+    var(--rg-gold),
+    var(--rg-gold-light),
+    var(--rg-gold-dark)
+  );
+}
+.nsm-header-icon {
+  transition: transform 0.3s ease, filter 0.3s ease;
+  filter: drop-shadow(0 0 4px rgba(234, 189, 35, 0.3));
+}
+.nsm-header:hover .nsm-header-icon {
+  transform: scale(1.12) rotate(-3deg);
+  filter: drop-shadow(0 0 10px rgba(234, 189, 35, 0.6));
+}
+
+
+/* ─── 3. SEARCH DROPDOWN — Premium product cards ──────────────────── */
+
+.nsm-search-dropdown {
+  border-radius: 14px !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18) !important;
+  border: 1px solid rgba(234, 189, 35, 0.15) !important;
+  margin-top: 6px !important;
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+}
+
+.nsm-search-dropdown .ant-select-item {
+  padding: 0 !important;
+  margin: 4px 6px !important;
+  border-radius: 10px !important;
+  overflow: hidden;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  border: 1px solid transparent !important;
+}
+.nsm-search-dropdown .ant-select-item:hover,
+.nsm-search-dropdown .ant-select-item-option-active {
+  background: rgba(234, 189, 35, 0.06) !important;
+  border-color: rgba(234, 189, 35, 0.25) !important;
+  transform: translateX(3px);
+  box-shadow: inset 3px 0 0 var(--rg-gold), 0 2px 8px rgba(0,0,0,0.04);
+}
+
+/* Search item layout */
+.nsm-search-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  gap: 12px;
+}
+.nsm-search-item-left {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.nsm-search-item-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--rg-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+.nsm-search-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1;
+}
+.nsm-search-item-code {
+  color: #999;
+  font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.3px;
+}
+.nsm-search-item-stock {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: rgba(82, 196, 26, 0.08);
+  color: #52c41a;
+  border: 1px solid rgba(82, 196, 26, 0.2);
+}
+.nsm-search-item-stock.low {
+  background: rgba(250, 173, 20, 0.08);
+  color: #faad14;
+  border-color: rgba(250, 173, 20, 0.2);
+}
+.nsm-search-item-stock.out {
+  background: rgba(255, 77, 79, 0.06);
+  color: #ff4d4f;
+  border-color: rgba(255, 77, 79, 0.15);
+}
+.nsm-search-item-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  flex-shrink: 0;
+}
+.nsm-search-item-price {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--rg-gold);
+  letter-spacing: -0.3px;
+  line-height: 1.2;
+  text-shadow: 0 0 12px rgba(234, 189, 35, 0.15);
+}
+.nsm-search-item-unit {
+  font-size: 10px;
+  color: #bbb;
+  font-weight: 500;
+}
+
+
+/* ─── 4. SEARCH INPUT — Enhanced focus ────────────────────────────── */
+
+.nsm-search-input {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+.nsm-search-input:focus,
+.nsm-search-input:focus-within {
+  border-color: var(--rg-gold) !important;
+  box-shadow:
+    0 0 0 3px rgba(234, 189, 35, 0.15),
+    0 0 24px rgba(234, 189, 35, 0.1) !important;
+}
+
+
+/* ─── 5. CART PRODUCT COLUMN — Richer info ────────────────────────── */
+
+.nsm-cart-product {
+  padding: 6px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nsm-cart-product-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--rg-text);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nsm-cart-product-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.nsm-cart-product-code {
+  font-size: 10.5px;
+  color: #999;
+  font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  letter-spacing: 0.3px;
+}
+.nsm-cart-product-unit-tag {
+  display: inline-flex;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: rgba(234, 189, 35, 0.1);
+  color: var(--rg-gold-dark);
+  border: 1px solid rgba(234, 189, 35, 0.2);
+  line-height: 16px;
+}
+.nsm-cart-product-stock {
+  font-size: 10.5px;
+  color: #aaa;
+}
+
+/* ─── 6. CART INPUT FIELDS — Unified style ────────────────────────── */
+
+.nsm-cart-input {
+  border-radius: 8px !important;
+  border: 1.5px solid #e8e8e8 !important;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+.nsm-cart-input:focus,
+.nsm-cart-input:focus-within,
+.nsm-cart-input.ant-input-number-focused {
+  border-color: var(--rg-gold) !important;
+  box-shadow: 0 0 0 2px rgba(234, 189, 35, 0.12) !important;
+  animation: nsm-pulse-ring 0.5s ease-out;
+}
+
+/* ─── 7. QUANTITY +/- BUTTONS — Gaming tactile ────────────────────── */
+
+.nsm-qty-btn {
+  border-radius: 6px !important;
+  border: 1.5px solid #d9d9d9 !important;
+  transition: all 0.15s ease !important;
+  will-change: transform;
+}
+.nsm-qty-btn:hover {
+  border-color: var(--rg-gold) !important;
+  color: var(--rg-gold) !important;
+  box-shadow: 0 2px 8px rgba(234, 189, 35, 0.15);
+}
+
+/* ─── 8. CART DELETE BUTTON ────────────────────────────────────────── */
+
+.nsm-cart-delete {
+  font-size: 16px !important;
+  border-radius: 8px !important;
+  transition: background 0.2s ease !important;
+}
+.nsm-cart-delete:hover {
+  background: rgba(255, 77, 79, 0.08) !important;
+}
+
+
+/* ─── 9. SIDEBAR ──────────────────────────────────────────────────── */
+
+
+/* ─── 10. SIDEBAR FIELDS — Subtle accent (no layout shift) ────────── */
+
+.nsm-label {
+  transition: color 0.2s ease;
+}
+.nsm-field-group:hover .nsm-label {
+  color: var(--rg-gold-dark);
+}
+
+
+/* ─── 11. SWITCH ROW — Micro-lift ─────────────────────────────────── */
+
+.nsm-switch-row {
+  transition: border-color 0.2s ease;
+}
+.nsm-switch-row:hover {
+  border-color: rgba(234, 189, 35, 0.4);
+}
+
+
+/* ─── 12. CART ROWS — Hover ───────────────────────────────────────── */
+
+.nsm-cart-table .ant-table-tbody > tr {
+  transition: background 0.2s ease;
+}
+
+.nsm-cart-table .ant-table-tbody > tr:hover > td {
+  background: rgba(234, 189, 35, 0.045) !important;
+}
+
+
+/* ─── 13. TOTALS BOX — Glow + amount pop ──────────────────────────── */
+
+.nsm-totals-box {
+  transition: border-color 0.3s ease;
+}
+.nsm-totals-box:hover {
+  border-color: rgba(234, 189, 35, 0.5);
+}
+
+
+/* ─── 14. COBRAR BUTTON — Hero CTA ───────────────────────────────── */
+
+.nsm-btn-cobrar {
+  position: relative;
+  overflow: hidden;
+  will-change: box-shadow;
+  transition: box-shadow 0.2s ease !important;
+}
+.nsm-btn-cobrar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -80%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.nsm-btn-cobrar:hover::after {
+  opacity: 1;
+  animation: nsm-shine 0.65s ease forwards;
+}
+.nsm-btn-cobrar:hover {
+  box-shadow: 0 0 28px rgba(234, 189, 35, 0.55), 0 6px 20px rgba(0,0,0,0.2) !important;
+}
+.nsm-btn-cobrar:active {
+  box-shadow: 0 0 10px rgba(234, 189, 35, 0.3) !important;
+  transition-duration: 0.06s !important;
+}
+
+
+/* ─── 15. MÉTODO DE PAGO — Lift + sweep ───────────────────────────── */
+
+.nsm-metodo-btn {
+  position: relative;
+  overflow: hidden;
+  will-change: transform, box-shadow;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.2s ease,
+              border-color 0.2s ease,
+              background 0.2s ease;
+}
+.nsm-metodo-btn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -80%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(234,189,35,0.12), transparent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.nsm-metodo-btn:hover {
+  box-shadow: 0 4px 14px rgba(234, 189, 35, 0.15);
+  border-color: var(--rg-gold);
+}
+.nsm-metodo-btn:hover::after {
+  opacity: 1;
+  animation: nsm-shine 0.55s ease forwards;
+}
+.nsm-metodo-btn.active {
+  box-shadow: 0 0 0 1px rgba(234, 189, 35, 0.3), 0 0 14px rgba(234, 189, 35, 0.15);
+}
+.nsm-metodo-icon {
+  transition: color 0.2s ease;
+}
+.nsm-metodo-btn:hover .nsm-metodo-icon {
+  color: var(--rg-gold);
+}
+
+
+/* ─── 16. COBRO BOXES — Shimmer ───────────────────────────────────── */
+
+/* Cobro boxes — no hover shift */
+
+
+/* ─── 17. EMPTY CART ──────────────────────────────────────────────── */
+
+
+/* ─── 18. STATS — Scale on hover ──────────────────────────────────── */
+
+.nsm-stat:hover .ant-badge-count {
+  box-shadow: 0 0 10px rgba(234, 189, 35, 0.4) !important;
+}
+
+
+/* ─── ACCESSIBILITY — Reduced motion ──────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .nsm-switch-row,
+  .nsm-metodo-btn,
+  .nsm-metodo-btn::after,
+  .nsm-btn-cobrar,
+  .nsm-btn-cobrar::after,
+  .nsm-totals-box,
+  .nsm-header::after,
+  .nsm-header-icon,
+  .nsm-label,
+  .nsm-metodo-icon,
+  .nsm-cart-input,
+  .nsm-search-dropdown .ant-select-item {
+    transition: none !important;
+    animation: none !important;
   }
 }

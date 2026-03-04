@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Drawer, Descriptions, Spin,
@@ -17,6 +17,7 @@ import { DateFilterPopover, getPresetRange, type DatePreset } from '../component
 import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
 import { FondoCambioModal } from '../components/FondoCambioModal';
 import { fmtMoney, statFormatter } from '../utils/format';
+import { useTabStore } from '../store/tabStore';
 import type { Caja, CajaItem } from '../types';
 
 const { Title, Text } = Typography;
@@ -24,7 +25,9 @@ const { Title, Text } = Typography;
 export function CajaPage() {
   const queryClient = useQueryClient();
   const location = useLocation();
+  const navigate = useNavigate();
   const { user, puntoVentaActivo, puntosVenta } = useAuthStore();
+  const { openTab } = useTabStore();
 
   // ── State ──────────────────────────────────────
   const [page, setPage] = useState(1);
@@ -50,14 +53,19 @@ export function CajaPage() {
   const [ieMonto, setIeMonto] = useState<number>(0);
   const [ieDescripcion, setIeDescripcion] = useState('');
   const [fondoModalOpen, setFondoModalOpen] = useState(false);
+  const montoAperturaRef = useRef<any>(null);
 
   // ── Open caja detail from external navigation (e.g. Caja Central) ──
   useEffect(() => {
-    const state = location.state as { openCajaId?: number } | null;
+    const state = location.state as { openCajaId?: number; autoAbrirCaja?: boolean } | null;
     if (state?.openCajaId) {
       setSelectedId(state.openCajaId);
       setDrawerOpen(true);
-      // Clear state to prevent re-opening on re-render
+      window.history.replaceState({}, '');
+    }
+    if (state?.autoAbrirCaja) {
+      refetchFondoApertura();
+      setAbrirModalOpen(true);
       window.history.replaceState({}, '');
     }
   }, [location.state]);
@@ -145,6 +153,21 @@ export function CajaPage() {
       setAbrirModalOpen(false);
       setMontoApertura(0);
       invalidateAll();
+      // Preguntar si desea realizar una nueva venta
+      Modal.confirm({
+        title: '¿Desea realizar una nueva venta?',
+        content: 'La caja fue abierta exitosamente. Puede comenzar a registrar ventas ahora.',
+        okText: 'Sí, nueva venta',
+        cancelText: 'No, continuar aquí',
+        okButtonProps: { className: 'btn-gold' },
+        autoFocusButton: 'ok',
+        className: 'rg-modal',
+        onOk: () => {
+          openTab({ key: '/sales', label: 'Ventas', closable: true });
+          navigate('/sales');
+          setTimeout(() => window.dispatchEvent(new CustomEvent('rg:open-new-sale')), 150);
+        },
+      });
     },
     onError: (err: any) => message.error(err.response?.data?.error || 'Error al abrir caja'),
   });
@@ -561,12 +584,20 @@ export function CajaPage() {
       <Modal
         title="Abrir Caja"
         open={abrirModalOpen}
-        onCancel={() => setAbrirModalOpen(false)}
+        onCancel={() => { setAbrirModalOpen(false); }}
         onOk={() => abrirMutation.mutate()}
         confirmLoading={abrirMutation.isPending}
         okText="Abrir Caja"
         okButtonProps={{ className: 'btn-gold', disabled: montoExcedeFondo }}
         className="rg-modal"
+        afterOpenChange={(open) => {
+          if (open) {
+            setTimeout(() => {
+              const ref = montoAperturaRef.current;
+              if (ref) { ref.focus(); ref.select(); }
+            }, 100);
+          }
+        }}
       >
         <div style={{ marginBottom: 16 }}>
           <Text>Punto de venta: <Text strong>{pvNombre}</Text></Text>
@@ -581,6 +612,7 @@ export function CajaPage() {
             help={montoExcedeFondo ? `El monto no puede superar el fondo disponible (${fmtMoney(fondoDisponible)})` : undefined}
           >
             <InputNumber
+              ref={montoAperturaRef}
               style={{ width: '100%' }}
               min={0}
               precision={2}
@@ -588,6 +620,7 @@ export function CajaPage() {
               value={montoApertura}
               onChange={v => setMontoApertura(v ?? 0)}
               status={montoExcedeFondo ? 'error' : undefined}
+              onPressEnter={() => { if (!montoExcedeFondo && !abrirMutation.isPending) abrirMutation.mutate(); }}
               autoFocus
             />
           </Form.Item>
