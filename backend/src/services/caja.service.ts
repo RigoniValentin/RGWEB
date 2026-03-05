@@ -46,7 +46,7 @@ export const cajaService = {
 
     if (filter.fechaDesde) {
       where += ' AND c.FECHA_APERTURA >= @fechaDesde';
-      params.push({ name: 'fechaDesde', type: sql.DateTime, value: new Date(filter.fechaDesde) });
+      params.push({ name: 'fechaDesde', type: sql.DateTime, value: new Date(filter.fechaDesde + 'T00:00:00') });
     }
     if (filter.fechaHasta) {
       where += ' AND c.FECHA_APERTURA <= @fechaHasta';

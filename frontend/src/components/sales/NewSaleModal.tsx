@@ -454,6 +454,11 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
   const handleSearch = (text: string) => {
     setSearchText(text);
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    // Skip debounced search for balanza barcodes — they are handled on Enter
+    if (/^2\d{12}$/.test(text.trim())) {
+      setSearchOptions([]);
+      return;
+    }
     if (text.length >= 1) {
       searchTimeout.current = setTimeout(() => doSearch(text), 300);
     } else {
@@ -497,6 +502,36 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     setSearchOptions([]);
   }, [depositoId]);
 
+  // Add product from barcode balanza with pre-set quantity (weight)
+  // Does NOT set lastAddedKey so the search input stays focused for the next scan
+  const addBalanzaProduct = useCallback((product: ProductoSearch, cantidad: number) => {
+    setCart(prev => {
+      const newKey = `${product.PRODUCTO_ID}-${Date.now()}`;
+      return [...prev, {
+        key: newKey,
+        PRODUCTO_ID: product.PRODUCTO_ID,
+        NOMBRE: product.NOMBRE,
+        CODIGO: product.CODIGOPARTICULAR,
+        PRECIO_UNITARIO: product.PRECIO_VENTA,
+        CANTIDAD: cantidad,
+        DESCUENTO: 0,
+        PRECIO_COMPRA: product.PRECIO_COMPRA || 0,
+        STOCK: product.STOCK,
+        UNIDAD: product.UNIDAD_ABREVIACION || 'kg',
+        UNIDAD_NOMBRE: product.UNIDAD_NOMBRE || '',
+        DEPOSITO_ID: depositoId || undefined,
+        LISTA_ID: product.LISTA_DEFECTO || 1,
+      }];
+    });
+    setSearchText('');
+    setSearchOptions([]);
+  }, [depositoId]);
+
+  // Detect barcode balanza code: 13 digits starting with "2"
+  const isBalanzaBarcode = (code: string): boolean => {
+    return /^2\d{12}$/.test(code);
+  };
+
   // Auto-focus qty field when a new product is added
   useEffect(() => {
     if (!lastAddedKey) return;
@@ -525,6 +560,25 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     e.stopPropagation();
     // Cancel any pending debounced search
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
+
+    // ── Barcode balanza detection ──
+    // Format: 13 digits, starts with "2", encodes product ID + weight
+    if (isBalanzaBarcode(text)) {
+      salesApi.getBalanzaProduct(text).then(data => {
+        if (data && data.product) {
+          addBalanzaProduct(data.product, data.cantidad);
+          message.success(
+            `${data.product.NOMBRE} — ${data.cantidad.toFixed(3)} kg`
+          );
+        } else {
+          message.warning('Producto de balanza no encontrado');
+        }
+      }).catch(() => {
+        message.error('Error al buscar producto de balanza');
+      });
+      return;
+    }
+
     // Immediate search — if exactly 1 product matches, add it directly
     salesApi.searchProducts(text).then(products => {
       if (products.length === 1) {
@@ -544,7 +598,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
         message.warning('No se encontró ningún producto');
       }
     });
-  }, [searchText, searchOptions, addProduct, doSearch]);
+  }, [searchText, searchOptions, addProduct, addBalanzaProduct, doSearch]);
 
   const updateCartItem = (key: string, field: string, value: any) => {
     setCart(prev => prev.map(item =>

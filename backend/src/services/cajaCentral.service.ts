@@ -31,7 +31,7 @@ export const cajaCentralService = {
 
     if (filter.fechaDesde) {
       where += ' AND m.FECHA >= @fechaDesde';
-      params.push({ name: 'fechaDesde', type: sql.DateTime, value: new Date(filter.fechaDesde) });
+      params.push({ name: 'fechaDesde', type: sql.DateTime, value: new Date(filter.fechaDesde + 'T00:00:00') });
     }
     if (filter.fechaHasta) {
       where += ' AND m.FECHA <= @fechaHasta';
@@ -84,7 +84,7 @@ export const cajaCentralService = {
 
     if (filter.fechaDesde) {
       where += ' AND m.FECHA >= @fechaDesde';
-      params.push({ name: 'fechaDesde', type: sql.DateTime, value: new Date(filter.fechaDesde) });
+      params.push({ name: 'fechaDesde', type: sql.DateTime, value: new Date(filter.fechaDesde + 'T00:00:00') });
     }
     if (filter.fechaHasta) {
       where += ' AND m.FECHA <= @fechaHasta';

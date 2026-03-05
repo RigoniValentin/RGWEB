@@ -33,6 +33,9 @@ export const salesApi = {
   searchProducts: (search: string, listaId?: number) =>
     api.get<ProductoSearch[]>('/sales/search-products', { params: { search, listaId } }).then(r => r.data),
 
+  getBalanzaProduct: (code: string, listaId?: number) =>
+    api.get<{ product: ProductoSearch; cantidad: number }>(`/sales/balanza-product/${code}`, { params: { listaId } }).then(r => r.data),
+
   getSaldoCtaCte: (clienteId: number) =>
     api.get<{ saldo: number; ctaCorrienteId: number | null }>(`/sales/saldo-cta-cte/${clienteId}`).then(r => r.data),
 

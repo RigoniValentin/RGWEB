@@ -779,7 +779,7 @@ body {
   border-right: 1px solid rgba(234, 189, 35, 1);
   border-bottom: 1px solid rgba(234, 189, 35, 1);
   border-top: none;
-  background-image: linear-gradient(to right, transparent 51px, rgba(234, 189, 35, 1) 54px);
+  background-image: linear-gradient(to right, transparent 52px, rgba(234, 189, 35, 1) 52px);
   background-size: 100% 1px;
   background-position: top;
   background-repeat: no-repeat;

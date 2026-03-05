@@ -164,7 +164,7 @@ export function PurchasesPage() {
       },
     },
     {
-      title: 'Total', dataIndex: 'TOTAL', key: 'total', width: 120, align: 'right' as const,
+      title: 'Total', dataIndex: 'TOTAL', key: 'total', width: 130, align: 'right' as const,
       render: (v: number) => <Text strong>{fmtMoney(v)}</Text>,
     },
     {

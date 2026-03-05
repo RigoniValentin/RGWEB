@@ -52,13 +52,13 @@ export function CtaCorrienteProvPage() {
     if (dateFilter === 'todos') return { fechaDesde: undefined, fechaHasta: undefined };
     if (dateFilter === 'personalizado' && customRange) {
       return {
-        fechaDesde: customRange[0].startOf('day').toISOString(),
-        fechaHasta: customRange[1].endOf('day').toISOString(),
+        fechaDesde: customRange[0].startOf('day').format('YYYY-MM-DDTHH:mm:ss'),
+        fechaHasta: customRange[1].endOf('day').format('YYYY-MM-DDTHH:mm:ss'),
       };
     }
     return {
-      fechaDesde: dayjs().startOf('month').toISOString(),
-      fechaHasta: dayjs().endOf('month').toISOString(),
+      fechaDesde: dayjs().startOf('month').format('YYYY-MM-DDTHH:mm:ss'),
+      fechaHasta: dayjs().endOf('month').format('YYYY-MM-DDTHH:mm:ss'),
     };
   }, [dateFilter, customRange]);
 
@@ -66,13 +66,13 @@ export function CtaCorrienteProvPage() {
     if (dateFilterOP === 'todos') return { fechaDesde: undefined, fechaHasta: undefined };
     if (dateFilterOP === 'personalizado' && customRangeOP) {
       return {
-        fechaDesde: customRangeOP[0].startOf('day').toISOString(),
-        fechaHasta: customRangeOP[1].endOf('day').toISOString(),
+        fechaDesde: customRangeOP[0].startOf('day').format('YYYY-MM-DDTHH:mm:ss'),
+        fechaHasta: customRangeOP[1].endOf('day').format('YYYY-MM-DDTHH:mm:ss'),
       };
     }
     return {
-      fechaDesde: dayjs().startOf('month').toISOString(),
-      fechaHasta: dayjs().endOf('month').toISOString(),
+      fechaDesde: dayjs().startOf('month').format('YYYY-MM-DDTHH:mm:ss'),
+      fechaHasta: dayjs().endOf('month').format('YYYY-MM-DDTHH:mm:ss'),
     };
   }, [dateFilterOP, customRangeOP]);
 
@@ -335,7 +335,7 @@ export function CtaCorrienteProvPage() {
     if (dateFilter !== 'todos' && movData.saldoAnterior !== 0) {
       rows.push({
         COMPROBANTE_ID: 0,
-        FECHA: dateRange.fechaDesde || dayjs().startOf('month').toISOString(),
+        FECHA: dateRange.fechaDesde || dayjs().startOf('month').format('YYYY-MM-DDTHH:mm:ss'),
         CONCEPTO: 'Saldo Anterior',
         TIPO_COMPROBANTE: '',
         DEBE: 0,

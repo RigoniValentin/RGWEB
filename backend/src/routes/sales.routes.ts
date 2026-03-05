@@ -154,6 +154,22 @@ router.get('/search-products', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/sales/balanza-product/:code
+router.get('/balanza-product/:code', async (req: Request, res: Response) => {
+  try {
+    const code = req.params.code as string;
+    const listaId = parseInt(req.query.listaId as string) || 0;
+    const data = await salesService.getProductByBalanzaCode(code, listaId);
+    if (!data) {
+      res.status(404).json({ error: 'Producto no encontrado o código de balanza inválido' });
+      return;
+    }
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/sales/:id
 router.get('/:id', async (req: Request, res: Response) => {
   try {

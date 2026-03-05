@@ -15,6 +15,7 @@ const sqlConfig: sql.config = {
     encrypt: config.db.options.encrypt,
     trustServerCertificate: config.db.options.trustServerCertificate,
     enableArithAbort: true,
+    useUTC: false, // Store/read dates in local timezone (avoids late-night purchases appearing as next day)
     ...(config.db.instanceName ? { instanceName: config.db.instanceName } : {}),
   },
   pool: {

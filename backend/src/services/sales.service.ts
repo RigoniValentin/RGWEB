@@ -1262,6 +1262,64 @@ export const salesService = {
     return result.recordset;
   },
 
+  // ── Barcode balance (código de balanza) ────────
+  // Format: 13 digits → prefix "2" + 5-digit product ID (PLU) + 6-digit weight in grams + 1 control
+  parseBalanzaBarcode(code: string): { productoId: number; cantidad: number } | null {
+    if (!code || code.length !== 13) return null;
+    if (code[0] !== '2') return null;
+    if (!/^\d{13}$/.test(code)) return null;
+
+    const productoId = parseInt(code.substring(1, 6), 10);
+    const gramos = parseInt(code.substring(6, 12), 10);
+    if (isNaN(productoId) || productoId <= 0 || isNaN(gramos)) return null;
+
+    return { productoId, cantidad: gramos / 1000 };
+  },
+
+  async getProductByBalanzaCode(code: string, listaId: number = 0) {
+    const parsed = this.parseBalanzaBarcode(code);
+    if (!parsed) return null;
+
+    const pool = await getPool();
+
+    const precioExpr = listaId > 0
+      ? `p.LISTA_${Math.max(1, Math.min(5, listaId))}`
+      : `CASE ISNULL(p.LISTA_DEFECTO, 1)
+           WHEN 1 THEN p.LISTA_1
+           WHEN 2 THEN p.LISTA_2
+           WHEN 3 THEN p.LISTA_3
+           WHEN 4 THEN p.LISTA_4
+           WHEN 5 THEN p.LISTA_5
+           ELSE p.LISTA_1
+         END`;
+
+    const result = await pool.request()
+      .input('pid', sql.Int, parsed.productoId)
+      .query(`
+        SELECT
+          p.PRODUCTO_ID, p.CODIGOPARTICULAR, p.NOMBRE,
+          ${precioExpr} AS PRECIO_VENTA,
+          ISNULL(p.LISTA_DEFECTO, 1) AS LISTA_DEFECTO,
+          p.PRECIO_COMPRA, p.CANTIDAD AS STOCK,
+          p.ES_CONJUNTO, p.DESCUENTA_STOCK, p.ACTIVO,
+          p.IMP_INT, p.TASA_IVA_ID, p.UNIDAD_ID,
+          ISNULL(u.NOMBRE, '') AS UNIDAD_NOMBRE,
+          ISNULL(u.ABREVIACION, '') AS UNIDAD_ABREVIACION,
+          ISNULL(ti.PORCENTAJE, 0) AS IVA_PORCENTAJE
+        FROM PRODUCTOS p
+        LEFT JOIN UNIDADES_MEDIDA u ON p.UNIDAD_ID = u.UNIDAD_ID
+        LEFT JOIN TASAS_IMPUESTOS ti ON p.TASA_IVA_ID = ti.TASA_ID
+        WHERE p.PRODUCTO_ID = @pid AND p.ACTIVO = 1
+      `);
+
+    if (result.recordset.length === 0) return null;
+
+    return {
+      product: result.recordset[0],
+      cantidad: parsed.cantidad,
+    };
+  },
+
   // ── Clients for sale form ──────────────────────
   async getClientes() {
     const pool = await getPool();

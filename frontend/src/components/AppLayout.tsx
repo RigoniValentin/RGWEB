@@ -416,7 +416,7 @@ export function AppLayout() {
           background: collapsed
             ? 'linear-gradient(180deg, #1A1B1E 50%, #1A1B1E 100%)'
             : 'linear-gradient(180deg, #1A1B1E 50%, #1A1B1E 100%)',
-          height: 'calc(100dvh - 42px)',
+          height: 'calc(100dvh - 44px)',
           position: 'sticky',
           top: 0,
           left: 0,

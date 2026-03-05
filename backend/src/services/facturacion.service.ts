@@ -255,10 +255,32 @@ export const facturacionService = {
     }
 
     const c = result.recordset[0];
+    const condicionIva = (c.CONDICION_IVA || '').toUpperCase().trim();
+    const esRI = condicionIva === 'RESPONSABLE INSCRIPTO';
+    const esMonotributo = condicionIva === 'MONOTRIBUTO';
+
+    // For RI and Monotributo clients, the document type MUST be CUIT
+    // (TusFacturas / AFIP requires CUIT for Factura A and Monotributo)
+    let documentoTipo = c.TIPO_DOCUMENTO || 'DNI';
+    let documentoNro = c.NUMERO_DOC || '0';
+
+    if (esRI || esMonotributo) {
+      documentoTipo = 'CUIT';
+      // If the stored document number looks invalid for CUIT, throw a clear error
+      if (!documentoNro || documentoNro === '0' || documentoNro.replace(/\D/g, '').length < 11) {
+        throw Object.assign(
+          new Error(`El cliente "${c.NOMBRE}" es ${condicionIva} y requiere un CUIT válido (11 dígitos). Actualice los datos del cliente antes de facturar.`),
+          { name: 'ValidationError' }
+        );
+      }
+      // Ensure only digits are sent (strip dashes/dots)
+      documentoNro = documentoNro.replace(/\D/g, '');
+    }
+
     return {
       razon_social: c.NOMBRE || 'Consumidor Final',
-      documento_tipo: c.TIPO_DOCUMENTO || 'DNI',
-      documento_nro: c.NUMERO_DOC || '0',
+      documento_tipo: documentoTipo,
+      documento_nro: documentoNro,
       email: c.EMAIL || '',
       domicilio: c.DOMICILIO || '',
       provincia: mapProvinciaAFIP(c.PROVINCIA || ''),
