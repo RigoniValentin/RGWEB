@@ -35,6 +35,20 @@ router.get('/tasas-impuestos', async (_req: Request, res: Response) => {
   }
 });
 
+// GET /api/products/for-labels  — lightweight list with barcodes for label printing
+router.get('/for-labels', async (req: Request, res: Response) => {
+  try {
+    const result = await productService.getForLabels({
+      search: req.query.search as string | undefined,
+      categoriaId: req.query.categoriaId ? parseInt(req.query.categoriaId as string) : undefined,
+      marcaId: req.query.marcaId ? parseInt(req.query.marcaId as string) : undefined,
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/products/:id
 router.get('/:id', async (req: Request, res: Response) => {
   try {

@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Modal, Select, Button, InputNumber, Table, Space, Typography,
-  Radio, message, Tag, Input, Empty, Alert,
+  Radio, message, Tag, Input, Empty, Alert, Tabs,
   DatePicker,
 } from 'antd';
 import {
@@ -54,12 +54,16 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
   const [fechaDesde, setFechaDesde] = useState<string | undefined>();
   const [fechaHasta, setFechaHasta] = useState<string | undefined>();
 
-  // Step 3: Items (for devolucion/anulacion)
-  const [devItems, setDevItems] = useState<DevolucionItem[]>([]);
+  // Step 3: Items — track user edits to quantities (key: PRODUCTO_ID)
+  const [cantidadEdits, setCantidadEdits] = useState<Record<number, number>>({});
 
   // Descuento / Diferencia Precio
   const [descuentoPct, setDescuentoPct] = useState<number>(0);
   const [montoManual, setMontoManual] = useState<number>(0);
+
+  // Tab control
+  const [activeTab, setActiveTab] = useState<string>('compra');
+  const prevCompraIdRef = useRef<number | null>(null);
 
   // Fetch proveedores
   const { data: proveedores = [] } = useQuery({
@@ -76,11 +80,11 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
     enabled: !!proveedorId,
   });
 
-  // Fetch items de compra
-  const { data: itemsCompra = [], isLoading: loadingItems } = useQuery({
+  // Fetch items de compra — always fetch when compraId is set (pre-cache for any motivo)
+  const { data: itemsCompra = [], isLoading: loadingItems, error: itemsError } = useQuery({
     queryKey: ['items-compra-nc', compraId],
     queryFn: () => ncComprasApi.getItemsCompra(compraId!),
-    enabled: !!compraId && (motivo === 'POR DEVOLUCION' || motivo === 'POR ANULACION'),
+    enabled: !!compraId,
   });
 
   // Check for existing NCs on the selected purchase
@@ -98,52 +102,46 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
     staleTime: 30000,
   });
 
-  // Populate devolucion items from purchase items
-  useEffect(() => {
-    if (itemsCompra.length > 0 && compraId) {
-      if (motivo === 'POR ANULACION') {
-        // Auto-select all available quantities
-        setDevItems(itemsCompra.map(item => ({
-          PRODUCTO_ID: item.PRODUCTO_ID,
-          PRODUCTO_NOMBRE: item.PRODUCTO_NOMBRE,
-          PRODUCTO_CODIGO: item.PRODUCTO_CODIGO,
-          UNIDAD_ABREVIACION: item.UNIDAD_ABREVIACION,
-          CANTIDAD_ORIGINAL: item.CANTIDAD,
-          CANTIDAD_YA_DEVUELTA: item.CANTIDAD_YA_DEVUELTA,
-          CANTIDAD_DEVOLVER: Math.max(0, item.CANTIDAD - item.CANTIDAD_YA_DEVUELTA),
-          PRECIO_COMPRA: item.PRECIO_COMPRA,
-          DEPOSITO_ID: item.DEPOSITO_ID,
-        })));
-      } else {
-        // Devolucion: user picks quantities
-        setDevItems(itemsCompra.map(item => ({
-          PRODUCTO_ID: item.PRODUCTO_ID,
-          PRODUCTO_NOMBRE: item.PRODUCTO_NOMBRE,
-          PRODUCTO_CODIGO: item.PRODUCTO_CODIGO,
-          UNIDAD_ABREVIACION: item.UNIDAD_ABREVIACION,
-          CANTIDAD_ORIGINAL: item.CANTIDAD,
-          CANTIDAD_YA_DEVUELTA: item.CANTIDAD_YA_DEVUELTA,
-          CANTIDAD_DEVOLVER: 0,
-          PRECIO_COMPRA: item.PRECIO_COMPRA,
-          DEPOSITO_ID: item.DEPOSITO_ID,
-        })));
-      }
-    }
-  }, [itemsCompra, motivo, compraId]);
+  // Derive devItems from itemsCompra + user edits (no useEffect needed)
+  const devItems: DevolucionItem[] = useMemo(() => {
+    if (!compraId || itemsCompra.length === 0) return [];
+    return itemsCompra.map(item => {
+      const disponible = Math.max(0, item.CANTIDAD - item.CANTIDAD_YA_DEVUELTA);
+      const cantidadDevolver = motivo === 'POR ANULACION'
+        ? disponible
+        : (cantidadEdits[item.PRODUCTO_ID] ?? 0);
+      return {
+        PRODUCTO_ID: item.PRODUCTO_ID,
+        PRODUCTO_NOMBRE: item.PRODUCTO_NOMBRE,
+        PRODUCTO_CODIGO: item.PRODUCTO_CODIGO,
+        UNIDAD_ABREVIACION: item.UNIDAD_ABREVIACION,
+        CANTIDAD_ORIGINAL: item.CANTIDAD,
+        CANTIDAD_YA_DEVUELTA: item.CANTIDAD_YA_DEVUELTA,
+        CANTIDAD_DEVOLVER: cantidadDevolver,
+        PRECIO_COMPRA: item.PRECIO_COMPRA,
+        DEPOSITO_ID: item.DEPOSITO_ID,
+      };
+    });
+  }, [itemsCompra, motivo, compraId, cantidadEdits]);
 
   // Reset when proveedor changes
   useEffect(() => {
     setCompraId(null);
-    setDevItems([]);
+    setCantidadEdits({});
     setDescuentoPct(0);
     setMontoManual(0);
+    setActiveTab('compra');
   }, [proveedorId]);
 
-  // Reset items when compra changes
+  // Reset edits when compra changes & auto-switch to detail tab
   useEffect(() => {
-    setDevItems([]);
+    setCantidadEdits({});
     setDescuentoPct(0);
     setMontoManual(0);
+    if (compraId && compraId !== prevCompraIdRef.current) {
+      setActiveTab('detalle');
+    }
+    prevCompraIdRef.current = compraId;
   }, [compraId]);
 
   // Reset on close
@@ -157,9 +155,10 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
       setCompraId(null);
       setFechaDesde(undefined);
       setFechaHasta(undefined);
-      setDevItems([]);
+      setCantidadEdits({});
       setDescuentoPct(0);
       setMontoManual(0);
+      setActiveTab('compra');
     }
   }, [open]);
 
@@ -273,7 +272,7 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
     },
     {
       title: 'A devolver', key: 'devolver', width: 120, align: 'center' as const,
-      render: (_: unknown, r: DevolucionItem, idx: number) => {
+      render: (_: unknown, r: DevolucionItem) => {
         const max = Math.max(0, r.CANTIDAD_ORIGINAL - r.CANTIDAD_YA_DEVUELTA);
         return (
           <InputNumber
@@ -284,9 +283,7 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
             size="small"
             style={{ width: 80 }}
             onChange={(val) => {
-              const newItems = [...devItems];
-              newItems[idx] = { ...r, CANTIDAD_DEVOLVER: val ?? 0 };
-              setDevItems(newItems);
+              setCantidadEdits(prev => ({ ...prev, [r.PRODUCTO_ID]: val ?? 0 }));
             }}
           />
         );
@@ -364,10 +361,11 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
         </Button>,
       ]}
       destroyOnClose
+      styles={{ body: { paddingTop: 8, maxHeight: 'calc(100vh - 200px)', overflow: 'hidden', display: 'flex', flexDirection: 'column' } }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {/* ── SECTION 1: Proveedor & Config ─────── */}
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%', overflow: 'hidden' }}>
+        {/* ── SECTION 1: Proveedor & Config (always visible) ─────── */}
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', flexShrink: 0 }}>
           <div style={{ flex: 2, minWidth: 200 }}>
             <Text strong style={{ display: 'block', marginBottom: 4 }}>
               <ShopOutlined /> Proveedor
@@ -391,7 +389,7 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
             <Text strong style={{ display: 'block', marginBottom: 4 }}>Motivo</Text>
             <Select
               value={motivo}
-              onChange={(v) => { setMotivo(v); setDevItems([]); setDescuentoPct(0); setMontoManual(0); }}
+              onChange={(v) => { setMotivo(v); setDescuentoPct(0); setMontoManual(0); }}
               style={{ width: '100%' }}
               options={[
                 { value: 'POR DEVOLUCION', label: '📦 Devolución' },
@@ -416,7 +414,7 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
 
         {/* ── SECTION 2: Contado destination ────── */}
         {medioPago === 'CN' && (
-          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexShrink: 0 }}>
             <Text strong>Destino ingreso:</Text>
             <Radio.Group value={destinoPago} onChange={e => setDestinoPago(e.target.value)}>
               <Radio.Button value="CAJA_CENTRAL">Caja Central</Radio.Button>
@@ -428,177 +426,236 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
           </div>
         )}
 
-        {/* ── SECTION 3: Purchase Selection ─────── */}
+        {/* ── SECTION 3: Tabs for Compra / Detalle ─────── */}
         {proveedorId && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <Text strong><ShoppingCartOutlined /> Seleccioná la compra a asociar</Text>
-              <Space>
-                <RangePicker
-                  size="small"
-                  format="DD/MM/YYYY"
-                  value={[
-                    fechaDesde ? dayjs(fechaDesde) : null,
-                    fechaHasta ? dayjs(fechaHasta) : null,
-                  ]}
-                  onChange={(dates) => {
-                    setFechaDesde(dates?.[0]?.format('YYYY-MM-DD'));
-                    setFechaHasta(dates?.[1]?.format('YYYY-MM-DD'));
-                  }}
-                  allowClear
-                  placeholder={['Desde', 'Hasta']}
-                />
-              </Space>
-            </div>
+          <Tabs
+            activeKey={activeTab}
+            onChange={setActiveTab}
+            size="small"
+            style={{ flex: 1, overflow: 'hidden' }}
+            items={[
+              {
+                key: 'compra',
+                label: (
+                  <span>
+                    <ShoppingCartOutlined /> Compra
+                    {compraSeleccionada && <Tag color="green" style={{ marginLeft: 6, fontSize: 11 }}>#{compraId}</Tag>}
+                  </span>
+                ),
+                children: (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text strong>Seleccioná la compra a asociar</Text>
+                      <Space>
+                        <RangePicker
+                          size="small"
+                          format="DD/MM/YYYY"
+                          value={[
+                            fechaDesde ? dayjs(fechaDesde) : null,
+                            fechaHasta ? dayjs(fechaHasta) : null,
+                          ]}
+                          onChange={(dates) => {
+                            setFechaDesde(dates?.[0]?.format('YYYY-MM-DD'));
+                            setFechaHasta(dates?.[1]?.format('YYYY-MM-DD'));
+                          }}
+                          allowClear
+                          placeholder={['Desde', 'Hasta']}
+                        />
+                      </Space>
+                    </div>
 
-            {existeNC?.existe && compraId && (
-              <Alert
-                type="warning"
-                message={`Esta compra ya tiene ${existeNC.notas.length} NC activa(s)`}
-                style={{ marginBottom: 8 }}
-                showIcon
-              />
-            )}
+                    {existeNC?.existe && compraId && (
+                      <Alert
+                        type="warning"
+                        message={`Esta compra ya tiene ${existeNC.notas.length} NC activa(s)`}
+                        showIcon
+                      />
+                    )}
 
-            <Table
-              dataSource={compras}
-              columns={compraColumns}
-              loading={loadingCompras}
-              rowKey="COMPRA_ID"
-              size="small"
-              pagination={{ pageSize: 5, size: 'small' }}
-              scroll={{ y: 200 }}
-              rowSelection={{
-                type: 'radio',
-                selectedRowKeys: compraId ? [compraId] : [],
-                onChange: (keys) => setCompraId(keys[0] as number),
-              }}
-              onRow={(record) => ({
-                onClick: () => setCompraId(record.COMPRA_ID),
-                style: { cursor: 'pointer' },
-              })}
-              locale={{ emptyText: <Empty description="Sin compras para este proveedor" /> }}
-            />
-          </div>
-        )}
+                    <Table
+                      dataSource={compras}
+                      columns={compraColumns}
+                      loading={loadingCompras}
+                      rowKey="COMPRA_ID"
+                      size="small"
+                      pagination={{ pageSize: 6, size: 'small' }}
+                      scroll={{ y: 280 }}
+                      rowSelection={{
+                        type: 'radio',
+                        selectedRowKeys: compraId ? [compraId] : [],
+                        onChange: (keys) => setCompraId(keys[0] as number),
+                      }}
+                      onRow={(record) => ({
+                        onClick: () => setCompraId(record.COMPRA_ID),
+                        style: { cursor: 'pointer' },
+                      })}
+                      locale={{ emptyText: <Empty description="Sin compras para este proveedor" /> }}
+                    />
+                  </div>
+                ),
+              },
+              {
+                key: 'detalle',
+                label: (
+                  <span>
+                    <FileExclamationOutlined /> Detalle NC
+                  </span>
+                ),
+                disabled: !compraId,
+                children: compraId && compraSeleccionada ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 'calc(100vh - 380px)', overflowY: 'auto' }}>
+                    {/* Selected purchase info banner */}
+                    <div style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '8px 12px', background: '#1a1a1e', borderRadius: 6, border: '1px solid #333',
+                    }}>
+                      <Space size="middle">
+                        <Text type="secondary">Compra <Text strong>#{compraId}</Text></Text>
+                        <Text type="secondary">{new Date(compraSeleccionada.FECHA_COMPRA).toLocaleDateString('es-AR')}</Text>
+                        <Tag color={compraSeleccionada.ES_CTA_CORRIENTE ? 'blue' : 'green'}>
+                          {compraSeleccionada.ES_CTA_CORRIENTE ? 'Cta.Cte.' : 'Contado'}
+                        </Tag>
+                      </Space>
+                      <Text strong>{fmtMoney(compraSeleccionada.TOTAL)}</Text>
+                    </div>
 
-        {/* ── SECTION 4: Motivo-specific content ── */}
-        {compraId && compraSeleccionada && (
-          <>
-            {/* Devolucion / Anulacion: items grid */}
-            {(motivo === 'POR DEVOLUCION' || motivo === 'POR ANULACION') && (
-              <div>
-                <Text strong style={{ display: 'block', marginBottom: 8 }}>
-                  <UndoOutlined /> {motivo === 'POR ANULACION' ? 'Todos los ítems serán devueltos' : 'Seleccioná cantidades a devolver'}
-                </Text>
-                <Table
-                  dataSource={devItems}
-                  columns={itemColumns}
-                  loading={loadingItems}
-                  rowKey="PRODUCTO_ID"
-                  size="small"
-                  pagination={false}
-                  scroll={{ y: 250 }}
-                  summary={() => (
-                    <Table.Summary.Row>
-                      <Table.Summary.Cell index={0} colSpan={7}>
-                        <Text strong style={{ marginLeft: 8 }}>Total NC</Text>
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell index={7} align="right">
-                        <Text strong style={{ color: '#EABD23', fontSize: 15 }}>
-                          {fmtMoney(montoNC)}
+                    {existeNC?.existe && (
+                      <Alert
+                        type="warning"
+                        message={`Esta compra ya tiene ${existeNC.notas.length} NC activa(s)`}
+                        showIcon
+                      />
+                    )}
+
+                    {/* Devolucion / Anulacion: items grid */}
+                    {(motivo === 'POR DEVOLUCION' || motivo === 'POR ANULACION') && (
+                      <div>
+                        <Text strong style={{ display: 'block', marginBottom: 8 }}>
+                          <UndoOutlined /> {motivo === 'POR ANULACION' ? 'Todos los ítems serán devueltos' : 'Seleccioná cantidades a devolver'}
                         </Text>
-                      </Table.Summary.Cell>
-                    </Table.Summary.Row>
-                  )}
-                />
-              </div>
-            )}
+                        {itemsError && (
+                          <Alert
+                            type="error"
+                            message="Error al cargar ítems de la compra"
+                            description={(itemsError as any)?.response?.data?.error || (itemsError as Error).message}
+                            showIcon
+                            style={{ marginBottom: 8 }}
+                          />
+                        )}
+                        <Table
+                          dataSource={devItems}
+                          columns={itemColumns}
+                          loading={loadingItems}
+                          rowKey="PRODUCTO_ID"
+                          size="small"
+                          pagination={false}
+                          scroll={{ y: 220 }}
+                          summary={() => (
+                            <Table.Summary.Row>
+                              <Table.Summary.Cell index={0} colSpan={7}>
+                                <Text strong style={{ marginLeft: 8 }}>Total NC</Text>
+                              </Table.Summary.Cell>
+                              <Table.Summary.Cell index={7} align="right">
+                                <Text strong style={{ color: '#EABD23', fontSize: 15 }}>
+                                  {fmtMoney(montoNC)}
+                                </Text>
+                              </Table.Summary.Cell>
+                            </Table.Summary.Row>
+                          )}
+                        />
+                      </div>
+                    )}
 
-            {/* Descuento */}
-            {motivo === 'POR DESCUENTO' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 16px', background: '#1a1a1e', borderRadius: 8 }}>
-                <div>
-                  <Text strong style={{ display: 'block', marginBottom: 4 }}>
-                    <PercentageOutlined /> Porcentaje de descuento
-                  </Text>
-                  <InputNumber
-                    min={0.01}
-                    max={100}
-                    value={descuentoPct}
-                    onChange={v => setDescuentoPct(v ?? 0)}
-                    addonAfter="%"
-                    style={{ width: 150 }}
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <Text type="secondary" style={{ display: 'block' }}>Total compra: {fmtMoney(compraSeleccionada.TOTAL)}</Text>
-                  <Text strong style={{ fontSize: 18, color: '#EABD23' }}>
-                    NC: {fmtMoney(montoNC)}
-                  </Text>
-                </div>
-              </div>
-            )}
+                    {/* Descuento */}
+                    {motivo === 'POR DESCUENTO' && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 16px', background: '#1a1a1e', borderRadius: 8 }}>
+                        <div>
+                          <Text strong style={{ display: 'block', marginBottom: 4 }}>
+                            <PercentageOutlined /> Porcentaje de descuento
+                          </Text>
+                          <InputNumber
+                            min={0.01}
+                            max={100}
+                            value={descuentoPct}
+                            onChange={v => setDescuentoPct(v ?? 0)}
+                            addonAfter="%"
+                            style={{ width: 150 }}
+                          />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <Text type="secondary" style={{ display: 'block' }}>Total compra: {fmtMoney(compraSeleccionada.TOTAL)}</Text>
+                          <Text strong style={{ fontSize: 18, color: '#EABD23' }}>
+                            NC: {fmtMoney(montoNC)}
+                          </Text>
+                        </div>
+                      </div>
+                    )}
 
-            {/* Diferencia de precio */}
-            {motivo === 'POR DIFERENCIA PRECIO' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 16px', background: '#1a1a1e', borderRadius: 8 }}>
-                <div>
-                  <Text strong style={{ display: 'block', marginBottom: 4 }}>
-                    <DollarOutlined /> Monto de la NC
-                  </Text>
-                  <InputNumber
-                    min={0.01}
-                    max={compraSeleccionada.TOTAL}
-                    value={montoManual}
-                    onChange={v => setMontoManual(v ?? 0)}
-                    addonBefore="$"
-                    style={{ width: 200 }}
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <Text type="secondary" style={{ display: 'block' }}>Total compra: {fmtMoney(compraSeleccionada.TOTAL)}</Text>
-                  <Text strong style={{ fontSize: 18, color: '#EABD23' }}>
-                    NC: {fmtMoney(montoNC)}
-                  </Text>
-                </div>
-              </div>
-            )}
+                    {/* Diferencia de precio */}
+                    {motivo === 'POR DIFERENCIA PRECIO' && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 16px', background: '#1a1a1e', borderRadius: 8 }}>
+                        <div>
+                          <Text strong style={{ display: 'block', marginBottom: 4 }}>
+                            <DollarOutlined /> Monto de la NC
+                          </Text>
+                          <InputNumber
+                            min={0.01}
+                            max={compraSeleccionada.TOTAL}
+                            value={montoManual}
+                            onChange={v => setMontoManual(v ?? 0)}
+                            addonBefore="$"
+                            style={{ width: 200 }}
+                          />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <Text type="secondary" style={{ display: 'block' }}>Total compra: {fmtMoney(compraSeleccionada.TOTAL)}</Text>
+                          <Text strong style={{ fontSize: 18, color: '#EABD23' }}>
+                            NC: {fmtMoney(montoNC)}
+                          </Text>
+                        </div>
+                      </div>
+                    )}
 
-            {/* Descripcion */}
-            <div>
-              <Text strong style={{ display: 'block', marginBottom: 4 }}>Descripción (opcional)</Text>
-              <TextArea
-                value={descripcion}
-                onChange={e => setDescripcion(e.target.value)}
-                placeholder="Nota o motivo adicional..."
-                rows={2}
-                maxLength={500}
-              />
-            </div>
+                    {/* Descripcion */}
+                    <div>
+                      <Text strong style={{ display: 'block', marginBottom: 4 }}>Descripción (opcional)</Text>
+                      <TextArea
+                        value={descripcion}
+                        onChange={e => setDescripcion(e.target.value)}
+                        placeholder="Nota o motivo adicional..."
+                        rows={2}
+                        maxLength={500}
+                      />
+                    </div>
 
-            {/* Summary bar */}
-            <div style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '12px 20px', background: 'linear-gradient(135deg, #1E1F22, #2a2b2e)',
-              borderRadius: 8, border: '1px solid #EABD23',
-            }}>
-              <div>
-                <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>Compra #{compraId}</Text>
-                <Text type="secondary">
-                  {compraSeleccionada.PROVEEDOR_NOMBRE || proveedorSeleccionado?.NOMBRE || ''}
-                  {' — '}
-                  {medioPago === 'CC' ? 'Cta. Corriente' : `Contado → ${destinoPago === 'CAJA' ? 'Caja' : 'Caja Central'}`}
-                </Text>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>Monto NC</Text>
-                <span style={{ fontSize: 22, fontWeight: 'bold', color: '#EABD23' }}>
-                  {fmtMoney(montoNC)}
-                </span>
-              </div>
-            </div>
-          </>
+                    {/* Summary bar */}
+                    <div style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '12px 20px', background: 'linear-gradient(135deg, #1E1F22, #2a2b2e)',
+                      borderRadius: 8, border: '1px solid #EABD23',
+                    }}>
+                      <div>
+                        <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>Compra #{compraId}</Text>
+                        <Text type="secondary">
+                          {compraSeleccionada.PROVEEDOR_NOMBRE || proveedorSeleccionado?.NOMBRE || ''}
+                          {' — '}
+                          {medioPago === 'CC' ? 'Cta. Corriente' : `Contado → ${destinoPago === 'CAJA' ? 'Caja' : 'Caja Central'}`}
+                        </Text>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>Monto NC</Text>
+                        <span style={{ fontSize: 22, fontWeight: 'bold', color: '#EABD23' }}>
+                          {fmtMoney(montoNC)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <Empty description="Seleccioná una compra en la pestaña anterior" />
+                ),
+              },
+            ]}
+          />
         )}
       </div>
     </Modal>

@@ -655,4 +655,45 @@ export const productService = {
     `);
     return result.recordset;
   },
+
+  // ── Get products for label printing ────────────
+  async getForLabels(filter: { search?: string; categoriaId?: number; marcaId?: number } = {}) {
+    const pool = await getPool();
+
+    let where = 'WHERE p.ACTIVO = 1';
+    const params: { name: string; type: any; value: any }[] = [];
+
+    if (filter.search) {
+      where += ` AND (p.NOMBRE LIKE @search OR p.CODIGOPARTICULAR LIKE @search
+                  OR cb.CODIGO_BARRAS LIKE @search)`;
+      params.push({ name: 'search', type: sql.NVarChar, value: `%${filter.search}%` });
+    }
+    if (filter.categoriaId) {
+      where += ' AND p.CATEGORIA_ID = @categoriaId';
+      params.push({ name: 'categoriaId', type: sql.Int, value: filter.categoriaId });
+    }
+    if (filter.marcaId) {
+      where += ' AND p.MARCA_ID = @marcaId';
+      params.push({ name: 'marcaId', type: sql.Int, value: filter.marcaId });
+    }
+
+    const req = pool.request();
+    for (const p of params) req.input(p.name, p.type, p.value);
+
+    const result = await req.query(`
+      SELECT DISTINCT
+        p.PRODUCTO_ID, p.CODIGOPARTICULAR, p.NOMBRE,
+        p.LISTA_1, p.LISTA_2, p.LISTA_3, p.LISTA_4, p.LISTA_5,
+        p.LISTA_DEFECTO,
+        c.NOMBRE AS CATEGORIA_NOMBRE,
+        (SELECT TOP 1 CODIGO_BARRAS FROM PRODUCTOS_COD_BARRAS WHERE PRODUCTO_ID = p.PRODUCTO_ID) AS CODIGO_BARRAS
+      FROM PRODUCTOS p
+      LEFT JOIN CATEGORIAS c ON p.CATEGORIA_ID = c.CATEGORIA_ID
+      LEFT JOIN PRODUCTOS_COD_BARRAS cb ON p.PRODUCTO_ID = cb.PRODUCTO_ID
+      ${where}
+      ORDER BY p.NOMBRE
+    `);
+
+    return result.recordset;
+  },
 };

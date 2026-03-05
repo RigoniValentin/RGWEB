@@ -63,6 +63,7 @@ import { CtaCorrienteProvPage } from '../pages/CtaCorrienteProvPage';
 import { PurchasesPage } from '../pages/PurchasesPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { NCComprasPage } from '../pages/NCComprasPage';
+import { EtiquetasPage } from '../pages/EtiquetasPage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -90,6 +91,7 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/cta-corriente-prov': { label: 'Cta. Cte. Prov.', icon: <ShopOutlined />,     component: CtaCorrienteProvPage, closable: true },
   '/purchases':      { label: 'Compras',       icon: <ShoppingCartOutlined />, component: PurchasesPage,    closable: true },
   '/nc-compras':        { label: 'NC Compras',      icon: <FileAddOutlined />,         component: NCComprasPage,   closable: true },
+  '/etiquetas':        { label: 'Etiquetas',       icon: <TagOutlined />,             component: EtiquetasPage,   closable: true },
   '/settings/general': { label: 'Configuración', icon: <SettingOutlined />,       component: SettingsPage,     closable: true },
 };
 
@@ -106,12 +108,15 @@ const menuItems = [
     label: 'Archivos',
     children: [
       { type: 'group' as const, label: 'Archivos', className: 'rg-popup-group-title', children: [
+        { key: 'productos-sub', icon: <ShoppingOutlined />, label: 'Productos', children: [
+          { key: '/products', icon: <ShoppingOutlined />, label: 'ABM Productos' },
+          { key: '/etiquetas', icon: <TagOutlined />, label: 'Etiquetas de Precios' },
+        ]},
         { key: '/customers', icon: <TeamOutlined />, label: 'Clientes' },
         { key: '/suppliers', icon: <ShopOutlined />, label: 'Proveedores' },
         { key: '/deposits', icon: <InboxOutlined />, label: 'Depósitos' },
         { key: '/categories', icon: <TagsOutlined />, label: 'Categorías' },
         { key: '/brands', icon: <TagOutlined />, label: 'Marcas' },
-        { key: '/products', icon: <ShoppingOutlined />, label: 'Productos' },
         { key: '/promotions', icon: <GiftOutlined />, label: 'Promociones' },
       ]},
     ],
@@ -376,7 +381,7 @@ export function AppLayout() {
   // Detect which submenu should be open based on path
   const getOpenKeys = (): string[] => {
     const groups: Record<string, string[]> = {
-      archivos: ['/customers', '/suppliers', '/deposits', '/categories', '/brands', '/products', '/promotions'],
+      archivos: ['/customers', '/suppliers', '/deposits', '/categories', '/brands', '/products', '/etiquetas', '/promotions'],
       movimientos: ['/sales', '/purchases', '/cashregisters', '/cashcentral', '/arca', '/expenses', '/audit'],
       produccion: ['/production/structures', '/production/orders'],
       gastronomia: ['/gastronomy/tables'],
@@ -384,10 +389,20 @@ export function AppLayout() {
       usuarios: ['/users/users', '/users/staff', '/users/permissions'],
       configuracion: ['/settings/general', '/settings/company', '/settings/pos'],
     };
+    const subGroups: Record<string, string[]> = {
+      'productos-sub': ['/products', '/etiquetas'],
+      'ctas-corrientes': ['/cta-corriente', '/cta-corriente-prov'],
+      'notas-credito': ['/nc-ventas', '/nc-compras'],
+      'notas-debito': ['/nd-ventas', '/nd-compras'],
+    };
+    const keys: string[] = [];
     for (const [group, paths] of Object.entries(groups)) {
-      if (paths.includes(activeKey)) return [group];
+      if (paths.includes(activeKey)) { keys.push(group); break; }
     }
-    return [];
+    for (const [sub, paths] of Object.entries(subGroups)) {
+      if (paths.includes(activeKey)) { keys.push(sub); break; }
+    }
+    return keys;
   };
 
   const [openKeys, setOpenKeys] = useState<string[]>(getOpenKeys());
