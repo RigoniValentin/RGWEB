@@ -296,27 +296,23 @@ async function actualizarPrecioCompra(
 async function actualizarPreciosVenta(
   tx: any,
   productoId: number,
-  costoBase: number
+  _costoBase: number
 ) {
   // Get product margins from LISTA_PRECIOS
   const listasResult = await tx.request()
     .query(`SELECT LISTA_ID, MARGEN FROM LISTA_PRECIOS WHERE ACTIVA = 1 ORDER BY LISTA_ID`);
 
-  // Check if product has individual margins + get IVA aliquot
+  // Get PRECIO_COMPRA + check if product has individual margins
   const prodInfo = await tx.request()
     .input('pid', sql.Int, productoId)
-    .query(`SELECT p.MARGEN_INDIVIDUAL, ISNULL(p.IMP_INT, 0) AS IMP_INT,
-                   ISNULL(ti.PORCENTAJE, 0) AS IVA_PORCENTAJE
+    .query(`SELECT p.MARGEN_INDIVIDUAL,
+                   ISNULL(p.PRECIO_COMPRA, 0) AS PRECIO_COMPRA
             FROM PRODUCTOS p
-            LEFT JOIN TASAS_IMPUESTOS ti ON p.TASA_IVA_ID = ti.TASA_ID
             WHERE p.PRODUCTO_ID = @pid`);
 
   const margenIndividual = prodInfo.recordset[0]?.MARGEN_INDIVIDUAL;
-  const impInt = prodInfo.recordset[0]?.IMP_INT || 0;
-  const ivaPct = prodInfo.recordset[0]?.IVA_PORCENTAJE || 0;
-
-  // Base for margin: cost with IVA + imp.int (IVA only on net cost, not on imp.int)
-  const baseConIva = r2(costoBase * (1 + ivaPct / 100) + impInt);
+  const costoConImp = prodInfo.recordset[0]?.PRECIO_COMPRA || 0;
+  if (costoConImp <= 0) return;
 
   if (margenIndividual) {
     // Use individual margins from PRODUCTO_MARGENES table (single row, columns per list)
@@ -329,7 +325,7 @@ async function actualizarPreciosVenta(
     if (row) {
       for (let i = 1; i <= 5; i++) {
         const margen = row[`MARGEN_LISTA_${i}`] || 0;
-        const precio = r2(baseConIva * (1 + margen / 100));
+        const precio = r2(costoConImp * (1 + margen / 100));
         await tx.request()
           .input('pid', sql.Int, productoId)
           .input('precio', sql.Decimal(18, 4), precio)
@@ -338,15 +334,45 @@ async function actualizarPreciosVenta(
     }
   } else {
     // Use global list margins
+    const margenes = [0, 0, 0, 0, 0];
     for (const lista of listasResult.recordset) {
       const listaId = lista.LISTA_ID;
       if (listaId >= 1 && listaId <= 5) {
-        const precio = r2(baseConIva * (1 + lista.MARGEN / 100));
+        const margen = lista.MARGEN || 0;
+        margenes[listaId - 1] = margen;
+        const precio = r2(costoConImp * (1 + margen / 100));
         await tx.request()
           .input('pid', sql.Int, productoId)
           .input('precio', sql.Decimal(18, 4), precio)
           .query(`UPDATE PRODUCTOS SET LISTA_${listaId} = @precio WHERE PRODUCTO_ID = @pid`);
       }
+    }
+
+    // Upsert PRODUCTO_MARGENES with the global margins applied
+    const existsM = await tx.request()
+      .input('pid', sql.Int, productoId)
+      .query(`SELECT 1 AS E FROM PRODUCTO_MARGENES WHERE PRODUCTO_ID = @pid`);
+
+    if (existsM.recordset.length > 0) {
+      await tx.request()
+        .input('pid', sql.Int, productoId)
+        .input('m1', sql.Decimal(9, 4), margenes[0])
+        .input('m2', sql.Decimal(9, 4), margenes[1])
+        .input('m3', sql.Decimal(9, 4), margenes[2])
+        .input('m4', sql.Decimal(9, 4), margenes[3])
+        .input('m5', sql.Decimal(9, 4), margenes[4])
+        .query(`UPDATE PRODUCTO_MARGENES SET MARGEN_LISTA_1=@m1, MARGEN_LISTA_2=@m2, MARGEN_LISTA_3=@m3, MARGEN_LISTA_4=@m4, MARGEN_LISTA_5=@m5
+                WHERE PRODUCTO_ID = @pid`);
+    } else {
+      await tx.request()
+        .input('pid', sql.Int, productoId)
+        .input('m1', sql.Decimal(9, 4), margenes[0])
+        .input('m2', sql.Decimal(9, 4), margenes[1])
+        .input('m3', sql.Decimal(9, 4), margenes[2])
+        .input('m4', sql.Decimal(9, 4), margenes[3])
+        .input('m5', sql.Decimal(9, 4), margenes[4])
+        .query(`INSERT INTO PRODUCTO_MARGENES (PRODUCTO_ID, MARGEN_LISTA_1, MARGEN_LISTA_2, MARGEN_LISTA_3, MARGEN_LISTA_4, MARGEN_LISTA_5)
+                VALUES (@pid, @m1, @m2, @m3, @m4, @m5)`);
     }
   }
 }
@@ -1250,10 +1276,20 @@ export const purchasesService = {
   async searchProducts(search: string, limit: number = 20) {
     const pool = await getPool();
 
-    const result = await pool.request()
-      .input('search', sql.NVarChar, `%${search}%`)
-      .input('limit', sql.Int, limit)
-      .query(`
+    const tokens = search.trim().split(/\s+/).filter(t => t.length > 0);
+    if (tokens.length === 0) return [];
+
+    const tokenConditions = tokens.map((_, i) =>
+      `(p.NOMBRE LIKE @t${i} OR p.CODIGOPARTICULAR LIKE @t${i}
+        OR p.DESCRIPCION LIKE @t${i} OR cb.CODIGO_BARRAS LIKE @t${i}
+        OR c.NOMBRE LIKE @t${i} OR m.NOMBRE LIKE @t${i})`
+    ).join(' AND ');
+
+    const req = pool.request();
+    tokens.forEach((token, i) => req.input(`t${i}`, sql.NVarChar, `%${token}%`));
+    req.input('limit', sql.Int, limit);
+
+    const result = await req.query(`
         SELECT DISTINCT TOP (@limit)
           p.PRODUCTO_ID, p.CODIGOPARTICULAR, p.NOMBRE,
           CASE
@@ -1271,10 +1307,10 @@ export const purchasesService = {
         LEFT JOIN UNIDADES_MEDIDA u ON p.UNIDAD_ID = u.UNIDAD_ID
         LEFT JOIN TASAS_IMPUESTOS ti ON p.TASA_IVA_ID = ti.TASA_ID
         LEFT JOIN PRODUCTOS_COD_BARRAS cb ON p.PRODUCTO_ID = cb.PRODUCTO_ID
+        LEFT JOIN CATEGORIAS c ON p.CATEGORIA_ID = c.CATEGORIA_ID
+        LEFT JOIN MARCAS m ON p.MARCA_ID = m.MARCA_ID
         WHERE p.ACTIVO = 1
-          AND (p.NOMBRE LIKE @search
-               OR p.CODIGOPARTICULAR LIKE @search
-               OR cb.CODIGO_BARRAS LIKE @search)
+          AND ${tokenConditions}
         ORDER BY p.NOMBRE
       `);
 
@@ -1336,10 +1372,7 @@ export const purchasesService = {
           p.PRODUCTO_ID,
           p.CODIGOPARTICULAR AS CODIGO,
           p.NOMBRE AS DESCRIPCION,
-          ISNULL(
-            CASE WHEN ISNULL(p.PRECIO_COMPRA_BASE, 0) > 0 THEN p.PRECIO_COMPRA_BASE ELSE p.PRECIO_COMPRA END,
-            0
-          ) AS COSTO,
+          ISNULL(p.PRECIO_COMPRA, 0) AS COSTO,
           ISNULL(p.IMP_INT, 0) AS IMP_INTERNO,
           CASE
             WHEN @preciosSinIva = 1 THEN 0
@@ -1407,25 +1440,17 @@ export const purchasesService = {
         // 2. Recalculate and update individual margins in PRODUCTO_MARGENES
         const prodInfo = await tx.request()
           .input('pid', sql.Int, item.PRODUCTO_ID)
-          .query(`SELECT
-                    CASE WHEN ISNULL(PRECIO_COMPRA_BASE, 0) > 0 THEN PRECIO_COMPRA_BASE ELSE ISNULL(PRECIO_COMPRA, 0) END AS COSTO,
-                    ISNULL(IMP_INT, 0) AS IMP_INT,
-                    ISNULL(ti.PORCENTAJE, 0) AS IVA_PORCENTAJE
+          .query(`SELECT ISNULL(p.PRECIO_COMPRA, 0) AS PRECIO_COMPRA
                   FROM PRODUCTOS p
-                  LEFT JOIN TASAS_IMPUESTOS ti ON p.TASA_IVA_ID = ti.TASA_ID
                   WHERE p.PRODUCTO_ID = @pid`);
-        const costo = prodInfo.recordset[0]?.COSTO || 0;
-        const impInt = prodInfo.recordset[0]?.IMP_INT || 0;
-        const ivaPct = prodInfo.recordset[0]?.IVA_PORCENTAJE || 0;
-        // Base for margin: cost with IVA + imp.int (IVA only on net cost)
-        const base = r2(costo * (1 + ivaPct / 100) + impInt);
+        const costo = prodInfo.recordset[0]?.PRECIO_COMPRA || 0;
 
-        if (base > 0) {
-          const m1 = r2(((item.LISTA_1 / base) - 1) * 100);
-          const m2 = r2(((item.LISTA_2 / base) - 1) * 100);
-          const m3 = r2(((item.LISTA_3 / base) - 1) * 100);
-          const m4 = r2(((item.LISTA_4 / base) - 1) * 100);
-          const m5 = r2(((item.LISTA_5 / base) - 1) * 100);
+        if (costo > 0) {
+          const m1 = r2(((item.LISTA_1 / costo) - 1) * 100);
+          const m2 = r2(((item.LISTA_2 / costo) - 1) * 100);
+          const m3 = r2(((item.LISTA_3 / costo) - 1) * 100);
+          const m4 = r2(((item.LISTA_4 / costo) - 1) * 100);
+          const m5 = r2(((item.LISTA_5 / costo) - 1) * 100);
 
           // Upsert PRODUCTO_MARGENES
           const exists = await tx.request()

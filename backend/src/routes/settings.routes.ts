@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import express from 'express';
 import { settingsService } from '../services/settings.service.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 
@@ -81,6 +82,62 @@ router.delete('/user/:parametroId', async (req: AuthRequest, res: Response) => {
 router.delete('/user', async (req: AuthRequest, res: Response) => {
   try {
     await settingsService.resetAllForUser(req.user!.id);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/settings/logo — Get company logo ───────────────────────────
+router.get('/logo', async (_req: AuthRequest, res: Response) => {
+  try {
+    const logo = await settingsService.getLogo();
+    if (!logo) {
+      res.status(404).json({ error: 'Logo no encontrado' });
+      return;
+    }
+    res.set('Content-Type', logo.contentType);
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(logo.data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PUT /api/settings/logo — Upload company logo ────────────────────────
+const MAX_LOGO_SIZE = 2 * 1024 * 1024; // 2 MB
+const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+
+router.put('/logo',
+  express.raw({ type: ALLOWED_TYPES, limit: MAX_LOGO_SIZE }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const contentType = req.headers['content-type'] || '';
+      if (!ALLOWED_TYPES.some(t => contentType.startsWith(t))) {
+        res.status(400).json({ error: 'Formato no soportado. Use PNG, JPG, GIF o WebP.' });
+        return;
+      }
+      const buffer = req.body as Buffer;
+      if (!buffer || buffer.length === 0) {
+        res.status(400).json({ error: 'No se recibió ninguna imagen' });
+        return;
+      }
+      if (buffer.length > MAX_LOGO_SIZE) {
+        res.status(400).json({ error: 'La imagen supera el límite de 2 MB' });
+        return;
+      }
+      await settingsService.saveLogo(buffer, contentType.split(';')[0]);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ── DELETE /api/settings/logo — Remove company logo ─────────────────────
+router.delete('/logo', async (_req: AuthRequest, res: Response) => {
+  try {
+    await settingsService.deleteLogo();
     res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

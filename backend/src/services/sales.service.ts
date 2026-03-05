@@ -1234,10 +1234,20 @@ export const salesService = {
            ELSE p.LISTA_1
          END`;
 
-    const result = await pool.request()
-      .input('search', sql.NVarChar, `%${search}%`)
-      .input('limit', sql.Int, limit)
-      .query(`
+    const tokens = search.trim().split(/\s+/).filter(t => t.length > 0);
+    if (tokens.length === 0) return [];
+
+    const tokenConditions = tokens.map((_, i) =>
+      `(p.NOMBRE LIKE @t${i} OR p.CODIGOPARTICULAR LIKE @t${i}
+        OR p.DESCRIPCION LIKE @t${i} OR cb.CODIGO_BARRAS LIKE @t${i}
+        OR c.NOMBRE LIKE @t${i} OR m.NOMBRE LIKE @t${i})`
+    ).join(' AND ');
+
+    const req = pool.request();
+    tokens.forEach((token, i) => req.input(`t${i}`, sql.NVarChar, `%${token}%`));
+    req.input('limit', sql.Int, limit);
+
+    const result = await req.query(`
         SELECT DISTINCT TOP (@limit)
           p.PRODUCTO_ID, p.CODIGOPARTICULAR, p.NOMBRE, 
           ${precioExpr} AS PRECIO_VENTA,
@@ -1252,10 +1262,10 @@ export const salesService = {
         LEFT JOIN UNIDADES_MEDIDA u ON p.UNIDAD_ID = u.UNIDAD_ID
         LEFT JOIN TASAS_IMPUESTOS ti ON p.TASA_IVA_ID = ti.TASA_ID
         LEFT JOIN PRODUCTOS_COD_BARRAS cb ON p.PRODUCTO_ID = cb.PRODUCTO_ID
+        LEFT JOIN CATEGORIAS c ON p.CATEGORIA_ID = c.CATEGORIA_ID
+        LEFT JOIN MARCAS m ON p.MARCA_ID = m.MARCA_ID
         WHERE p.ACTIVO = 1
-          AND (p.NOMBRE LIKE @search 
-               OR p.CODIGOPARTICULAR LIKE @search 
-               OR cb.CODIGO_BARRAS LIKE @search)
+          AND ${tokenConditions}
         ORDER BY p.NOMBRE
       `);
 

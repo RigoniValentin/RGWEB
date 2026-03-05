@@ -71,6 +71,8 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
     setTabErrors({});
 
     if (editId && detail) {
+      const costo = detail.PRECIO_COMPRA || 0;
+
       form.setFieldsValue({
         ...detail,
         FECHA_VENCIMIENTO: null,
@@ -78,7 +80,17 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
       setBarcodes(detail.codigosBarras || []);
       setDepositos(detail.stockDepositos || []);
       setSelectedProveedores(detail.proveedores?.map((p) => p.PROVEEDOR_ID) || []);
-      setMargenes(detail.margenes || [0, 0, 0, 0, 0]);
+
+      // Recalculate margins from PRECIO_COMPRA and list prices
+      if (costo > 0) {
+        const calcMargenes = [1, 2, 3, 4, 5].map(i => {
+          const precio = (detail as any)[`LISTA_${i}`] || 0;
+          return precio > 0 ? Math.round(((precio / costo) - 1) * 10000) / 100 : 0;
+        });
+        setMargenes(calcMargenes);
+      } else {
+        setMargenes(detail.margenes || [0, 0, 0, 0, 0]);
+      }
     } else if (copyFrom) {
       form.setFieldsValue({
         ...copyFrom,

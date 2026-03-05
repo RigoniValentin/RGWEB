@@ -60,22 +60,11 @@ export function ProductPriceEditorModal({
     }
   }, [product, open]);
 
-  const costoBase = useMemo(() => {
+  // COSTO = PRECIO_COMPRA (costo con impuestos), used directly for margin calculations
+  const costoMargenBase = useMemo(() => {
     if (!product) return 0;
-    return impIntGravaIva ? product.COSTO - product.IMP_INTERNO : product.COSTO;
-  }, [product, impIntGravaIva]);
-
-  const costoConImpInt = useMemo(() => {
-    if (!product) return 0;
-    return costoBase + product.IMP_INTERNO;
-  }, [costoBase, product]);
-
-  // Base including IVA — used for margin calculations
-  const costoConImpuestos = useMemo(() => {
-    if (!product) return 0;
-    const iva = costoBase * (product.IVA_ALICUOTA / 100);
-    return r2(costoConImpInt + iva);
-  }, [costoBase, costoConImpInt, product]);
+    return product.COSTO;
+  }, [product]);
 
   // Get the margin for a list depending on source
   const getConfiguredMargin = useCallback((listNum: number): number => {
@@ -86,12 +75,12 @@ export function ProductPriceEditorModal({
     return listMargins[listNum] || 0;
   }, [product, marginSource, listMargins]);
 
-  // Calculate actual margin from current price (based on cost with all taxes)
+  // Calculate actual margin from current price (based on cost without IVA)
   const getActualMargin = useCallback((listNum: number): number => {
     const price = (prices as any)[`LISTA_${listNum}`] || 0;
-    if (costoConImpuestos <= 0) return 0;
-    return r2(((price / costoConImpuestos) - 1) * 100);
-  }, [prices, costoConImpuestos]);
+    if (costoMargenBase <= 0) return 0;
+    return r2(((price / costoMargenBase) - 1) * 100);
+  }, [prices, costoMargenBase]);
 
   const isModified = useMemo(() => {
     for (let i = 1; i <= 5; i++) {
@@ -107,11 +96,11 @@ export function ProductPriceEditorModal({
     const newPrices: any = { ...prices };
     for (let i = 1; i <= 5; i++) {
       const margen = getConfiguredMargin(i);
-      newPrices[`LISTA_${i}`] = r2(costoConImpuestos * (1 + margen / 100));
+      newPrices[`LISTA_${i}`] = r2(costoMargenBase * (1 + margen / 100));
     }
     setPrices(newPrices);
     message.info('Precios recalculados según márgenes');
-  }, [product, costoConImpuestos, getConfiguredMargin, prices]);
+  }, [product, costoMargenBase, getConfiguredMargin, prices]);
 
   const resetPrices = useCallback(() => {
     setPrices({ ...origPrices });
@@ -184,7 +173,7 @@ export function ProductPriceEditorModal({
           {product.IMP_INTERNO > 0 ? fmtMoney(product.IMP_INTERNO) : '—'}
         </Descriptions.Item>
         <Descriptions.Item label="IVA">{product.IVA_ALICUOTA}%</Descriptions.Item>
-        <Descriptions.Item label="Base p/ margen">{fmtMoney(costoConImpuestos)}</Descriptions.Item>
+        <Descriptions.Item label="Base p/ margen">{fmtMoney(costoMargenBase)}</Descriptions.Item>
       </Descriptions>
 
       {/* Margin source selector */}

@@ -1,15 +1,19 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Card, Typography, Switch, Select, Input, Button, Space, Tag, Row, Col,
-  message, Spin, Tooltip, Empty, Badge,
+  message, Spin, Tooltip, Empty, Badge, Upload,
 } from 'antd';
 import {
   SettingOutlined, SaveOutlined, UndoOutlined, KeyOutlined,
   ShoppingCartOutlined, DollarOutlined, BankOutlined, AppstoreOutlined,
   ThunderboltOutlined, CheckOutlined, InfoCircleOutlined,
+  CameraOutlined, DeleteOutlined,
 } from '@ant-design/icons';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSettingsStore } from '../store/settingsStore';
 import type { ConfigResuelto, SaveSettingInput } from '../services/settings.api';
+import { settingsApi } from '../services/settings.api';
+import { RGLogo } from '../components/RGLogo';
 
 const { Title, Text } = Typography;
 
@@ -28,6 +32,135 @@ const SUBMODULE_LABELS: Record<string, string> = {
   listado:      'Listado',
   _general:     'General',
 };
+
+// ── Logo upload section ──────────────────────────
+function LogoSection() {
+  const [msgApi, contextHolder] = message.useMessage();
+  const [uploading, setUploading] = useState(false);
+  const queryClient = useQueryClient();
+
+  const { data: logoUrl, isLoading } = useQuery({
+    queryKey: ['empresa-logo'],
+    queryFn: () => settingsApi.getLogo(),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+
+  const handleUpload = useCallback(async (file: File) => {
+    if (file.size > 2 * 1024 * 1024) {
+      msgApi.error('La imagen supera el límite de 2 MB');
+      return;
+    }
+    setUploading(true);
+    try {
+      await settingsApi.uploadLogo(file);
+      queryClient.invalidateQueries({ queryKey: ['empresa-logo'] });
+      msgApi.success('Logo actualizado');
+    } catch {
+      msgApi.error('Error al subir el logo');
+    } finally {
+      setUploading(false);
+    }
+  }, [msgApi, queryClient]);
+
+  const handleDelete = useCallback(async () => {
+    setUploading(true);
+    try {
+      await settingsApi.deleteLogo();
+      queryClient.invalidateQueries({ queryKey: ['empresa-logo'] });
+      msgApi.success('Logo eliminado');
+    } catch {
+      msgApi.error('Error al eliminar el logo');
+    } finally {
+      setUploading(false);
+    }
+  }, [msgApi, queryClient]);
+
+  return (
+    <Card
+      className="rg-card animate-fade-up"
+      size="small"
+      style={{ borderRadius: 14, overflow: 'hidden', marginBottom: 24 }}
+      styles={{
+        header: {
+          background: 'linear-gradient(135deg, #1E1F22 0%, #2A2B2F 100%)',
+          borderBottom: '2px solid #EABD23',
+          padding: '14px 20px',
+        },
+        body: { padding: '20px 24px' },
+      }}
+      title={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 32, height: 32, borderRadius: 8,
+            background: 'rgba(234,189,35,0.2)', color: '#EABD23', fontSize: 16,
+          }}>
+            <CameraOutlined />
+          </span>
+          <div>
+            <Text strong style={{ color: '#fff', fontSize: 14 }}>Logo de Empresa</Text>
+            <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, display: 'block', lineHeight: 1.2 }}>
+              Se muestra en el dashboard y documentos
+            </Text>
+          </div>
+        </div>
+      }
+    >
+      {contextHolder}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+        {/* Preview */}
+        <div style={{
+          width: 100, height: 100, borderRadius: 12,
+          border: '2px dashed #d9d9d9',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          overflow: 'hidden', background: '#fafafa', flexShrink: 0,
+        }}>
+          {isLoading ? (
+            <Spin size="small" />
+          ) : logoUrl ? (
+            <img src={logoUrl} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          ) : (
+            <RGLogo size={60} showText={false} variant="gold" />
+          )}
+        </div>
+
+        {/* Actions */}
+        <div>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
+            Formato: PNG, JPG, GIF o WebP. Tamaño máximo: 2 MB.
+          </Text>
+          <Space>
+            <Upload
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              showUploadList={false}
+              beforeUpload={(file) => { handleUpload(file); return false; }}
+            >
+              <Button
+                type="primary"
+                className="btn-gold"
+                icon={<CameraOutlined />}
+                loading={uploading}
+              >
+                {logoUrl ? 'Cambiar Logo' : 'Subir Logo'}
+              </Button>
+            </Upload>
+            {logoUrl && (
+              <Button
+                danger
+                icon={<DeleteOutlined />}
+                onClick={handleDelete}
+                loading={uploading}
+              >
+                Eliminar
+              </Button>
+            )}
+          </Space>
+        </div>
+      </div>
+    </Card>
+  );
+}
 
 // ── Shortcut recorder component ──────────────────
 function ShortcutInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -397,6 +530,9 @@ export function SettingsPage() {
           );
         })}
       </Row>
+
+      {/* ── Logo de Empresa ───────────────────── */}
+      <LogoSection />
 
       {/* ── Settings by Module ────────────────── */}
       <Row gutter={[20, 20]} className="stagger">

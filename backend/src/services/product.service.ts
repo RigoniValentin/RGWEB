@@ -83,9 +83,13 @@ export const productService = {
       params.push({ name: 'activo', type: sql.Bit, value: filter.activo ? 1 : 0 });
     }
     if (filter.search) {
-      where += ` AND (p.NOMBRE LIKE @search OR p.CODIGOPARTICULAR LIKE @search 
-                  OR p.DESCRIPCION LIKE @search OR cb.CODIGO_BARRAS LIKE @search)`;
-      params.push({ name: 'search', type: sql.NVarChar, value: `%${filter.search}%` });
+      const tokens = filter.search.trim().split(/\s+/).filter(t => t.length > 0);
+      tokens.forEach((token, i) => {
+        where += ` AND (p.NOMBRE LIKE @t${i} OR p.CODIGOPARTICULAR LIKE @t${i}
+                    OR p.DESCRIPCION LIKE @t${i} OR cb.CODIGO_BARRAS LIKE @t${i}
+                    OR c.NOMBRE LIKE @t${i} OR m.NOMBRE LIKE @t${i})`;
+        params.push({ name: `t${i}`, type: sql.NVarChar, value: `%${token}%` });
+      });
     }
     if (filter.categoriaId) {
       where += ' AND p.CATEGORIA_ID = @categoriaId';
@@ -108,6 +112,8 @@ export const productService = {
     const countResult = await countReq.query(`
       SELECT COUNT(DISTINCT p.PRODUCTO_ID) as total
       FROM PRODUCTOS p
+      LEFT JOIN CATEGORIAS c ON p.CATEGORIA_ID = c.CATEGORIA_ID
+      LEFT JOIN MARCAS m ON p.MARCA_ID = m.MARCA_ID
       LEFT JOIN PRODUCTOS_COD_BARRAS cb ON p.PRODUCTO_ID = cb.PRODUCTO_ID
       ${where}
     `);
@@ -484,6 +490,39 @@ export const productService = {
     if (!colType) throw Object.assign(new Error(`Campo no editable: ${input.campo}`), { name: 'ValidationError' });
     await pool.request().input('id', sql.Int, input.PRODUCTO_ID).input('val', colType, input.valor)
       .query(`UPDATE PRODUCTOS SET ${input.campo} = @val WHERE PRODUCTO_ID = @id`);
+
+    // Recalculate margin when a LISTA price is changed
+    if (/^LISTA_[1-5]$/.test(input.campo)) {
+      const listaIdx = parseInt(input.campo.replace('LISTA_', ''), 10);
+      const newPrice = Number(input.valor) || 0;
+
+      const info = await pool.request().input('id', sql.Int, input.PRODUCTO_ID)
+        .query(`SELECT ISNULL(p.PRECIO_COMPRA, 0) AS PRECIO_COMPRA
+                FROM PRODUCTOS p
+                WHERE p.PRODUCTO_ID = @id`);
+      const costo = info.recordset[0]?.PRECIO_COMPRA || 0;
+
+      if (costo > 0) {
+        const margen = Math.round(((newPrice / costo) - 1) * 100 * 10000) / 10000;
+        const margenCol = `MARGEN_LISTA_${listaIdx}`;
+
+        const exists = await pool.request().input('id', sql.Int, input.PRODUCTO_ID)
+          .query(`SELECT 1 AS E FROM PRODUCTO_MARGENES WHERE PRODUCTO_ID = @id`);
+
+        if (exists.recordset.length > 0) {
+          await pool.request()
+            .input('id', sql.Int, input.PRODUCTO_ID)
+            .input('m', sql.Decimal(9, 4), margen)
+            .query(`UPDATE PRODUCTO_MARGENES SET ${margenCol} = @m WHERE PRODUCTO_ID = @id`);
+        } else {
+          await pool.request()
+            .input('id', sql.Int, input.PRODUCTO_ID)
+            .input('m', sql.Decimal(9, 4), margen)
+            .query(`INSERT INTO PRODUCTO_MARGENES (PRODUCTO_ID, MARGEN_LISTA_1, MARGEN_LISTA_2, MARGEN_LISTA_3, MARGEN_LISTA_4, MARGEN_LISTA_5)
+                    VALUES (@id, ${listaIdx === 1 ? '@m' : '0'}, ${listaIdx === 2 ? '@m' : '0'}, ${listaIdx === 3 ? '@m' : '0'}, ${listaIdx === 4 ? '@m' : '0'}, ${listaIdx === 5 ? '@m' : '0'})`);
+        }
+      }
+    }
   },
 
   // ── Bulk assign ────────────────────────────────
@@ -664,9 +703,13 @@ export const productService = {
     const params: { name: string; type: any; value: any }[] = [];
 
     if (filter.search) {
-      where += ` AND (p.NOMBRE LIKE @search OR p.CODIGOPARTICULAR LIKE @search
-                  OR cb.CODIGO_BARRAS LIKE @search)`;
-      params.push({ name: 'search', type: sql.NVarChar, value: `%${filter.search}%` });
+      const tokens = filter.search.trim().split(/\s+/).filter(t => t.length > 0);
+      tokens.forEach((token, i) => {
+        where += ` AND (p.NOMBRE LIKE @t${i} OR p.CODIGOPARTICULAR LIKE @t${i}
+                    OR cb.CODIGO_BARRAS LIKE @t${i}
+                    OR c.NOMBRE LIKE @t${i} OR m.NOMBRE LIKE @t${i})`;
+        params.push({ name: `t${i}`, type: sql.NVarChar, value: `%${token}%` });
+      });
     }
     if (filter.categoriaId) {
       where += ' AND p.CATEGORIA_ID = @categoriaId';
@@ -689,6 +732,7 @@ export const productService = {
         (SELECT TOP 1 CODIGO_BARRAS FROM PRODUCTOS_COD_BARRAS WHERE PRODUCTO_ID = p.PRODUCTO_ID) AS CODIGO_BARRAS
       FROM PRODUCTOS p
       LEFT JOIN CATEGORIAS c ON p.CATEGORIA_ID = c.CATEGORIA_ID
+      LEFT JOIN MARCAS m ON p.MARCA_ID = m.MARCA_ID
       LEFT JOIN PRODUCTOS_COD_BARRAS cb ON p.PRODUCTO_ID = cb.PRODUCTO_ID
       ${where}
       ORDER BY p.NOMBRE

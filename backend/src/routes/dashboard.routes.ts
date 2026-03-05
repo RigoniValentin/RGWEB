@@ -36,9 +36,9 @@ router.get('/logo', async (_req: Request, res: Response) => {
       res.status(404).json({ error: 'Logo not found' });
       return;
     }
-    res.set('Content-Type', 'image/png');
+    res.set('Content-Type', logo.contentType);
     res.set('Cache-Control', 'public, max-age=86400');
-    res.send(logo);
+    res.send(logo.data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

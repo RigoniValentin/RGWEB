@@ -48,4 +48,24 @@ export const settingsApi = {
   /** Reset ALL user settings */
   resetAll: () =>
     api.delete('/settings/user').then(r => r.data),
+
+  /** Get company logo as blob URL */
+  getLogo: async (): Promise<string | null> => {
+    try {
+      const res = await api.get('/settings/logo', { responseType: 'blob' });
+      return URL.createObjectURL(res.data);
+    } catch {
+      return null;
+    }
+  },
+
+  /** Upload company logo */
+  uploadLogo: (file: File) =>
+    api.put('/settings/logo', file, {
+      headers: { 'Content-Type': file.type },
+    }).then(r => r.data),
+
+  /** Delete company logo */
+  deleteLogo: () =>
+    api.delete('/settings/logo').then(r => r.data),
 };

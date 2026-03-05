@@ -166,4 +166,62 @@ export const settingsService = {
       `);
     return result.recordset[0]?.VALOR ?? null;
   },
+
+  // ── Logo de empresa ────────────────────────────
+  async ensureLogoTable(): Promise<void> {
+    const pool = await getPool();
+    await pool.request().query(`
+      IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'CONFIG_LOGO_EMPRESA')
+      BEGIN
+        CREATE TABLE CONFIG_LOGO_EMPRESA (
+          ID INT IDENTITY(1,1) PRIMARY KEY,
+          LOGO VARBINARY(MAX) NOT NULL,
+          CONTENT_TYPE VARCHAR(50) NOT NULL DEFAULT 'image/png',
+          FECHA_MODIFICADO DATETIME DEFAULT GETDATE()
+        )
+      END
+    `);
+  },
+
+  async getLogo(): Promise<{ data: Buffer; contentType: string } | null> {
+    try {
+      await this.ensureLogoTable();
+      const pool = await getPool();
+      const result = await pool.request().query(`
+        SELECT TOP 1 LOGO, CONTENT_TYPE FROM CONFIG_LOGO_EMPRESA ORDER BY ID DESC
+      `);
+      const row = result.recordset[0];
+      if (!row || !row.LOGO) return null;
+      return { data: row.LOGO, contentType: row.CONTENT_TYPE || 'image/png' };
+    } catch {
+      return null;
+    }
+  },
+
+  async saveLogo(buffer: Buffer, contentType: string): Promise<void> {
+    await this.ensureLogoTable();
+    const pool = await getPool();
+    // Replace any existing logo (keep only one)
+    const tx = pool.transaction();
+    await tx.begin();
+    try {
+      await tx.request().query(`DELETE FROM CONFIG_LOGO_EMPRESA`);
+      await tx.request()
+        .input('logo', sql.VarBinary(sql.MAX), buffer)
+        .input('contentType', sql.VarChar(50), contentType)
+        .query(`INSERT INTO CONFIG_LOGO_EMPRESA (LOGO, CONTENT_TYPE) VALUES (@logo, @contentType)`);
+      await tx.commit();
+    } catch (err) {
+      await tx.rollback();
+      throw err;
+    }
+  },
+
+  async deleteLogo(): Promise<void> {
+    try {
+      await this.ensureLogoTable();
+      const pool = await getPool();
+      await pool.request().query(`DELETE FROM CONFIG_LOGO_EMPRESA`);
+    } catch { /* table may not exist yet, ignore */ }
+  },
 };

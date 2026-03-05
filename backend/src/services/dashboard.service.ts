@@ -120,13 +120,9 @@ export const dashboardService = {
     return result.recordset;
   },
 
-  async getLogo(): Promise<Buffer | null> {
-    const pool = await getPool();
-    const result = await pool.request().query(`
-      SELECT LOGO FROM EMPRESA_CLIENTE
-    `);
-    const row = result.recordset[0];
-    if (!row || !row.LOGO) return null;
-    return row.LOGO;
+  async getLogo(): Promise<{ data: Buffer; contentType: string } | null> {
+    // Use the settings service logo table (CONFIG_LOGO_EMPRESA)
+    const { settingsService } = await import('./settings.service.js');
+    return settingsService.getLogo();
   },
 };
