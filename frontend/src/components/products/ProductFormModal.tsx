@@ -314,6 +314,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
             {
               key: 'general',
               label: <span><FileTextOutlined /> General</span>,
+              forceRender: true,
               children: (
                 <>
                   <Row gutter={16}>
@@ -392,6 +393,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
             {
               key: 'precios',
               label: <span><DollarOutlined /> Precios</span>,
+              forceRender: true,
               children: (
                 <>
                   <Row gutter={16}>
@@ -493,6 +495,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
             {
               key: 'stock',
               label: <Badge dot={tabErrors.stock} offset={[6, 0]}><span><InboxOutlined /> Stock y Depósitos</span></Badge>,
+              forceRender: true,
               children: (
                 <>
                   <Row gutter={16}>

@@ -24,7 +24,6 @@ interface Props {
   product: PriceCheckProduct | null;
   listNames: Record<number, string>;
   listMargins: Record<number, number>;
-  impIntGravaIva: boolean;
   onClose: () => void;
   onSave: (update: {
     PRODUCTO_ID: number;
@@ -39,7 +38,7 @@ interface PriceState {
 }
 
 export function ProductPriceEditorModal({
-  open, product, listNames, listMargins, impIntGravaIva, onClose, onSave,
+  open, product, listNames, listMargins, onClose, onSave,
 }: Props) {
   const [prices, setPrices] = useState<PriceState>({ LISTA_1: 0, LISTA_2: 0, LISTA_3: 0, LISTA_4: 0, LISTA_5: 0 });
   const [origPrices, setOrigPrices] = useState<PriceState>({ LISTA_1: 0, LISTA_2: 0, LISTA_3: 0, LISTA_4: 0, LISTA_5: 0 });

@@ -34,7 +34,6 @@ export function PriceCheckModal({ open, compraId, onClose }: Props) {
   const [searchText, setSearchText] = useState('');
   const [listNames, setListNames] = useState<Record<number, string>>({});
   const [listMargins, setListMargins] = useState<Record<number, number>>({});
-  const [impIntGravaIva, setImpIntGravaIva] = useState(false);
   const [editorProduct, setEditorProduct] = useState<PriceCheckProduct | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
 
@@ -50,7 +49,6 @@ export function PriceCheckModal({ open, compraId, onClose }: Props) {
     if (data) {
       setListNames(data.listNames);
       setListMargins(data.listMargins || {});
-      setImpIntGravaIva(data.impIntGravaIva);
       setProducts(data.products.map(p => ({
         ...p,
         LISTA_1_ORIG: p.LISTA_1,
@@ -317,7 +315,6 @@ export function PriceCheckModal({ open, compraId, onClose }: Props) {
         product={editorProduct}
         listNames={listNames}
         listMargins={listMargins}
-        impIntGravaIva={impIntGravaIva}
         onClose={() => { setEditorOpen(false); setEditorProduct(null); }}
         onSave={handleProductSave}
       />

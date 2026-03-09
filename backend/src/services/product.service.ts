@@ -452,11 +452,12 @@ export const productService = {
     const pool = await getPool();
     const check = await pool.request().input('id', sql.Int, id).query(`
       SELECT (SELECT COUNT(*) FROM VENTAS_ITEMS WHERE PRODUCTO_ID = @id) AS enVentas,
-             (SELECT COUNT(*) FROM COMPRAS_ITEMS WHERE PRODUCTO_ID = @id) AS enCompras
+             (SELECT COUNT(*) FROM COMPRAS_ITEMS WHERE PRODUCTO_ID = @id) AS enCompras,
+             (SELECT COUNT(*) FROM NC_COMPRAS_ITEMS WHERE PRODUCTO_ID = @id) AS enNC
     `);
-    const { enVentas, enCompras } = check.recordset[0];
+    const { enVentas, enCompras, enNC } = check.recordset[0];
 
-    if (enVentas > 0 || enCompras > 0) {
+    if (enVentas > 0 || enCompras > 0 || enNC > 0) {
       await pool.request().input('id', sql.Int, id).query(`UPDATE PRODUCTOS SET ACTIVO = 0 WHERE PRODUCTO_ID = @id`);
       return { mode: 'soft' as const };
     }
@@ -466,6 +467,7 @@ export const productService = {
     try {
       await tx.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTOS_COD_BARRAS WHERE PRODUCTO_ID = @id`);
       await tx.request().input('id', sql.Int, id).query(`DELETE FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @id`);
+      await tx.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTO_DEPOSITOS WHERE PRODUCTO_ID = @id`);
       await tx.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTOS_PROVEEDORES WHERE PRODUCTO_ID = @id`);
       await tx.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTO_MARGENES WHERE PRODUCTO_ID = @id`);
       await tx.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTOS WHERE PRODUCTO_ID = @id`);
@@ -566,14 +568,16 @@ export const productService = {
     for (const id of productoIds) {
       const check = await pool.request().input('id', sql.Int, id).query(`
         SELECT (SELECT COUNT(*) FROM VENTAS_ITEMS WHERE PRODUCTO_ID = @id) AS v,
-               (SELECT COUNT(*) FROM COMPRAS_ITEMS WHERE PRODUCTO_ID = @id) AS c
+               (SELECT COUNT(*) FROM COMPRAS_ITEMS WHERE PRODUCTO_ID = @id) AS c,
+               (SELECT COUNT(*) FROM NC_COMPRAS_ITEMS WHERE PRODUCTO_ID = @id) AS nc
       `);
-      if (check.recordset[0].v > 0 || check.recordset[0].c > 0) {
+      if (check.recordset[0].v > 0 || check.recordset[0].c > 0 || check.recordset[0].nc > 0) {
         await pool.request().input('id', sql.Int, id).query(`UPDATE PRODUCTOS SET ACTIVO = 0 WHERE PRODUCTO_ID = @id`);
         deactivated++;
       } else {
         await pool.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTOS_COD_BARRAS WHERE PRODUCTO_ID = @id`);
         await pool.request().input('id', sql.Int, id).query(`DELETE FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @id`);
+        await pool.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTO_DEPOSITOS WHERE PRODUCTO_ID = @id`);
         await pool.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTOS_PROVEEDORES WHERE PRODUCTO_ID = @id`);
         await pool.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTO_MARGENES WHERE PRODUCTO_ID = @id`);
         await pool.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTOS WHERE PRODUCTO_ID = @id`);

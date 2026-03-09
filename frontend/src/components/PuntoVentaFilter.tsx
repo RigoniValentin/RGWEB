@@ -12,6 +12,8 @@ interface PuntoVentaFilterProps {
   /** Component width (default 160) */
   width?: number;
   disabled?: boolean;
+  /** Override the default user-assigned PV list (e.g. to show all PVs) */
+  overridePuntosVenta?: { PUNTO_VENTA_ID: number; NOMBRE: string }[];
 }
 
 /**
@@ -25,8 +27,10 @@ export function PuntoVentaFilter({
   allowAll = true,
   width = 160,
   disabled,
+  overridePuntosVenta,
 }: PuntoVentaFilterProps) {
-  const { puntosVenta } = useAuthStore();
+  const { puntosVenta: userPuntosVenta } = useAuthStore();
+  const puntosVenta = overridePuntosVenta ?? userPuntosVenta;
 
   if (puntosVenta.length <= 1 && !allowAll) {
     const nombre = puntosVenta[0]?.NOMBRE ?? '—';

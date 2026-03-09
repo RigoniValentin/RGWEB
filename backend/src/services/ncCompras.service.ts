@@ -93,27 +93,27 @@ async function decrementarStockTx(
 ) {
   const prod = await tx.request()
     .input('pid', sql.Int, productoId)
-    .query('SELECT TIPO, STOCK_ACTUAL FROM PRODUCTOS WHERE PRODUCTO_ID = @pid');
-  if (!prod.recordset.length || prod.recordset[0].TIPO !== 'PRODUCTO') return;
+    .query('SELECT DESCUENTA_STOCK FROM PRODUCTOS WHERE PRODUCTO_ID = @pid');
+  if (!prod.recordset.length || !prod.recordset[0].DESCUENTA_STOCK) return;
 
   // Main stock
   await tx.request()
     .input('pid', sql.Int, productoId)
     .input('cant', sql.Decimal(18, 2), cantidad)
-    .query('UPDATE PRODUCTOS SET STOCK_ACTUAL = STOCK_ACTUAL - @cant WHERE PRODUCTO_ID = @pid');
+    .query('UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @pid');
 
   // Deposit stock
   if (depositoId) {
     const dep = await tx.request()
       .input('pid', sql.Int, productoId)
       .input('did', sql.Int, depositoId)
-      .query('SELECT STOCK FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @pid AND DEPOSITO_ID = @did');
+      .query('SELECT CANTIDAD FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @pid AND DEPOSITO_ID = @did');
     if (dep.recordset.length > 0) {
       await tx.request()
         .input('pid', sql.Int, productoId)
         .input('did', sql.Int, depositoId)
         .input('cant', sql.Decimal(18, 2), cantidad)
-        .query('UPDATE STOCK_DEPOSITOS SET STOCK = STOCK - @cant WHERE PRODUCTO_ID = @pid AND DEPOSITO_ID = @did');
+        .query('UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @pid AND DEPOSITO_ID = @did');
     }
   }
 }
@@ -126,31 +126,31 @@ async function incrementarStockTx(
 ) {
   const prod = await tx.request()
     .input('pid', sql.Int, productoId)
-    .query('SELECT TIPO, STOCK_ACTUAL FROM PRODUCTOS WHERE PRODUCTO_ID = @pid');
-  if (!prod.recordset.length || prod.recordset[0].TIPO !== 'PRODUCTO') return;
+    .query('SELECT DESCUENTA_STOCK FROM PRODUCTOS WHERE PRODUCTO_ID = @pid');
+  if (!prod.recordset.length || !prod.recordset[0].DESCUENTA_STOCK) return;
 
   await tx.request()
     .input('pid', sql.Int, productoId)
     .input('cant', sql.Decimal(18, 2), cantidad)
-    .query('UPDATE PRODUCTOS SET STOCK_ACTUAL = STOCK_ACTUAL + @cant WHERE PRODUCTO_ID = @pid');
+    .query('UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @pid');
 
   if (depositoId) {
     const dep = await tx.request()
       .input('pid', sql.Int, productoId)
       .input('did', sql.Int, depositoId)
-      .query('SELECT STOCK FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @pid AND DEPOSITO_ID = @did');
+      .query('SELECT CANTIDAD FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @pid AND DEPOSITO_ID = @did');
     if (dep.recordset.length > 0) {
       await tx.request()
         .input('pid', sql.Int, productoId)
         .input('did', sql.Int, depositoId)
         .input('cant', sql.Decimal(18, 2), cantidad)
-        .query('UPDATE STOCK_DEPOSITOS SET STOCK = STOCK + @cant WHERE PRODUCTO_ID = @pid AND DEPOSITO_ID = @did');
+        .query('UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @pid AND DEPOSITO_ID = @did');
     } else {
       await tx.request()
         .input('pid', sql.Int, productoId)
         .input('did', sql.Int, depositoId)
         .input('cant', sql.Decimal(18, 2), cantidad)
-        .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, STOCK) VALUES (@pid, @did, @cant)');
+        .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@pid, @did, @cant)');
     }
   }
 }
@@ -276,11 +276,11 @@ export const ncComprasService = {
           i.PRECIO_COMPRA,
           i.DEPOSITO_ID,
           pr.NOMBRE AS PRODUCTO_NOMBRE,
-          pr.CODIGO AS PRODUCTO_CODIGO,
+          pr.CODIGOPARTICULAR AS PRODUCTO_CODIGO,
           u.ABREVIACION AS UNIDAD_ABREVIACION
         FROM NC_COMPRAS_ITEMS i
         JOIN PRODUCTOS pr ON pr.PRODUCTO_ID = i.PRODUCTO_ID
-        LEFT JOIN UNIDADES u ON u.UNIDAD_ID = pr.UNIDAD_ID
+        LEFT JOIN UNIDADES_MEDIDA u ON u.UNIDAD_ID = pr.UNIDAD_ID
         WHERE i.NC_ID = @id
       `);
 
@@ -345,7 +345,7 @@ export const ncComprasService = {
           ci.PORCENTAJE_DESCUENTO,
           ci.DESCUENTO_IMPORTE,
           pr.NOMBRE   AS PRODUCTO_NOMBRE,
-          pr.CODIGO    AS PRODUCTO_CODIGO,
+          pr.CODIGOPARTICULAR AS PRODUCTO_CODIGO,
           u.ABREVIACION AS UNIDAD_ABREVIACION,
           ISNULL((
             SELECT SUM(nci.CANTIDAD_DEVUELTA)
@@ -357,7 +357,7 @@ export const ncComprasService = {
           ), 0) AS CANTIDAD_YA_DEVUELTA
         FROM COMPRAS_ITEMS ci
         JOIN PRODUCTOS pr ON pr.PRODUCTO_ID = ci.PRODUCTO_ID
-        LEFT JOIN UNIDADES u ON u.UNIDAD_ID = pr.UNIDAD_ID
+        LEFT JOIN UNIDADES_MEDIDA u ON u.UNIDAD_ID = pr.UNIDAD_ID
         WHERE ci.COMPRA_ID = @cid
       `);
     return result.recordset;
@@ -459,14 +459,8 @@ export const ncComprasService = {
       const caja = await getCajaAbiertaTx(tx, usuarioId);
       const puntoVentaId = input.PUNTO_VENTA_ID ?? caja?.PUNTO_VENTA_ID ?? null;
 
-      // 4) Generate NC_ID (NOT IDENTITY — manual PK, desktop compat)
-      const maxIdRes = await tx.request()
-        .query('SELECT ISNULL(MAX(NC_ID), 0) + 1 AS nextId FROM NC_COMPRAS');
-      const ncId: number = maxIdRes.recordset[0].nextId;
-
-      // 5) Insert NC_COMPRAS
-      await tx.request()
-        .input('ncId', sql.Int, ncId)
+      // 4) Insert NC_COMPRAS (let DB handle IDENTITY for NC_ID)
+      const ncInsert = await tx.request()
         .input('compraId', sql.Int, input.COMPRA_ID)
         .input('monto', sql.Decimal(18, 2), monto)
         .input('descuento', sql.Decimal(18, 2), input.DESCUENTO ?? null)
@@ -481,15 +475,18 @@ export const ncComprasService = {
         .input('destinoPago', sql.NVarChar(20), input.DESTINO_PAGO ?? null)
         .query(`
           INSERT INTO NC_COMPRAS (
-            NC_ID, COMPRA_ID, MONTO, DESCUENTO, FECHA, MOTIVO, MEDIO_PAGO,
+            COMPRA_ID, MONTO, DESCUENTO, FECHA, MOTIVO, MEDIO_PAGO,
             DESCRIPCION, ANULADA, NUMERO_FISCAL, CAE, PUNTO_VENTA, TIPO_COMPROBANTE,
             PROVEEDOR_ID, USUARIO_ID, PUNTO_VENTA_ID, DESTINO_PAGO
-          ) VALUES (
-            @ncId, @compraId, @monto, @descuento, @fecha, @motivo, @medioPago,
+          )
+          OUTPUT INSERTED.NC_ID
+          VALUES (
+            @compraId, @monto, @descuento, @fecha, @motivo, @medioPago,
             @descripcion, @anulada, NULL, NULL, NULL, NULL,
             @proveedorId, @usuarioId, @puntoVentaId, @destinoPago
           )
         `);
+      const ncId: number = ncInsert.recordset[0].NC_ID;
 
       // 6) Store total BEFORE NC for historial
       const totalCompraOriginal = compra.TOTAL;
@@ -622,23 +619,25 @@ export const ncComprasService = {
           if (destino === 'CAJA') {
             await tx.request()
               .input('cajaId', sql.Int, caja.CAJA_ID)
-              .input('monto', sql.Decimal(18, 2), monto)
-              .input('descr', sql.NVarChar(250), `NC Compra #${ncId} - ${input.MOTIVO}`)
-              .input('fecha', sql.DateTime, new Date())
+              .input('origenTipo', sql.VarChar(30), 'NC_COMPRA')
+              .input('efectivo', sql.Decimal(18, 2), monto)
+              .input('descr', sql.NVarChar(255), `NC Compra #${ncId} - ${input.MOTIVO}`)
+              .input('uid', sql.Int, usuarioId)
               .query(`
-                INSERT INTO CAJA_MOVIMIENTOS (CAJA_ID, TIPO, MONTO, DESCRIPCION, FECHA)
-                VALUES (@cajaId, 'INGRESO', @monto, @descr, @fecha)
+                INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
+                VALUES (@cajaId, GETDATE(), @origenTipo, @efectivo, 0, @descr, @uid)
               `);
           } else {
             // CAJA_CENTRAL
             await tx.request()
-              .input('monto', sql.Decimal(18, 2), monto)
-              .input('descr', sql.NVarChar(250), `NC Compra #${ncId} - ${input.MOTIVO}`)
-              .input('fecha', sql.DateTime, new Date())
+              .input('tipoEntidad', sql.VarChar(20), 'NC_COMPRA')
+              .input('movimiento', sql.NVarChar(500), `NC Compra #${ncId} - ${input.MOTIVO}`)
               .input('uid', sql.Int, usuarioId)
+              .input('efectivo', sql.Decimal(18, 2), monto)
+              .input('pvId', sql.Int, puntoVentaId)
               .query(`
-                INSERT INTO CAJA_CENTRAL_MOV (TIPO, MONTO, DESCRIPCION, FECHA, USUARIO_ID)
-                VALUES ('INGRESO', @monto, @descr, @fecha, @uid)
+                INSERT INTO MOVIMIENTOS_CAJA (TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+                VALUES (@tipoEntidad, @movimiento, @uid, @efectivo, 0, 0, 0, @efectivo, @pvId, 0)
               `);
           }
         }
@@ -745,22 +744,24 @@ export const ncComprasService = {
           if (destino === 'CAJA') {
             await tx.request()
               .input('cajaId', sql.Int, caja.CAJA_ID)
-              .input('monto', sql.Decimal(18, 2), nc.MONTO)
-              .input('descr', sql.NVarChar(250), `ND (anulación NC #${ncId})`)
-              .input('fecha', sql.DateTime, new Date())
+              .input('origenTipo', sql.VarChar(30), 'ND_COMPRA')
+              .input('efectivo', sql.Decimal(18, 2), -nc.MONTO)
+              .input('descr', sql.NVarChar(255), `ND (anulación NC #${ncId})`)
+              .input('uid', sql.Int, usuarioId)
               .query(`
-                INSERT INTO CAJA_MOVIMIENTOS (CAJA_ID, TIPO, MONTO, DESCRIPCION, FECHA)
-                VALUES (@cajaId, 'EGRESO', @monto, @descr, @fecha)
+                INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
+                VALUES (@cajaId, GETDATE(), @origenTipo, @efectivo, 0, @descr, @uid)
               `);
           } else {
             await tx.request()
-              .input('monto', sql.Decimal(18, 2), nc.MONTO)
-              .input('descr', sql.NVarChar(250), `ND (anulación NC #${ncId})`)
-              .input('fecha', sql.DateTime, new Date())
+              .input('tipoEntidad', sql.VarChar(20), 'ND_COMPRA')
+              .input('movimiento', sql.NVarChar(500), `ND (anulación NC #${ncId})`)
               .input('uid', sql.Int, usuarioId)
+              .input('efectivo', sql.Decimal(18, 2), -nc.MONTO)
+              .input('pvId', sql.Int, puntoVentaId)
               .query(`
-                INSERT INTO CAJA_CENTRAL_MOV (TIPO, MONTO, DESCRIPCION, FECHA, USUARIO_ID)
-                VALUES ('EGRESO', @monto, @descr, @fecha, @uid)
+                INSERT INTO MOVIMIENTOS_CAJA (TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+                VALUES (@tipoEntidad, @movimiento, @uid, @efectivo, 0, 0, 0, @efectivo, @pvId, 0)
               `);
           }
         }

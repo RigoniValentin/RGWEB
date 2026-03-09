@@ -10,6 +10,7 @@ import {
   PlusOutlined, LockOutlined, UnlockOutlined, EyeOutlined,
   ArrowUpOutlined, ArrowDownOutlined,
   DeleteOutlined, ReloadOutlined, MoreOutlined, SwapOutlined,
+  PrinterOutlined,
 } from '@ant-design/icons';
 import { cajaApi } from '../services/caja.api';
 import { useAuthStore } from '../store/authStore';
@@ -17,6 +18,8 @@ import { DateFilterPopover, getPresetRange, type DatePreset } from '../component
 import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
 import { FondoCambioModal } from '../components/FondoCambioModal';
 import { fmtMoney, statFormatter } from '../utils/format';
+import { printCajaDetail } from '../utils/printCajaDetail';
+import { salesApi } from '../services/sales.api';
 import { useTabStore } from '../store/tabStore';
 import type { Caja, CajaItem } from '../types';
 
@@ -92,6 +95,11 @@ export function CajaPage() {
   });
 
   // Caja detail for cerrar modal breakdown
+  const { data: empresaInfo } = useQuery({
+    queryKey: ['empresa-info'],
+    queryFn: () => salesApi.getEmpresaInfo(),
+  });
+
   const { data: cerrarDetail, isLoading: cerrarDetailLoading } = useQuery({
     queryKey: ['caja', cerrarCajaId],
     queryFn: () => cajaApi.getById(cerrarCajaId!),
@@ -478,17 +486,44 @@ export function CajaPage() {
         width={900}
         className="rg-drawer"
         extra={
-          detail && detail.ESTADO === 'ACTIVA' && detail.USUARIO_ID === user?.USUARIO_ID && (
+          detail && (
             <Space>
-              <Button size="small" icon={<ArrowUpOutlined />} onClick={() => { openIeModal('INGRESO'); }}>
-                Ingreso
+              <Button
+                size="small"
+                icon={<PrinterOutlined />}
+                onClick={() => {
+                  if (!detail) return;
+                  printCajaDetail({
+                    cajaId: detail.CAJA_ID,
+                    estado: detail.ESTADO,
+                    usuarioNombre: detail.USUARIO_NOMBRE || '',
+                    puntoVentaNombre: detail.PUNTO_VENTA_NOMBRE || '',
+                    fechaApertura: detail.FECHA_APERTURA,
+                    fechaCierre: detail.FECHA_CIERRE,
+                    montoApertura: detail.MONTO_APERTURA,
+                    montoCierre: detail.MONTO_CIERRE,
+                    observaciones: detail.OBSERVACIONES,
+                    totales: detail.totales,
+                    items: detail.items || [],
+                    nombreFantasia: empresaInfo?.NOMBRE_FANTASIA,
+                  });
+                }}
+              >
+                Imprimir A4
               </Button>
-              <Button size="small" icon={<ArrowDownOutlined />} danger onClick={() => { openIeModal('EGRESO'); }}>
-                Egreso
-              </Button>
-              <Button size="small" icon={<LockOutlined />} danger onClick={() => handleCerrar(detail.CAJA_ID)}>
-                Cerrar
-              </Button>
+              {detail.ESTADO === 'ACTIVA' && detail.USUARIO_ID === user?.USUARIO_ID && (
+                <>
+                  <Button size="small" icon={<ArrowUpOutlined />} onClick={() => { openIeModal('INGRESO'); }}>
+                    Ingreso
+                  </Button>
+                  <Button size="small" icon={<ArrowDownOutlined />} danger onClick={() => { openIeModal('EGRESO'); }}>
+                    Egreso
+                  </Button>
+                  <Button size="small" icon={<LockOutlined />} danger onClick={() => handleCerrar(detail.CAJA_ID)}>
+                    Cerrar
+                  </Button>
+                </>
+              )}
             </Space>
           )
         }

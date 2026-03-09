@@ -11,6 +11,7 @@ import {
   PlusOutlined, DeleteOutlined, ReloadOutlined, SwapOutlined, EyeOutlined,
 } from '@ant-design/icons';
 import { cajaCentralApi } from '../services/cajaCentral.api';
+import { catalogApi } from '../services/catalog.api';
 import { useAuthStore } from '../store/authStore';
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
 import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
@@ -46,6 +47,13 @@ export function CajaCentralPage() {
   const [pvFilter, setPvFilter] = useState<number | undefined>(() => puntoVentaActivo ?? undefined);
 
   const pvIdsParam = pvFilter ? String(pvFilter) : undefined;
+
+  // ── All puntos de venta (for selectors) ────
+  const { data: allPuntosVenta } = useQuery({
+    queryKey: ['catalog-puntos-venta'],
+    queryFn: () => catalogApi.getPuntosVenta(),
+    staleTime: 5 * 60 * 1000,
+  });
 
   // ── Queries ────────────────────────────────────
   const filterParams = {
@@ -223,7 +231,7 @@ export function CajaCentralPage() {
             onChange={e => setCajaIdFilter(e.target.value.replace(/\D/g, ''))}
             allowClear
           />
-          <PuntoVentaFilter value={pvFilter} onChange={setPvFilter} />
+          <PuntoVentaFilter value={pvFilter} onChange={setPvFilter} overridePuntosVenta={allPuntosVenta} />
           <Space size={4}>
             <Text style={{ fontSize: 12 }}>Histórico</Text>
             <Switch
@@ -393,7 +401,7 @@ export function CajaCentralPage() {
                   value={nuevoPvId}
                   onChange={v => setNuevoPvId(v)}
                   placeholder="Seleccionar..."
-                  options={puntosVenta.map(pv => ({ value: pv.PUNTO_VENTA_ID, label: pv.NOMBRE }))}
+                  options={(allPuntosVenta ?? puntosVenta).map(pv => ({ value: pv.PUNTO_VENTA_ID, label: pv.NOMBRE }))}
                 />
               </Form.Item>
             </Col>
