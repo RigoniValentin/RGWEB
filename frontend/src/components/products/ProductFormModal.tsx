@@ -319,10 +319,11 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                 <>
                   <Row gutter={16}>
                     <Col span={8}>
-                      <Form.Item name="CODIGOPARTICULAR" label="Código" rules={isEdit || copyFrom ? [{ required: true, message: 'Requerido' }] : []}>
+                      <Form.Item name="CODIGOPARTICULAR" label="Código"
+                        tooltip={isEdit ? 'El código es obligatorio' : 'Si se deja vacío se asigna automáticamente'}
+                        rules={isEdit || copyFrom ? [{ required: true, message: 'Requerido' }] : []}>
                         <Input
-                          placeholder={isEdit || copyFrom ? 'Código particular' : 'Se genera automáticamente'}
-                          disabled={!isEdit && !copyFrom}
+                          placeholder={isEdit || copyFrom ? 'Código particular' : 'Auto'}
                         />
                       </Form.Item>
                     </Col>

@@ -287,7 +287,7 @@ export function ProductsPage() {
       title: 'Listas $',
       dataIndex: 'LISTA_1',
       key: 'LISTA_1',
-      width: 125,
+      width: 130,
       align: 'right',
       sorter: true,
       render: (_: number, record: Producto) => {
@@ -310,7 +310,7 @@ export function ProductsPage() {
       title: 'Costo',
       dataIndex: 'PRECIO_COMPRA',
       key: 'PRECIO_COMPRA',
-      width: 110,
+      width: 125,
       align: 'right',
       render: (v: number, record: Producto) => editableCell('PRECIO_COMPRA', record, v, true),
     },

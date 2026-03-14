@@ -223,8 +223,18 @@ export const productService = {
     const tx = pool.transaction();
     await tx.begin();
     try {
+      // Check duplicate code if a custom one is provided
+      if (input.CODIGOPARTICULAR?.trim()) {
+        const dup = await tx.request()
+          .input('code', sql.NVarChar, input.CODIGOPARTICULAR.trim())
+          .query(`SELECT 1 FROM PRODUCTOS WHERE CODIGOPARTICULAR = @code`);
+        if (dup.recordset.length > 0) {
+          throw Object.assign(new Error('El código ya existe'), { name: 'ValidationError' });
+        }
+      }
+
       const result = await tx.request()
-        .input('codigo', sql.NVarChar, input.CODIGOPARTICULAR || 'TEMP')
+        .input('codigo', sql.NVarChar, input.CODIGOPARTICULAR?.trim() || 'TEMP')
         .input('nombre', sql.NVarChar, input.NOMBRE)
         .input('descripcion', sql.VarChar, input.DESCRIPCION || null)
         .input('categoriaId', sql.Int, input.CATEGORIA_ID || null)
@@ -266,11 +276,13 @@ export const productService = {
 
       const productoId = result.recordset[0].PRODUCTO_ID;
 
-      // Auto-assign CODIGOPARTICULAR = PRODUCTO_ID
-      await tx.request()
-        .input('prodId', sql.Int, productoId)
-        .input('codPart', sql.NVarChar, String(productoId))
-        .query(`UPDATE PRODUCTOS SET CODIGOPARTICULAR = @codPart WHERE PRODUCTO_ID = @prodId`);
+      // If no custom code was provided, auto-assign CODIGOPARTICULAR = PRODUCTO_ID
+      if (!input.CODIGOPARTICULAR?.trim()) {
+        await tx.request()
+          .input('prodId', sql.Int, productoId)
+          .input('codPart', sql.NVarChar, String(productoId))
+          .query(`UPDATE PRODUCTOS SET CODIGOPARTICULAR = @codPart WHERE PRODUCTO_ID = @prodId`);
+      }
 
       if (input.codigosBarras?.length) {
         for (const cb of input.codigosBarras) {

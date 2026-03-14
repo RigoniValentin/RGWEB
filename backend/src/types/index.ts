@@ -317,6 +317,61 @@ export interface PuntoVenta {
   ACTIVO: boolean;
 }
 
+// ── Gastronomía (Mesas) ──────────────────────────
+export interface Sector {
+  SECTOR_ID: number;
+  NOMBRE: string;
+  ACTIVO: boolean;
+  PUNTO_VENTA_ID: number | null;
+}
+
+export interface Mesa {
+  MESA_ID: number;
+  NUMERO_MESA: string;
+  SECTOR_ID: number;
+  CAPACIDAD: number;
+  ESTADO: 'LIBRE' | 'OCUPADA' | 'RESERVADA';
+  ACTIVO: boolean;
+  POSICION_X: number;
+  POSICION_Y: number;
+  PUNTO_VENTA_ID: number | null;
+  // Joined
+  SECTOR_NOMBRE?: string;
+  PEDIDOS_ACTIVOS?: number;
+}
+
+export interface Pedido {
+  PEDIDO_ID: number;
+  MESA_ID: number | null;
+  ESTADO: 'ABIERTO' | 'EN_PREPARACION' | 'CERRADO';
+  FECHA_CREACION: string;
+  FECHA_CIERRE: string | null;
+  TOTAL: number;
+  PUNTO_VENTA_ID: number | null;
+  MOZO: string | null;
+  // Joined
+  MESA_NUMERO?: string;
+}
+
+export interface PedidoItem {
+  PEDIDO_ITEM_ID: number;
+  PEDIDO_ID: number;
+  PRODUCTO_ID: number | null;
+  PROMOCION_ID: number | null;
+  CANTIDAD: number;
+  PRECIO_UNITARIO: number;
+  PUNTO_VENTA_ID: number | null;
+  TIPO_SERVICIO_ID: number | null;
+  LISTA_PRECIO_SELECCIONADA: number;
+  // Joined
+  PRODUCTO_NOMBRE?: string;
+  PRODUCTO_CODIGO?: string;
+}
+
+export interface PedidoDetalle extends Pedido {
+  items: PedidoItem[];
+}
+
 // ── Pagination helpers ───────────────────────────
 export interface PaginatedResult<T> {
   data: T[];

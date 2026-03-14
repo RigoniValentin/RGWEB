@@ -200,6 +200,8 @@ export interface VentaInput {
   DTO_GRAL?: number;
   COBRADA?: boolean;
   items: VentaItemInput[];
+  PEDIDO_ID?: number;
+  MESA_ID?: number;
 }
 
 export interface PaymentInput {
@@ -541,4 +543,66 @@ export interface CajaAbierta {
   USUARIO_NOMBRE: string;
   PUNTO_VENTA_NOMBRE: string;
   EFECTIVO_DISPONIBLE: number;
+}
+
+// ── Gastronomía (Mesas) ──────────────────────────
+export interface Sector {
+  SECTOR_ID: number;
+  NOMBRE: string;
+  ACTIVO: boolean;
+  PUNTO_VENTA_ID: number | null;
+}
+
+export interface Mesa {
+  MESA_ID: number;
+  NUMERO_MESA: string;
+  SECTOR_ID: number;
+  CAPACIDAD: number;
+  ESTADO: 'LIBRE' | 'OCUPADA' | 'RESERVADA';
+  ACTIVO: boolean;
+  POSICION_X: number;
+  POSICION_Y: number;
+  PUNTO_VENTA_ID: number | null;
+  SECTOR_NOMBRE?: string;
+  PEDIDOS_ACTIVOS?: number;
+}
+
+export interface Pedido {
+  PEDIDO_ID: number;
+  MESA_ID: number | null;
+  ESTADO: 'ABIERTO' | 'EN_PREPARACION' | 'CERRADO';
+  FECHA_CREACION: string;
+  FECHA_CIERRE: string | null;
+  TOTAL: number;
+  PUNTO_VENTA_ID: number | null;
+  MOZO: string | null;
+  MESA_NUMERO?: string;
+}
+
+export interface PedidoItem {
+  PEDIDO_ITEM_ID: number;
+  PEDIDO_ID: number;
+  PRODUCTO_ID: number | null;
+  PROMOCION_ID: number | null;
+  CANTIDAD: number;
+  PRECIO_UNITARIO: number;
+  PUNTO_VENTA_ID: number | null;
+  TIPO_SERVICIO_ID: number | null;
+  LISTA_PRECIO_SELECCIONADA: number;
+  PRODUCTO_NOMBRE?: string;
+  PRODUCTO_CODIGO?: string;
+}
+
+export interface PedidoDetalle extends Pedido {
+  items: PedidoItem[];
+}
+
+export interface ProductoSearchMesa {
+  PRODUCTO_ID: number;
+  CODIGOPARTICULAR: string;
+  NOMBRE: string;
+  PRECIO_VENTA: number;
+  LISTA_DEFECTO: number;
+  STOCK: number;
+  UNIDAD_ABREVIACION: string;
 }

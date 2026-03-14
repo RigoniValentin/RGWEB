@@ -64,6 +64,7 @@ import { PurchasesPage } from '../pages/PurchasesPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { NCComprasPage } from '../pages/NCComprasPage';
 import { EtiquetasPage } from '../pages/EtiquetasPage';
+import { MesasPage } from '../pages/MesasPage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -93,6 +94,7 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/nc-compras':        { label: 'NC Compras',      icon: <FileAddOutlined />,         component: NCComprasPage,   closable: true },
   '/etiquetas':        { label: 'Etiquetas',       icon: <TagOutlined />,             component: EtiquetasPage,   closable: true },
   '/settings/general': { label: 'Configuración', icon: <SettingOutlined />,       component: SettingsPage,     closable: true },
+  '/gastronomy/tables': { label: 'Gestión de Mesas', icon: <CoffeeOutlined />,    component: MesasPage,        closable: true },
 };
 
 /** Icon map for TabBar */
@@ -306,6 +308,7 @@ export function AppLayout() {
         '/brands':        ['brands'],
         '/cta-corriente': ['cta-corriente-list', 'cta-movimientos', 'cta-cobranzas'],
         '/cta-corriente-prov': ['cta-corriente-prov-list', 'cta-prov-movimientos', 'cta-prov-ordenes-pago'],
+        '/gastronomy/tables': ['mesas-sectores', 'mesas-mesas'],
       };
       const keys = keyMap[activeKey];
       if (keys) {

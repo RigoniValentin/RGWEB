@@ -38,13 +38,20 @@ interface CartItem extends VentaItemInput {
   UNIDAD_NOMBRE: string;
 }
 
+export interface PedidoParaVenta {
+  PEDIDO_ID: number;
+  MESA_ID: number;
+  items: { PRODUCTO_ID: number; NOMBRE: string; CODIGO: string; CANTIDAD: number; PRECIO_UNITARIO: number; LISTA_PRECIO_SELECCIONADA?: number }[];
+}
+
 interface Props {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  pedido?: PedidoParaVenta | null;
 }
 
-export function NewSaleModal({ open, onClose, onSuccess }: Props) {
+export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const openTab = useTabStore(s => s.openTab);
@@ -122,6 +129,26 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
       setTimeout(() => searchRef.current?.focus(), 150);
     }
   }, [open]);
+
+  // Pre-populate cart from pedido (mesa → venta flow)
+  useEffect(() => {
+    if (open && pedido && pedido.items.length > 0 && cart.length === 0) {
+      setCart(pedido.items.map(item => ({
+        key: `pedido-${item.PRODUCTO_ID}-${Date.now()}-${Math.random()}`,
+        PRODUCTO_ID: item.PRODUCTO_ID,
+        NOMBRE: item.NOMBRE || `Producto #${item.PRODUCTO_ID}`,
+        CODIGO: item.CODIGO || '',
+        PRECIO_UNITARIO: item.PRECIO_UNITARIO,
+        CANTIDAD: item.CANTIDAD,
+        DESCUENTO: 0,
+        PRECIO_COMPRA: 0,
+        STOCK: 999,
+        UNIDAD: 'u',
+        UNIDAD_NOMBRE: '',
+        LISTA_ID: item.LISTA_PRECIO_SELECCIONADA || 1,
+      })));
+    }
+  }, [open, pedido]);
 
   const handleGoToCaja = () => {
     handleClose();
@@ -679,6 +706,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
       items: cart.map(({ PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID }) => ({
         PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID,
       })),
+      ...(pedido ? { PEDIDO_ID: pedido.PEDIDO_ID, MESA_ID: pedido.MESA_ID } : {}),
     };
     createMutation.mutate(input);
   };
@@ -739,6 +767,7 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
       items: cart.map(({ PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID }) => ({
         PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID,
       })),
+      ...(pedido ? { PEDIDO_ID: pedido.PEDIDO_ID, MESA_ID: pedido.MESA_ID } : {}),
     };
     createMutation.mutate(input);
   };

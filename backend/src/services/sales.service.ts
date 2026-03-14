@@ -51,6 +51,8 @@ export interface VentaInput {
   DTO_GRAL?: number;
   COBRADA?: boolean;
   items: VentaItemInput[];
+  PEDIDO_ID?: number;
+  MESA_ID?: number;
 }
 
 export interface PaymentInput {
@@ -718,6 +720,33 @@ export const salesService = {
         input.PUNTO_VENTA_ID, caja?.CAJA_ID || null,
         r2(total), `Venta #${ventaId} creada`
       );
+
+      // ── 8. Close pedido + free mesa (if from Mesas flow) ──
+      if (input.PEDIDO_ID) {
+        // Close the pedido
+        await tx.request()
+          .input('pedidoId', sql.Int, input.PEDIDO_ID)
+          .query(`UPDATE PEDIDOS SET ESTADO = 'CERRADO', FECHA_CIERRE = GETDATE() WHERE PEDIDO_ID = @pedidoId AND ESTADO <> 'CERRADO'`);
+
+        // Link pedido to venta
+        await tx.request()
+          .input('pedidoId', sql.Int, input.PEDIDO_ID)
+          .input('ventaId', sql.Int, ventaId)
+          .query(`INSERT INTO PEDIDOS_VENTAS (PEDIDO_ID, VENTA_ID) VALUES (@pedidoId, @ventaId)`);
+
+        // Free the mesa if no other active pedidos remain
+        if (input.MESA_ID) {
+          const activePedidos = await tx.request()
+            .input('mesaId', sql.Int, input.MESA_ID)
+            .input('pedidoId2', sql.Int, input.PEDIDO_ID)
+            .query(`SELECT COUNT(*) as cnt FROM PEDIDOS WHERE MESA_ID = @mesaId AND ESTADO IN ('ABIERTO','EN_PREPARACION') AND PEDIDO_ID <> @pedidoId2`);
+          if (activePedidos.recordset[0].cnt === 0) {
+            await tx.request()
+              .input('mesaId', sql.Int, input.MESA_ID)
+              .query(`UPDATE MESAS SET ESTADO = 'LIBRE' WHERE MESA_ID = @mesaId`);
+          }
+        }
+      }
 
       await tx.commit();
       return { VENTA_ID: ventaId, TOTAL: r2(total), MONTO_ANTICIPO: montoAnticipo, COBRADA: cobrada };
