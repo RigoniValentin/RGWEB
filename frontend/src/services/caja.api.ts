@@ -1,5 +1,5 @@
 import api from './api';
-import type { Caja, CajaDetalle, PaginatedResponse, AbrirCajaInput, CerrarCajaInput, IngresoEgresoInput, FondoCambio, TransferFCInput, CajaAbierta } from '../types';
+import type { Caja, CajaDetalle, PaginatedResponse, AbrirCajaInput, CerrarCajaInput, IngresoEgresoInput, FondoCambio, TransferFCInput, CajaAbierta, DesgloseMetodo } from '../types';
 
 export const cajaApi = {
   getAll: (params?: Record<string, any>) =>
@@ -37,4 +37,7 @@ export const cajaApi = {
 
   transferirFondoCambio: (data: TransferFCInput) =>
     api.post<{ success: boolean; nuevoSaldoFondo: number }>('/caja/fondo-cambio/transferir', data).then(r => r.data),
+
+  getDesgloseMetodos: (cajaId: number) =>
+    api.get<DesgloseMetodo[]>(`/caja/${cajaId}/desglose-metodos`).then(r => r.data),
 };

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Card, Col, Row, Statistic, Table, Typography, Spin, Tag, Space } from 'antd';
 import {
   TeamOutlined, ShoppingOutlined, DollarOutlined, ShopOutlined,
-  WarningOutlined, RiseOutlined, WalletOutlined, CreditCardOutlined,
+  WarningOutlined, RiseOutlined,
   BankOutlined, TrophyOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
@@ -107,35 +107,25 @@ export function DashboardPage() {
 
       {/* ── Montos Hoy ────────────────────────── */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }} className="stagger">
-        <Col xs={24} sm={8}>
+        <Col xs={24} sm={12}>
           <Card className="kpi-card animate-fade-up">
             <Statistic title="Monto Hoy" value={stats?.montoHoy ?? 0} formatter={statFormatter} prefix={<DollarOutlined />} valueStyle={{ color: '#EABD23', fontWeight: 700 }} />
           </Card>
         </Col>
-        <Col xs={24} sm={8}>
+        <Col xs={24} sm={12}>
           <Card className="kpi-card animate-fade-up">
-            <Statistic title="Efectivo Hoy" value={stats?.efectivoHoy ?? 0} formatter={statFormatter} prefix={<WalletOutlined />} valueStyle={{ color: '#52c41a', fontWeight: 700 }} />
-          </Card>
-        </Col>
-        <Col xs={24} sm={8}>
-          <Card className="kpi-card animate-fade-up">
-            <Statistic title="Digital Hoy" value={stats?.digitalHoy ?? 0} formatter={statFormatter} prefix={<CreditCardOutlined />} valueStyle={{ color: '#722ed1', fontWeight: 700 }} />
+            <Statistic title="Ganancia Hoy" value={stats?.gananciaHoy ?? 0} formatter={statFormatter} prefix={<TrophyOutlined />} valueStyle={{ color: '#52c41a', fontWeight: 700 }} />
           </Card>
         </Col>
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }} className="stagger">
-        <Col xs={24} sm={8}>
+        <Col xs={24} sm={12}>
           <Card className="kpi-card animate-fade-up">
             <Statistic title="Monto Mes" value={stats?.montoMes ?? 0} formatter={statFormatter} prefix={<BankOutlined />} suffix={<RiseOutlined style={{ color: '#52c41a' }} />} valueStyle={{ color: '#1E1F22', fontWeight: 700 }} />
           </Card>
         </Col>
-        <Col xs={24} sm={8}>
-          <Card className="kpi-card animate-fade-up">
-            <Statistic title="Ganancia Hoy" value={stats?.gananciaHoy ?? 0} formatter={statFormatter} prefix={<TrophyOutlined />} valueStyle={{ color: '#52c41a', fontWeight: 700 }} />
-          </Card>
-        </Col>
-        <Col xs={24} sm={8}>
+        <Col xs={24} sm={12}>
           <Card className="kpi-card animate-fade-up">
             <Statistic title="Ganancia Mes" value={stats?.gananciaMes ?? 0} formatter={statFormatter} prefix={<TrophyOutlined />} valueStyle={{ color: '#13c2c2', fontWeight: 700 }} />
           </Card>

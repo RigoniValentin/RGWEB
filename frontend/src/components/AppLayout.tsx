@@ -65,6 +65,7 @@ import { SettingsPage } from '../pages/SettingsPage';
 import { NCComprasPage } from '../pages/NCComprasPage';
 import { EtiquetasPage } from '../pages/EtiquetasPage';
 import { MesasPage } from '../pages/MesasPage';
+import { PaymentMethodsPage } from '../pages/PaymentMethodsPage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -88,6 +89,7 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/deposits':       { label: 'Depósitos',    icon: <InboxOutlined />,        component: DepositsPage,     closable: true },
   '/categories':     { label: 'Categorías',   icon: <TagsOutlined />,         component: CategoriesPage,   closable: true },
   '/brands':         { label: 'Marcas',        icon: <TagOutlined />,          component: BrandsPage,       closable: true },
+  '/payment-methods': { label: 'Métodos de Pago', icon: <CreditCardOutlined />, component: PaymentMethodsPage, closable: true },
   '/cta-corriente':  { label: 'Cta. Cte. Cli. ', icon: <WalletOutlined />,       component: CtaCorrientePage, closable: true },
   '/cta-corriente-prov': { label: 'Cta. Cte. Prov.', icon: <ShopOutlined />,     component: CtaCorrienteProvPage, closable: true },
   '/purchases':      { label: 'Compras',       icon: <ShoppingCartOutlined />, component: PurchasesPage,    closable: true },
@@ -119,6 +121,7 @@ const menuItems = [
         { key: '/deposits', icon: <InboxOutlined />, label: 'Depósitos' },
         { key: '/categories', icon: <TagsOutlined />, label: 'Categorías' },
         { key: '/brands', icon: <TagOutlined />, label: 'Marcas' },
+        { key: '/payment-methods', icon: <CreditCardOutlined />, label: 'Métodos de Pago' },
         { key: '/promotions', icon: <GiftOutlined />, label: 'Promociones' },
       ]},
     ],
@@ -306,6 +309,7 @@ export function AppLayout() {
         '/deposits':      ['deposits'],
         '/categories':    ['categories'],
         '/brands':        ['brands'],
+        '/payment-methods': ['payment-methods'],
         '/cta-corriente': ['cta-corriente-list', 'cta-movimientos', 'cta-cobranzas'],
         '/cta-corriente-prov': ['cta-corriente-prov-list', 'cta-prov-movimientos', 'cta-prov-ordenes-pago'],
         '/gastronomy/tables': ['mesas-sectores', 'mesas-mesas'],
@@ -384,7 +388,7 @@ export function AppLayout() {
   // Detect which submenu should be open based on path
   const getOpenKeys = (): string[] => {
     const groups: Record<string, string[]> = {
-      archivos: ['/customers', '/suppliers', '/deposits', '/categories', '/brands', '/products', '/etiquetas', '/promotions'],
+      archivos: ['/customers', '/suppliers', '/deposits', '/categories', '/brands', '/payment-methods', '/products', '/etiquetas', '/promotions'],
       movimientos: ['/sales', '/purchases', '/cashregisters', '/cashcentral', '/arca', '/expenses', '/audit'],
       produccion: ['/production/structures', '/production/orders'],
       gastronomia: ['/gastronomy/tables'],

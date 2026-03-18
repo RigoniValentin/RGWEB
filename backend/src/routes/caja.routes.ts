@@ -1,5 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import { cajaService } from '../services/caja.service.js';
+import { salesService } from '../services/sales.service.js';
 import { AuthRequest, authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
@@ -88,6 +89,14 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const caja = await cajaService.getById(Number(req.params.id));
     if (!caja) { res.status(404).json({ error: 'Caja no encontrada' }); return; }
     res.json(caja);
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/caja/:id/desglose-metodos — payment method breakdown for a caja ──
+router.get('/:id/desglose-metodos', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const data = await salesService.getDesgloseMetodosCaja(Number(req.params.id));
+    res.json(data);
   } catch (err) { next(err); }
 });
 

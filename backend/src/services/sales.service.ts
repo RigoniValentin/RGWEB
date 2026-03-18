@@ -1,6 +1,6 @@
 import { getPool, sql } from '../database/connection.js';
 import { config } from '../config/index.js';
-import type { Venta, VentaItem, PaginatedResult } from '../types/index.js';
+import type { Venta, VentaItem, VentaMetodoPago, PaginatedResult } from '../types/index.js';
 
 // ═══════════════════════════════════════════════════
 //  Sales Service — Full CRUD + Payment Management
@@ -39,6 +39,11 @@ export interface VentaItemInput {
   CANTIDAD_PRODUCTOS_PROMO?: number;
 }
 
+export interface MetodoPagoItem {
+  METODO_PAGO_ID: number;
+  MONTO: number;
+}
+
 export interface VentaInput {
   CLIENTE_ID: number;
   FECHA_VENTA?: string;
@@ -51,6 +56,7 @@ export interface VentaInput {
   DTO_GRAL?: number;
   COBRADA?: boolean;
   items: VentaItemInput[];
+  metodos_pago?: MetodoPagoItem[];
   PEDIDO_ID?: number;
   MESA_ID?: number;
 }
@@ -60,6 +66,7 @@ export interface PaymentInput {
   MONTO_DIGITAL: number;
   VUELTO: number;
   parcial?: boolean;
+  metodos_pago?: MetodoPagoItem[];
 }
 
 // ── Stock helpers ────────────────────────────────
@@ -271,6 +278,67 @@ async function ensureCtaCorriente(tx: any, clienteId: number): Promise<number> {
 
 function r2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+// ── VENTAS_METODOS_PAGO table helper ─────────────
+
+let _metodosPagoTableReady = false;
+
+async function ensureVentasMetodosPagoTable(pool: any): Promise<void> {
+  if (_metodosPagoTableReady) return;
+  await pool.request().query(`
+    IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'VENTAS_METODOS_PAGO')
+    BEGIN
+      CREATE TABLE VENTAS_METODOS_PAGO (
+        ID              INT IDENTITY(1,1) PRIMARY KEY,
+        VENTA_ID        INT           NOT NULL,
+        METODO_PAGO_ID  INT           NOT NULL,
+        MONTO           DECIMAL(18,2) NOT NULL
+      )
+    END
+  `);
+  _metodosPagoTableReady = true;
+}
+
+/** Insert payment method breakdown rows within a transaction */
+async function insertMetodosPago(
+  tx: any,
+  ventaId: number,
+  metodosPago: MetodoPagoItem[]
+): Promise<void> {
+  for (const mp of metodosPago) {
+    if (mp.MONTO <= 0) continue;
+    await tx.request()
+      .input('ventaId', sql.Int, ventaId)
+      .input('metodoId', sql.Int, mp.METODO_PAGO_ID)
+      .input('monto', sql.Decimal(18, 2), r2(mp.MONTO))
+      .query(`
+        INSERT INTO VENTAS_METODOS_PAGO (VENTA_ID, METODO_PAGO_ID, MONTO)
+        VALUES (@ventaId, @metodoId, @monto)
+      `);
+  }
+}
+
+/** Derive MONTO_EFECTIVO/MONTO_DIGITAL from payment methods */
+async function derivarCategorias(
+  tx: any,
+  metodosPago: MetodoPagoItem[]
+): Promise<{ montoEfectivo: number; montoDigital: number }> {
+  let montoEfectivo = 0;
+  let montoDigital = 0;
+  for (const mp of metodosPago) {
+    if (mp.MONTO <= 0) continue;
+    const cat = await tx.request()
+      .input('mid', sql.Int, mp.METODO_PAGO_ID)
+      .query(`SELECT CATEGORIA FROM METODOS_PAGO WHERE METODO_PAGO_ID = @mid`);
+    const categoria = cat.recordset[0]?.CATEGORIA || 'EFECTIVO';
+    if (categoria === 'DIGITAL') {
+      montoDigital += mp.MONTO;
+    } else {
+      montoEfectivo += mp.MONTO;
+    }
+  }
+  return { montoEfectivo: r2(montoEfectivo), montoDigital: r2(montoDigital) };
 }
 
 // ═══════════════════════════════════════════════════
@@ -489,10 +557,17 @@ export const salesService = {
       }
 
       let cobrada = input.COBRADA !== undefined ? input.COBRADA : !input.ES_CTA_CORRIENTE;
-      const montoEfectivo = input.MONTO_EFECTIVO || 0;
-      const montoDigital = input.MONTO_DIGITAL || 0;
+      let montoEfectivo = input.MONTO_EFECTIVO || 0;
+      let montoDigital = input.MONTO_DIGITAL || 0;
       const vuelto = input.VUELTO || 0;
       let montoAnticipo = 0;
+
+      // If metodos_pago provided, derive category totals from methods
+      if (input.metodos_pago && input.metodos_pago.length > 0) {
+        const derived = await derivarCategorias(tx, input.metodos_pago);
+        montoEfectivo = derived.montoEfectivo;
+        montoDigital = derived.montoDigital;
+      }
 
       // ── 2. CTA CTE: Check saldo and apply anticipo if available ──
       if (input.ES_CTA_CORRIENTE) {
@@ -630,6 +705,12 @@ export const salesService = {
                 @efectivo, @digital, @desc, @uid)
             `);
         }
+      }
+
+      // ── 5b. VENTAS_METODOS_PAGO (payment method breakdown) ──
+      if (input.metodos_pago && input.metodos_pago.length > 0) {
+        await ensureVentasMetodosPagoTable(pool);
+        await insertMetodosPago(tx, ventaId, input.metodos_pago);
       }
 
       // ── 6. CTA_CORRIENTE (if cuenta corriente sale) ──
@@ -795,6 +876,11 @@ export const salesService = {
       // ── 3. Remove old CAJA_ITEMS for this sale ──
       await tx.request().input('origenId', sql.Int, id)
         .query(`DELETE FROM CAJA_ITEMS WHERE ORIGEN_ID = @origenId AND ORIGEN_TIPO = 'VENTA'`);
+
+      // ── 3b. Remove old VENTAS_METODOS_PAGO ──
+      await ensureVentasMetodosPagoTable(pool);
+      await tx.request().input('ventaId', sql.Int, id)
+        .query(`DELETE FROM VENTAS_METODOS_PAGO WHERE VENTA_ID = @ventaId`);
 
       // ── 4. Remove old CTA_CORRIENTE records ──
       if (oldVenta.ES_CTA_CORRIENTE) {
@@ -1070,7 +1156,10 @@ export const salesService = {
           .query(`DELETE FROM VENTAS_CTA_CORRIENTE WHERE COMPROBANTE_ID = @comprobanteId`);
       }
 
-      // ── 4. Delete items then sale ──
+      // ── 4. Delete metodos_pago, items, then sale ──
+      await ensureVentasMetodosPagoTable(pool);
+      await tx.request().input('ventaId', sql.Int, id)
+        .query(`DELETE FROM VENTAS_METODOS_PAGO WHERE VENTA_ID = @ventaId`);
       await tx.request().input('ventaId', sql.Int, id)
         .query(`DELETE FROM VENTAS_ITEMS WHERE VENTA_ID = @ventaId`);
       await tx.request().input('id', sql.Int, id)
@@ -1112,8 +1201,18 @@ export const salesService = {
       const venta = existing.recordset[0];
       const prevEfectivo = venta.MONTO_EFECTIVO || 0;
       const prevDigital = venta.MONTO_DIGITAL || 0;
-      const newEfectivo = prevEfectivo + payment.MONTO_EFECTIVO;
-      const newDigital = prevDigital + payment.MONTO_DIGITAL;
+
+      // Derive category amounts from metodos_pago if provided
+      let payEfectivo = payment.MONTO_EFECTIVO;
+      let payDigital = payment.MONTO_DIGITAL;
+      if (payment.metodos_pago && payment.metodos_pago.length > 0) {
+        const derived = await derivarCategorias(tx, payment.metodos_pago);
+        payEfectivo = derived.montoEfectivo;
+        payDigital = derived.montoDigital;
+      }
+
+      const newEfectivo = prevEfectivo + payEfectivo;
+      const newDigital = prevDigital + payDigital;
       const totalPaidNow = newEfectivo + newDigital;
       const cobrada = !payment.parcial && (totalPaidNow >= venta.TOTAL);
 
@@ -1134,14 +1233,14 @@ export const salesService = {
       // ── 2. CAJA_ITEMS ──
       const caja = await getCajaAbiertaTx(tx, usuarioId);
       if (caja) {
-        const efectivoNeto = Math.max(0, payment.MONTO_EFECTIVO - payment.VUELTO);
-        if (efectivoNeto > 0 || payment.MONTO_DIGITAL > 0) {
+        const efectivoNeto = Math.max(0, payEfectivo - payment.VUELTO);
+        if (efectivoNeto > 0 || payDigital > 0) {
           await tx.request()
             .input('cajaId', sql.Int, caja.CAJA_ID)
             .input('origenTipo', sql.VarChar(30), 'VENTA')
             .input('origenId', sql.Int, id)
             .input('efectivo', sql.Decimal(18, 2), efectivoNeto)
-            .input('digital', sql.Decimal(18, 2), payment.MONTO_DIGITAL)
+            .input('digital', sql.Decimal(18, 2), payDigital)
             .input('desc', sql.NVarChar(255), `Cobro Venta #${id}`)
             .input('uid', sql.Int, usuarioId)
             .query(`
@@ -1153,6 +1252,12 @@ export const salesService = {
         }
       }
 
+      // ── 2b. VENTAS_METODOS_PAGO ──
+      if (payment.metodos_pago && payment.metodos_pago.length > 0) {
+        await ensureVentasMetodosPagoTable(pool);
+        await insertMetodosPago(tx, id, payment.metodos_pago);
+      }
+
       // ── 3. CTA_CORRIENTE: record payment as HABER ──
       if (venta.ES_CTA_CORRIENTE) {
         const ctaCteResult = await tx.request()
@@ -1161,7 +1266,7 @@ export const salesService = {
 
         if (ctaCteResult.recordset.length > 0) {
           const ctaCteId = ctaCteResult.recordset[0].CTA_CORRIENTE_ID;
-          const totalPayment = r2(payment.MONTO_EFECTIVO + payment.MONTO_DIGITAL - payment.VUELTO);
+          const totalPayment = r2(payEfectivo + payDigital - payment.VUELTO);
           await tx.request()
             .input('comprobanteId', sql.Int, id)
             .input('ctaCteId', sql.Int, ctaCteId)
@@ -1181,7 +1286,7 @@ export const salesService = {
       await registrarAuditoria(
         tx, 'VENTA', id, 'COBRO', usuarioId,
         venta.PUNTO_VENTA_ID, caja?.CAJA_ID || null,
-        r2(payment.MONTO_EFECTIVO + payment.MONTO_DIGITAL),
+        r2(payEfectivo + payDigital),
         `Cobro Venta #${id}`
       );
 
@@ -1222,6 +1327,11 @@ export const salesService = {
       // ── 2. Remove CAJA_ITEMS for this sale ──
       await tx.request().input('origenId', sql.Int, id)
         .query(`DELETE FROM CAJA_ITEMS WHERE ORIGEN_ID = @origenId AND ORIGEN_TIPO = 'VENTA'`);
+
+      // ── 2b. Remove VENTAS_METODOS_PAGO ──
+      await ensureVentasMetodosPagoTable(pool);
+      await tx.request().input('ventaId', sql.Int, id)
+        .query(`DELETE FROM VENTAS_METODOS_PAGO WHERE VENTA_ID = @ventaId`);
 
       // ── 3. Remove CTA_CORRIENTE payment records ──
       if (venta.ES_CTA_CORRIENTE) {
@@ -1513,6 +1623,263 @@ export const salesService = {
       `);
 
     return { success: true };
+  },
+
+  // ── Get payment method breakdown for a sale ────
+  async getMetodosPagoVenta(ventaId: number): Promise<VentaMetodoPago[]> {
+    const pool = await getPool();
+    await ensureVentasMetodosPagoTable(pool);
+    const result = await pool.request()
+      .input('ventaId', sql.Int, ventaId)
+      .query(`
+        SELECT vmp.ID, vmp.VENTA_ID, vmp.METODO_PAGO_ID, vmp.MONTO,
+               mp.NOMBRE AS METODO_NOMBRE, mp.CATEGORIA AS METODO_CATEGORIA
+        FROM VENTAS_METODOS_PAGO vmp
+        LEFT JOIN METODOS_PAGO mp ON vmp.METODO_PAGO_ID = mp.METODO_PAGO_ID
+        WHERE vmp.VENTA_ID = @ventaId
+      `);
+    return result.recordset;
+  },
+
+  // ── Get aggregated payment method breakdown for a caja ─
+  async getDesgloseMetodosCaja(cajaId: number) {
+    const pool = await getPool();
+    await ensureVentasMetodosPagoTable(pool);
+    const result = await pool.request()
+      .input('cajaId', sql.Int, cajaId)
+      .query(`
+        ;WITH CierreCaja AS (
+          SELECT ISNULL(EFECTIVO, 0) AS EFECTIVO_CIERRE,
+                 ISNULL(DIGITAL, 0)  AS DIGITAL_CIERRE
+          FROM MOVIMIENTOS_CAJA
+          WHERE CAJA_ID = @cajaId AND TIPO_ENTIDAD = 'CIERRE_CAJA'
+        ),
+        HasCierre AS (
+          SELECT CASE WHEN EXISTS (SELECT 1 FROM CierreCaja) THEN 1 ELSE 0 END AS VAL
+        ),
+        VentasBruto AS (
+          SELECT mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64,
+                 SUM(vmp.MONTO) AS TOTAL
+          FROM CAJA_ITEMS ci
+          JOIN VENTAS_METODOS_PAGO vmp ON ci.ORIGEN_ID = vmp.VENTA_ID AND ci.ORIGEN_TIPO = 'VENTA'
+          JOIN METODOS_PAGO mp ON vmp.METODO_PAGO_ID = mp.METODO_PAGO_ID
+          WHERE ci.CAJA_ID = @cajaId
+          GROUP BY mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64
+        ),
+        BrutosPorCat AS (
+          SELECT ISNULL(SUM(CASE WHEN CATEGORIA = 'EFECTIVO' THEN TOTAL ELSE 0 END), 0) AS BRUTO_EF,
+                 ISNULL(SUM(CASE WHEN CATEGORIA = 'DIGITAL'  THEN TOTAL ELSE 0 END), 0) AS BRUTO_DIG
+          FROM VentasBruto
+        ),
+        MetodosAjustados AS (
+          SELECT vb.METODO_PAGO_ID, vb.NOMBRE, vb.CATEGORIA, vb.IMAGEN_BASE64,
+                 CASE
+                   WHEN (SELECT VAL FROM HasCierre) = 0 THEN vb.TOTAL
+                   WHEN vb.CATEGORIA = 'EFECTIVO' AND (SELECT BRUTO_EF FROM BrutosPorCat) > 0
+                   THEN CAST(ROUND(vb.TOTAL * 1.0 * (SELECT EFECTIVO_CIERRE FROM CierreCaja) / (SELECT BRUTO_EF FROM BrutosPorCat), 2) AS DECIMAL(18,2))
+                   WHEN vb.CATEGORIA = 'DIGITAL' AND (SELECT BRUTO_DIG FROM BrutosPorCat) > 0
+                   THEN CAST(ROUND(vb.TOTAL * 1.0 * (SELECT DIGITAL_CIERRE FROM CierreCaja) / (SELECT BRUTO_DIG FROM BrutosPorCat), 2) AS DECIMAL(18,2))
+                   ELSE vb.TOTAL
+                 END AS TOTAL
+          FROM VentasBruto vb
+        ),
+        DefaultEfectivo AS (
+          SELECT TOP 1 METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64
+          FROM METODOS_PAGO WHERE CATEGORIA = 'EFECTIVO' AND ACTIVA = 1
+          ORDER BY POR_DEFECTO DESC, METODO_PAGO_ID ASC
+        ),
+        DefaultDigital AS (
+          SELECT TOP 1 METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64
+          FROM METODOS_PAGO WHERE CATEGORIA = 'DIGITAL' AND ACTIVA = 1
+          ORDER BY POR_DEFECTO DESC, METODO_PAGO_ID ASC
+        ),
+        FallbackEfectivo AS (
+          SELECT de.METODO_PAGO_ID, de.NOMBRE, de.CATEGORIA, de.IMAGEN_BASE64,
+                 (SELECT EFECTIVO_CIERRE FROM CierreCaja) AS TOTAL
+          FROM DefaultEfectivo de
+          WHERE (SELECT VAL FROM HasCierre) = 1
+            AND (SELECT BRUTO_EF FROM BrutosPorCat) = 0
+            AND (SELECT EFECTIVO_CIERRE FROM CierreCaja) <> 0
+        ),
+        FallbackDigital AS (
+          SELECT dd.METODO_PAGO_ID, dd.NOMBRE, dd.CATEGORIA, dd.IMAGEN_BASE64,
+                 (SELECT DIGITAL_CIERRE FROM CierreCaja) AS TOTAL
+          FROM DefaultDigital dd
+          WHERE (SELECT VAL FROM HasCierre) = 1
+            AND (SELECT BRUTO_DIG FROM BrutosPorCat) = 0
+            AND (SELECT DIGITAL_CIERRE FROM CierreCaja) <> 0
+        ),
+        AllMetodos AS (
+          SELECT * FROM MetodosAjustados
+          UNION ALL SELECT * FROM FallbackEfectivo
+          UNION ALL SELECT * FROM FallbackDigital
+        )
+        SELECT METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64,
+               SUM(TOTAL) AS TOTAL
+        FROM AllMetodos
+        GROUP BY METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64
+        HAVING SUM(TOTAL) <> 0
+        ORDER BY CASE WHEN CATEGORIA = 'EFECTIVO' THEN 0 ELSE 1 END, NOMBRE
+      `);
+    return result.recordset;
+  },
+
+  // ── Get aggregated payment method breakdown for caja central period ─
+  // Subtracts Fondo de Cambio deposits from EFECTIVO-category methods proportionally
+  async getDesgloseMetodosCajaCentral(filter: { fechaDesde?: string; fechaHasta?: string; puntoVentaIds?: number[] }) {
+    const pool = await getPool();
+    await ensureVentasMetodosPagoTable(pool);
+    await pool.request().query(`
+      IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'MOVIMIENTOS_CAJA_METODOS_PAGO')
+      CREATE TABLE MOVIMIENTOS_CAJA_METODOS_PAGO (
+        ID INT IDENTITY(1,1) PRIMARY KEY,
+        MOVIMIENTO_ID INT NOT NULL,
+        METODO_PAGO_ID INT NOT NULL,
+        MONTO DECIMAL(18,2) NOT NULL
+      )
+    `);
+
+    let commonWhere = '';
+    const req = pool.request();
+
+    if (filter.fechaDesde) {
+      commonWhere += ' AND mc.FECHA >= @fechaDesde';
+      req.input('fechaDesde', sql.DateTime, new Date(filter.fechaDesde + 'T00:00:00'));
+    }
+    if (filter.fechaHasta) {
+      commonWhere += ' AND mc.FECHA <= @fechaHasta';
+      req.input('fechaHasta', sql.DateTime, new Date(filter.fechaHasta + 'T23:59:59'));
+    }
+    if (filter.puntoVentaIds && filter.puntoVentaIds.length > 0) {
+      const ph = filter.puntoVentaIds.map((_, i) => `@pv${i}`).join(', ');
+      commonWhere += ` AND mc.PUNTO_VENTA_ID IN (${ph})`;
+      filter.puntoVentaIds.forEach((id, i) => req.input(`pv${i}`, sql.Int, id));
+    }
+
+    const result = await req.query(`
+      ;WITH CierresEfDig AS (
+        SELECT ISNULL(SUM(mc.EFECTIVO), 0) AS EFECTIVO_CIERRE,
+               ISNULL(SUM(mc.DIGITAL), 0)  AS DIGITAL_CIERRE
+        FROM MOVIMIENTOS_CAJA mc
+        WHERE mc.TIPO_ENTIDAD = 'CIERRE_CAJA' ${commonWhere}
+      ),
+      VentasBruto AS (
+        SELECT mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64,
+               ISNULL(SUM(vmp.MONTO), 0) AS TOTAL
+        FROM MOVIMIENTOS_CAJA mc
+        JOIN CAJA_ITEMS ci ON ci.CAJA_ID = mc.CAJA_ID AND ci.ORIGEN_TIPO = 'VENTA'
+        JOIN VENTAS_METODOS_PAGO vmp ON ci.ORIGEN_ID = vmp.VENTA_ID
+        JOIN METODOS_PAGO mp ON vmp.METODO_PAGO_ID = mp.METODO_PAGO_ID
+        WHERE mc.TIPO_ENTIDAD = 'CIERRE_CAJA' ${commonWhere}
+        GROUP BY mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64
+      ),
+      BrutosPorCat AS (
+        SELECT ISNULL(SUM(CASE WHEN CATEGORIA = 'EFECTIVO' THEN TOTAL ELSE 0 END), 0) AS BRUTO_EF,
+               ISNULL(SUM(CASE WHEN CATEGORIA = 'DIGITAL'  THEN TOTAL ELSE 0 END), 0) AS BRUTO_DIG
+        FROM VentasBruto
+      ),
+      VentasPorMetodo AS (
+        SELECT vb.METODO_PAGO_ID, vb.NOMBRE, vb.CATEGORIA, vb.IMAGEN_BASE64,
+               CASE
+                 WHEN vb.CATEGORIA = 'EFECTIVO' AND (SELECT BRUTO_EF FROM BrutosPorCat) > 0
+                 THEN CAST(ROUND(vb.TOTAL * 1.0 * (SELECT EFECTIVO_CIERRE FROM CierresEfDig) / (SELECT BRUTO_EF FROM BrutosPorCat), 2) AS DECIMAL(18,2))
+                 WHEN vb.CATEGORIA = 'DIGITAL' AND (SELECT BRUTO_DIG FROM BrutosPorCat) > 0
+                 THEN CAST(ROUND(vb.TOTAL * 1.0 * (SELECT DIGITAL_CIERRE FROM CierresEfDig) / (SELECT BRUTO_DIG FROM BrutosPorCat), 2) AS DECIMAL(18,2))
+                 ELSE vb.TOTAL
+               END AS TOTAL
+        FROM VentasBruto vb
+      ),
+      MovimientosManualesPorMetodo AS (
+        SELECT mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64,
+               ISNULL(SUM(mcmp.MONTO), 0) AS TOTAL
+        FROM MOVIMIENTOS_CAJA mc
+        JOIN MOVIMIENTOS_CAJA_METODOS_PAGO mcmp ON mc.ID = mcmp.MOVIMIENTO_ID
+        JOIN METODOS_PAGO mp ON mcmp.METODO_PAGO_ID = mp.METODO_PAGO_ID
+        WHERE mc.ES_MANUAL = 1 ${commonWhere}
+        GROUP BY mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64
+      ),
+      MetodoTotales AS (
+        SELECT METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64, SUM(TOTAL) AS TOTAL
+        FROM (
+          SELECT * FROM VentasPorMetodo
+          UNION ALL
+          SELECT * FROM MovimientosManualesPorMetodo
+        ) t
+        GROUP BY METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64
+      ),
+      AjusteEfectivo AS (
+        SELECT ISNULL(SUM(mc.EFECTIVO), 0) AS NETO
+        FROM MOVIMIENTOS_CAJA mc
+        WHERE mc.TIPO_ENTIDAD NOT IN ('CIERRE_CAJA') ${commonWhere}
+          AND mc.ES_MANUAL = 0
+          AND NOT EXISTS (
+            SELECT 1
+            FROM MOVIMIENTOS_CAJA_METODOS_PAGO mcmp
+            WHERE mcmp.MOVIMIENTO_ID = mc.ID
+          )
+      ),
+      Resumen AS (
+        SELECT
+          ISNULL(SUM(CASE WHEN CATEGORIA = 'EFECTIVO' THEN TOTAL ELSE 0 END), 0) AS TOTAL_EF,
+          COUNT(CASE WHEN CATEGORIA = 'EFECTIVO' THEN 1 END) AS CANT_EF
+        FROM MetodoTotales
+      ),
+      DefaultEfectivo AS (
+        SELECT TOP 1 METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64
+        FROM METODOS_PAGO
+        WHERE CATEGORIA = 'EFECTIVO' AND ACTIVA = 1
+        ORDER BY POR_DEFECTO DESC, METODO_PAGO_ID
+      ),
+      AllMetodos AS (
+        SELECT METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64, TOTAL FROM MetodoTotales
+        UNION ALL
+        SELECT de.METODO_PAGO_ID, de.NOMBRE, de.CATEGORIA, de.IMAGEN_BASE64, CAST(0 AS DECIMAL(18,2))
+        FROM DefaultEfectivo de
+        WHERE (SELECT CANT_EF FROM Resumen) = 0
+          AND (SELECT NETO FROM AjusteEfectivo) != 0
+          AND de.METODO_PAGO_ID NOT IN (SELECT METODO_PAGO_ID FROM MetodoTotales)
+      )
+      SELECT am.METODO_PAGO_ID, am.NOMBRE, am.CATEGORIA, am.IMAGEN_BASE64,
+             CASE
+               WHEN am.CATEGORIA = 'EFECTIVO' AND (SELECT TOTAL_EF FROM Resumen) > 0
+               THEN am.TOTAL + ((SELECT NETO FROM AjusteEfectivo) * am.TOTAL / (SELECT TOTAL_EF FROM Resumen))
+               WHEN am.CATEGORIA = 'EFECTIVO' AND (SELECT TOTAL_EF FROM Resumen) = 0
+               THEN (SELECT NETO FROM AjusteEfectivo)
+               ELSE am.TOTAL
+             END AS TOTAL
+      FROM AllMetodos am
+      ORDER BY
+        CASE
+          WHEN am.CATEGORIA = 'EFECTIVO' THEN 0
+          ELSE 1
+        END,
+        am.NOMBRE
+    `);
+    return result.recordset;
+  },
+
+  // ── Get active payment methods (for sales flow) ─
+  async getActivePaymentMethods() {
+    const pool = await getPool();
+    // Ensure METODOS_PAGO table exists (paymentMethodService.ensureTable does this,
+    // but we call a lightweight check here to avoid circular dependency)
+    try {
+      const result = await pool.request().query(`
+        SELECT METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64
+        FROM METODOS_PAGO
+        WHERE ACTIVA = 1
+        ORDER BY
+          CASE
+            WHEN CATEGORIA = 'EFECTIVO' AND ISNULL(POR_DEFECTO, 0) = 1 THEN 0
+            WHEN CATEGORIA = 'EFECTIVO' THEN 1
+            ELSE 2
+          END,
+          NOMBRE
+      `);
+      return result.recordset;
+    } catch {
+      return [];
+    }
   },
 };
 

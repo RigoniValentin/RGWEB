@@ -78,6 +78,16 @@ export interface Marca {
   ACTIVA: boolean;
 }
 
+// ── Métodos de Pago ──────────────────────────────
+export interface MetodoPago {
+  METODO_PAGO_ID: number;
+  NOMBRE: string;
+  CATEGORIA: 'EFECTIVO' | 'DIGITAL';
+  IMAGEN_BASE64: string | null;
+  ACTIVA: boolean;
+  POR_DEFECTO: boolean;
+}
+
 // ── Clientes ─────────────────────────────────────
 export interface Cliente {
   CLIENTE_ID: number;
@@ -163,6 +173,28 @@ export interface VentaItem {
   UNIDAD_ABREVIACION?: string;
 }
 
+export interface VentaMetodoPago {
+  ID: number;
+  VENTA_ID: number;
+  METODO_PAGO_ID: number;
+  MONTO: number;
+  METODO_NOMBRE?: string;
+  METODO_CATEGORIA?: 'EFECTIVO' | 'DIGITAL';
+}
+
+export interface MetodoPagoItem {
+  METODO_PAGO_ID: number;
+  MONTO: number;
+}
+
+export interface DesgloseMetodo {
+  METODO_PAGO_ID: number;
+  NOMBRE: string;
+  CATEGORIA: 'EFECTIVO' | 'DIGITAL';
+  IMAGEN_BASE64: string | null;
+  TOTAL: number;
+}
+
 export interface VentaDetalle extends Venta {
   items: VentaItem[];
 }
@@ -200,6 +232,7 @@ export interface VentaInput {
   DTO_GRAL?: number;
   COBRADA?: boolean;
   items: VentaItemInput[];
+  metodos_pago?: MetodoPagoItem[];
   PEDIDO_ID?: number;
   MESA_ID?: number;
 }
@@ -209,6 +242,7 @@ export interface PaymentInput {
   MONTO_DIGITAL: number;
   VUELTO: number;
   parcial?: boolean;
+  metodos_pago?: MetodoPagoItem[];
 }
 
 export interface ProductoSearch {
@@ -362,11 +396,10 @@ export interface CajaCentralTotales {
 export interface NuevoMovimientoInput {
   tipo: 'INGRESO' | 'EGRESO';
   descripcion: string;
-  efectivo?: number;
-  digital?: number;
   cheques?: number;
   ctaCte?: number;
   puntoVentaId?: number;
+  metodos_pago?: MetodoPagoItem[];
 }
 
 export interface FondoCambio {

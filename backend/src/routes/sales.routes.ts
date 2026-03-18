@@ -137,6 +137,27 @@ router.get('/saldo-cta-cte/:clienteId', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/sales/:id/metodos-pago  (payment method breakdown for a sale)
+router.get('/:id/metodos-pago', async (req: Request, res: Response) => {
+  try {
+    const ventaId = parseInt(req.params.id as string);
+    const data = await salesService.getMetodosPagoVenta(ventaId);
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/sales/active-payment-methods  (for sales flow)
+router.get('/active-payment-methods', async (_req: Request, res: Response) => {
+  try {
+    const data = await salesService.getActivePaymentMethods();
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/sales/search-products
 router.get('/search-products', async (req: Request, res: Response) => {
   try {

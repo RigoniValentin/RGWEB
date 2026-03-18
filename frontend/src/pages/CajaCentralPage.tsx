@@ -11,14 +11,16 @@ import {
   PlusOutlined, DeleteOutlined, ReloadOutlined, SwapOutlined, EyeOutlined,
 } from '@ant-design/icons';
 import { cajaCentralApi } from '../services/cajaCentral.api';
+import { cajaApi } from '../services/caja.api';
 import { catalogApi } from '../services/catalog.api';
+import { salesApi } from '../services/sales.api';
 import { useAuthStore } from '../store/authStore';
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
 import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
 import { FondoCambioModal } from '../components/FondoCambioModal';
 import { fmtMoney, fmtMoneyAbs, statFormatter } from '../utils/format';
 import { useTabStore } from '../store/tabStore';
-import type { MovimientoCaja, CajaCentralTotales } from '../types';
+import type { MovimientoCaja, CajaCentralTotales, DesgloseMetodo, MetodoPago } from '../types';
 
 const { Title, Text } = Typography;
 
@@ -38,13 +40,14 @@ export function CajaCentralPage() {
   const [fondoModalOpen, setFondoModalOpen] = useState(false);
   const [nuevoTipo, setNuevoTipo] = useState<'INGRESO' | 'EGRESO'>('INGRESO');
   const [nuevoDesc, setNuevoDesc] = useState('');
-  const [nuevoEfectivo, setNuevoEfectivo] = useState<number>(0);
-  const [nuevoDigital, setNuevoDigital] = useState<number>(0);
+  const [nuevoMontosPorMetodo, setNuevoMontosPorMetodo] = useState<Record<number, number>>({});
   const [nuevoCheques, setNuevoCheques] = useState<number>(0);
   const [nuevoCtaCte, setNuevoCtaCte] = useState<number>(0);
   const [nuevoPvId, setNuevoPvId] = useState<number | undefined>(() => puntosVenta.length === 1 ? puntosVenta[0]?.PUNTO_VENTA_ID : puntoVentaActivo ?? undefined);
   const [cajaIdFilter, setCajaIdFilter] = useState<string>('');
   const [pvFilter, setPvFilter] = useState<number | undefined>(() => puntoVentaActivo ?? undefined);
+  const [desgloseModalOpen, setDesgloseModalOpen] = useState(false);
+  const [desgloseData, setDesgloseData] = useState<DesgloseMetodo[]>([]);
 
   const pvIdsParam = pvFilter ? String(pvFilter) : undefined;
 
@@ -99,15 +102,19 @@ export function CajaCentralPage() {
   };
 
   const crearMutation = useMutation({
-    mutationFn: () => cajaCentralApi.crearMovimiento({
-      tipo: nuevoTipo,
-      descripcion: nuevoDesc,
-      efectivo: nuevoEfectivo,
-      digital: nuevoDigital,
-      cheques: nuevoCheques,
-      ctaCte: nuevoCtaCte,
-      puntoVentaId: nuevoPvId,
-    }),
+    mutationFn: () => {
+      const metodos_pago = Object.entries(nuevoMontosPorMetodo)
+        .filter(([, m]) => m > 0)
+        .map(([id, m]) => ({ METODO_PAGO_ID: Number(id), MONTO: m }));
+      return cajaCentralApi.crearMovimiento({
+        tipo: nuevoTipo,
+        descripcion: nuevoDesc,
+        cheques: nuevoCheques,
+        ctaCte: nuevoCtaCte,
+        puntoVentaId: nuevoPvId,
+        metodos_pago: metodos_pago.length > 0 ? metodos_pago : undefined,
+      });
+    },
     onSuccess: () => {
       message.success('Movimiento registrado');
       setNuevoModalOpen(false);
@@ -128,16 +135,33 @@ export function CajaCentralPage() {
 
   const resetNuevoForm = () => {
     setNuevoDesc('');
-    setNuevoEfectivo(0);
-    setNuevoDigital(0);
+    setNuevoMontosPorMetodo({});
     setNuevoCheques(0);
     setNuevoCtaCte(0);
     setNuevoPvId(puntosVenta.length === 1 ? puntosVenta[0]?.PUNTO_VENTA_ID : puntoVentaActivo ?? undefined);
   };
 
+  // ── Active payment methods query ─────────────
+  const { data: activePaymentMethods = [] } = useQuery<MetodoPago[]>({
+    queryKey: ['sales-active-payment-methods'],
+    queryFn: () => salesApi.getActivePaymentMethods(),
+    staleTime: 5 * 60 * 1000,
+  });
 
+  const orderedPaymentMethods = [...activePaymentMethods].sort((a, b) => {
+    const rank = (m: MetodoPago) => {
+      if (m.CATEGORIA === 'EFECTIVO' && m.POR_DEFECTO) return 0;
+      if (m.CATEGORIA === 'EFECTIVO') return 1;
+      return 2;
+    };
+    const ra = rank(a);
+    const rb = rank(b);
+    if (ra !== rb) return ra - rb;
+    return a.NOMBRE.localeCompare(b.NOMBRE, 'es');
+  });
 
-  const nuevoTotal = nuevoEfectivo + nuevoDigital + nuevoCheques + nuevoCtaCte;
+  const nuevoMetodosTotal = Object.values(nuevoMontosPorMetodo).reduce((s, v) => s + (v || 0), 0);
+  const nuevoTotal = nuevoMetodosTotal + nuevoCheques + nuevoCtaCte;
 
   // ── Movement columns ───────────────────────────
   const movColumns = [
@@ -152,7 +176,7 @@ export function CajaCentralPage() {
             : <Tooltip title="Autogenerado por el sistema"><Tag style={{ margin: 0 }}>A</Tag></Tooltip>,
     },
     {
-      title: 'Caja', dataIndex: 'CAJA_ID', key: 'caja', width: 75,align: 'center' as const ,
+      title: 'Caja', dataIndex: 'CAJA_ID', key: 'caja', width: 100,align: 'center' as const ,
       render: (v: number | null) => v ? `#${v}` : '-',
     },
     {
@@ -162,14 +186,6 @@ export function CajaCentralPage() {
     { title: 'Movimiento', dataIndex: 'MOVIMIENTO', key: 'mov', ellipsis: true },
     { title: 'Usuario', dataIndex: 'USUARIO_NOMBRE', key: 'user', width: 120, ellipsis: true, align: 'center' as const },
     {
-      title: 'Efectivo', dataIndex: 'EFECTIVO', key: 'cash', width: 120, align: 'right' as const,
-      render: (v: number) => fmtMoneyAbs(v),
-    },
-    {
-      title: 'Digital', dataIndex: 'DIGITAL', key: 'digital', width: 120, align: 'right' as const,
-      render: (v: number) => fmtMoneyAbs(v),
-    },
-    {
       title: 'Cheques', dataIndex: 'CHEQUES', key: 'cheques', width: 100, align: 'right' as const,
       render: (v: number) => v !== 0 ? fmtMoneyAbs(v) : '-',
     },
@@ -178,8 +194,30 @@ export function CajaCentralPage() {
       render: (v: number) => v !== 0 ? fmtMoneyAbs(v) : '-',
     },
     {
-      title: 'Total', dataIndex: 'TOTAL', key: 'total', width: 130, align: 'right' as const,
-      render: (v: number) => <Text strong>{fmtMoneyAbs(v)}</Text>,
+      title: 'Total', dataIndex: 'TOTAL', key: 'total', width: 160, align: 'center' as const,
+      render: (v: number, record: MovimientoCaja) => {
+        const showDesglose = record.CAJA_ID || record.ES_MANUAL;
+        if (showDesglose) {
+          return (
+            <Text
+              strong
+              style={{ cursor: 'pointer'}}
+              onClick={() => {
+                const promise = record.CAJA_ID
+                  ? cajaApi.getDesgloseMetodos(record.CAJA_ID)
+                  : cajaCentralApi.getDesgloseMovimiento(record.ID);
+                promise.then(data => {
+                  setDesgloseData(data);
+                  setDesgloseModalOpen(true);
+                });
+              }}
+            >
+              {fmtMoneyAbs(v)} ▸
+            </Text>
+          );
+        }
+        return <Text strong>{fmtMoneyAbs(v)}</Text>;
+      },
     },
     {
       title: '', key: 'actions', width: 60, align: 'center' as const,
@@ -285,13 +323,19 @@ export function CajaCentralPage() {
           </Card>
         </Col>
         <Col xs={12} sm={6} md={3}>
-          <Card size="small" className="rg-card">
-            <Statistic title="Efectivo" value={displayTotales.efectivo} formatter={statFormatter} prefix="$" valueStyle={{ fontSize: 14 }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={6} md={3}>
-          <Card size="small" className="rg-card">
-            <Statistic title="Digital" value={displayTotales.digital} formatter={statFormatter} prefix="$" valueStyle={{ fontSize: 14 }} />
+          <Card size="small" className="rg-card"
+            style={{ cursor: 'pointer' }}
+            onClick={() => {
+              cajaCentralApi.getDesgloseMetodos({
+                fechaDesde, fechaHasta,
+                pvIds: pvIdsParam,
+              }).then(data => {
+                setDesgloseData(data);
+                setDesgloseModalOpen(true);
+              });
+            }}
+          >
+            <Statistic title="Total ▸" value={(displayTotales.efectivo || 0) + (displayTotales.digital || 0)} formatter={statFormatter} prefix="$" valueStyle={{ fontSize: 14, color: '#1677ff' }} />
           </Card>
         </Col>
         <Col xs={12} sm={6} md={3}>
@@ -414,20 +458,51 @@ export function CajaCentralPage() {
               autoFocus
             />
           </Form.Item>
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item label="Efectivo">
-                <InputNumber style={{ width: '100%' }} min={0} precision={2} prefix="$"
-                  value={nuevoEfectivo} onChange={v => setNuevoEfectivo(v ?? 0)} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item label="Digital">
-                <InputNumber style={{ width: '100%' }} min={0} precision={2} prefix="$"
-                  value={nuevoDigital} onChange={v => setNuevoDigital(v ?? 0)} />
-              </Form.Item>
-            </Col>
-          </Row>
+
+          {/* ── Payment methods ── */}
+          {orderedPaymentMethods.length > 0 && (
+            <>
+              <div style={{ marginBottom: 4 }}>
+                <Text strong style={{ fontSize: 13 }}>Métodos de pago</Text>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8, marginBottom: 16 }}>
+                {orderedPaymentMethods.map(mp => {
+                  const monto = nuevoMontosPorMetodo[mp.METODO_PAGO_ID] || 0;
+                  const isActive = monto > 0;
+                  return (
+                    <div
+                      key={mp.METODO_PAGO_ID}
+                      style={{
+                        border: `2px solid ${isActive ? '#EABD23' : '#d9d9d9'}`,
+                        borderRadius: 8,
+                        padding: '8px 10px',
+                        background: isActive ? 'rgba(234,189,35,0.06)' : '#fafafa',
+                        transition: 'all 0.2s',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                        {mp.IMAGEN_BASE64 ? (
+                          <img src={mp.IMAGEN_BASE64} alt={mp.NOMBRE} style={{ width: 22, height: 22, objectFit: 'contain', borderRadius: 3 }} />
+                        ) : null}
+                        <Text style={{ fontSize: 12, fontWeight: 600 }}>{mp.NOMBRE}</Text>
+                      </div>
+                      <InputNumber
+                        size="small"
+                        style={{ width: '100%' }}
+                        min={0}
+                        precision={2}
+                        prefix="$"
+                        value={monto || undefined}
+                        placeholder="0.00"
+                        onChange={v => setNuevoMontosPorMetodo(prev => ({ ...prev, [mp.METODO_PAGO_ID]: v ?? 0 }))}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
           <Row gutter={12}>
             <Col span={12}>
               <Form.Item label="Cheques">
@@ -460,6 +535,43 @@ export function CajaCentralPage() {
           invalidateAll();
         }}
       />
-    </div>
+      {/* ── Desglose Métodos de Pago Modal ──── */}
+      <Modal
+        open={desgloseModalOpen}
+        onCancel={() => setDesgloseModalOpen(false)}
+        footer={<Button onClick={() => setDesgloseModalOpen(false)}>Cerrar</Button>}
+        title="Desglose por método de pago"
+        width={480}
+        destroyOnClose
+      >
+        {desgloseData.length === 0 ? (
+          <Text type="secondary">No hay métodos de pago registrados para este período.</Text>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
+            {desgloseData.map(d => (
+              <div key={d.METODO_PAGO_ID} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '10px 14px', borderRadius: 8,
+                background: d.CATEGORIA === 'EFECTIVO' ? 'rgba(82,196,26,0.06)' : 'rgba(22,119,255,0.06)',
+                border: `1px solid ${d.CATEGORIA === 'EFECTIVO' ? '#b7eb8f' : '#91caff'}`,
+              }}>
+                <Space>
+                  {d.IMAGEN_BASE64 ? (
+                    <img src={d.IMAGEN_BASE64} alt={d.NOMBRE} style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 4 }} />
+                  ) : null}
+                  <div>
+                    <Text strong>{d.NOMBRE}</Text>
+                    <br />
+                    <Tag color={d.CATEGORIA === 'EFECTIVO' ? 'green' : 'blue'} style={{ fontSize: 10 }}>
+                      {d.CATEGORIA}
+                    </Tag>
+                  </div>
+                </Space>
+                <Text strong style={{ fontSize: 16 }}>{fmtMoney(d.TOTAL)}</Text>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>    </div>
   );
 }

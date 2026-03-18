@@ -21,7 +21,7 @@ import { fmtMoney, statFormatter } from '../utils/format';
 import { printCajaDetail } from '../utils/printCajaDetail';
 import { salesApi } from '../services/sales.api';
 import { useTabStore } from '../store/tabStore';
-import type { Caja, CajaItem } from '../types';
+import type { Caja, CajaItem, DesgloseMetodo } from '../types';
 
 const { Title, Text } = Typography;
 
@@ -53,6 +53,8 @@ export function CajaPage() {
   const [depositoDescripcion, setDepositoDescripcion] = useState('');
   const [ieModalOpen, setIeModalOpen] = useState(false);
   const [ieType, setIeType] = useState<'INGRESO' | 'EGRESO'>('INGRESO');
+  const [desgloseModalOpen, setDesgloseModalOpen] = useState(false);
+  const [desgloseData, setDesgloseData] = useState<DesgloseMetodo[]>([]);
   const [ieMonto, setIeMonto] = useState<number>(0);
   const [ieDescripcion, setIeDescripcion] = useState('');
   const [fondoModalOpen, setFondoModalOpen] = useState(false);
@@ -325,12 +327,11 @@ export function CajaPage() {
       render: (v: string, r: any) => r.ORIGEN_TIPO === 'FONDO_CAMBIO' ? v?.replace(/Fondo de Cambio/gi, 'FC') : v,
     },
     {
-      title: 'Efectivo', dataIndex: 'MONTO_EFECTIVO', key: 'cash', width: 120, align: 'center' as const,
-      render: (v: number) => <Text type={v < 0 ? 'danger' : undefined}>{fmtMoney(v)}</Text>,
-    },
-    {
-      title: 'Digital', dataIndex: 'MONTO_DIGITAL', key: 'digital', width: 120, align: 'center' as const,
-      render: (v: number) => fmtMoney(v),
+      title: 'Total', key: 'total', width: 120, align: 'center' as const,
+      render: (_: unknown, r: CajaItem) => {
+        const t = (r.MONTO_EFECTIVO || 0) + (r.MONTO_DIGITAL || 0);
+        return <Text type={t < 0 ? 'danger' : undefined}>{fmtMoney(t)}</Text>;
+      },
     },
   ];
 
@@ -562,21 +563,28 @@ export function CajaPage() {
             {/* Totals summary */}
             {detail.totales && (
               <Row gutter={12} style={{ marginBottom: 16 }}>
-                <Col span={6}>
+                <Col span={8}>
                   <Statistic title="Ingresos" value={detail.totales.ingresos} formatter={statFormatter} prefix="$"
                     valueStyle={{ color: '#52c41a', fontSize: 16 }} />
                 </Col>
-                <Col span={6}>
+                <Col span={8}>
                   <Statistic title="Egresos" value={detail.totales.egresos} formatter={statFormatter} prefix="$"
                     valueStyle={{ color: '#ff4d4f', fontSize: 16 }} />
                 </Col>
-                <Col span={6}>
-                  <Statistic title="Efectivo" value={detail.totales.efectivo} formatter={statFormatter} prefix="$"
-                    valueStyle={{ fontSize: 16 }} />
-                </Col>
-                <Col span={6}>
-                  <Statistic title="Digital" value={detail.totales.digital} formatter={statFormatter} prefix="$"
-                    valueStyle={{ fontSize: 16 }} />
+                <Col span={8}>
+                  <div
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => {
+                      cajaApi.getDesgloseMetodos(detail.CAJA_ID).then(data => {
+                        setDesgloseData(data);
+                        setDesgloseModalOpen(true);
+                      });
+                    }}
+                    title="Ver desglose por método de pago"
+                  >
+                    <Statistic title="Total ▸" value={(detail.totales.efectivo || 0) + (detail.totales.digital || 0)} formatter={statFormatter} prefix="$"
+                      valueStyle={{ fontSize: 16, color: '#1677ff' }} />
+                  </div>
                 </Col>
               </Row>
             )}
@@ -802,6 +810,45 @@ export function CajaPage() {
         }}
         preselectedCajaId={miCaja?.CAJA_ID}
       />
+
+      {/* ── Desglose Métodos de Pago Modal ──── */}
+      <Modal
+        open={desgloseModalOpen}
+        onCancel={() => setDesgloseModalOpen(false)}
+        footer={<Button onClick={() => setDesgloseModalOpen(false)}>Cerrar</Button>}
+        title="Desglose por método de pago"
+        width={480}
+        destroyOnClose
+      >
+        {desgloseData.length === 0 ? (
+          <Text type="secondary">No hay métodos de pago registrados para esta caja.</Text>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
+            {desgloseData.map(d => (
+              <div key={d.METODO_PAGO_ID} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '10px 14px', borderRadius: 8,
+                background: d.CATEGORIA === 'EFECTIVO' ? 'rgba(82,196,26,0.06)' : 'rgba(22,119,255,0.06)',
+                border: `1px solid ${d.CATEGORIA === 'EFECTIVO' ? '#b7eb8f' : '#91caff'}`,
+              }}>
+                <Space>
+                  {d.IMAGEN_BASE64 ? (
+                    <img src={d.IMAGEN_BASE64} alt={d.NOMBRE} style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 4 }} />
+                  ) : null}
+                  <div>
+                    <Text strong>{d.NOMBRE}</Text>
+                    <br />
+                    <Tag color={d.CATEGORIA === 'EFECTIVO' ? 'green' : 'blue'} style={{ fontSize: 10 }}>
+                      {d.CATEGORIA}
+                    </Tag>
+                  </div>
+                </Space>
+                <Text strong style={{ fontSize: 16 }}>{fmtMoney(d.TOTAL)}</Text>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

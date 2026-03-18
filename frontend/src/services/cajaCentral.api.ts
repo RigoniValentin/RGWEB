@@ -1,5 +1,5 @@
 import api from './api';
-import type { MovimientoCaja, CajaCentralTotales, NuevoMovimientoInput } from '../types';
+import type { MovimientoCaja, CajaCentralTotales, NuevoMovimientoInput, DesgloseMetodo } from '../types';
 
 export const cajaCentralApi = {
   getMovimientos: (params?: Record<string, any>) =>
@@ -19,4 +19,10 @@ export const cajaCentralApi = {
 
   eliminarMovimiento: (id: number) =>
     api.delete(`/caja-central/movimiento/${id}`).then(r => r.data),
+
+  getDesgloseMetodos: (params?: Record<string, any>) =>
+    api.get<DesgloseMetodo[]>('/caja-central/desglose-metodos', { params }).then(r => r.data),
+
+  getDesgloseMovimiento: (movimientoId: number) =>
+    api.get<DesgloseMetodo[]>(`/caja-central/movimiento/${movimientoId}/desglose-metodos`).then(r => r.data),
 };

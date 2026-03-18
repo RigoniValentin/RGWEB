@@ -1,5 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import { cajaCentralService } from '../services/cajaCentral.service.js';
+import { salesService } from '../services/sales.service.js';
 import { AuthRequest, authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
@@ -57,6 +58,19 @@ router.get('/fondo-cambio', async (req: AuthRequest, res: Response, next: NextFu
   } catch (err) { next(err); }
 });
 
+// ── GET /api/caja-central/desglose-metodos — payment method breakdown for period ──
+router.get('/desglose-metodos', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { fechaDesde, fechaHasta, puntoVentaIds } = req.query;
+    const data = await salesService.getDesgloseMetodosCajaCentral({
+      fechaDesde: fechaDesde as string | undefined,
+      fechaHasta: fechaHasta as string | undefined,
+      puntoVentaIds: parsePvIds(puntoVentaIds),
+    });
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/caja-central/movimiento — new manual movement ──
 router.post('/movimiento', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -67,6 +81,14 @@ router.post('/movimiento', async (req: AuthRequest, res: Response, next: NextFun
     if (err.name === 'ValidationError') { res.status(err.status || 400).json({ error: err.message }); return; }
     next(err);
   }
+});
+
+// ── GET /api/caja-central/movimiento/:id/desglose-metodos ──
+router.get('/movimiento/:id/desglose-metodos', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const data = await cajaCentralService.getDesgloseMovimiento(Number(req.params.id));
+    res.json(data);
+  } catch (err) { next(err); }
 });
 
 // ── DELETE /api/caja-central/movimiento/:id — delete manual movement ──

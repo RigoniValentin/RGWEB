@@ -8,13 +8,14 @@ import {
   EyeOutlined, PlusOutlined, DeleteOutlined, DollarOutlined,
   SearchOutlined, MoreOutlined, WalletOutlined, CloseCircleOutlined, ReloadOutlined,
   PrinterOutlined, WhatsAppOutlined, SendOutlined, UserOutlined,
-  FileTextOutlined, FilePdfOutlined, SwapOutlined,
+  FileTextOutlined, FilePdfOutlined, SwapOutlined, BankOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { printReceipt, printFETicket, openFEPdf } from '../utils/printReceipt';
 import type { ReceiptData } from '../utils/printReceipt';
 import dayjs from 'dayjs';
 import { salesApi } from '../services/sales.api';
+import { cajaApi } from '../services/caja.api';
 import { NewSaleModal } from '../components/sales/NewSaleModal';
 import { PaymentModal } from '../components/sales/PaymentModal';
 import { DateFilterPopover, type DatePreset } from '../components/DateFilterPopover';
@@ -55,6 +56,13 @@ export function SalesPage() {
   const [wspNombre, setWspNombre] = useState('');
   const [wspSending, setWspSending] = useState(false);
   const [wspVentaId, setWspVentaId] = useState<number | null>(null);
+
+  // ── Mi caja activa ─────────────────────────────
+  const { data: miCaja } = useQuery({
+    queryKey: ['mi-caja'],
+    queryFn: () => cajaApi.getMiCaja(),
+    staleTime: 30000,
+  });
 
   // ── Listen for global shortcut event ───────────
   useEffect(() => {
@@ -336,7 +344,7 @@ export function SalesPage() {
 
   // ── Columns ────────────────────────────────────
   const columns = [
-    { title: '#', dataIndex: 'VENTA_ID', key: 'id', width: 70, align: 'center' as const },
+    { title: '#', dataIndex: 'VENTA_ID', key: 'id', width: 100, align: 'center' as const },
     {
       title: 'Fecha', dataIndex: 'FECHA_VENTA', key: 'date', width: 160, align: 'center' as const,
       render: (v: string) => new Date(v).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }),
@@ -437,6 +445,17 @@ export function SalesPage() {
             Cobro pendiente
           </Checkbox>
           <Button icon={<ReloadOutlined />} onClick={() => refetch()} />
+          {miCaja && (
+            <Button
+              icon={<BankOutlined />}
+              onClick={() => {
+                openTab({ key: '/cashregisters', label: 'Cajas', closable: true });
+                navigate('/cashregisters', { state: { openCajaId: miCaja.CAJA_ID } });
+              }}
+            >
+              Ver mi Caja
+            </Button>
+          )}
           <Button
             type="primary"
             className="btn-gold"
@@ -581,11 +600,8 @@ export function SalesPage() {
               <Descriptions.Item label="Cta. Corriente">
                 {detail.ES_CTA_CORRIENTE ? <Tag color="blue">Sí</Tag> : 'No'}
               </Descriptions.Item>
-              <Descriptions.Item label="Efectivo">
-                {fmtMoney(detail.MONTO_EFECTIVO)}
-              </Descriptions.Item>
-              <Descriptions.Item label="Digital">
-                {fmtMoney(detail.MONTO_DIGITAL)}
+              <Descriptions.Item label="Cobrado">
+                {fmtMoney((detail.MONTO_EFECTIVO ?? 0) + (detail.MONTO_DIGITAL ?? 0))}
               </Descriptions.Item>
               <Descriptions.Item label="Vuelto">
                 {fmtMoney(detail.VUELTO)}

@@ -17,6 +17,7 @@ import purchasesRoutes from './purchases.routes.js';
 import ncComprasRoutes from './ncCompras.routes.js';
 import settingsRoutes from './settings.routes.js';
 import mesasRoutes from './mesas.routes.js';
+import paymentMethodRoutes from './paymentMethod.routes.js';
 
 const router = Router();
 
@@ -38,5 +39,6 @@ router.use('/purchases', purchasesRoutes);
 router.use('/nc-compras', ncComprasRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/mesas', mesasRoutes);
+router.use('/payment-methods', paymentMethodRoutes);
 
 export default router;

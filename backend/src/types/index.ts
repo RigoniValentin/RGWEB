@@ -78,6 +78,16 @@ export interface Marca {
   ACTIVA: boolean;
 }
 
+// ── Métodos de Pago ──────────────────────────────
+export interface MetodoPago {
+  METODO_PAGO_ID: number;
+  NOMBRE: string;
+  CATEGORIA: 'EFECTIVO' | 'DIGITAL';
+  IMAGEN_BASE64: string | null;
+  ACTIVA: boolean;
+  POR_DEFECTO: boolean;
+}
+
 // ── Clientes ─────────────────────────────────────
 export interface Cliente {
   CLIENTE_ID: number;
@@ -141,6 +151,15 @@ export interface Venta {
   // Joined
   CLIENTE_NOMBRE?: string;
   USUARIO_NOMBRE?: string;
+}
+
+export interface VentaMetodoPago {
+  ID: number;
+  VENTA_ID: number;
+  METODO_PAGO_ID: number;
+  MONTO: number;
+  METODO_NOMBRE?: string;
+  METODO_CATEGORIA?: 'EFECTIVO' | 'DIGITAL';
 }
 
 export interface VentaItem {

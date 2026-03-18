@@ -15,10 +15,9 @@ export interface CajaCentralFilter {
 export interface NuevoMovimientoInput {
   tipo: 'INGRESO' | 'EGRESO';
   descripcion: string;
-  efectivo?: number;
-  digital?: number;
   cheques?: number;
   ctaCte?: number;
+  metodos_pago?: { METODO_PAGO_ID: number; MONTO: number }[];
 }
 
 export const cajaCentralService = {
@@ -222,26 +221,39 @@ export const cajaCentralService = {
   async crearMovimiento(input: NuevoMovimientoInput, usuarioId: number, puntoVentaId?: number) {
     const pool = await getPool();
 
-    const efectivo = input.efectivo || 0;
-    const digital = input.digital || 0;
+    // Derive efectivo/digital from payment methods
+    let efectivo = 0;
+    let digital = 0;
+    const metodos = input.metodos_pago || [];
+    if (metodos.length > 0) {
+      // Look up categories
+      const mpIds = metodos.map(m => m.METODO_PAGO_ID);
+      const ph = mpIds.map((_, i) => `@mp${i}`).join(', ');
+      const catReq = pool.request();
+      mpIds.forEach((id, i) => catReq.input(`mp${i}`, sql.Int, id));
+      const catResult = await catReq.query(`SELECT METODO_PAGO_ID, CATEGORIA FROM METODOS_PAGO WHERE METODO_PAGO_ID IN (${ph})`);
+      const catMap: Record<number, string> = {};
+      for (const r of catResult.recordset) catMap[r.METODO_PAGO_ID] = r.CATEGORIA;
+      for (const m of metodos) {
+        if (catMap[m.METODO_PAGO_ID] === 'EFECTIVO') efectivo += m.MONTO;
+        else digital += m.MONTO;
+      }
+    }
+
     const cheques = input.cheques || 0;
     const ctaCte = input.ctaCte || 0;
     const total = efectivo + digital + cheques + ctaCte;
-    const signedTotal = input.tipo === 'EGRESO' ? -Math.abs(total) : Math.abs(total);
-    const signedEfectivo = input.tipo === 'EGRESO' ? -Math.abs(efectivo) : Math.abs(efectivo);
-    const signedDigital = input.tipo === 'EGRESO' ? -Math.abs(digital) : Math.abs(digital);
-    const signedCheques = input.tipo === 'EGRESO' ? -Math.abs(cheques) : Math.abs(cheques);
-    const signedCtaCte = input.tipo === 'EGRESO' ? -Math.abs(ctaCte) : Math.abs(ctaCte);
+    const sign = input.tipo === 'EGRESO' ? -1 : 1;
 
     const result = await pool.request()
       .input('tipoEntidad', sql.VarChar(20), input.tipo)
       .input('movimiento', sql.NVarChar(500), input.descripcion)
       .input('uid', sql.Int, usuarioId)
-      .input('efectivo', sql.Decimal(18, 2), signedEfectivo)
-      .input('digital', sql.Decimal(18, 2), signedDigital)
-      .input('cheques', sql.Decimal(18, 2), signedCheques)
-      .input('ctaCte', sql.Decimal(18, 2), signedCtaCte)
-      .input('total', sql.Decimal(18, 2), signedTotal)
+      .input('efectivo', sql.Decimal(18, 2), sign * efectivo)
+      .input('digital', sql.Decimal(18, 2), sign * digital)
+      .input('cheques', sql.Decimal(18, 2), sign * cheques)
+      .input('ctaCte', sql.Decimal(18, 2), sign * ctaCte)
+      .input('total', sql.Decimal(18, 2), sign * total)
       .input('pvId', sql.Int, puntoVentaId || null)
       .query(`
         INSERT INTO MOVIMIENTOS_CAJA (TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
@@ -249,7 +261,30 @@ export const cajaCentralService = {
         VALUES (@tipoEntidad, @movimiento, @uid, @efectivo, @digital, @cheques, @ctaCte, @total, @pvId, 1)
       `);
 
-    return { ID: result.recordset[0].ID };
+    const movId = result.recordset[0].ID;
+
+    // Store individual method amounts in MOVIMIENTOS_CAJA_METODOS_PAGO
+    if (metodos.length > 0) {
+      // Ensure junction table exists
+      await pool.request().query(`
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'MOVIMIENTOS_CAJA_METODOS_PAGO')
+        CREATE TABLE MOVIMIENTOS_CAJA_METODOS_PAGO (
+          ID INT IDENTITY(1,1) PRIMARY KEY,
+          MOVIMIENTO_ID INT NOT NULL,
+          METODO_PAGO_ID INT NOT NULL,
+          MONTO DECIMAL(18,2) NOT NULL
+        )
+      `);
+      for (const m of metodos) {
+        await pool.request()
+          .input('movId', sql.Int, movId)
+          .input('mpId', sql.Int, m.METODO_PAGO_ID)
+          .input('monto', sql.Decimal(18, 2), sign * m.MONTO)
+          .query(`INSERT INTO MOVIMIENTOS_CAJA_METODOS_PAGO (MOVIMIENTO_ID, METODO_PAGO_ID, MONTO) VALUES (@movId, @mpId, @monto)`);
+      }
+    }
+
+    return { ID: movId };
   },
 
   // ── Delete manual movement ─────────────────────
@@ -272,7 +307,57 @@ export const cajaCentralService = {
       .input('id', sql.Int, id)
       .query(`DELETE FROM MOVIMIENTOS_CAJA WHERE ID = @id`);
 
+    // Also delete method breakdown if exists
+    try {
+      await pool.request()
+        .input('id', sql.Int, id)
+        .query(`DELETE FROM MOVIMIENTOS_CAJA_METODOS_PAGO WHERE MOVIMIENTO_ID = @id`);
+    } catch { /* table may not exist yet */ }
+
     return { success: true };
+  },
+
+  // ── Get payment method breakdown for a specific movimiento ──
+  async getDesgloseMovimiento(movimientoId: number) {
+    const pool = await getPool();
+
+    // Check if junction table exists and has data for this movement
+    try {
+      const result = await pool.request()
+        .input('movId', sql.Int, movimientoId)
+        .query(`
+          SELECT mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64,
+                 mcm.MONTO AS TOTAL
+          FROM MOVIMIENTOS_CAJA_METODOS_PAGO mcm
+          JOIN METODOS_PAGO mp ON mcm.METODO_PAGO_ID = mp.METODO_PAGO_ID
+          WHERE mcm.MOVIMIENTO_ID = @movId
+          ORDER BY CASE WHEN mp.CATEGORIA = 'EFECTIVO' THEN 0 ELSE 1 END, mp.NOMBRE
+        `);
+      if (result.recordset.length > 0) return result.recordset;
+    } catch { /* table may not exist */ }
+
+    // Fallback for old movements: derive from EFECTIVO/DIGITAL columns
+    const mov = await pool.request()
+      .input('id', sql.Int, movimientoId)
+      .query(`SELECT EFECTIVO, DIGITAL FROM MOVIMIENTOS_CAJA WHERE ID = @id`);
+    if (mov.recordset.length === 0) return [];
+
+    const { EFECTIVO, DIGITAL } = mov.recordset[0];
+    const fallback: any[] = [];
+
+    if (EFECTIVO && EFECTIVO !== 0) {
+      const ef = await pool.request().query(`SELECT TOP 1 METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64 FROM METODOS_PAGO WHERE CATEGORIA = 'EFECTIVO' AND ACTIVA = 1 ORDER BY POR_DEFECTO DESC`);
+      if (ef.recordset.length > 0) {
+        fallback.push({ ...ef.recordset[0], TOTAL: EFECTIVO });
+      }
+    }
+    if (DIGITAL && DIGITAL !== 0) {
+      const dg = await pool.request().query(`SELECT TOP 1 METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64 FROM METODOS_PAGO WHERE CATEGORIA = 'DIGITAL' AND ACTIVA = 1 ORDER BY POR_DEFECTO DESC`);
+      if (dg.recordset.length > 0) {
+        fallback.push({ ...dg.recordset[0], TOTAL: DIGITAL });
+      }
+    }
+    return fallback;
   },
 };
 

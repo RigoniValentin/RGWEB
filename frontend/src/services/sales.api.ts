@@ -2,6 +2,7 @@ import api from './api';
 import type {
   Venta, VentaDetalle, VentaInput, PaymentInput,
   PaginatedResponse, ProductoSearch, ClienteVenta, Deposito,
+  MetodoPago, VentaMetodoPago,
 } from '../types';
 
 export interface DepositoPV extends Deposito {
@@ -81,4 +82,10 @@ export const salesApi = {
 
   getFERespuesta: (ventaId: number) =>
     api.get(`/sales/${ventaId}/fe-respuesta`).then(r => r.data),
+
+  getActivePaymentMethods: () =>
+    api.get<MetodoPago[]>('/sales/active-payment-methods').then(r => r.data),
+
+  getMetodosPagoVenta: (ventaId: number) =>
+    api.get<VentaMetodoPago[]>(`/sales/${ventaId}/metodos-pago`).then(r => r.data),
 };

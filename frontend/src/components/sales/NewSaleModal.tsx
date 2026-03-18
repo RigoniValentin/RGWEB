@@ -27,7 +27,6 @@ import type { VentaItemInput, ProductoSearch, VentaInput, ClienteVenta } from '.
 const { Title, Text } = Typography;
 
 type ModalStep = 'cart' | 'cobro';
-type MetodoPago = 'efectivo' | 'digital' | 'mixto';
 
 interface CartItem extends VentaItemInput {
   key: string;
@@ -74,10 +73,11 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
 
   // Payment step state
   const [step, setStep] = useState<ModalStep>('cart');
-  const [metodoPago, setMetodoPago] = useState<MetodoPago>('efectivo');
-  const [pagoEfectivo, setPagoEfectivo] = useState(0);
-  const [pagoDigital, setPagoDigital] = useState(0);
+  const [selectedMetodos, setSelectedMetodos] = useState<number[]>([]);
+  const [montosPorMetodo, setMontosPorMetodo] = useState<Record<number, number>>({});
   const efectivoRef = useRef<any>(null);
+  const [metodoModalOpen, setMetodoModalOpen] = useState(false);
+  const [metodoModalSelection, setMetodoModalSelection] = useState<number[]>([]);
 
   // Print / WhatsApp toggles
   const [wantPrint, setWantPrint] = useState(false);
@@ -196,7 +196,71 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     staleTime: 300000,
   });
 
+  // Fetch active payment methods
+  const { data: metodosPago = [] } = useQuery({
+    queryKey: ['sales-active-payment-methods'],
+    queryFn: () => salesApi.getActivePaymentMethods(),
+    enabled: open,
+    staleTime: 60000,
+  });
+
+  const metodosPagoOrdenados = useMemo(() => {
+    const copy = [...metodosPago];
+    copy.sort((a, b) => {
+      const aScore = a.CATEGORIA === 'EFECTIVO' && a.POR_DEFECTO ? 0 : a.CATEGORIA === 'EFECTIVO' ? 1 : 2;
+      const bScore = b.CATEGORIA === 'EFECTIVO' && b.POR_DEFECTO ? 0 : b.CATEGORIA === 'EFECTIVO' ? 1 : 2;
+      if (aScore !== bScore) return aScore - bScore;
+      return a.NOMBRE.localeCompare(b.NOMBRE);
+    });
+    return copy;
+  }, [metodosPago]);
+
+  const defaultMetodoEfectivoId = useMemo(() => {
+    const efectivoPorDefecto = metodosPago.find(m => m.CATEGORIA === 'EFECTIVO' && m.POR_DEFECTO);
+    if (efectivoPorDefecto) return efectivoPorDefecto.METODO_PAGO_ID;
+    const primerEfectivo = metodosPago.find(m => m.CATEGORIA === 'EFECTIVO');
+    if (primerEfectivo) return primerEfectivo.METODO_PAGO_ID;
+    return metodosPago[0]?.METODO_PAGO_ID;
+  }, [metodosPago]);
+
   const utilizaFE = feConfig?.utilizaFE === true;
+
+  // Derived payment values from selectedMetodos + montosPorMetodo
+  const totalRecibido = useMemo(
+    () => selectedMetodos.reduce((sum, id) => sum + (montosPorMetodo[id] || 0), 0),
+    [selectedMetodos, montosPorMetodo]
+  );
+
+  const pagoEfectivo = useMemo(
+    () => selectedMetodos.reduce((sum, id) => {
+      const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+      return m?.CATEGORIA === 'EFECTIVO' ? sum + (montosPorMetodo[id] || 0) : sum;
+    }, 0),
+    [selectedMetodos, montosPorMetodo, metodosPago]
+  );
+
+  const pagoDigital = useMemo(
+    () => selectedMetodos.reduce((sum, id) => {
+      const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+      return m?.CATEGORIA === 'DIGITAL' ? sum + (montosPorMetodo[id] || 0) : sum;
+    }, 0),
+    [selectedMetodos, montosPorMetodo, metodosPago]
+  );
+
+  const hayEfectivo = selectedMetodos.some(id => {
+    const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+    return m?.CATEGORIA === 'EFECTIVO';
+  });
+
+  const soloEfectivo = selectedMetodos.length > 0 && selectedMetodos.every(id => {
+    const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+    return m?.CATEGORIA === 'EFECTIVO';
+  });
+
+  const soloDigital = selectedMetodos.length > 0 && selectedMetodos.every(id => {
+    const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+    return m?.CATEGORIA === 'DIGITAL';
+  });
 
   // Set default deposito when data loads
   useEffect(() => {
@@ -380,10 +444,12 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
           subtotal,
           total,
           esCtaCorriente,
-          montoEfectivo: metodoPago === 'digital' ? 0 : pagoEfectivo,
-          montoDigital: metodoPago === 'efectivo' ? 0 : pagoDigital,
+          montoEfectivo: pagoEfectivo,
+          montoDigital: pagoDigital,
           vuelto: vuelto,
-          metodoPago: step === 'cobro' ? metodoPago : undefined,
+          metodoPago: step === 'cobro'
+            ? (soloEfectivo ? 'efectivo' : soloDigital ? 'digital' : 'mixto')
+            : undefined,
         };
         printReceipt(receiptData);
       }
@@ -459,9 +525,10 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     setSearchText('');
     setSearchOptions([]);
     setStep('cart');
-    setMetodoPago('efectivo');
-    setPagoEfectivo(0);
-    setPagoDigital(0);
+    setSelectedMetodos([]);
+    setMontosPorMetodo({});
+    setMetodoModalOpen(false);
+    setMetodoModalSelection([]);
     setWantPrint(false);
     setWantWhatsApp(false);
     setWantFacturar(false);
@@ -656,11 +723,12 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     }
 
     if (cobrar) {
-      // Transition to payment step
-      setPagoEfectivo(total);
-      setPagoDigital(0);
-      setMetodoPago('efectivo');
-      setStep('cobro');
+      // Open payment method selection modal
+      const initialSelection = selectedMetodos.length > 0
+        ? [...selectedMetodos]
+        : (defaultMetodoEfectivoId ? [defaultMetodoEfectivoId] : []);
+      setMetodoModalSelection(initialSelection);
+      setMetodoModalOpen(true);
       return;
     }
 
@@ -713,45 +781,51 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
 
   // Payment step logic
   const vuelto = useMemo(() => {
-    if (metodoPago === 'efectivo') return Math.max(0, pagoEfectivo - total);
-    if (metodoPago === 'mixto') return Math.max(0, (pagoEfectivo + pagoDigital) - total);
-    return 0; // digital: no change
-  }, [metodoPago, pagoEfectivo, pagoDigital, total]);
+    if (selectedMetodos.length === 0) return 0;
+    // Only effective cash methods can produce change
+    if (soloEfectivo) return Math.max(0, totalRecibido - total);
+    if (hayEfectivo) {
+      // Mixed: only if total received > total, change comes from efectivo
+      return Math.max(0, totalRecibido - total);
+    }
+    return 0; // all digital: no change
+  }, [selectedMetodos, totalRecibido, total, soloEfectivo, hayEfectivo]);
 
   const pagoValido = useMemo(() => {
-    const recibido = pagoEfectivo + pagoDigital;
-    if (recibido <= 0) return false;
-
-    if (metodoPago === 'efectivo') {
-      return pagoEfectivo >= total;
-    }
-    if (metodoPago === 'digital') {
-      // Digital must be exact
-      return Math.abs(pagoDigital - total) < 0.01;
-    }
-    // Mixto: must be exact (no change)
-    return Math.abs(recibido - total) < 0.01;
-  }, [metodoPago, pagoEfectivo, pagoDigital, total]);
+    if (selectedMetodos.length === 0 || totalRecibido <= 0) return false;
+    if (soloEfectivo) return totalRecibido >= total;
+    if (soloDigital) return Math.abs(totalRecibido - total) < 0.01;
+    // Mixed: efectivo can cover the excess (change), but total must be >= total
+    if (hayEfectivo) return totalRecibido >= total;
+    return Math.abs(totalRecibido - total) < 0.01;
+  }, [selectedMetodos, totalRecibido, total, soloEfectivo, soloDigital, hayEfectivo]);
 
   const handleConfirmCobro = () => {
     if (!pagoValido) return;
 
-    // Determine real amounts stored
-    let efectivoFinal = pagoEfectivo;
-    let digitalFinal = pagoDigital;
-    let vueltoFinal = 0;
+    const vueltoFinal = vuelto;
 
-    if (metodoPago === 'efectivo') {
-      efectivoFinal = total; // store the sale amount, not what was given
-      digitalFinal = 0;
-      vueltoFinal = Math.max(0, pagoEfectivo - total);
-    } else if (metodoPago === 'digital') {
-      efectivoFinal = 0;
-      digitalFinal = total;
-      vueltoFinal = 0;
-    } else {
-      // mixto: exact split
-      vueltoFinal = 0;
+    // Build metodos_pago array — adjust efectivo amounts to subtract change
+    const metodosPagoInput = selectedMetodos
+      .filter(id => (montosPorMetodo[id] || 0) > 0)
+      .map(id => {
+        const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+        let monto = montosPorMetodo[id] || 0;
+        // If only one efectivo method and there's change, store the sale amount
+        if (m?.CATEGORIA === 'EFECTIVO' && vueltoFinal > 0 && soloEfectivo) {
+          monto = monto - vueltoFinal;
+        }
+        return { METODO_PAGO_ID: id, MONTO: monto };
+      })
+      .filter(mp => mp.MONTO > 0);
+
+    // Derive category totals
+    let efectivoFinal = 0;
+    let digitalFinal = 0;
+    for (const mp of metodosPagoInput) {
+      const m = metodosPago.find(x => x.METODO_PAGO_ID === mp.METODO_PAGO_ID);
+      if (m?.CATEGORIA === 'EFECTIVO') efectivoFinal += mp.MONTO;
+      else digitalFinal += mp.MONTO;
     }
 
     const input: VentaInput = {
@@ -767,26 +841,19 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       items: cart.map(({ PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID }) => ({
         PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID,
       })),
+      metodos_pago: metodosPagoInput,
       ...(pedido ? { PEDIDO_ID: pedido.PEDIDO_ID, MESA_ID: pedido.MESA_ID } : {}),
     };
     createMutation.mutate(input);
   };
 
-  // When payment method changes, auto-fill amounts
+  // When a single method is selected, auto-fill total to it
   useEffect(() => {
     if (step !== 'cobro') return;
-    if (metodoPago === 'efectivo') {
-      setPagoEfectivo(total);
-      setPagoDigital(0);
-    } else if (metodoPago === 'digital') {
-      setPagoEfectivo(0);
-      setPagoDigital(total);
-    } else {
-      // mixto: don't auto-fill, let user split
-      setPagoEfectivo(0);
-      setPagoDigital(0);
+    if (selectedMetodos.length === 1) {
+      setMontosPorMetodo({ [selectedMetodos[0]!]: total });
     }
-  }, [metodoPago, step, total]);
+  }, [selectedMetodos, step, total]);
 
   // Handle keyboard shortcuts from settings (ir a cobro, confirmar cobro, buscar producto)
   // Use capture phase + stopImmediatePropagation so this fires BEFORE AppLayout's handler
@@ -1491,89 +1558,94 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
 
               <Divider style={{ margin: '16px 0' }} />
 
-              {/* Payment method */}
+              {/* Selected payment methods summary */}
               <div className="nsm-field-group">
-                <label className="nsm-label">Método de pago</label>
-                <div className="nsm-metodo-group">
-                  {[
-                    { key: 'efectivo' as MetodoPago, icon: <DollarOutlined />, label: 'Efectivo' },
-                    { key: 'digital' as MetodoPago, icon: <CreditCardOutlined />, label: 'Digital' },
-                    { key: 'mixto' as MetodoPago, icon: <SwapOutlined />, label: 'Mixto' },
-                  ].map(m => (
-                    <button
-                      key={m.key}
-                      type="button"
-                      className={`nsm-metodo-btn${metodoPago === m.key ? ' active' : ''}`}
-                      onClick={() => setMetodoPago(m.key)}
-                    >
-                      <span className="nsm-metodo-icon">{m.icon}</span>
-                      <span className="nsm-metodo-label">{m.label}</span>
-                    </button>
-                  ))}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <label className="nsm-label" style={{ margin: 0 }}>Método de pago</label>
+                  <Button type="link" size="small" onClick={() => {
+                    setMetodoModalSelection([...selectedMetodos]);
+                    setMetodoModalOpen(true);
+                  }}>Cambiar</Button>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {selectedMetodos.map(id => {
+                    const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+                    if (!m) return null;
+                    return (
+                      <Tag key={id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', fontSize: 13 }}>
+                        {m.IMAGEN_BASE64 ? (
+                          <img src={m.IMAGEN_BASE64} alt={m.NOMBRE} style={{ width: 16, height: 16, objectFit: 'contain', borderRadius: 2 }} />
+                        ) : (
+                          m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined /> : <CreditCardOutlined />
+                        )}
+                        {m.NOMBRE}
+                      </Tag>
+                    );
+                  })}
                 </div>
               </div>
 
-              {/* Cash input */}
-              {(metodoPago === 'efectivo' || metodoPago === 'mixto') && (
-                <div className="nsm-field-group">
-                  <label className="nsm-label">
-                    <DollarOutlined style={{ marginRight: 6 }} />
-                    Monto Efectivo
-                  </label>
-                  <InputNumber
-                    ref={efectivoRef}
-                    value={pagoEfectivo}
-                    min={0}
-                    step={100}
-                    size="large"
-                    style={{ width: '100%' }}
-                    formatter={v => `$ ${v}`}
-                    onChange={v => setPagoEfectivo(v || 0)}
-                    autoFocus
-                    onPressEnter={() => {
-                      if (metodoPago === 'efectivo' && pagoValido) handleConfirmCobro();
-                    }}
-                  />
-                  {metodoPago === 'efectivo' && (
-                    <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
-                      Puede ingresar un monto mayor — se calculará el vuelto
-                    </Text>
-                  )}
-                </div>
-              )}
+              {/* Amount inputs per selected method */}
+              {selectedMetodos.length > 1 && selectedMetodos.map(id => {
+                const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+                if (!m) return null;
+                return (
+                  <div className="nsm-field-group" key={id}>
+                    <label className="nsm-label">
+                      {m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined style={{ marginRight: 6 }} /> : <CreditCardOutlined style={{ marginRight: 6 }} />}
+                      {m.NOMBRE}
+                    </label>
+                    <InputNumber
+                      value={montosPorMetodo[id] || 0}
+                      min={0}
+                      step={100}
+                      size="large"
+                      style={{ width: '100%' }}
+                      formatter={v => `$ ${v}`}
+                      onChange={v => setMontosPorMetodo(prev => ({ ...prev, [id]: v || 0 }))}
+                    />
+                  </div>
+                );
+              })}
 
-              {/* Digital input */}
-              {(metodoPago === 'digital' || metodoPago === 'mixto') && (
-                <div className="nsm-field-group">
-                  <label className="nsm-label">
-                    <CreditCardOutlined style={{ marginRight: 6 }} />
-                    Monto Digital
-                  </label>
-                  <InputNumber
-                    value={pagoDigital}
-                    min={0}
-                    step={100}
-                    size="large"
-                    style={{ width: '100%' }}
-                    formatter={v => `$ ${v}`}
-                    onChange={v => setPagoDigital(v || 0)}
-                    autoFocus={metodoPago === 'digital'}
-                    onPressEnter={() => {
-                      if (pagoValido) handleConfirmCobro();
-                    }}
-                  />
-                  {metodoPago === 'digital' && (
-                    <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
-                      El monto digital debe ser exacto
-                    </Text>
-                  )}
-                  {metodoPago === 'mixto' && (
-                    <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
-                      La suma de efectivo + digital debe ser exacta
-                    </Text>
-                  )}
-                </div>
-              )}
+              {/* Single method selected: one editable input */}
+              {selectedMetodos.length === 1 && (() => {
+                const id = selectedMetodos[0]!;
+                const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+                if (!m) return null;
+                return (
+                  <div className="nsm-field-group">
+                    <label className="nsm-label">
+                      {m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined style={{ marginRight: 6 }} /> : <CreditCardOutlined style={{ marginRight: 6 }} />}
+                      Monto {m.NOMBRE}
+                    </label>
+                    <InputNumber
+                      ref={efectivoRef}
+                      value={montosPorMetodo[id] || 0}
+                      min={0}
+                      step={100}
+                      size="large"
+                      style={{ width: '100%' }}
+                      formatter={v => `$ ${v}`}
+                      onChange={v => setMontosPorMetodo(prev => ({ ...prev, [id]: v || 0 }))}
+                      autoFocus
+                      onPressEnter={() => {
+                        if (pagoValido) handleConfirmCobro();
+                      }}
+                    />
+                    {m.CATEGORIA === 'EFECTIVO' && (
+                      <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
+                        Puede ingresar un monto mayor — se calculará el vuelto
+                      </Text>
+                    )}
+                    {m.CATEGORIA === 'DIGITAL' && (
+                      <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
+                        El monto debe ser exacto
+                      </Text>
+                    )}
+                  </div>
+                );
+              })()}
 
               <Divider style={{ margin: '12px 0' }} />
 
@@ -1581,7 +1653,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
               <div className="nsm-cobro-summary">
                 <div className="nsm-cobro-line">
                   <Text type="secondary">Total recibido</Text>
-                  <Text strong>{fmtMoney(pagoEfectivo + pagoDigital)}</Text>
+                  <Text strong>{fmtMoney(totalRecibido)}</Text>
                 </div>
                 <div className="nsm-cobro-line">
                   <Text type="secondary">Total a abonar</Text>
@@ -1593,12 +1665,12 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                     <Text strong className="nsm-cobro-vuelto-amount">{fmtMoney(vuelto)}</Text>
                   </div>
                 )}
-                {(metodoPago === 'mixto' || metodoPago === 'digital') && (pagoEfectivo + pagoDigital) > 0 && Math.abs((pagoEfectivo + pagoDigital) - total) >= 0.01 && (
+                {!soloEfectivo && totalRecibido > 0 && Math.abs(totalRecibido - total) >= 0.01 && (
                   <div style={{ marginTop: 8 }}>
                     <Text type="danger" style={{ fontSize: 12 }}>
-                      {(pagoEfectivo + pagoDigital) < total
-                        ? `Faltan ${fmtMoney(total - pagoEfectivo - pagoDigital)}`
-                        : `Exceso de ${fmtMoney(pagoEfectivo + pagoDigital - total)} — el monto debe ser exacto`
+                      {totalRecibido < total
+                        ? `Faltan ${fmtMoney(total - totalRecibido)}`
+                        : `Exceso de ${fmtMoney(totalRecibido - total)} — el monto debe ser exacto`
                       }
                     </Text>
                   </div>
@@ -1692,6 +1764,95 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         </div>
       </div>
       )}
+    </Modal>
+
+    {/* ── Payment Method Selection Modal ── */}
+    <Modal
+      open={metodoModalOpen}
+      onCancel={() => setMetodoModalOpen(false)}
+      centered
+      width={520}
+      destroyOnClose
+      title={
+        <Space>
+          <WalletOutlined style={{ color: '#EABD23', fontSize: 20 }} />
+          <span>Seleccionar método de pago</span>
+        </Space>
+      }
+      footer={
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <Button onClick={() => setMetodoModalOpen(false)}>Cancelar</Button>
+          <Button
+            type="primary"
+            className="btn-gold"
+            disabled={metodoModalSelection.length === 0}
+            onClick={() => {
+              setSelectedMetodos(metodoModalSelection);
+              // Clear amounts for methods that were removed
+              setMontosPorMetodo(prev => {
+                const next: Record<number, number> = {};
+                for (const id of metodoModalSelection) {
+                  next[id] = prev[id] || 0;
+                }
+                return next;
+              });
+              setMetodoModalOpen(false);
+              setStep('cobro');
+            }}
+            icon={<CheckCircleOutlined />}
+          >
+            Confirmar ({metodoModalSelection.length})
+          </Button>
+        </div>
+      }
+    >
+      <div style={{ marginTop: 12 }}>
+        <Text type="secondary" style={{ fontSize: 12, marginBottom: 12, display: 'block' }}>
+          Seleccione uno o más métodos. Si elige varios, podrá distribuir los montos.
+        </Text>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12 }}>
+          {metodosPagoOrdenados.map(m => {
+            const isSelected = metodoModalSelection.includes(m.METODO_PAGO_ID);
+            return (
+              <div
+                key={m.METODO_PAGO_ID}
+                onClick={() => {
+                  setMetodoModalSelection(prev =>
+                    isSelected
+                      ? prev.filter(id => id !== m.METODO_PAGO_ID)
+                      : [...prev, m.METODO_PAGO_ID]
+                  );
+                }}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+                  padding: '16px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'center',
+                  border: isSelected ? '2px solid #EABD23' : '1px solid #d9d9d9',
+                  background: isSelected ? 'rgba(234, 189, 35, 0.08)' : 'transparent',
+                  transition: 'all 0.15s', position: 'relative',
+                }}
+              >
+                {m.IMAGEN_BASE64 ? (
+                  <img src={m.IMAGEN_BASE64} alt={m.NOMBRE} style={{ width: 40, height: 40, objectFit: 'contain', borderRadius: 6 }} />
+                ) : (
+                  <div style={{ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: isSelected ? '#EABD23' : '#999' }}>
+                    {m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined /> : <CreditCardOutlined />}
+                  </div>
+                )}
+                <Text strong style={{ fontSize: 13, lineHeight: 1.2 }}>{m.NOMBRE}</Text>
+                <Tag
+                  color={m.CATEGORIA === 'EFECTIVO' ? 'green' : 'blue'}
+                  style={{ fontSize: 10, margin: 0 }}
+                >
+                  {m.CATEGORIA}
+                </Tag>
+                {isSelected && (
+                  <CheckCircleOutlined style={{ color: '#EABD23', fontSize: 16, position: 'absolute', top: 6, right: 6 }} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </Modal>
 
     {/* ── Saldo CTA CTE confirmation modal ── */}
