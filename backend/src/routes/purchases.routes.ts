@@ -43,6 +43,16 @@ router.get('/depositos', async (_req: Request, res: Response) => {
   }
 });
 
+// GET /api/purchases/active-payment-methods
+router.get('/active-payment-methods', async (_req: Request, res: Response) => {
+  try {
+    const data = await purchasesService.getActivePaymentMethods();
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/purchases/price-check/:compraId
 router.get('/price-check/:compraId', async (req: Request, res: Response) => {
   try {

@@ -28,6 +28,11 @@ export interface CompraItemInput {
   TASA_IVA_ID?: number | null;
 }
 
+export interface CompraMetodoPagoItem {
+  METODO_PAGO_ID: number;
+  MONTO: number;
+}
+
 export interface CompraInput {
   PROVEEDOR_ID: number;
   FECHA_COMPRA?: string;
@@ -48,12 +53,92 @@ export interface CompraInput {
   ACTUALIZAR_PRECIOS?: boolean;
   DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
   items: CompraItemInput[];
+  metodos_pago?: CompraMetodoPagoItem[];
 }
 
 // ── Round helper ─────────────────────────────────
 
 function r2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+// ── MOVIMIENTOS_CAJA_METODOS_PAGO table helper ──
+
+let _movCajaMetodosPagoTableReady = false;
+
+async function ensureMovCajaMetodosPagoTable(poolOrTx: any): Promise<void> {
+  if (_movCajaMetodosPagoTableReady) return;
+  await poolOrTx.request().query(`
+    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'MOVIMIENTOS_CAJA_METODOS_PAGO')
+    CREATE TABLE MOVIMIENTOS_CAJA_METODOS_PAGO (
+      ID INT IDENTITY(1,1) PRIMARY KEY,
+      MOVIMIENTO_ID INT NOT NULL,
+      METODO_PAGO_ID INT NOT NULL,
+      MONTO DECIMAL(18,2) NOT NULL
+    )
+  `);
+  _movCajaMetodosPagoTableReady = true;
+}
+
+// ── COMPRAS_METODOS_PAGO table helper ────────────
+
+let _comprasMetodosPagoTableReady = false;
+
+async function ensureComprasMetodosPagoTable(pool: any): Promise<void> {
+  if (_comprasMetodosPagoTableReady) return;
+  await pool.request().query(`
+    IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'COMPRAS_METODOS_PAGO')
+    BEGIN
+      CREATE TABLE COMPRAS_METODOS_PAGO (
+        ID              INT IDENTITY(1,1) PRIMARY KEY,
+        COMPRA_ID       INT           NOT NULL,
+        METODO_PAGO_ID  INT           NOT NULL,
+        MONTO           DECIMAL(18,2) NOT NULL
+      )
+    END
+  `);
+  _comprasMetodosPagoTableReady = true;
+}
+
+/** Insert payment method breakdown rows for a purchase within a transaction */
+async function insertComprasMetodosPago(
+  tx: any,
+  compraId: number,
+  metodosPago: CompraMetodoPagoItem[]
+): Promise<void> {
+  for (const mp of metodosPago) {
+    if (mp.MONTO <= 0) continue;
+    await tx.request()
+      .input('compraId', sql.Int, compraId)
+      .input('metodoId', sql.Int, mp.METODO_PAGO_ID)
+      .input('monto', sql.Decimal(18, 2), r2(mp.MONTO))
+      .query(`
+        INSERT INTO COMPRAS_METODOS_PAGO (COMPRA_ID, METODO_PAGO_ID, MONTO)
+        VALUES (@compraId, @metodoId, @monto)
+      `);
+  }
+}
+
+/** Derive MONTO_EFECTIVO/MONTO_DIGITAL from payment methods */
+async function derivarCategoriasCompra(
+  tx: any,
+  metodosPago: CompraMetodoPagoItem[]
+): Promise<{ montoEfectivo: number; montoDigital: number }> {
+  let montoEfectivo = 0;
+  let montoDigital = 0;
+  for (const mp of metodosPago) {
+    if (mp.MONTO <= 0) continue;
+    const cat = await tx.request()
+      .input('mid', sql.Int, mp.METODO_PAGO_ID)
+      .query(`SELECT CATEGORIA FROM METODOS_PAGO WHERE METODO_PAGO_ID = @mid`);
+    const categoria = cat.recordset[0]?.CATEGORIA || 'EFECTIVO';
+    if (categoria === 'DIGITAL') {
+      montoDigital += mp.MONTO;
+    } else {
+      montoEfectivo += mp.MONTO;
+    }
+  }
+  return { montoEfectivo: r2(montoEfectivo), montoDigital: r2(montoDigital) };
 }
 
 // ── Caja helper ──────────────────────────────────
@@ -572,10 +657,17 @@ export const purchasesService = {
       let total = r2(netoTotal + ivaTotal + impInternoTotal + percIVA + percIIBB);
 
       let cobrada = input.COBRADA !== undefined ? input.COBRADA : !input.ES_CTA_CORRIENTE;
-      const montoEfectivo = input.MONTO_EFECTIVO || 0;
-      const montoDigital = input.MONTO_DIGITAL || 0;
+      let montoEfectivo = input.MONTO_EFECTIVO || 0;
+      let montoDigital = input.MONTO_DIGITAL || 0;
       const vuelto = input.VUELTO || 0;
       let montoAnticipo = 0;
+
+      // If metodos_pago provided, derive category totals from methods
+      if (input.metodos_pago && input.metodos_pago.length > 0) {
+        const derived = await derivarCategoriasCompra(tx, input.metodos_pago);
+        montoEfectivo = derived.montoEfectivo;
+        montoDigital = derived.montoDigital;
+      }
 
       // ── 2. CTA CTE: Check saldo and apply anticipo if available ──
       if (input.ES_CTA_CORRIENTE) {
@@ -718,6 +810,12 @@ export const purchasesService = {
         }
       }
 
+      // ── 3b. COMPRAS_METODOS_PAGO (payment method breakdown) ──
+      if (input.metodos_pago && input.metodos_pago.length > 0) {
+        await ensureComprasMetodosPagoTable(pool);
+        await insertComprasMetodosPago(tx, compraId, input.metodos_pago);
+      }
+
       // ── 4. CTA_CORRIENTE_P (if cuenta corriente purchase) ──
       if (input.ES_CTA_CORRIENTE) {
         const ctaCteId = await ensureCtaCorrienteP(tx, input.PROVEEDOR_ID);
@@ -837,7 +935,7 @@ export const purchasesService = {
             const totalEgreso = r2(efectivoNeto + montoDigital);
             const caja = await getCajaAbiertaTx(tx, usuarioId);
             const pvId = caja?.PUNTO_VENTA_ID || null;
-            await tx.request()
+            const movResult = await tx.request()
               .input('idEntidad', sql.Int, compraId)
               .input('tipoEntidad', sql.VarChar(20), 'COMPRA')
               .input('movimiento', sql.NVarChar(500), descEgreso)
@@ -848,8 +946,23 @@ export const purchasesService = {
               .input('pvId', sql.Int, pvId)
               .query(`
                 INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+                OUTPUT INSERTED.ID
                 VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, 0, 0, @total, @pvId, 0)
               `);
+
+            // Insert payment method breakdown for this movement
+            const movId = movResult.recordset[0].ID;
+            if (input.metodos_pago && input.metodos_pago.length > 0) {
+              await ensureMovCajaMetodosPagoTable(tx);
+              for (const mp of input.metodos_pago) {
+                if (mp.MONTO <= 0) continue;
+                await tx.request()
+                  .input('movId', sql.Int, movId)
+                  .input('mpId', sql.Int, mp.METODO_PAGO_ID)
+                  .input('monto', sql.Decimal(18, 2), -r2(mp.MONTO))
+                  .query(`INSERT INTO MOVIMIENTOS_CAJA_METODOS_PAGO (MOVIMIENTO_ID, METODO_PAGO_ID, MONTO) VALUES (@movId, @mpId, @monto)`);
+              }
+            }
           }
         }
       }
@@ -908,8 +1021,17 @@ export const purchasesService = {
       // ── 3b. Remove old egreso records ──
       await tx.request().input('origenId', sql.Int, id)
         .query(`DELETE FROM CAJA_ITEMS WHERE ORIGEN_ID = @origenId AND ORIGEN_TIPO = 'COMPRA'`);
+      // Remove MOVIMIENTOS_CAJA_METODOS_PAGO linked to these movements first
+      await ensureMovCajaMetodosPagoTable(tx);
+      await tx.request().input('origenId', sql.Int, id)
+        .query(`DELETE FROM MOVIMIENTOS_CAJA_METODOS_PAGO WHERE MOVIMIENTO_ID IN (SELECT ID FROM MOVIMIENTOS_CAJA WHERE ID_ENTIDAD = @origenId AND TIPO_ENTIDAD = 'COMPRA')`);
       await tx.request().input('origenId', sql.Int, id)
         .query(`DELETE FROM MOVIMIENTOS_CAJA WHERE ID_ENTIDAD = @origenId AND TIPO_ENTIDAD = 'COMPRA'`);
+
+      // ── 3c. Remove old COMPRAS_METODOS_PAGO ──
+      await ensureComprasMetodosPagoTable(pool);
+      await tx.request().input('compraId', sql.Int, id)
+        .query(`DELETE FROM COMPRAS_METODOS_PAGO WHERE COMPRA_ID = @compraId`);
 
       // ── 4. Calculate new totals ──
       let netoTotal = 0;
@@ -946,6 +1068,15 @@ export const purchasesService = {
 
       const cobrada = input.COBRADA !== undefined ? input.COBRADA : oldCompra.COBRADA;
 
+      // Derive category totals from metodos_pago if provided
+      let montoEfectivoUpd2 = input.MONTO_EFECTIVO || 0;
+      let montoDigitalUpd2 = input.MONTO_DIGITAL || 0;
+      if (input.metodos_pago && input.metodos_pago.length > 0) {
+        const derived = await derivarCategoriasCompra(tx, input.metodos_pago);
+        montoEfectivoUpd2 = derived.montoEfectivo;
+        montoDigitalUpd2 = derived.montoDigital;
+      }
+
       // ── 5. UPDATE COMPRAS ──
       await tx.request()
         .input('id', sql.Int, id)
@@ -953,8 +1084,8 @@ export const purchasesService = {
         .input('fechaCompra', sql.DateTime, input.FECHA_COMPRA ? new Date(input.FECHA_COMPRA) : new Date())
         .input('total', sql.Decimal(18, 2), total)
         .input('esCtaCorriente', sql.Bit, input.ES_CTA_CORRIENTE ? 1 : 0)
-        .input('montoEfectivo', sql.Decimal(18, 2), input.MONTO_EFECTIVO || 0)
-        .input('montoDigital', sql.Decimal(18, 2), input.MONTO_DIGITAL || 0)
+        .input('montoEfectivo', sql.Decimal(18, 2), montoEfectivoUpd2)
+        .input('montoDigital', sql.Decimal(18, 2), montoDigitalUpd2)
         .input('vuelto', sql.Decimal(18, 2), input.VUELTO || 0)
         .input('tipoComprobante', sql.NVarChar, input.TIPO_COMPROBANTE || 'FB')
         .input('cobrada', sql.Bit, cobrada ? 1 : 0)
@@ -1045,6 +1176,11 @@ export const purchasesService = {
         }
       }
 
+      // ── 6b. Insert new COMPRAS_METODOS_PAGO ──
+      if (input.metodos_pago && input.metodos_pago.length > 0) {
+        await insertComprasMetodosPago(tx, id, input.metodos_pago);
+      }
+
       // ── 7. Re-create CTA_CORRIENTE if applicable ──
       if (input.ES_CTA_CORRIENTE) {
         const ctaCteId = await ensureCtaCorrienteP(tx, input.PROVEEDOR_ID);
@@ -1070,8 +1206,8 @@ export const purchasesService = {
 
       // ── 8. REGISTRAR EGRESO (if not cta corriente and has payment) ──
       if (!input.ES_CTA_CORRIENTE) {
-        const montoEfectivoUpd = input.MONTO_EFECTIVO || 0;
-        const montoDigitalUpd = input.MONTO_DIGITAL || 0;
+        const montoEfectivoUpd = montoEfectivoUpd2;
+        const montoDigitalUpd = montoDigitalUpd2;
         const vueltoUpd = input.VUELTO || 0;
         const efectivoNetoUpd = Math.max(0, montoEfectivoUpd - vueltoUpd);
         if (efectivoNetoUpd > 0 || montoDigitalUpd > 0) {
@@ -1114,7 +1250,7 @@ export const purchasesService = {
             const totalEgresoUpd = r2(efectivoNetoUpd + montoDigitalUpd);
             const caja = await getCajaAbiertaTx(tx, usuarioId);
             const pvId = caja?.PUNTO_VENTA_ID || null;
-            await tx.request()
+            const movResultUpd = await tx.request()
               .input('idEntidad', sql.Int, id)
               .input('tipoEntidad', sql.VarChar(20), 'COMPRA')
               .input('movimiento', sql.NVarChar(500), descEgresoUpd)
@@ -1125,8 +1261,23 @@ export const purchasesService = {
               .input('pvId', sql.Int, pvId)
               .query(`
                 INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+                OUTPUT INSERTED.ID
                 VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, 0, 0, @total, @pvId, 0)
               `);
+
+            // Insert payment method breakdown for this movement
+            const movIdUpd = movResultUpd.recordset[0].ID;
+            if (input.metodos_pago && input.metodos_pago.length > 0) {
+              await ensureMovCajaMetodosPagoTable(tx);
+              for (const mp of input.metodos_pago) {
+                if (mp.MONTO <= 0) continue;
+                await tx.request()
+                  .input('movId', sql.Int, movIdUpd)
+                  .input('mpId', sql.Int, mp.METODO_PAGO_ID)
+                  .input('monto', sql.Decimal(18, 2), -r2(mp.MONTO))
+                  .query(`INSERT INTO MOVIMIENTOS_CAJA_METODOS_PAGO (MOVIMIENTO_ID, METODO_PAGO_ID, MONTO) VALUES (@movId, @mpId, @monto)`);
+              }
+            }
           }
         }
       }
@@ -1249,12 +1400,18 @@ export const purchasesService = {
       }
 
       // ── 4. Remove MOVIMIENTOS_CAJA linked to this purchase ──
+      await ensureMovCajaMetodosPagoTable(tx);
+      await tx.request().input('origenId', sql.Int, id)
+        .query(`DELETE FROM MOVIMIENTOS_CAJA_METODOS_PAGO WHERE MOVIMIENTO_ID IN (SELECT ID FROM MOVIMIENTOS_CAJA WHERE ID_ENTIDAD = @origenId AND TIPO_ENTIDAD = 'COMPRA')`);
       await tx.request().input('origenId', sql.Int, id)
         .query(`DELETE FROM MOVIMIENTOS_CAJA WHERE ID_ENTIDAD = @origenId AND TIPO_ENTIDAD = 'COMPRA'`);
 
-      // ── 5. Delete items then purchase ──
+      // ── 5. Delete items, payment methods, then purchase ──
       await tx.request().input('compraId', sql.Int, id)
         .query(`DELETE FROM COMPRAS_ITEMS WHERE COMPRA_ID = @compraId`);
+      await ensureComprasMetodosPagoTable(pool);
+      await tx.request().input('compraId2', sql.Int, id)
+        .query(`DELETE FROM COMPRAS_METODOS_PAGO WHERE COMPRA_ID = @compraId2`);
       await tx.request().input('id', sql.Int, id)
         .query(`DELETE FROM COMPRAS WHERE COMPRA_ID = @id`);
 
@@ -1333,6 +1490,18 @@ export const purchasesService = {
     const pool = await getPool();
     const result = await pool.request().query(`
       SELECT DEPOSITO_ID, CODIGOPARTICULAR, NOMBRE FROM DEPOSITOS ORDER BY NOMBRE
+    `);
+    return result.recordset;
+  },
+
+  // ── Active payment methods ─────────────────────
+  async getActivePaymentMethods() {
+    const pool = await getPool();
+    const result = await pool.request().query(`
+      SELECT METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64, ACTIVA, POR_DEFECTO
+      FROM METODOS_PAGO
+      WHERE ACTIVA = 1
+      ORDER BY POR_DEFECTO DESC, CATEGORIA, NOMBRE
     `);
     return result.recordset;
   },

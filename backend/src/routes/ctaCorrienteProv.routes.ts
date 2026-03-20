@@ -15,6 +15,16 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/cta-corriente-prov/active-payment-methods
+router.get('/active-payment-methods', async (_req: Request, res: Response) => {
+  try {
+    const data = await ctaCorrienteProvService.getActivePaymentMethods();
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/cta-corriente-prov/:proveedorId/crear — create account for a supplier
 router.post('/:proveedorId/crear', async (req: Request, res: Response) => {
   try {
