@@ -175,6 +175,25 @@ router.get('/search-products', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/sales/search-products-advanced
+router.get('/search-products-advanced', async (req: Request, res: Response) => {
+  try {
+    const data = await salesService.searchProductsAdvanced({
+      search: req.query.search as string | undefined,
+      marca: req.query.marca as string | undefined,
+      categoria: req.query.categoria as string | undefined,
+      codigo: req.query.codigo as string | undefined,
+      soloActivos: req.query.soloActivos !== 'false',
+      soloConStock: req.query.soloConStock === 'true',
+      listaId: parseInt(req.query.listaId as string) || 0,
+      limit: parseInt(req.query.limit as string) || 50,
+    });
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/sales/balanza-product/:code
 router.get('/balanza-product/:code', async (req: Request, res: Response) => {
   try {

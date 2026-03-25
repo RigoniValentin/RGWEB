@@ -34,6 +34,12 @@ export const salesApi = {
   searchProducts: (search: string, listaId?: number) =>
     api.get<ProductoSearch[]>('/sales/search-products', { params: { search, listaId } }).then(r => r.data),
 
+  searchProductsAdvanced: (params: {
+    search?: string; marca?: string; categoria?: string; codigo?: string;
+    soloActivos?: boolean; soloConStock?: boolean; listaId?: number; limit?: number;
+  }) =>
+    api.get<ProductoSearch[]>('/sales/search-products-advanced', { params }).then(r => r.data),
+
   getBalanzaProduct: (code: string, listaId?: number) =>
     api.get<{ product: ProductoSearch; cantidad: number }>(`/sales/balanza-product/${code}`, { params: { listaId } }).then(r => r.data),
 

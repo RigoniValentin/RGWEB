@@ -263,6 +263,11 @@ export interface ProductoSearch {
   IVA_PORCENTAJE: number;
 }
 
+export interface ProductoSearchAdvanced extends ProductoSearch {
+  MARCA: string;
+  CATEGORIA: string;
+}
+
 export interface ClienteVenta {
   CLIENTE_ID: number;
   CODIGOPARTICULAR: string;

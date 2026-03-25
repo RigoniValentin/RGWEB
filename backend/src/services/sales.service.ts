@@ -1411,6 +1411,108 @@ export const salesService = {
     return result.recordset;
   },
 
+  // ── Advanced product search for modal ──────────
+  async searchProductsAdvanced(params: {
+    search?: string;
+    marca?: string;
+    categoria?: string;
+    codigo?: string;
+    soloActivos?: boolean;
+    soloConStock?: boolean;
+    listaId?: number;
+    limit?: number;
+  }) {
+    const pool = await getPool();
+    const limit = params.limit || 50;
+    const listaId = params.listaId || 0;
+
+    const precioExpr = listaId > 0
+      ? `p.LISTA_${Math.max(1, Math.min(5, listaId))}`
+      : `CASE ISNULL(p.LISTA_DEFECTO, 1)
+           WHEN 1 THEN p.LISTA_1
+           WHEN 2 THEN p.LISTA_2
+           WHEN 3 THEN p.LISTA_3
+           WHEN 4 THEN p.LISTA_4
+           WHEN 5 THEN p.LISTA_5
+           ELSE p.LISTA_1
+         END`;
+
+    const conditions: string[] = [];
+    const req = pool.request();
+
+    if (params.soloActivos !== false) {
+      conditions.push('p.ACTIVO = 1');
+    }
+
+    if (params.soloConStock) {
+      conditions.push('ISNULL(p.CANTIDAD, 0) > 0');
+    }
+
+    if (params.search) {
+      const tokens = params.search.trim().split(/\s+/).filter(t => t.length > 0);
+      tokens.forEach((token, i) => {
+        conditions.push(
+          `(p.NOMBRE LIKE @t${i} OR p.CODIGOPARTICULAR LIKE @t${i}
+            OR p.DESCRIPCION LIKE @t${i} OR cb.CODIGO_BARRAS LIKE @t${i}
+            OR c.NOMBRE LIKE @t${i} OR m.NOMBRE LIKE @t${i})`
+        );
+        req.input(`t${i}`, sql.NVarChar, `%${token}%`);
+      });
+    }
+
+    if (params.marca) {
+      conditions.push('m.NOMBRE LIKE @marca');
+      req.input('marca', sql.NVarChar, `%${params.marca.trim()}%`);
+    }
+
+    if (params.categoria) {
+      conditions.push('c.NOMBRE LIKE @categoria');
+      req.input('categoria', sql.NVarChar, `%${params.categoria.trim()}%`);
+    }
+
+    if (params.codigo) {
+      const codigo = params.codigo.trim();
+      if (/^\d{6,}$/.test(codigo)) {
+        conditions.push('cb.CODIGO_BARRAS = @codExact');
+        req.input('codExact', sql.NVarChar, codigo);
+      } else {
+        conditions.push('(p.CODIGOPARTICULAR LIKE @cod OR cb.CODIGO_BARRAS LIKE @cod)');
+        req.input('cod', sql.NVarChar, `%${codigo}%`);
+      }
+    }
+
+    const whereClause = conditions.length > 0
+      ? 'WHERE ' + conditions.join(' AND ')
+      : '';
+
+    req.input('limit', sql.Int, limit);
+
+    const result = await req.query(`
+        SELECT DISTINCT TOP (@limit)
+          p.PRODUCTO_ID, p.CODIGOPARTICULAR, p.NOMBRE,
+          ISNULL(m.NOMBRE, '') AS MARCA,
+          ISNULL(c.NOMBRE, '') AS CATEGORIA,
+          ${precioExpr} AS PRECIO_VENTA,
+          ISNULL(p.LISTA_DEFECTO, 1) AS LISTA_DEFECTO,
+          p.PRECIO_COMPRA, p.CANTIDAD AS STOCK,
+          p.ES_CONJUNTO, p.DESCUENTA_STOCK,
+          p.IMP_INT, p.TASA_IVA_ID, p.UNIDAD_ID,
+          ISNULL(u.NOMBRE, '') AS UNIDAD_NOMBRE,
+          ISNULL(u.ABREVIACION, '') AS UNIDAD_ABREVIACION,
+          ISNULL(ti.PORCENTAJE, 0) AS IVA_PORCENTAJE
+        FROM PRODUCTOS p
+        LEFT JOIN UNIDADES_MEDIDA u ON p.UNIDAD_ID = u.UNIDAD_ID
+        LEFT JOIN TASAS_IMPUESTOS ti ON p.TASA_IVA_ID = ti.TASA_ID
+        LEFT JOIN PRODUCTOS_COD_BARRAS cb ON p.PRODUCTO_ID = cb.PRODUCTO_ID
+        LEFT JOIN CATEGORIAS c ON p.CATEGORIA_ID = c.CATEGORIA_ID
+        LEFT JOIN MARCAS m ON p.MARCA_ID = m.MARCA_ID
+        ${whereClause}
+        ORDER BY p.NOMBRE
+      `);
+
+    return result.recordset;
+  },
+
   // ── Barcode balance (código de balanza) ────────
   // Format: 13 digits → prefix "2" + 5-digit product ID (PLU) + 6-digit weight in grams + 1 control
   parseBalanzaBarcode(code: string): { productoId: number; cantidad: number } | null {

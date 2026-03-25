@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Modal, Input, Select, Button, InputNumber, Table, Space, Typography,
-  Divider, Spin, Switch, message, AutoComplete, Badge, Tag, Checkbox,
+  Divider, Spin, Switch, message, Badge, Tag, Checkbox,
 } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, ShoppingCartOutlined,
@@ -23,6 +23,7 @@ import { printReceipt } from '../../utils/printReceipt';
 import { printFETicket, openFEPdf } from '../../utils/printReceipt';
 import type { ReceiptData } from '../../utils/printReceipt';
 import type { VentaItemInput, ProductoSearch, VentaInput, ClienteVenta } from '../../types';
+import { ProductSearchModal } from '../ProductSearchModal';
 
 const { Title, Text } = Typography;
 
@@ -62,7 +63,6 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const [esCtaCorriente, setEsCtaCorriente] = useState(false);
   const [dtoGral, setDtoGral] = useState(0);
   const [searchText, setSearchText] = useState('');
-  const [searchOptions, setSearchOptions] = useState<{ value: string; label: React.ReactNode; product: ProductoSearch }[]>([]);
   const searchRef = useRef<any>(null);
 
   // Track which cart items are in grams mode (key -> true)
@@ -86,7 +86,8 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const [wantFETicket, setWantFETicket] = useState(false);
   const [wantFEPdf, setWantFEPdf] = useState(false);
 
-  // ── Refs for Enter-flow: qty → dto → search ──
+  // ── Refs for Enter-flow: price → qty → dto → search ──
+  const priceRefs = useRef<Record<string, any>>({});
   const qtyRefs = useRef<Record<string, any>>({});
   const dtoRefs = useRef<Record<string, any>>({});
   // Track last added item key for auto-focus
@@ -97,6 +98,10 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const [wspSending, setWspSending] = useState(false);
   const [pendingVentaId, setPendingVentaId] = useState<number | null>(null);
   const [facturando, setFacturando] = useState(false);
+  const [productSearchOpen, setProductSearchOpen] = useState(false);
+  const [productSearchInitial, setProductSearchInitial] = useState('');
+  const refocusSearchAfterProductModalClose = useRef(true);
+  const productSearchKey = useRef(0);
 
   // Saldo CTA CTE confirmation
   const [saldoModalOpen, setSaldoModalOpen] = useState(false);
@@ -126,7 +131,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   // Auto-focus search when modal opens
   useEffect(() => {
     if (open) {
-      setTimeout(() => searchRef.current?.focus(), 150);
+      setTimeout(() => searchRef.current?.focus(), 0);
     }
   }, [open]);
 
@@ -326,40 +331,6 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     }
   }, [esCtaCorriente]);
 
-  // Product search
-  const { mutate: doSearch, isPending: searching } = useMutation({
-    mutationFn: (text: string) => salesApi.searchProducts(text),
-    onSuccess: (products) => {
-      setSearchOptions(
-        products.map(p => {
-          const stockOk = p.STOCK > 0;
-          const stockLow = p.STOCK > 0 && p.STOCK <= 5;
-          return {
-            value: `${p.PRODUCTO_ID}`,
-            label: (
-              <div className="nsm-search-item">
-                <div className="nsm-search-item-left">
-                  <div className="nsm-search-item-name">{p.NOMBRE}</div>
-                  <div className="nsm-search-item-meta">
-                    <span className="nsm-search-item-code">{p.CODIGOPARTICULAR}</span>
-                    <span className={`nsm-search-item-stock ${stockLow ? 'low' : ''} ${!stockOk ? 'out' : ''}`}>
-                      {stockOk ? `${p.STOCK} ${p.UNIDAD_ABREVIACION}` : 'Sin stock'}
-                    </span>
-                  </div>
-                </div>
-                <div className="nsm-search-item-right">
-                  <div className="nsm-search-item-price">{fmtMoney(p.PRECIO_VENTA)}</div>
-                  <div className="nsm-search-item-unit">/{p.UNIDAD_ABREVIACION}</div>
-                </div>
-              </div>
-            ),
-            product: p,
-          };
-        })
-      );
-    },
-  });
-
   // Create sale mutation
   const createMutation = useMutation({
     mutationFn: (data: VentaInput) => salesApi.create(data),
@@ -473,7 +444,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         // Refetch sales list but keep modal open for the next sale
         queryClient.invalidateQueries({ queryKey: ['sales'] });
         // Focus product search for the next sale
-        setTimeout(() => searchRef.current?.focus(), 120);
+        setTimeout(() => searchRef.current?.focus(), 0);
       } else {
         onSuccess();
       }
@@ -523,7 +494,6 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     setEsCtaCorriente(false);
     setDtoGral(0);
     setSearchText('');
-    setSearchOptions([]);
     setStep('cart');
     setSelectedMetodos([]);
     setMontosPorMetodo({});
@@ -543,25 +513,16 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     onClose();
   };
 
-  // Search handler with debounce
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handleSearch = (text: string) => {
-    setSearchText(text);
-    if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    // Skip debounced search for balanza barcodes — they are handled on Enter
-    if (/^2\d{12}$/.test(text.trim())) {
-      setSearchOptions([]);
-      return;
-    }
-    if (text.length >= 1) {
-      searchTimeout.current = setTimeout(() => doSearch(text), 300);
-    } else {
-      setSearchOptions([]);
-    }
-  };
 
   // Add product to cart
-  const addProduct = useCallback((product: ProductoSearch) => {
+  const addProduct = useCallback((
+    product: ProductoSearch,
+    options?: { focusPrice?: boolean; focusSearch?: boolean }
+  ) => {
+    const focusPrice = options?.focusPrice !== false;
+    const focusSearch = options?.focusSearch === true;
+
     setCart(prev => {
       const existing = prev.find(i => i.PRODUCTO_ID === product.PRODUCTO_ID);
       if (existing) {
@@ -575,7 +536,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       const isLt = (product.UNIDAD_NOMBRE || '').toUpperCase().includes('LITRO');
       const isWeightOrVolume = isKg || isLt;
       const newKey = `${product.PRODUCTO_ID}-${Date.now()}`;
-      setLastAddedKey(newKey);
+      setLastAddedKey(focusPrice ? newKey : null);
       return [...prev, {
         key: newKey,
         PRODUCTO_ID: product.PRODUCTO_ID,
@@ -593,7 +554,9 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       }];
     });
     setSearchText('');
-    setSearchOptions([]);
+    if (focusSearch) {
+      setTimeout(() => searchRef.current?.focus(), 0);
+    }
   }, [depositoId]);
 
   // Add product from barcode balanza with pre-set quantity (weight)
@@ -618,7 +581,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       }];
     });
     setSearchText('');
-    setSearchOptions([]);
+    setTimeout(() => searchRef.current?.focus(), 0);
   }, [depositoId]);
 
   // Detect barcode balanza code: 13 digits starting with "2"
@@ -626,37 +589,32 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     return /^2\d{12}$/.test(code);
   };
 
-  // Auto-focus qty field when a new product is added
+  // Auto-focus price field when a new product is added
   useEffect(() => {
     if (!lastAddedKey) return;
     const timer = setTimeout(() => {
-      const qtyEl = qtyRefs.current[lastAddedKey];
-      if (qtyEl) {
-        qtyEl.focus();
+      const priceEl = priceRefs.current[lastAddedKey];
+      if (priceEl) {
+        priceEl.focus();
         // select the value for quick overwrite
-        const input = qtyEl?.input || qtyEl?.nativeElement?.querySelector?.('input');
+        const input = priceEl?.input || priceEl?.nativeElement?.querySelector?.('input');
         if (input) input.select();
       }
       setLastAddedKey(null);
-    }, 150);
+    }, 0);
     return () => clearTimeout(timer);
   }, [lastAddedKey]);
 
-  // Barcode quick-pick: on Enter, search immediately and auto-add if single result
-  // If dropdown is already showing options, let AutoComplete handle the selection natively
+  // On Enter: barcode balanza → auto-add; single match → auto-add; otherwise → open advanced search modal
   const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key !== 'Enter') return;
-    // If dropdown has options visible, let AutoComplete's onSelect handle it
-    if (searchOptions.length > 0) return;
     const text = searchText.trim();
     if (!text) return;
     e.preventDefault();
     e.stopPropagation();
-    // Cancel any pending debounced search
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
 
     // ── Barcode balanza detection ──
-    // Format: 13 digits, starts with "2", encodes product ID + weight
     if (isBalanzaBarcode(text)) {
       salesApi.getBalanzaProduct(text).then(data => {
         if (data && data.product) {
@@ -673,26 +631,38 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       return;
     }
 
-    // Immediate search — if exactly 1 product matches, add it directly
+    const isNormalBarcode = /^\d{6,}$/.test(text);
+
+    // Quick search — if exactly 1 match or exact code, add directly; otherwise open modal
     salesApi.searchProducts(text).then(products => {
       if (products.length === 1) {
-        addProduct(products[0]!);
+        addProduct(products[0]!, {
+          focusPrice: !isNormalBarcode,
+          focusSearch: isNormalBarcode,
+        });
       } else if (products.length > 1) {
-        // Check for exact barcode/code match among results
         const exact = products.find(
           p => p.CODIGOPARTICULAR?.toUpperCase() === text.toUpperCase()
         );
         if (exact) {
-          addProduct(exact);
+          addProduct(exact, {
+            focusPrice: !isNormalBarcode,
+            focusSearch: isNormalBarcode,
+          });
         } else {
-          // Multiple results, no exact match: just show them in dropdown
-          doSearch(text);
+          setProductSearchInitial(text);
+          productSearchKey.current += 1;
+          setProductSearchOpen(true);
+          setSearchText('');
         }
       } else {
-        message.warning('No se encontró ningún producto');
+        setProductSearchInitial(text);
+        productSearchKey.current += 1;
+        setProductSearchOpen(true);
+        setSearchText('');
       }
     });
-  }, [searchText, searchOptions, addProduct, addBalanzaProduct, doSearch]);
+  }, [searchText, addProduct, addBalanzaProduct]);
 
   const updateCartItem = (key: string, field: string, value: any) => {
     setCart(prev => prev.map(item =>
@@ -927,6 +897,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       render: (val: number, record: CartItem) => {
         return (
         <InputNumber
+          ref={el => { if (el) priceRefs.current[record.key] = el; }}
           value={val}
           min={0}
           step={0.01}
@@ -946,6 +917,17 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                 updateCartItem(record.key, 'CANTIDAD', qty);
               }
             }
+          }}
+          onPressEnter={() => {
+            // Enter flow: price → qty
+            setTimeout(() => {
+              const qtyEl = qtyRefs.current[record.key];
+              if (qtyEl) {
+                qtyEl.focus();
+                const inp = qtyEl?.input || qtyEl?.nativeElement?.querySelector?.('input');
+                if (inp) inp.select();
+              }
+            }, 0);
           }}
         />
       );
@@ -1008,7 +990,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                       const inp = dtoEl?.input || dtoEl?.nativeElement?.querySelector?.('input');
                       if (inp) inp.select();
                     }
-                  }, 50);
+                  }, 0);
                 }}
               />
               <Button size="small" icon={<PlusOutlined />}
@@ -1051,7 +1033,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                         const inp = dtoEl?.input || dtoEl?.nativeElement?.querySelector?.('input');
                         if (inp) inp.select();
                       }
-                    }, 50);
+                    }, 0);
                   }}
                 />
                 <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{inGramos ? 'g' : unitLabel}</Text>
@@ -1091,7 +1073,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
           onChange={(v) => updateCartItem(record.key, 'DESCUENTO', v || 0)}
           onPressEnter={() => {
             // Enter flow: dto → back to search
-            setTimeout(() => searchRef.current?.focus(), 50);
+            setTimeout(() => searchRef.current?.focus(), 0);
           }}
         />
       );
@@ -1175,6 +1157,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
           <Button type="text" danger size="small" icon={<DeleteOutlined />}
             onClick={() => {
               // Clean up refs
+              delete priceRefs.current[record.key];
               delete qtyRefs.current[record.key];
               delete dtoRefs.current[record.key];
               removeCartItem(record.key);
@@ -1270,32 +1253,20 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
           <div className="nsm-cart-area">
             {/* Embedded search */}
             <div className="nsm-search-embedded">
-              <AutoComplete
+              <Input
                 ref={searchRef}
                 value={searchText}
-                options={searchOptions}
-                onSearch={handleSearch}
-                onSelect={(val) => {
-                  const opt = searchOptions.find(o => o.value === val);
-                  if (opt) addProduct(opt.product);
-                }}
-                style={{ width: '100%' }}
-                popupClassName="nsm-search-dropdown"
-                popupMatchSelectWidth={true}
-                notFoundContent={searching ? <Spin size="small" /> : searchText.length > 0 ? 'Sin resultados' : null}
-              >
-                <Input
-                  prefix={<SearchOutlined style={{ fontSize: 16, color: '#bbb' }} />}
-                  suffix={
-                    <Tag color="default" style={{ margin: 0, fontSize: 11, opacity: 0.45 }}>F2</Tag>
-                  }
-                  placeholder="Buscar producto, código o escanear..."
-                  size="large"
-                  allowClear
-                  onKeyDown={handleSearchKeyDown}
-                  className="nsm-search-input"
-                />
-              </AutoComplete>
+                onChange={e => setSearchText(e.target.value)}
+                prefix={<SearchOutlined style={{ fontSize: 16, color: '#bbb' }} />}
+                suffix={
+                  <Tag color="default" style={{ margin: 0, fontSize: 11, opacity: 0.45 }}>Enter</Tag>
+                }
+                placeholder="Buscar producto, código o escanear..."
+                size="large"
+                allowClear
+                onKeyDown={handleSearchKeyDown}
+                className="nsm-search-input"
+              />
             </div>
             {cart.length === 0 ? (
               <div className="nsm-empty-state">
@@ -1994,6 +1965,36 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         </div>
       </div>
     </Modal>
+
+    <ProductSearchModal
+      key={productSearchKey.current}
+      open={productSearchOpen}
+      onClose={() => {
+        setProductSearchOpen(false);
+        if (refocusSearchAfterProductModalClose.current) {
+          setTimeout(() => searchRef.current?.focus(), 0);
+        }
+        refocusSearchAfterProductModalClose.current = true;
+      }}
+      onSelect={(products) => {
+        refocusSearchAfterProductModalClose.current = false;
+        products.forEach(p => addProduct(p));
+      }}
+      initialSearch={productSearchInitial}
+      searchFn={salesApi.searchProductsAdvanced}
+      onBarcodeBalanza={(code) => {
+        salesApi.getBalanzaProduct(code).then(data => {
+          if (data && data.product) {
+            addBalanzaProduct(data.product, data.cantidad);
+            message.success(`${data.product.NOMBRE} — ${data.cantidad.toFixed(3)} kg`);
+          } else {
+            message.warning('Producto de balanza no encontrado');
+          }
+        }).catch(() => {
+          message.error('Error al buscar producto de balanza');
+        });
+      }}
+    />
     </>
   );
 }

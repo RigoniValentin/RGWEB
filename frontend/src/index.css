@@ -1514,6 +1514,12 @@ body {
   color: #ff4d4f;
   border-color: rgba(255, 77, 79, 0.15);
 }
+
+/* ── Product Search Modal ─────────────────────── */
+.psm-active-row td {
+  background: rgba(22, 119, 255, 0.08) !important;
+}
+
 .nsm-search-item-right {
   display: flex;
   flex-direction: column;
