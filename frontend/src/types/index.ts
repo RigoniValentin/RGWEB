@@ -521,6 +521,7 @@ export interface CompraInput {
   ACTUALIZAR_PRECIOS?: boolean;
   DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
   items: CompraItemInput[];
+  metodos_pago?: MetodoPagoItem[];
 }
 
 export interface ProveedorCompra {

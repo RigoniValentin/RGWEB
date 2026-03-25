@@ -1,7 +1,7 @@
 import api from './api';
 import type {
   Compra, CompraDetalle, CompraInput,
-  PaginatedResponse, ProductoSearchCompra, ProveedorCompra, Deposito,
+  PaginatedResponse, ProductoSearchCompra, ProveedorCompra, Deposito, MetodoPago,
 } from '../types';
 
 export interface PriceCheckProduct {
@@ -65,6 +65,9 @@ export const purchasesApi = {
 
   getDepositos: () =>
     api.get<Deposito[]>('/purchases/depositos').then(r => r.data),
+
+  getActivePaymentMethods: () =>
+    api.get<MetodoPago[]>('/purchases/active-payment-methods').then(r => r.data),
 
   getSaldoCtaCteP: (proveedorId: number) =>
     api.get<{ saldo: number; ctaCorrienteId: number | null }>(`/purchases/saldo-cta-cte/${proveedorId}`).then(r => r.data),

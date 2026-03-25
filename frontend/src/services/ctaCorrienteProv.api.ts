@@ -1,5 +1,4 @@
-import api from './api';
-
+import api from './api';import type { MetodoPago, MetodoPagoItem } from '../types';
 // ── Types ─────────────────────────────────────────
 export interface CtaCorrienteProvListItem {
   CTA_CORRIENTE_ID: number;
@@ -56,6 +55,11 @@ export interface OrdenPagoInput {
   CHEQUES: number;
   CONCEPTO: string;
   DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
+  metodos_pago?: MetodoPagoItem[];
+}
+
+export interface OrdenPagoEditData extends OrdenPagoItem {
+  metodos_pago: MetodoPagoItem[];
 }
 
 // ── API ───────────────────────────────────────────
@@ -82,7 +86,11 @@ export const ctaCorrienteProvApi = {
 
   // Get single orden de pago for editing
   getOrdenPagoById: (pagoId: number) =>
-    api.get<OrdenPagoItem>(`/cta-corriente-prov/orden-pago/${pagoId}`).then(r => r.data),
+    api.get<OrdenPagoEditData>(`/cta-corriente-prov/orden-pago/${pagoId}`).then(r => r.data),
+
+  // Get active payment methods
+  getActivePaymentMethods: () =>
+    api.get<MetodoPago[]>('/cta-corriente-prov/active-payment-methods').then(r => r.data),
 
   // Create orden de pago
   crearOrdenPago: (ctaId: number, data: OrdenPagoInput) =>

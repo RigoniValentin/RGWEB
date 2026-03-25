@@ -9,6 +9,7 @@ import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
   EyeOutlined, ReloadOutlined, DollarOutlined, BankOutlined,
   ArrowUpOutlined, ArrowDownOutlined, WalletOutlined, ShopOutlined,
+  CreditCardOutlined,
 } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import {
@@ -16,6 +17,7 @@ import {
   type CtaCorrienteProvListItem,
   type MovimientoCtaCteProv,
   type OrdenPagoItem,
+  type OrdenPagoEditData,
 } from '../services/ctaCorrienteProv.api';
 import { fmtMoney } from '../utils/format';
 import { NuevaOrdenPagoModal } from '../components/ctaCorriente/NuevaOrdenPagoModal';
@@ -620,39 +622,10 @@ export function CtaCorrienteProvPage() {
       </Drawer>
 
       {/* Detalle Orden de Pago Modal */}
-      <Modal
-        title="Detalle de Orden de Pago"
-        open={!!detalleOrdenPago}
-        onCancel={() => setDetalleOrdenPago(null)}
-        footer={null}
-        width={400}
-      >
-        {detalleOrdenPago && (
-          <Descriptions column={1} bordered size="small" style={{ marginTop: 12 }}>
-            <Descriptions.Item label="Fecha">
-              {dayjs(detalleOrdenPago.FECHA).format('DD/MM/YYYY HH:mm')}
-            </Descriptions.Item>
-            <Descriptions.Item label="Concepto">
-              {detalleOrdenPago.CONCEPTO || '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Efectivo">
-              {fmtMoney(detalleOrdenPago.EFECTIVO)}
-            </Descriptions.Item>
-            <Descriptions.Item label="Digital">
-              {fmtMoney(detalleOrdenPago.DIGITAL)}
-            </Descriptions.Item>
-            <Descriptions.Item label="Cheques">
-              {fmtMoney(detalleOrdenPago.CHEQUES)}
-            </Descriptions.Item>
-            <Descriptions.Item label="Total">
-              <Text strong style={{ fontSize: 15 }}>{fmtMoney(detalleOrdenPago.TOTAL)}</Text>
-            </Descriptions.Item>
-            <Descriptions.Item label="Usuario">
-              {detalleOrdenPago.USUARIO}
-            </Descriptions.Item>
-          </Descriptions>
-        )}
-      </Modal>
+      <DetalleOrdenPagoModal
+        detalleOrdenPago={detalleOrdenPago}
+        onClose={() => setDetalleOrdenPago(null)}
+      />
 
       {/* Orden de Pago Modal */}
       {selected && (
@@ -670,5 +643,106 @@ export function CtaCorrienteProvPage() {
         />
       )}
     </div>
+  );
+}
+
+// ── Detalle Orden de Pago sub-component ─────────
+function DetalleOrdenPagoModal({ detalleOrdenPago, onClose }: {
+  detalleOrdenPago: OrdenPagoItem | null;
+  onClose: () => void;
+}) {
+  const { data: detalle } = useQuery({
+    queryKey: ['orden-pago-detalle', detalleOrdenPago?.PAGO_ID],
+    queryFn: () => ctaCorrienteProvApi.getOrdenPagoById(detalleOrdenPago!.PAGO_ID),
+    enabled: !!detalleOrdenPago,
+  });
+
+  const { data: metodosPago = [] } = useQuery({
+    queryKey: ['op-active-payment-methods'],
+    queryFn: () => ctaCorrienteProvApi.getActivePaymentMethods(),
+    enabled: !!detalleOrdenPago,
+    staleTime: 60000,
+  });
+
+  return (
+    <Modal
+      title="Detalle de Orden de Pago"
+      open={!!detalleOrdenPago}
+      onCancel={onClose}
+      footer={null}
+      width={420}
+    >
+      {detalleOrdenPago && (
+        <>
+          <Descriptions column={1} bordered size="small" style={{ marginTop: 12 }}>
+            <Descriptions.Item label="Fecha">
+              {dayjs(detalleOrdenPago.FECHA).format('DD/MM/YYYY HH:mm')}
+            </Descriptions.Item>
+            <Descriptions.Item label="Concepto">
+              {detalleOrdenPago.CONCEPTO || '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="Usuario">
+              {detalleOrdenPago.USUARIO}
+            </Descriptions.Item>
+          </Descriptions>
+
+          {/* Payment method breakdown */}
+          {detalle?.metodos_pago && detalle.metodos_pago.length > 0 ? (
+            <div style={{ marginTop: 16 }}>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 13 }}>
+                Desglose por método de pago
+              </Text>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {detalle.metodos_pago.map((mp, idx) => {
+                  const m = metodosPago.find(x => x.METODO_PAGO_ID === mp.METODO_PAGO_ID);
+                  return (
+                    <div key={idx} style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '6px 12px', background: '#fafafa', borderRadius: 6,
+                    }}>
+                      <Space size={8}>
+                        {m?.IMAGEN_BASE64 ? (
+                          <img src={m.IMAGEN_BASE64} alt={m.NOMBRE} style={{ width: 20, height: 20, objectFit: 'contain', borderRadius: 3 }} />
+                        ) : m?.CATEGORIA === 'EFECTIVO' ? (
+                          <DollarOutlined style={{ color: '#52c41a' }} />
+                        ) : (
+                          <CreditCardOutlined style={{ color: '#1890ff' }} />
+                        )}
+                        <Text>{m?.NOMBRE || `Método #${mp.METODO_PAGO_ID}`}</Text>
+                      </Space>
+                      <Text strong>{fmtMoney(mp.MONTO)}</Text>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <Descriptions column={1} bordered size="small" style={{ marginTop: 12 }}>
+              <Descriptions.Item label="Efectivo">
+                {fmtMoney(detalleOrdenPago.EFECTIVO)}
+              </Descriptions.Item>
+              <Descriptions.Item label="Digital">
+                {fmtMoney(detalleOrdenPago.DIGITAL)}
+              </Descriptions.Item>
+              {detalleOrdenPago.CHEQUES > 0 && (
+                <Descriptions.Item label="Cheques">
+                  {fmtMoney(detalleOrdenPago.CHEQUES)}
+                </Descriptions.Item>
+              )}
+            </Descriptions>
+          )}
+
+          <div style={{
+            marginTop: 12, background: '#f5f5f5', borderRadius: 8, padding: '10px 16px',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          }}>
+            <Text strong style={{ fontSize: 15 }}>Total:</Text>
+            <Text strong style={{ fontSize: 18, color: '#3f8600' }}>
+              {fmtMoney(detalleOrdenPago.TOTAL)}
+            </Text>
+          </div>
+        </>
+      )}
+    </Modal>
   );
 }

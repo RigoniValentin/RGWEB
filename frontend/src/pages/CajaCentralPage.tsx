@@ -196,7 +196,7 @@ export function CajaCentralPage() {
     {
       title: 'Total', dataIndex: 'TOTAL', key: 'total', width: 160, align: 'center' as const,
       render: (v: number, record: MovimientoCaja) => {
-        const showDesglose = record.CAJA_ID || record.ES_MANUAL;
+        const showDesglose = record.CAJA_ID || record.ES_MANUAL || record.TIPO_ENTIDAD === 'COMPRA' || record.TIPO_ENTIDAD === 'ORDEN_PAGO';
         if (showDesglose) {
           return (
             <Text
