@@ -1,7 +1,7 @@
 import api from './api';
 import type {
   Compra, CompraDetalle, CompraInput,
-  PaginatedResponse, ProductoSearchCompra, ProveedorCompra, Deposito, MetodoPago,
+  PaginatedResponse, ProductoSearchCompra, ProductoSearch, ProveedorCompra, Deposito, MetodoPago,
 } from '../types';
 
 export interface PriceCheckProduct {
@@ -59,6 +59,12 @@ export const purchasesApi = {
 
   searchProducts: (search: string) =>
     api.get<ProductoSearchCompra[]>('/purchases/search-products', { params: { search } }).then(r => r.data),
+
+  searchProductsAdvanced: (params: {
+    search?: string; marca?: string; categoria?: string; codigo?: string;
+    soloActivos?: boolean; soloConStock?: boolean; limit?: number;
+  }) =>
+    api.get<ProductoSearch[]>('/purchases/search-products-advanced', { params }).then(r => r.data),
 
   getProveedores: () =>
     api.get<ProveedorCompra[]>('/purchases/proveedores').then(r => r.data),

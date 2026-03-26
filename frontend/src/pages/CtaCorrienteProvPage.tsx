@@ -17,7 +17,6 @@ import {
   type CtaCorrienteProvListItem,
   type MovimientoCtaCteProv,
   type OrdenPagoItem,
-  type OrdenPagoEditData,
 } from '../services/ctaCorrienteProv.api';
 import { fmtMoney } from '../utils/format';
 import { NuevaOrdenPagoModal } from '../components/ctaCorriente/NuevaOrdenPagoModal';

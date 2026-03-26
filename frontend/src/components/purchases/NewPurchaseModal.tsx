@@ -1,11 +1,11 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Modal, Input, Select, Button, InputNumber, Table, Space, Typography,
-  Divider, Spin, message, AutoComplete, Tag, Checkbox, Segmented, Badge, Switch,
+  Divider, message, Tag, Checkbox, Segmented, Badge, Switch,
 } from 'antd';
 import {
-  SearchOutlined, PlusOutlined, DeleteOutlined, ShoppingCartOutlined,
-  MinusOutlined, ShopOutlined, FileTextOutlined, SwapOutlined,
+  SearchOutlined, DeleteOutlined, ShoppingCartOutlined,
+  ShopOutlined, FileTextOutlined, SwapOutlined,
   ArrowLeftOutlined, CheckCircleOutlined,
   DollarOutlined, CreditCardOutlined, WalletOutlined,
   BankOutlined, InboxOutlined,
@@ -14,7 +14,8 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { purchasesApi } from '../../services/purchases.api';
 import { cajaApi } from '../../services/caja.api';
 import { fmtMoney } from '../../utils/format';
-import type { CompraItemInput, CompraInput, ProductoSearchCompra, MetodoPago, MetodoPagoItem } from '../../types';
+import type { CompraItemInput, CompraInput, ProductoSearchCompra, ProductoSearch, MetodoPagoItem } from '../../types';
+import { ProductSearchModal } from '../ProductSearchModal';
 
 const { Title, Text } = Typography;
 
@@ -57,8 +58,10 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const [tipoCarga, setTipoCarga] = useState<'simple' | 'detallada'>('detallada');
   const [impIntGravaIva, setImpIntGravaIva] = useState(false);
   const [searchText, setSearchText] = useState('');
-  const [searchOptions, setSearchOptions] = useState<{ value: string; label: React.ReactNode; product: ProductoSearchCompra }[]>([]);
   const searchRef = useRef<any>(null);
+  const [productSearchOpen, setProductSearchOpen] = useState(false);
+  const [productSearchInitial, setProductSearchInitial] = useState('');
+  const productSearchKey = useRef(0);
 
   // ── Refs for Enter-flow: editable fields navigation ──
   const fieldRefs = useRef<Record<string, Record<string, any>>>({});
@@ -135,22 +138,6 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     [selectedMetodos, montosPorMetodo]
   );
 
-  const pagoEfectivo = useMemo(
-    () => selectedMetodos.reduce((sum, id) => {
-      const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
-      return m?.CATEGORIA === 'EFECTIVO' ? sum + (montosPorMetodo[id] || 0) : sum;
-    }, 0),
-    [selectedMetodos, montosPorMetodo, metodosPago]
-  );
-
-  const pagoDigital = useMemo(
-    () => selectedMetodos.reduce((sum, id) => {
-      const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
-      return m?.CATEGORIA === 'DIGITAL' ? sum + (montosPorMetodo[id] || 0) : sum;
-    }, 0),
-    [selectedMetodos, montosPorMetodo, metodosPago]
-  );
-
   const hayEfectivo = selectedMetodos.some(id => {
     const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
     return m?.CATEGORIA === 'EFECTIVO';
@@ -173,52 +160,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     }
   }, [depositos]);
 
-  // ── Product search (debounced) ─────────────────
-  const [searching, setSearching] = useState(false);
-  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const doSearch = useCallback(async (text: string) => {
-    setSearching(true);
-    try {
-      const products = await purchasesApi.searchProducts(text);
-      setSearchOptions(
-        products.map(p => ({
-          value: `${p.PRODUCTO_ID}`,
-          label: (
-            <div className="nsm-search-item">
-              <div className="nsm-search-item-left">
-                <div className="nsm-search-item-name">{p.NOMBRE}</div>
-                <div className="nsm-search-item-meta">
-                  <span className="nsm-search-item-code">{p.CODIGOPARTICULAR}</span>
-                  <span className="nsm-search-item-stock">Stock: {p.STOCK} {p.UNIDAD_ABREVIACION || 'u'}</span>
-                </div>
-              </div>
-              <div className="nsm-search-item-right">
-                <div className="nsm-search-item-price">{fmtMoney(p.PRECIO_COMPRA)}</div>
-                <div className="nsm-search-item-unit">costo</div>
-              </div>
-            </div>
-          ),
-          product: p,
-        }))
-      );
-    } catch {
-      setSearchOptions([]);
-    } finally {
-      setSearching(false);
-    }
-  }, []);
-
-  const handleSearch = (text: string) => {
-    setSearchText(text);
-    if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    if (text.length >= 1) {
-      searchTimeout.current = setTimeout(() => doSearch(text), 300);
-    } else {
-      setSearchOptions([]);
-    }
-  };
-
+  // ── Product search ─────────────────────────────
   const isDetallada = tipoCarga === 'detallada';
 
   const handleSelectProduct = useCallback((_value: string, option: any) => {
@@ -305,8 +247,56 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     }
 
     setSearchText('');
-    setSearchOptions([]);
   }, [cart, depositoId, tipoComprobante, ivaIncluido, isDetallada]);
+
+  // Add product from modal search result (adapts ProductoSearch to ProductoSearchCompra)
+  const addProductFromSearch = useCallback((product: ProductoSearch) => {
+    const p: ProductoSearchCompra = {
+      PRODUCTO_ID: product.PRODUCTO_ID,
+      CODIGOPARTICULAR: product.CODIGOPARTICULAR,
+      NOMBRE: product.NOMBRE,
+      PRECIO_COMPRA: product.PRECIO_COMPRA,
+      STOCK: product.STOCK,
+      ES_CONJUNTO: product.ES_CONJUNTO,
+      DESCUENTA_STOCK: product.DESCUENTA_STOCK,
+      IMP_INT: product.IMP_INT,
+      TASA_IVA_ID: product.TASA_IVA_ID,
+      UNIDAD_ID: product.UNIDAD_ID,
+      UNIDAD_NOMBRE: product.UNIDAD_NOMBRE,
+      UNIDAD_ABREVIACION: product.UNIDAD_ABREVIACION,
+      IVA_PORCENTAJE: product.IVA_PORCENTAJE,
+    };
+    handleSelectProduct(`${p.PRODUCTO_ID}`, { product: p });
+  }, [handleSelectProduct]);
+
+  // Handle Enter on search input: quick search or open modal
+  const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key !== 'Enter') return;
+    const text = searchText.trim();
+    if (!text) return;
+    e.preventDefault();
+
+    purchasesApi.searchProducts(text).then(products => {
+      if (products.length === 1) {
+        handleSelectProduct(`${products[0]!.PRODUCTO_ID}`, { product: products[0] });
+      } else if (products.length > 1) {
+        const exact = products.find(p => p.CODIGOPARTICULAR?.toUpperCase() === text.toUpperCase());
+        if (exact) {
+          handleSelectProduct(`${exact.PRODUCTO_ID}`, { product: exact });
+        } else {
+          setProductSearchInitial(text);
+          productSearchKey.current += 1;
+          setProductSearchOpen(true);
+          setSearchText('');
+        }
+      } else {
+        setProductSearchInitial(text);
+        productSearchKey.current += 1;
+        setProductSearchOpen(true);
+        setSearchText('');
+      }
+    });
+  }, [searchText, handleSelectProduct]);
 
   // Auto-focus first editable field when a new product is added
   useEffect(() => {
@@ -489,7 +479,6 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     setTipoCarga('detallada');
     setImpIntGravaIva(false);
     setSearchText('');
-    setSearchOptions([]);
     setStep('cart');
     setSelectedMetodos([]);
     setMontosPorMetodo({});
@@ -700,25 +689,14 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     {
       title: 'CANT.', dataIndex: 'CANTIDAD', width: 100, align: 'center' as const,
       render: (_: number, record: CartItem) => (
-        <Space size={4}>
-          <Button size="small" icon={<MinusOutlined />} className="nsm-qty-btn"
-            onClick={() => {
-              if (record.CANTIDAD <= 1) removeCartItem(record.key);
-              else updateCartItem(record.key, 'CANTIDAD', record.CANTIDAD - 1);
-            }}
-          />
-          <InputNumber
-            ref={el => { if (el) { if (!fieldRefs.current[record.key]) fieldRefs.current[record.key] = {}; fieldRefs.current[record.key]!.cantidad = el; } }}
-            value={record.CANTIDAD} min={0.01} step={1} size="middle"
-            style={{ width: 64 }}
-            className="nsm-cart-input"
-            onChange={val => updateCartItem(record.key, 'CANTIDAD', val || 1)}
-            onPressEnter={() => focusField(record.key, 'bonificacion')}
-          />
-          <Button size="small" icon={<PlusOutlined />} className="nsm-qty-btn"
-            onClick={() => updateCartItem(record.key, 'CANTIDAD', record.CANTIDAD + 1)}
-          />
-        </Space>
+        <InputNumber
+          ref={el => { if (el) { if (!fieldRefs.current[record.key]) fieldRefs.current[record.key] = {}; fieldRefs.current[record.key]!.cantidad = el; } }}
+          value={record.CANTIDAD} min={0.01} step={1} size="middle"
+          style={{ width: '100%' }}
+          className="nsm-cart-input"
+          onChange={val => updateCartItem(record.key, 'CANTIDAD', val || 1)}
+          onPressEnter={() => focusField(record.key, 'bonificacion')}
+        />
       ),
     },
     {
@@ -773,25 +751,14 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     {
       title: 'CANT.', dataIndex: 'CANTIDAD', width: 140, align: 'center' as const,
       render: (_: number, record: CartItem) => (
-        <Space size={4}>
-          <Button size="small" icon={<MinusOutlined />} className="nsm-qty-btn"
-            onClick={() => {
-              if (record.CANTIDAD <= 1) removeCartItem(record.key);
-              else updateCartItem(record.key, 'CANTIDAD', record.CANTIDAD - 1);
-            }}
-          />
-          <InputNumber
-            ref={el => { if (el) { if (!fieldRefs.current[record.key]) fieldRefs.current[record.key] = {}; fieldRefs.current[record.key]!.cantidad = el; } }}
-            value={record.CANTIDAD} min={0.01} step={1} size="middle"
-            style={{ width: 64 }}
-            className="nsm-cart-input"
-            onChange={val => updateCartItem(record.key, 'CANTIDAD', val || 1)}
-            onPressEnter={() => focusField(record.key, 'precioFinal')}
-          />
-          <Button size="small" icon={<PlusOutlined />} className="nsm-qty-btn"
-            onClick={() => updateCartItem(record.key, 'CANTIDAD', record.CANTIDAD + 1)}
-          />
-        </Space>
+        <InputNumber
+          ref={el => { if (el) { if (!fieldRefs.current[record.key]) fieldRefs.current[record.key] = {}; fieldRefs.current[record.key]!.cantidad = el; } }}
+          value={record.CANTIDAD} min={0.01} step={1} size="middle"
+          style={{ width: '100%' }}
+          className="nsm-cart-input"
+          onChange={val => updateCartItem(record.key, 'CANTIDAD', val || 1)}
+          onPressEnter={() => focusField(record.key, 'precioFinal')}
+        />
       ),
     },
     {
@@ -869,51 +836,22 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
           <div className="nsm-cart-area">
             {/* Embedded search */}
             <div className="nsm-search-embedded">
-              <AutoComplete
+              <Input
                 ref={searchRef}
                 value={searchText}
-                options={searchOptions}
-                onSearch={handleSearch}
-                onSelect={handleSelectProduct}
-                style={{ width: '100%' }}
-                popupClassName="nsm-search-dropdown"
-                popupMatchSelectWidth={true}
-                notFoundContent={searching ? <Spin size="small" /> : searchText.length > 0 ? 'Sin resultados' : null}
-              >
-                <Input
-                  prefix={<SearchOutlined style={{ fontSize: 16, color: '#EABD23' }} />}
-                  suffix={
+                onChange={e => setSearchText(e.target.value)}
+                prefix={<SearchOutlined style={{ fontSize: 16, color: '#EABD23' }} />}
+                suffix={
                     <Tag color="default" style={{ margin: 0, fontSize: 11, opacity: 0.5 }}>
-                      F2
+                      Enter
                     </Tag>
-                  }
-                  placeholder="Buscar producto por código o nombre..."
-                  size="large"
-                  allowClear
-                  className="nsm-search-input"
-                  onKeyDown={(e) => {
-                    if (e.key !== 'Enter') return;
-                    if (searchOptions.length > 0) return;
-                    const text = searchText.trim();
-                    if (!text) return;
-                    e.preventDefault();
-                    purchasesApi.searchProducts(text).then(products => {
-                      if (products.length === 1) {
-                        handleSelectProduct(`${products[0]!.PRODUCTO_ID}`, { product: products[0] });
-                      } else if (products.length > 1) {
-                        const exact = products.find(p => p.CODIGOPARTICULAR?.toUpperCase() === text.toUpperCase());
-                        if (exact) {
-                          handleSelectProduct(`${exact.PRODUCTO_ID}`, { product: exact });
-                        } else {
-                          handleSearch(text);
-                        }
-                      } else {
-                        message.warning('No se encontró ningún producto');
-                      }
-                    });
-                  }}
-                />
-              </AutoComplete>
+                }
+                placeholder="Buscar producto por código o nombre..."
+                size="large"
+                allowClear
+                className="nsm-search-input"
+                onKeyDown={handleSearchKeyDown}
+              />
             </div>
             {cart.length === 0 ? (
               <div className="nsm-empty-state">
@@ -1606,6 +1544,20 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
         </div>
       )}
     </Modal>
+
+    <ProductSearchModal
+      key={productSearchKey.current}
+      open={productSearchOpen}
+      onClose={() => {
+        setProductSearchOpen(false);
+        setTimeout(() => searchRef.current?.focus(), 0);
+      }}
+      onSelect={(products) => {
+        products.forEach(p => addProductFromSearch(p));
+      }}
+      initialSearch={productSearchInitial}
+      searchFn={purchasesApi.searchProductsAdvanced}
+    />
     </>
   );
 }

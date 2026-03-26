@@ -102,6 +102,24 @@ router.get('/search-products', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/purchases/search-products-advanced
+router.get('/search-products-advanced', async (req: Request, res: Response) => {
+  try {
+    const data = await purchasesService.searchProductsAdvanced({
+      search: req.query.search as string,
+      marca: req.query.marca as string,
+      categoria: req.query.categoria as string,
+      codigo: req.query.codigo as string,
+      soloActivos: req.query.soloActivos !== 'false',
+      soloConStock: req.query.soloConStock === 'true',
+      limit: parseInt(req.query.limit as string) || 50,
+    });
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/purchases/:id
 router.get('/:id', async (req: Request, res: Response) => {
   try {

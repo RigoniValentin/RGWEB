@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Typography, Button, Space, Tag, Spin, Empty, message, Dropdown,
   Modal, Form, Input, InputNumber, Drawer, Table, Popconfirm, Tooltip,
-  AutoComplete, Segmented,
+  Segmented,
 } from 'antd';
 import {
   PlusOutlined, ReloadOutlined, EditOutlined, DeleteOutlined,
@@ -18,7 +18,8 @@ import dayjs from 'dayjs';
 import * as mesasApi from '../services/mesas.api';
 import { NewSaleModal } from '../components/sales/NewSaleModal';
 import type { PedidoParaVenta } from '../components/sales/NewSaleModal';
-import type { Sector, Mesa, PedidoDetalle, ProductoSearchMesa } from '../types';
+import type { Sector, Mesa, PedidoDetalle, ProductoSearchMesa, ProductoSearch } from '../types';
+import { ProductSearchModal } from '../components/ProductSearchModal';
 
 const { Title, Text } = Typography;
 
@@ -691,9 +692,10 @@ function PedidoDrawer({ mesa, puntoVentaId, onClose, onPasarAVenta }: {
   onPasarAVenta: (pedido: PedidoDetalle) => void;
 }) {
   const [searchText, setSearchText] = useState('');
-  const [searchResults, setSearchResults] = useState<ProductoSearchMesa[]>([]);
-  const [searching, setSearching] = useState(false);
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRef = useRef<any>(null);
+  const [productSearchOpen, setProductSearchOpen] = useState(false);
+  const [productSearchInitial, setProductSearchInitial] = useState('');
+  const productSearchKey = useRef(0);
 
   const { data: pedidoActivo, isLoading: loadingPedido, refetch: refetchPedido } = useQuery({
     queryKey: ['pedido-activo', mesa?.MESA_ID],
@@ -716,7 +718,7 @@ function PedidoDrawer({ mesa, puntoVentaId, onClose, onPasarAVenta }: {
         PUNTO_VENTA_ID: puntoVentaId,
         LISTA_PRECIO_SELECCIONADA: data.producto.LISTA_DEFECTO,
       }),
-    onSuccess: () => { refetchPedido(); setSearchText(''); setSearchResults([]); },
+    onSuccess: () => { refetchPedido(); setSearchText(''); },
     onError: (err: any) => message.error(err.response?.data?.error || 'Error al agregar'),
   });
 
@@ -736,33 +738,63 @@ function PedidoDrawer({ mesa, puntoVentaId, onClose, onPasarAVenta }: {
     onSuccess: () => { message.success('Pedido reabierto'); refetchPedido(); },
   });
 
-  const handleSearch = (value: string) => {
-    setSearchText(value);
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    if (!value.trim()) { setSearchResults([]); return; }
-    searchTimerRef.current = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const results = await mesasApi.searchProductosMesa(value, puntoVentaId);
-        setSearchResults(results);
-      } catch { setSearchResults([]); }
-      setSearching(false);
-    }, 300);
-  };
-
   const handleAddProduct = (prod: ProductoSearchMesa) => {
     if (!pedidoActivo) return;
     agregarItemMut.mutate({ pedidoId: pedidoActivo.PEDIDO_ID, producto: prod });
   };
+
+  const addProductFromSearch = useCallback((product: ProductoSearch) => {
+    const p: ProductoSearchMesa = {
+      PRODUCTO_ID: product.PRODUCTO_ID,
+      CODIGOPARTICULAR: product.CODIGOPARTICULAR,
+      NOMBRE: product.NOMBRE,
+      PRECIO_VENTA: product.PRECIO_VENTA,
+      LISTA_DEFECTO: product.LISTA_DEFECTO,
+      STOCK: product.STOCK,
+      UNIDAD_ABREVIACION: product.UNIDAD_ABREVIACION,
+    };
+    handleAddProduct(p);
+  }, [pedidoActivo]);
+
+  const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key !== 'Enter') return;
+    const text = searchText.trim();
+    if (!text) return;
+    e.preventDefault();
+
+    mesasApi.searchProductosMesa(text, puntoVentaId).then(products => {
+      if (products.length === 1) {
+        handleAddProduct(products[0]!);
+        setSearchText('');
+      } else if (products.length > 1) {
+        const exact = products.find(p => p.CODIGOPARTICULAR?.toUpperCase() === text.toUpperCase());
+        if (exact) {
+          handleAddProduct(exact);
+          setSearchText('');
+        } else {
+          setProductSearchInitial(text);
+          productSearchKey.current += 1;
+          setProductSearchOpen(true);
+          setSearchText('');
+        }
+      } else {
+        setProductSearchInitial(text);
+        productSearchKey.current += 1;
+        setProductSearchOpen(true);
+        setSearchText('');
+      }
+    });
+  }, [searchText, puntoVentaId, pedidoActivo]);
 
   const pedidoItems = pedidoActivo?.items || [];
   const total = pedidoItems.reduce((sum, i) => sum + i.CANTIDAD * i.PRECIO_UNITARIO, 0);
   const esCerrado = pedidoActivo?.ESTADO === 'CERRADO';
 
   return (
+    <>
     <Drawer
       open={!!mesa}
-      onClose={() => { onClose(); setSearchText(''); setSearchResults([]); }}
+      onClose={() => { onClose(); setSearchText(''); }}
       title={
         <Space>
           <CoffeeOutlined style={{ color: '#EABD23' }} />
@@ -793,32 +825,21 @@ function PedidoDrawer({ mesa, puntoVentaId, onClose, onPasarAVenta }: {
             {/* Search bar to add products */}
             {!esCerrado && (
               <div style={{ marginBottom: 14 }}>
-                <AutoComplete
-                  style={{ width: '100%' }}
+                <Input
+                  ref={searchRef}
                   value={searchText}
-                  onSearch={handleSearch}
-                  filterOption={false}
-                  onSelect={(_, option: any) => handleAddProduct(option.producto)}
-                  options={searchResults.map(p => ({
-                    value: `${p.PRODUCTO_ID}`,
-                    producto: p,
-                    label: (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <Text strong style={{ fontSize: 13 }}>{p.NOMBRE}</Text>
-                          <Text type="secondary" style={{ marginLeft: 8, fontSize: 11 }}>{p.CODIGOPARTICULAR}</Text>
-                        </div>
-                        <Text strong style={{ color: '#b8960e', whiteSpace: 'nowrap' }}>{fmtMoney(p.PRECIO_VENTA)}</Text>
-                      </div>
-                    ),
-                  }))}
-                  notFoundContent={searching ? <Spin size="small" /> : searchText ? 'Sin resultados' : null}
-                >
-                  <Input prefix={<SearchOutlined style={{ color: '#999' }} />}
-                    placeholder="Buscar producto para agregar..."
-                    size="large"
-                    allowClear />
-                </AutoComplete>
+                  onChange={e => setSearchText(e.target.value)}
+                  prefix={<SearchOutlined style={{ color: '#999' }} />}
+                  suffix={
+                    <Tag color="default" style={{ margin: 0, fontSize: 11, opacity: 0.5 }}>
+                      Enter
+                    </Tag>
+                  }
+                  placeholder="Buscar producto para agregar..."
+                  size="large"
+                  allowClear
+                  onKeyDown={handleSearchKeyDown}
+                />
               </div>
             )}
 
@@ -917,6 +938,21 @@ function PedidoDrawer({ mesa, puntoVentaId, onClose, onPasarAVenta }: {
         )
       }
     </Drawer>
+
+    <ProductSearchModal
+      key={productSearchKey.current}
+      open={productSearchOpen}
+      onClose={() => {
+        setProductSearchOpen(false);
+        setTimeout(() => searchRef.current?.focus(), 0);
+      }}
+      onSelect={(products) => {
+        products.forEach(p => addProductFromSearch(p));
+      }}
+      initialSearch={productSearchInitial}
+      searchFn={mesasApi.searchProductosMesaAdvanced}
+    />
+    </>
   );
 }
 

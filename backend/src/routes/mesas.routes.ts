@@ -181,4 +181,21 @@ router.get('/search-products', async (req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err); }
 });
 
+// ── Advanced search products for orders ──────────
+router.get('/search-products-advanced', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const results = await mesasService.searchProductosAdvanced({
+      search: req.query.search as string,
+      marca: req.query.marca as string,
+      categoria: req.query.categoria as string,
+      codigo: req.query.codigo as string,
+      soloActivos: req.query.soloActivos !== 'false',
+      soloConStock: req.query.soloConStock === 'true',
+      listaId: req.query.listaId ? Number(req.query.listaId) : undefined,
+      limit: req.query.limit ? Number(req.query.limit) : 50,
+    });
+    res.json(results);
+  } catch (err) { next(err); }
+});
+
 export default router;
