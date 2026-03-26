@@ -28,6 +28,17 @@ router.get('/ventas-por-dia', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/dashboard/desglose-hoy
+router.get('/desglose-hoy', async (req: Request, res: Response) => {
+  try {
+    const puntoVentaId = req.query.puntoVentaId ? parseInt(req.query.puntoVentaId as string) : undefined;
+    const data = await dashboardService.getDesgloseHoy(puntoVentaId);
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/dashboard/logo
 router.get('/logo', async (_req: Request, res: Response) => {
   try {

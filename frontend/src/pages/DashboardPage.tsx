@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Card, Col, Row, Statistic, Table, Typography, Spin, Tag, Space } from 'antd';
+import { Button, Card, Col, Modal, Row, Statistic, Table, Typography, Spin, Tag, Space } from 'antd';
 import {
   TeamOutlined, ShoppingOutlined, DollarOutlined, ShopOutlined,
   WarningOutlined, RiseOutlined,
@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { dashboardApi } from '../services/dashboard.api';
 import { useAuthStore } from '../store/authStore';
 import { fmtMoney, statFormatter } from '../utils/format';
+import type { DesgloseMetodo } from '../types';
 import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
 import { RGLogo } from '../components/RGLogo';
 
@@ -17,6 +18,8 @@ const { Title, Text } = Typography;
 export function DashboardPage() {
   const puntoVentaActivo = useAuthStore((s) => s.puntoVentaActivo);
   const [pvFilter, setPvFilter] = useState<number | undefined>(() => puntoVentaActivo ?? undefined);
+  const [desgloseModalOpen, setDesgloseModalOpen] = useState(false);
+  const [desgloseData, setDesgloseData] = useState<DesgloseMetodo[]>([]);
 
   const { data: logoUrl } = useQuery({
     queryKey: ['empresa-logo'],
@@ -108,8 +111,17 @@ export function DashboardPage() {
       {/* ── Montos Hoy ────────────────────────── */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }} className="stagger">
         <Col xs={24} sm={12}>
-          <Card className="kpi-card animate-fade-up">
-            <Statistic title="Monto Hoy" value={stats?.montoHoy ?? 0} formatter={statFormatter} prefix={<DollarOutlined />} valueStyle={{ color: '#EABD23', fontWeight: 700 }} />
+          <Card
+            className="kpi-card animate-fade-up"
+            style={{ cursor: 'pointer' }}
+            onClick={() => {
+              dashboardApi.getDesgloseHoy(pvFilter).then(data => {
+                setDesgloseData(data);
+                setDesgloseModalOpen(true);
+              });
+            }}
+          >
+            <Statistic title="Monto Hoy" value={stats?.montoHoy ?? 0} formatter={statFormatter} prefix={<DollarOutlined />} valueStyle={{ color: '#EABD23', fontWeight: 700 }} suffix={<span style={{ fontSize: 14, color: '#999' }}>▸</span>} />
           </Card>
         </Col>
         <Col xs={24} sm={12}>
@@ -223,6 +235,45 @@ export function DashboardPage() {
           />
         </Card>
       )}
+
+      {/* ── Desglose Métodos de Pago Modal ──── */}
+      <Modal
+        open={desgloseModalOpen}
+        onCancel={() => setDesgloseModalOpen(false)}
+        footer={<Button onClick={() => setDesgloseModalOpen(false)}>Cerrar</Button>}
+        title="Desglose por método de pago"
+        width={480}
+        destroyOnClose
+      >
+        {desgloseData.length === 0 ? (
+          <Text type="secondary">No hay métodos de pago registrados para hoy.</Text>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
+            {desgloseData.map(d => (
+              <div key={d.METODO_PAGO_ID} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '10px 14px', borderRadius: 8,
+                background: d.CATEGORIA === 'EFECTIVO' ? 'rgba(82,196,26,0.06)' : 'rgba(22,119,255,0.06)',
+                border: `1px solid ${d.CATEGORIA === 'EFECTIVO' ? '#b7eb8f' : '#91caff'}`,
+              }}>
+                <Space>
+                  {d.IMAGEN_BASE64 ? (
+                    <img src={d.IMAGEN_BASE64} alt={d.NOMBRE} style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 4 }} />
+                  ) : null}
+                  <div>
+                    <Text strong>{d.NOMBRE}</Text>
+                    <br />
+                    <Tag color={d.CATEGORIA === 'EFECTIVO' ? 'green' : 'blue'} style={{ fontSize: 10 }}>
+                      {d.CATEGORIA}
+                    </Tag>
+                  </div>
+                </Space>
+                <Text strong style={{ fontSize: 16 }}>{fmtMoney(d.TOTAL)}</Text>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -120,6 +120,33 @@ export const dashboardService = {
     return result.recordset;
   },
 
+  async getDesgloseHoy(puntoVentaId?: number) {
+    const pool = await getPool();
+    const req = pool.request();
+    let pvFilter = '';
+    if (puntoVentaId) {
+      pvFilter = ' AND v.PUNTO_VENTA_ID = @pvId';
+      req.input('pvId', sql.Int, puntoVentaId);
+    }
+
+    const result = await req.query(`
+      SELECT
+        mp.METODO_PAGO_ID,
+        mp.NOMBRE,
+        mp.CATEGORIA,
+        mp.IMAGEN_BASE64,
+        ISNULL(SUM(vmp.MONTO), 0) AS TOTAL
+      FROM VENTAS_METODOS_PAGO vmp
+      JOIN VENTAS v ON vmp.VENTA_ID = v.VENTA_ID
+      JOIN METODOS_PAGO mp ON vmp.METODO_PAGO_ID = mp.METODO_PAGO_ID
+      WHERE CAST(v.FECHA_VENTA AS DATE) = CAST(GETDATE() AS DATE) ${pvFilter}
+      GROUP BY mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64
+      ORDER BY mp.NOMBRE
+    `);
+
+    return result.recordset;
+  },
+
   async getLogo(): Promise<{ data: Buffer; contentType: string } | null> {
     // Use the settings service logo table (CONFIG_LOGO_EMPRESA)
     const { settingsService } = await import('./settings.service.js');
