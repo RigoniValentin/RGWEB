@@ -128,12 +128,19 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     return () => { cancelled = true; };
   }, [open]);
 
-  // Auto-focus search when modal opens
-  useEffect(() => {
-    if (open) {
-      setTimeout(() => searchRef.current?.focus(), 0);
+  // Auto-focus search when modal opens (after animation completes)
+  const handleAfterOpenChange = useCallback((visible: boolean) => {
+    if (visible && cajaCheckState === 'open') {
+      searchRef.current?.focus();
     }
-  }, [open]);
+  }, [cajaCheckState]);
+
+  // Also focus when caja check resolves to 'open' while modal is already visible
+  useEffect(() => {
+    if (open && cajaCheckState === 'open') {
+      setTimeout(() => searchRef.current?.focus(), 50);
+    }
+  }, [open, cajaCheckState]);
 
   // Pre-populate cart from pedido (mesa → venta flow)
   useEffect(() => {
@@ -1184,6 +1191,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       closable={false}
       className="new-sale-modal"
       styles={{ body: { padding: 0, overflow: 'hidden' } }}
+      afterOpenChange={handleAfterOpenChange}
     >
       {/* ── Dark header bar ─────────────────────── */}
       <div className="nsm-header">

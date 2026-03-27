@@ -271,8 +271,8 @@ export function AppLayout() {
             case 'atajo_nueva_venta':
               openTab({ key: '/sales', label: 'Ventas', closable: true });
               navigate('/sales');
-              // Dispatch custom event for SalesPage to open the modal
-              window.dispatchEvent(new CustomEvent('rg:open-new-sale'));
+              // Delay so SalesPage has time to mount & register the listener
+              setTimeout(() => window.dispatchEvent(new CustomEvent('rg:open-new-sale')), 150);
               break;
             case 'atajo_nueva_compra':
               openTab({ key: '/purchases', label: 'Compras', closable: true });
