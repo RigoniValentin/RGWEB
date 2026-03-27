@@ -17,7 +17,7 @@
   --rg-shadow: 0 2px 12px rgba(30, 31, 35, 0.08);
   --rg-shadow-lg: 0 8px 32px rgba(30, 31, 35, 0.12);
   --rg-radius: 10px;
-  --rg-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --rg-transition: background-color 0.1s ease-out, color 0.1s ease-out, border-color 0.1s ease-out;
 }
 
 /* ── Reset & Base ─────────────────────────────── */
@@ -94,8 +94,8 @@ body {
   50%      { border-color: var(--rg-gold-light); }
 }
 @keyframes breathe {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%      { opacity: 1; transform: scale(1.16); }
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.08); }
 }
 
 .animate-fade-in     { animation: fadeIn 0.5s ease-out both; }
@@ -218,6 +218,10 @@ body {
 
 /* ── Sidebar ──────────────────────
   bottom: 42px;────────────── */
+/* Override Ant Design's default Sider width transition for snappier collapse */
+.rg-sidebar.ant-layout-sider {
+  transition: width 0.15s ease-out, min-width 0.15s ease-out, max-width 0.15s ease-out !important;
+}
 .rg-sidebar .ant-layout-sider-children {
   display: flex;
   flex-direction: column;
@@ -239,7 +243,7 @@ body {
 .rg-sidebar .ant-menu-dark .ant-menu-item {
   margin: 2px 8px;
   border-radius: 8px;
-  transition: var(--rg-transition);
+  transition: background-color 80ms ease-out, color 80ms ease-out;
   color: rgba(255,255,255,0.7);
 }
 .rg-sidebar .ant-menu-dark .ant-menu-item:hover {
@@ -260,7 +264,7 @@ body {
 .rg-sidebar .ant-menu-dark .ant-menu-submenu-title {
   margin: 2px 8px;
   border-radius: 8px;
-  transition: var(--rg-transition);
+  transition: background-color 80ms ease-out, color 80ms ease-out;
   color: var(--rg-gold) !important;
   font-weight: 600;
   font-size: 12.5px;
@@ -293,7 +297,8 @@ body {
 /* ── Collapse toggle buttons ──────────────────── */
 /* Breathing logo animation in sidebar header */
 .rg-sidebar-header img {
-  animation: breathe 3s ease-in-out infinite;
+  animation: breathe 4s ease-in-out infinite;
+  will-change: transform;
 }
 
 .rg-collapse-btn:hover {
@@ -327,7 +332,7 @@ body {
   background: rgba(255, 255, 255, 0.04) !important;
   border: 1px solid rgba(234, 189, 35, 0.25) !important;
   box-shadow: none !important;
-  transition: all 0.2s ease !important;
+  transition: background-color 60ms ease-out, border-color 60ms ease-out !important;
 }
 .rg-sidebar-collapsed .ant-menu-item:hover,
 .rg-sidebar-collapsed .ant-menu-submenu-title:hover {
@@ -404,7 +409,7 @@ body {
 /* ── Header toggle (secondary) ────────────────── */
 .rg-header-toggle {
   border-radius: 8px;
-  transition: var(--rg-transition);
+  transition: background-color 80ms ease-out, color 80ms ease-out;
 }
 .rg-header-toggle:hover {
   background: rgba(234, 189, 35, 0.12) !important;
@@ -434,7 +439,7 @@ body {
   line-height: 38px !important;
   font-size: 13px;
   font-weight: 500;
-  transition: var(--rg-transition);
+  transition: background-color 60ms ease-out, color 60ms ease-out;
 }
 :where(.ant-menu-submenu-popup) .ant-menu-item .anticon,
 .ant-menu-submenu-popup .ant-menu-item .anticon {
@@ -460,7 +465,7 @@ body {
   line-height: 38px !important;
   font-size: 13px;
   font-weight: 500;
-  transition: var(--rg-transition);
+  transition: background-color 60ms ease-out, color 60ms ease-out;
 }
 :where(.ant-menu-submenu-popup) .ant-menu-submenu > .ant-menu-submenu-title .anticon,
 .ant-menu-submenu-popup .ant-menu-submenu > .ant-menu-submenu-title .anticon {

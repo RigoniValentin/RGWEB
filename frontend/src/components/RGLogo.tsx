@@ -40,7 +40,7 @@ export function RGLogo({
       display: 'flex',
       alignItems: 'center',
       gap: collapsed ? 0 : 12,
-      transition: 'all 0.3s ease',
+      transition: 'gap 0.15s ease-out',
     }}>
       {/* Logo Image */}
       <img
@@ -52,7 +52,7 @@ export function RGLogo({
           flexShrink: 0,
           objectFit: 'contain',
           borderRadius: variant === 'white' ? 8 : '50%',
-          transition: 'all 0.3s ease',
+          transition: 'none',
         }}
         draggable={false}
       />

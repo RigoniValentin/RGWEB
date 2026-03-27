@@ -462,7 +462,7 @@ export function AppLayout() {
             alignItems: 'center',
             justifyContent: collapsed ? 'center' : 'space-between',
             padding: collapsed ? '0' : '0 12px 0 16px',
-            transition: 'all 0.3s ease',
+            transition: 'padding 0.15s ease-out, justify-content 0.15s ease-out',
             flexShrink: 0,
           }}
         >
