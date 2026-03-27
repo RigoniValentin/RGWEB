@@ -504,7 +504,7 @@ async function searchProductos(search: string, puntoVentaId?: number): Promise<a
     SELECT TOP 30 p.PRODUCTO_ID, p.CODIGOPARTICULAR, p.NOMBRE,
            p.LISTA_1, p.LISTA_2, p.LISTA_3, p.LISTA_4, p.LISTA_5,
            ISNULL(p.LISTA_DEFECTO, 1) AS LISTA_DEFECTO,
-           p.PRECIO_COMPRA, p.ES_CONJUNTO, p.DESCUENTA_STOCK,
+           p.PRECIO_COMPRA, p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK,
            ISNULL(u.ABREVIACION, 'u') AS UNIDAD_ABREVIACION,
            p.CANTIDAD AS STOCK
     FROM PRODUCTOS p
@@ -613,7 +613,7 @@ async function searchProductosAdvanced(params: {
         ${precioExpr} AS PRECIO_VENTA,
         ISNULL(p.LISTA_DEFECTO, 1) AS LISTA_DEFECTO,
         p.PRECIO_COMPRA, p.CANTIDAD AS STOCK,
-        p.ES_CONJUNTO, p.DESCUENTA_STOCK,
+        p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK,
         ISNULL(p.IMP_INT, 0) AS IMP_INT,
         p.TASA_IVA_ID, p.UNIDAD_ID,
         ISNULL(u.NOMBRE, '') AS UNIDAD_NOMBRE,

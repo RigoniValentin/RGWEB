@@ -322,6 +322,7 @@ export function ProductsPage() {
       align: 'center',
       sorter: true,
       render: (v: number, record: Producto) => {
+        if (record.ES_SERVICIO) return <Tag color="blue">Servicio</Tag>;
         const low = record.STOCK_MINIMO != null && v <= record.STOCK_MINIMO;
         return <Text type={low ? 'danger' : undefined} strong={low}>{v}</Text>;
       },

@@ -31,6 +31,7 @@ export interface ProductInput {
   TASA_IVA_ID?: number | null;
   IMP_INT?: number;
   ES_CONJUNTO?: boolean | null;
+  ES_SERVICIO?: boolean;
   DESCUENTA_STOCK?: boolean;
   ACTIVO?: boolean;
   LISTA_1?: number;
@@ -137,7 +138,7 @@ export const productService = {
         p.STOCK_MINIMO, p.UNIDAD_ID, p.ACTIVO,
         p.LISTA_1, p.LISTA_2, p.LISTA_3, p.LISTA_4, p.LISTA_5,
         p.LISTA_DEFECTO, p.COSTO_USD, p.TASA_IVA_ID,
-        p.ES_CONJUNTO, p.DESCUENTA_STOCK, p.PRECIO_COMPRA_BASE, p.IMP_INT,
+        p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, p.PRECIO_COMPRA_BASE, p.IMP_INT,
         p.FECHA_VENCIMIENTO, p.MARGEN_INDIVIDUAL,
         c.NOMBRE AS CATEGORIA_NOMBRE,
         m.NOMBRE AS MARCA_NOMBRE,
@@ -247,7 +248,8 @@ export const productService = {
         .input('tasaIvaId', sql.Int, input.TASA_IVA_ID || null)
         .input('impInt', sql.Decimal(18, 4), input.IMP_INT || 0)
         .input('esConjunto', sql.Bit, input.ES_CONJUNTO ? 1 : 0)
-        .input('descuentaStock', sql.Bit, input.DESCUENTA_STOCK !== false ? 1 : 0)
+        .input('esServicio', sql.Bit, input.ES_SERVICIO ? 1 : 0)
+        .input('descuentaStock', sql.Bit, input.ES_SERVICIO ? 0 : (input.DESCUENTA_STOCK !== false ? 1 : 0))
         .input('activo', sql.Bit, input.ACTIVO !== false ? 1 : 0)
         .input('lista1', sql.Decimal(18, 4), input.LISTA_1 || 0)
         .input('lista2', sql.Decimal(18, 4), input.LISTA_2 || 0)
@@ -261,13 +263,13 @@ export const productService = {
           INSERT INTO PRODUCTOS (
             CODIGOPARTICULAR, NOMBRE, DESCRIPCION, CATEGORIA_ID, MARCA_ID, UNIDAD_ID,
             PRECIO_COMPRA, COSTO_USD, PRECIO_COMPRA_BASE, STOCK_MINIMO, TASA_IVA_ID, IMP_INT,
-            ES_CONJUNTO, DESCUENTA_STOCK, ACTIVO, CANTIDAD,
+            ES_CONJUNTO, ES_SERVICIO, DESCUENTA_STOCK, ACTIVO, CANTIDAD,
             LISTA_1, LISTA_2, LISTA_3, LISTA_4, LISTA_5, LISTA_DEFECTO,
             FECHA_VENCIMIENTO, MARGEN_INDIVIDUAL
           ) VALUES (
             @codigo, @nombre, @descripcion, @categoriaId, @marcaId, @unidadId,
             @precioCompra, @costoUsd, @precioCompraBase, @stockMinimo, @tasaIvaId, @impInt,
-            @esConjunto, @descuentaStock, @activo, 0,
+            @esConjunto, @esServicio, @descuentaStock, @activo, 0,
             @lista1, @lista2, @lista3, @lista4, @lista5, @listaDefecto,
             @fechaVenc, @margenInd
           );
@@ -363,7 +365,8 @@ export const productService = {
         .input('tasaIvaId', sql.Int, input.TASA_IVA_ID || null)
         .input('impInt', sql.Decimal(18, 4), input.IMP_INT || 0)
         .input('esConjunto', sql.Bit, input.ES_CONJUNTO ? 1 : 0)
-        .input('descuentaStock', sql.Bit, input.DESCUENTA_STOCK !== false ? 1 : 0)
+        .input('esServicio', sql.Bit, input.ES_SERVICIO ? 1 : 0)
+        .input('descuentaStock', sql.Bit, input.ES_SERVICIO ? 0 : (input.DESCUENTA_STOCK !== false ? 1 : 0))
         .input('activo', sql.Bit, input.ACTIVO !== false ? 1 : 0)
         .input('lista1', sql.Decimal(18, 4), input.LISTA_1 || 0)
         .input('lista2', sql.Decimal(18, 4), input.LISTA_2 || 0)
@@ -379,7 +382,7 @@ export const productService = {
             CATEGORIA_ID=@categoriaId, MARCA_ID=@marcaId, UNIDAD_ID=@unidadId,
             PRECIO_COMPRA=@precioCompra, COSTO_USD=@costoUsd, PRECIO_COMPRA_BASE=@precioCompraBase,
             STOCK_MINIMO=@stockMinimo, TASA_IVA_ID=@tasaIvaId, IMP_INT=@impInt,
-            ES_CONJUNTO=@esConjunto, DESCUENTA_STOCK=@descuentaStock, ACTIVO=@activo,
+            ES_CONJUNTO=@esConjunto, ES_SERVICIO=@esServicio, DESCUENTA_STOCK=@descuentaStock, ACTIVO=@activo,
             LISTA_1=@lista1, LISTA_2=@lista2, LISTA_3=@lista3, LISTA_4=@lista4, LISTA_5=@lista5,
             LISTA_DEFECTO=@listaDefecto, FECHA_VENCIMIENTO=@fechaVenc, MARGEN_INDIVIDUAL=@margenInd
           WHERE PRODUCTO_ID = @id
@@ -649,6 +652,7 @@ export const productService = {
       .input('tasaIvaId', sql.Int, s.TASA_IVA_ID)
       .input('impInt', sql.Decimal(18, 4), s.IMP_INT || 0)
       .input('esConjunto', sql.Bit, s.ES_CONJUNTO ? 1 : 0)
+      .input('esServicio', sql.Bit, s.ES_SERVICIO ? 1 : 0)
       .input('descuentaStock', sql.Bit, s.DESCUENTA_STOCK ? 1 : 0)
       .input('lista1', sql.Decimal(18, 4), s.LISTA_1 || 0)
       .input('lista2', sql.Decimal(18, 4), s.LISTA_2 || 0)
@@ -662,13 +666,13 @@ export const productService = {
         INSERT INTO PRODUCTOS (
           CODIGOPARTICULAR, NOMBRE, DESCRIPCION, CATEGORIA_ID, MARCA_ID, UNIDAD_ID,
           PRECIO_COMPRA, COSTO_USD, PRECIO_COMPRA_BASE, STOCK_MINIMO, TASA_IVA_ID, IMP_INT,
-          ES_CONJUNTO, DESCUENTA_STOCK, ACTIVO, CANTIDAD,
+          ES_CONJUNTO, ES_SERVICIO, DESCUENTA_STOCK, ACTIVO, CANTIDAD,
           LISTA_1, LISTA_2, LISTA_3, LISTA_4, LISTA_5, LISTA_DEFECTO,
           FECHA_VENCIMIENTO, MARGEN_INDIVIDUAL
         ) VALUES (
           @codigo, @nombre, @descripcion, @categoriaId, @marcaId, @unidadId,
           @precioCompra, @costoUsd, @precioCompraBase, @stockMinimo, @tasaIvaId, @impInt,
-          @esConjunto, @descuentaStock, 1, 0,
+          @esConjunto, @esServicio, @descuentaStock, 1, 0,
           @lista1, @lista2, @lista3, @lista4, @lista5, @listaDefecto,
           @fechaVenc, @margenInd
         );

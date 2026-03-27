@@ -45,6 +45,7 @@ export interface Producto {
   MARGEN_INDIVIDUAL: boolean | null;
   TASA_IVA_ID: number | null;
   ES_CONJUNTO: boolean | null;
+  ES_SERVICIO: boolean;
   DESCUENTA_STOCK: boolean;
   PRECIO_COMPRA_BASE: number;
   IMP_INT: number;

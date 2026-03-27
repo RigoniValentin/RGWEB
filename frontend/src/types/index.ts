@@ -48,6 +48,7 @@ export interface Producto {
   COSTO_USD: number | null;
   TASA_IVA_ID: number | null;
   ES_CONJUNTO: boolean | null;
+  ES_SERVICIO: boolean;
   DESCUENTA_STOCK: boolean;
   PRECIO_COMPRA_BASE: number;
   IMP_INT: number;
@@ -254,6 +255,7 @@ export interface ProductoSearch {
   PRECIO_COMPRA: number;
   STOCK: number;
   ES_CONJUNTO: boolean | null;
+  ES_SERVICIO: boolean;
   DESCUENTA_STOCK: boolean;
   IMP_INT: number;
   TASA_IVA_ID: number | null;
@@ -545,6 +547,7 @@ export interface ProductoSearchCompra {
   PRECIO_COMPRA: number;
   STOCK: number;
   ES_CONJUNTO: boolean | null;
+  ES_SERVICIO: boolean;
   DESCUENTA_STOCK: boolean;
   IMP_INT: number;
   TASA_IVA_ID: number | null;

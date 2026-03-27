@@ -15,6 +15,7 @@ export interface ProductInput {
   TASA_IVA_ID?: number | null;
   IMP_INT?: number;
   ES_CONJUNTO?: boolean | null;
+  ES_SERVICIO?: boolean;
   DESCUENTA_STOCK?: boolean;
   ACTIVO?: boolean;
   LISTA_1?: number;

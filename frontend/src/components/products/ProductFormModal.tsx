@@ -34,6 +34,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
   const [activeTab, setActiveTab] = useState('general');
   const [tabErrors, setTabErrors] = useState<{ stock?: boolean; proveedores?: boolean }>({});
   const [margenes, setMargenes] = useState<number[]>([0, 0, 0, 0, 0]);
+  const [esServicio, setEsServicio] = useState(false);
 
   // ── Catalog data ───────────────────────────────
   const { data: categorias } = useQuery({ queryKey: ['categorias'], queryFn: () => catalogApi.getCategorias() });
@@ -80,6 +81,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
       setBarcodes(detail.codigosBarras || []);
       setDepositos(detail.stockDepositos || []);
       setSelectedProveedores(detail.proveedores?.map((p) => p.PROVEEDOR_ID) || []);
+      setEsServicio(!!detail.ES_SERVICIO);
 
       // Recalculate margins from PRECIO_COMPRA and list prices
       if (costo > 0) {
@@ -102,11 +104,13 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
       setDepositos([]);
       setSelectedProveedores([]);
       setMargenes([0, 0, 0, 0, 0]);
+      setEsServicio(!!copyFrom.ES_SERVICIO);
     } else {
       form.resetFields();
       form.setFieldsValue({
         ACTIVO: true,
         DESCUENTA_STOCK: true,
+        ES_SERVICIO: false,
         PRECIO_COMPRA: 0,
         COSTO_USD: 0,
         PRECIO_COMPRA_BASE: 0,
@@ -125,6 +129,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
       } else {
         setMargenes([0, 0, 0, 0, 0]);
       }
+      setEsServicio(false);
     }
   }, [open, editId, detail, copyFrom, form, listas]);
 
@@ -235,9 +240,9 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
-      // Validate deposits & providers (not managed by Form)
+      // Validate deposits & providers (not managed by Form) — skip for services
       const errors: { stock?: boolean; proveedores?: boolean } = {};
-      if (depositos.length === 0) errors.stock = true;
+      if (!esServicio && depositos.length === 0) errors.stock = true;
       if (selectedProveedores.length === 0) errors.proveedores = true;
       setTabErrors(errors);
 
@@ -258,10 +263,12 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
 
       const payload = {
         ...values,
+        ES_SERVICIO: esServicio,
+        DESCUENTA_STOCK: esServicio ? false : values.DESCUENTA_STOCK,
         FECHA_VENCIMIENTO: null,
         MARGEN_INDIVIDUAL: true,
         codigosBarras: barcodes,
-        depositos: depositos.map(d => ({ DEPOSITO_ID: d.DEPOSITO_ID, CANTIDAD: d.CANTIDAD })),
+        depositos: esServicio ? [] : depositos.map(d => ({ DEPOSITO_ID: d.DEPOSITO_ID, CANTIDAD: d.CANTIDAD })),
         proveedores: selectedProveedores,
         margenes,
       };
@@ -377,14 +384,27 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                         />
                       </Form.Item>
                     </Col>
-                    <Col span={8}>
+                    <Col span={4}>
+                      <Form.Item label="Servicio" tooltip="Los servicios no requieren stock ni depósitos">
+                        <Switch
+                          checked={esServicio}
+                          onChange={(checked) => {
+                            setEsServicio(checked);
+                            if (checked) {
+                              form.setFieldsValue({ DESCUENTA_STOCK: false });
+                            }
+                          }}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col span={4}>
                       <Form.Item name="ACTIVO" label="Activo" valuePropName="checked">
                         <Switch />
                       </Form.Item>
                     </Col>
                     <Col span={4}>
                       <Form.Item name="DESCUENTA_STOCK" label="Desc. Stock" valuePropName="checked">
-                        <Switch />
+                        <Switch disabled={esServicio} />
                       </Form.Item>
                     </Col>
                   </Row>
@@ -497,7 +517,13 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
               key: 'stock',
               label: <Badge dot={tabErrors.stock} offset={[6, 0]}><span><InboxOutlined /> Stock y Depósitos</span></Badge>,
               forceRender: true,
-              children: (
+              children: esServicio ? (
+                <div style={{ textAlign: 'center', padding: '40px 0', color: '#999' }}>
+                  <InboxOutlined style={{ fontSize: 32, marginBottom: 12 }} />
+                  <br />
+                  <Text type="secondary">Los productos de tipo servicio no requieren stock ni depósitos.</Text>
+                </div>
+              ) : (
                 <>
                   <Row gutter={16}>
                     <Col span={8}>

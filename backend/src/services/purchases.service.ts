@@ -1454,7 +1454,7 @@ export const purchasesService = {
             ELSE ISNULL(p.PRECIO_COMPRA, 0)
           END AS PRECIO_COMPRA,
           p.CANTIDAD AS STOCK,
-          p.ES_CONJUNTO, p.DESCUENTA_STOCK, p.ACTIVO,
+          p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, p.ACTIVO,
           ISNULL(p.IMP_INT, 0) AS IMP_INT,
           p.TASA_IVA_ID, p.UNIDAD_ID,
           ISNULL(u.NOMBRE, '') AS UNIDAD_NOMBRE,
@@ -1547,7 +1547,7 @@ export const purchasesService = {
             ELSE ISNULL(p.PRECIO_COMPRA, 0)
           END AS PRECIO_COMPRA,
           p.CANTIDAD AS STOCK,
-          p.ES_CONJUNTO, p.DESCUENTA_STOCK,
+          p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK,
           ISNULL(p.IMP_INT, 0) AS IMP_INT,
           p.TASA_IVA_ID, p.UNIDAD_ID,
           ISNULL(u.NOMBRE, '') AS UNIDAD_NOMBRE,
