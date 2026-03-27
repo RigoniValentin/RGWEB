@@ -407,9 +407,9 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
             unidad: item.UNIDAD,
             precioUnitario: item.PRECIO_UNITARIO,
             descuento: item.DESCUENTO,
-            subtotal: (item.DESCUENTO > 0
+            subtotal: Math.round(((item.DESCUENTO > 0
               ? item.PRECIO_UNITARIO * (1 - item.DESCUENTO / 100)
-              : item.PRECIO_UNITARIO) * item.CANTIDAD,
+              : item.PRECIO_UNITARIO) * item.CANTIDAD) * 100) / 100,
           })),
           dtoGral,
           subtotal,
@@ -674,16 +674,16 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     setCart(prev => prev.filter(item => item.key !== key));
   };
 
-  // Calculate totals
-  const subtotal = cart.reduce((sum, item) => {
+  // Calculate totals (round to 2 decimals to avoid floating-point artifacts)
+  const subtotal = Math.round(cart.reduce((sum, item) => {
     const precio = item.DESCUENTO > 0
       ? item.PRECIO_UNITARIO * (1 - item.DESCUENTO / 100)
       : item.PRECIO_UNITARIO;
     return sum + precio * item.CANTIDAD;
-  }, 0);
+  }, 0) * 100) / 100;
 
-  const descuentoMonto = dtoGral > 0 ? subtotal * (dtoGral / 100) : 0;
-  const total = subtotal - descuentoMonto;
+  const descuentoMonto = Math.round((dtoGral > 0 ? subtotal * (dtoGral / 100) : 0) * 100) / 100;
+  const total = Math.round((subtotal - descuentoMonto) * 100) / 100;
 
   // Submit sale
   const handleSubmit = async (cobrar: boolean) => {
@@ -1091,7 +1091,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         const precio = record.DESCUENTO > 0
           ? record.PRECIO_UNITARIO * (1 - record.DESCUENTO / 100)
           : record.PRECIO_UNITARIO;
-        const subtotalCalculado = precio * record.CANTIDAD;
+        const subtotalCalculado = Math.round(precio * record.CANTIDAD * 100) / 100;
 
         const handlePrecioFinalChange = (v: number | null) => {
           const precioFinal = v ?? 0;
