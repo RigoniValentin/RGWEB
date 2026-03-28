@@ -338,6 +338,7 @@ export function SettingsPage() {
   const { settings, loaded, loading, fetchSettings, saveUserSettings, resetAll } = useSettingsStore();
   const [localValues, setLocalValues] = useState<Record<number, string>>({});
   const [saving, setSaving] = useState(false);
+  const [activeModule, setActiveModule] = useState<string | null>(null);
   const [msgApi, contextHolder] = message.useMessage();
 
   useEffect(() => { fetchSettings(); }, [fetchSettings]);
@@ -401,6 +402,7 @@ export function SettingsPage() {
   };
 
   const grouped = useSettingsStore.getState().getGrouped();
+  const moduleKeys = Object.keys(grouped);
 
   if (loading && !loaded) {
     return <Spin size="large" style={{ display: 'block', margin: '80px auto' }} />;
@@ -432,6 +434,12 @@ export function SettingsPage() {
       </div>
     );
   }
+
+  // Active module data
+  const activeSubModules = activeModule ? grouped[activeModule] : null;
+  const activeMeta = activeModule
+    ? MODULE_META[activeModule] || { label: activeModule, description: '', icon: <SettingOutlined />, color: '#999' }
+    : null;
 
   return (
     <div className="page-enter">
@@ -491,29 +499,45 @@ export function SettingsPage() {
         <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(90deg, #EABD23, transparent)' }} />
       </div>
 
-      {/* ── KPI Summary Cards ─────────────────── */}
+      {/* ── Logo de Empresa ───────────────────── */}
+      <LogoSection />
+
+      {/* ── Module selector cards ─────────────── */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }} className="stagger">
-        {Object.entries(grouped).map(([modKey, subModules]) => {
+        {moduleKeys.map((modKey) => {
           const meta = MODULE_META[modKey] || { label: modKey, description: '', icon: <SettingOutlined />, color: '#999' };
+          const subModules = grouped[modKey];
           const paramCount = Object.values(subModules).flat().length;
           const modifiedCount = Object.values(subModules).flat().filter(p => {
             const current = localValues[p.PARAMETRO_ID];
             const original = p.VALOR ?? p.VALOR_DEFECTO ?? '';
             return current !== undefined && current !== original;
           }).length;
+          const isActive = activeModule === modKey;
+
           return (
             <Col xs={12} sm={6} key={modKey}>
-              <Card className="kpi-card animate-fade-up" hoverable style={{ cursor: 'default' }}>
+              <Card
+                className="kpi-card animate-fade-up"
+                hoverable
+                onClick={() => setActiveModule(isActive ? null : modKey)}
+                style={{
+                  cursor: 'pointer',
+                  borderColor: isActive ? meta.color : undefined,
+                  borderWidth: isActive ? 2 : 1,
+                  boxShadow: isActive ? `0 0 16px ${meta.color}25` : undefined,
+                }}
+              >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <div style={{
                     width: 40, height: 40, borderRadius: 10,
-                    background: `${meta.color}15`,
+                    background: isActive ? `${meta.color}25` : `${meta.color}15`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 20, color: meta.color,
                   }}>
                     {meta.icon}
                   </div>
-                  <div>
+                  <div style={{ flex: 1 }}>
                     <Text strong style={{ fontSize: 15, display: 'block', lineHeight: 1.2 }}>{meta.label}</Text>
                     <Text type="secondary" style={{ fontSize: 11.5 }}>
                       {paramCount} parámetro{paramCount !== 1 ? 's' : ''}
@@ -524,6 +548,9 @@ export function SettingsPage() {
                       )}
                     </Text>
                   </div>
+                  {isActive && (
+                    <CheckOutlined style={{ color: meta.color, fontSize: 16 }} />
+                  )}
                 </div>
               </Card>
             </Col>
@@ -531,76 +558,81 @@ export function SettingsPage() {
         })}
       </Row>
 
-      {/* ── Logo de Empresa ───────────────────── */}
-      <LogoSection />
+      {/* ── Active module settings panel ───────── */}
+      {activeModule && activeSubModules && activeMeta && (
+        <Card
+          key={activeModule}
+          className="rg-card animate-fade-up"
+          style={{ borderRadius: 14, overflow: 'hidden', marginBottom: 24 }}
+          styles={{
+            header: {
+              background: 'linear-gradient(135deg, #1E1F22 0%, #2A2B2F 100%)',
+              borderBottom: `2px solid ${activeMeta.color}`,
+              padding: '14px 20px',
+            },
+            body: { padding: '12px 8px' },
+          }}
+          title={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 32, height: 32, borderRadius: 8,
+                background: `${activeMeta.color}20`, color: activeMeta.color, fontSize: 16,
+              }}>
+                {activeMeta.icon}
+              </span>
+              <div>
+                <Text strong style={{ color: '#fff', fontSize: 14 }}>{activeMeta.label}</Text>
+                <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, display: 'block', lineHeight: 1.2 }}>
+                  {activeMeta.description}
+                </Text>
+              </div>
+            </div>
+          }
+        >
+          {Object.entries(activeSubModules).map(([subKey, params], idx) => (
+            <div key={subKey}>
+              {Object.keys(activeSubModules).length > 1 && (
+                <div style={{
+                  padding: '6px 16px',
+                  marginTop: idx > 0 ? 8 : 0,
+                  marginBottom: 4,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}>
+                  <div style={{ width: 3, height: 14, borderRadius: 2, background: activeMeta.color }} />
+                  <Text type="secondary" style={{ fontSize: 11.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    {SUBMODULE_LABELS[subKey] || subKey}
+                  </Text>
+                </div>
+              )}
+              {params.map(param => (
+                <SettingRow
+                  key={param.PARAMETRO_ID}
+                  param={param}
+                  localValue={localValues[param.PARAMETRO_ID] ?? param.VALOR ?? param.VALOR_DEFECTO ?? ''}
+                  onValueChange={handleValueChange}
+                />
+              ))}
+            </div>
+          ))}
+        </Card>
+      )}
 
-      {/* ── Settings by Module ────────────────── */}
-      <Row gutter={[20, 20]} className="stagger">
-        {Object.entries(grouped).map(([modKey, subModules]) => {
-          const meta = MODULE_META[modKey] || { label: modKey, description: '', icon: <SettingOutlined />, color: '#999' };
-          return (
-            <Col xs={24} lg={12} key={modKey}>
-              <Card
-                className="rg-card animate-fade-up"
-                style={{ borderRadius: 14, overflow: 'hidden' }}
-                styles={{
-                  header: {
-                    background: 'linear-gradient(135deg, #1E1F22 0%, #2A2B2F 100%)',
-                    borderBottom: `2px solid ${meta.color}`,
-                    padding: '14px 20px',
-                  },
-                  body: { padding: '12px 8px' },
-                }}
-                title={
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      width: 32, height: 32, borderRadius: 8,
-                      background: `${meta.color}20`, color: meta.color, fontSize: 16,
-                    }}>
-                      {meta.icon}
-                    </span>
-                    <div>
-                      <Text strong style={{ color: '#fff', fontSize: 14 }}>{meta.label}</Text>
-                      <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, display: 'block', lineHeight: 1.2 }}>
-                        {meta.description}
-                      </Text>
-                    </div>
-                  </div>
-                }
-              >
-                {Object.entries(subModules).map(([subKey, params], idx) => (
-                  <div key={subKey}>
-                    {Object.keys(subModules).length > 1 && (
-                      <div style={{
-                        padding: '6px 16px',
-                        marginTop: idx > 0 ? 8 : 0,
-                        marginBottom: 4,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                      }}>
-                        <div style={{ width: 3, height: 14, borderRadius: 2, background: meta.color }} />
-                        <Text type="secondary" style={{ fontSize: 11.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                          {SUBMODULE_LABELS[subKey] || subKey}
-                        </Text>
-                      </div>
-                    )}
-                    {params.map(param => (
-                      <SettingRow
-                        key={param.PARAMETRO_ID}
-                        param={param}
-                        localValue={localValues[param.PARAMETRO_ID] ?? param.VALOR ?? param.VALOR_DEFECTO ?? ''}
-                        onValueChange={handleValueChange}
-                      />
-                    ))}
-                  </div>
-                ))}
-              </Card>
-            </Col>
-          );
-        })}
-      </Row>
+      {/* Hint when no module selected */}
+      {!activeModule && (
+        <div className="animate-fade-in" style={{
+          textAlign: 'center',
+          padding: '40px 20px',
+          color: 'rgba(0,0,0,0.25)',
+        }}>
+          <SettingOutlined style={{ fontSize: 40, marginBottom: 12, display: 'block' }} />
+          <Text type="secondary" style={{ fontSize: 14 }}>
+            Seleccioná un módulo para ver sus opciones
+          </Text>
+        </div>
+      )}
 
       {/* ── Sticky save bar ───────────────────── */}
       {hasChanges && (

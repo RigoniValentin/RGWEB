@@ -79,10 +79,6 @@ GO
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 -- ── Ventas › Nueva Venta ─────────────────────────────────────────────────────
-IF NOT EXISTS (SELECT 1 FROM CONFIG_PARAMETROS WHERE CLAVE = 'imprimir_ticket')
-  INSERT INTO CONFIG_PARAMETROS (MODULO, SUBMODULO, CLAVE, DESCRIPCION, TIPO, VALOR_DEFECTO, ORDEN)
-  VALUES ('ventas', 'nueva_venta', 'imprimir_ticket', 'Imprimir ticket automáticamente al finalizar la venta', 'boolean', 'true', 10);
-
 IF NOT EXISTS (SELECT 1 FROM CONFIG_PARAMETROS WHERE CLAVE = 'atajo_nueva_venta')
   INSERT INTO CONFIG_PARAMETROS (MODULO, SUBMODULO, CLAVE, DESCRIPCION, TIPO, VALOR_DEFECTO, ORDEN)
   VALUES ('ventas', 'nueva_venta', 'atajo_nueva_venta', 'Atajo de teclado para abrir Nueva Venta', 'shortcut', 'F2', 20);
@@ -99,18 +95,9 @@ IF NOT EXISTS (SELECT 1 FROM CONFIG_PARAMETROS WHERE CLAVE = 'atajo_buscar_produ
   INSERT INTO CONFIG_PARAMETROS (MODULO, SUBMODULO, CLAVE, DESCRIPCION, TIPO, VALOR_DEFECTO, ORDEN)
   VALUES ('ventas', 'nueva_venta', 'atajo_buscar_producto', 'Atajo de teclado para enfocar búsqueda de producto', 'shortcut', 'F3', 40);
 
-IF NOT EXISTS (SELECT 1 FROM CONFIG_PARAMETROS WHERE CLAVE = 'lista_precio_defecto')
-  INSERT INTO CONFIG_PARAMETROS (MODULO, SUBMODULO, CLAVE, DESCRIPCION, TIPO, OPCIONES, VALOR_DEFECTO, ORDEN)
-  VALUES ('ventas', 'nueva_venta', 'lista_precio_defecto', 'Lista de precio por defecto', 'select', '["1","2","3","4","5"]', '1', 50);
-
 IF NOT EXISTS (SELECT 1 FROM CONFIG_PARAMETROS WHERE CLAVE = 'reabrir_nueva_venta')
   INSERT INTO CONFIG_PARAMETROS (MODULO, SUBMODULO, CLAVE, DESCRIPCION, TIPO, VALOR_DEFECTO, ORDEN)
   VALUES ('ventas', 'nueva_venta', 'reabrir_nueva_venta', 'Al finalizar una venta, volver a mostrar el formulario de nueva venta', 'boolean', 'false', 60);
-
--- ── Ventas › General ─────────────────────────────────────────────────────────
-IF NOT EXISTS (SELECT 1 FROM CONFIG_PARAMETROS WHERE CLAVE = 'mostrar_rentabilidad')
-  INSERT INTO CONFIG_PARAMETROS (MODULO, SUBMODULO, CLAVE, DESCRIPCION, TIPO, VALOR_DEFECTO, ORDEN)
-  VALUES ('ventas', 'general', 'mostrar_rentabilidad', 'Mostrar columna de rentabilidad en listado de ventas', 'boolean', 'false', 10);
 
 -- ── Compras › Nueva Compra ───────────────────────────────────────────────────
 IF NOT EXISTS (SELECT 1 FROM CONFIG_PARAMETROS WHERE CLAVE = 'atajo_nueva_compra')
