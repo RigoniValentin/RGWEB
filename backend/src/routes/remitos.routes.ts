@@ -81,6 +81,36 @@ router.get('/search-products', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/remitos/pendientes-cliente/:clienteId
+router.get('/pendientes-cliente/:clienteId', async (req: Request, res: Response) => {
+  try {
+    const clienteId = parseInt(req.params.clienteId as string);
+    if (!clienteId || isNaN(clienteId)) {
+      res.json([]);
+      return;
+    }
+    const data = await remitosService.getRemitosPendientesCliente(clienteId);
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/remitos/items-para-venta/:remitoId
+router.get('/items-para-venta/:remitoId', async (req: Request, res: Response) => {
+  try {
+    const remitoId = parseInt(req.params.remitoId as string);
+    if (!remitoId || isNaN(remitoId)) {
+      res.status(400).json({ error: 'ID de remito inválido' });
+      return;
+    }
+    const data = await remitosService.getRemitoItemsParaVenta(remitoId);
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/remitos/search-products-advanced
 router.get('/search-products-advanced', async (req: Request, res: Response) => {
   try {

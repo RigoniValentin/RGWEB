@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Drawer, Descriptions, Spin,
@@ -23,7 +23,7 @@ import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
 import { useAuthStore } from '../store/authStore';
 import { useTabStore } from '../store/tabStore';
 import { useNavigationStore } from '../store/navigationStore';
-import { fmtMoney, fmtNum } from '../utils/format';
+import { fmtMoney, fmtNum, fmtComprobanteTipo } from '../utils/format';
 import type { Venta, VentaDetalle } from '../types';
 
 const { Title, Text } = Typography;
@@ -33,6 +33,9 @@ export function SalesPage() {
   const navigate = useNavigate();
   const openTab = useTabStore(s => s.openTab);
   const navTo = useNavigationStore(s => s.navigate);
+  const navEvent = useNavigationStore(s => s.event);
+  const clearNavEvent = useNavigationStore(s => s.clearEvent);
+  const lastNavTimestamp = useRef<number>(0);
   const { puntoVentaActivo } = useAuthStore();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -143,6 +146,17 @@ export function SalesPage() {
       message.error(err.response?.data?.error || 'Error al quitar cobro');
     },
   });
+
+  // Consume navigation events to auto-open detail drawer
+  useEffect(() => {
+    if (!navEvent || navEvent.target !== '/sales' || !navEvent.payload?.ventaId) return;
+    if (navEvent.timestamp === lastNavTimestamp.current) return;
+    lastNavTimestamp.current = navEvent.timestamp;
+    const targetId = navEvent.payload.ventaId as number;
+    clearNavEvent();
+    setSelectedId(targetId);
+    setDrawerOpen(true);
+  }, [navEvent, clearNavEvent]);
 
   const openDetail = (record: Venta) => {
     setSelectedId(record.VENTA_ID);
@@ -350,7 +364,7 @@ export function SalesPage() {
       render: (v: string) => new Date(v).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }),
     },
     { title: 'Cliente', dataIndex: 'CLIENTE_NOMBRE', key: 'client', ellipsis: true },
-    { title: 'Vendedor', dataIndex: 'USUARIO_NOMBRE', key: 'user', width: 120, ellipsis: true },
+    { title: 'Vendedor', dataIndex: 'USUARIO_NOMBRE', key: 'user', width: 120, ellipsis: true, align: 'center' as const },
     {
       title: 'Comprobante', key: 'voucher', width: 210, align: 'center' as const,
       render: (_: unknown, record: Venta) => {
@@ -358,7 +372,7 @@ export function SalesPage() {
           const tipo = record.TIPO_COMPROBANTE || '';
           const pv = record.PUNTO_VENTA || '0000';
           const nro = record.NUMERO_FISCAL;
-          const tipoLabel = tipo.startsWith('F') ? `Fact.${tipo.slice(1)}` : tipo;
+          const tipoLabel = fmtComprobanteTipo(tipo);
           return <Text style={{ fontSize: 12.5 }}>{`${tipoLabel} ${pv}-${nro}`}</Text>;
         }
         if (utilizaFE) {
@@ -386,7 +400,7 @@ export function SalesPage() {
       },
     },
     {
-      title: 'Total', dataIndex: 'TOTAL', key: 'total', width: 120, align: 'right' as const,
+      title: 'Total', dataIndex: 'TOTAL', key: 'total', width: 150, align: 'right' as const,
       render: (v: number) => <Text strong>{fmtMoney(v)}</Text>,
     },
     {
@@ -627,6 +641,45 @@ export function SalesPage() {
               )}
             </Descriptions>
 
+            {detail.remitos_asociados && detail.remitos_asociados.length > 0 && (
+              <div style={{ marginBottom: 24 }}>
+                <Title level={5} style={{ marginBottom: 12, fontWeight: 700 }}>Remitos asociados</Title>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {detail.remitos_asociados.map((r: any) => (
+                    <div
+                      key={r.REMITO_ID}
+                      onClick={() => {
+                        setDrawerOpen(false);
+                        setSelectedId(null);
+                        openTab({ key: '/remitos', label: 'Remitos', closable: true });
+                        navTo('/remitos', { remitoId: r.REMITO_ID });
+                        navigate('/remitos');
+                      }}
+                      style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '10px 16px', borderRadius: 8, border: '1px solid #d9d9d9',
+                        background: 'rgba(22, 119, 255, 0.04)', cursor: 'pointer',
+                        transition: 'border-color 0.2s',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.borderColor = '#1677ff')}
+                      onMouseLeave={e => (e.currentTarget.style.borderColor = '#d9d9d9')}
+                    >
+                      <Space>
+                        <FileTextOutlined style={{ color: '#1677ff' }} />
+                        <Text strong>
+                          R {String(r.PTO_VTA).padStart(4, '0')}-{String(r.NRO_REMITO).padStart(8, '0')}
+                        </Text>
+                        <Text type="secondary">
+                          {new Date(r.FECHA).toLocaleDateString('es-AR')}
+                        </Text>
+                      </Space>
+                      <Text strong>{fmtMoney(r.TOTAL)}</Text>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {detail.items && detail.items.length > 0 && (
               <div className="rg-sale-items">
                 <Title level={5} style={{ marginBottom: 12, fontWeight: 700 }}>Detalle de productos</Title>
@@ -643,7 +696,7 @@ export function SalesPage() {
                       render: (v: number) => v % 1 === 0 ? v : fmtNum(v),
                     },
                     {
-                      title: 'P. Unit', dataIndex: 'PRECIO_UNITARIO', width: 120,
+                      title: 'P. Unit', dataIndex: 'PRECIO_UNITARIO', width: 140,
                       align: 'center' as const,
                       render: (v: number) => fmtMoney(v),
                     },
@@ -653,7 +706,7 @@ export function SalesPage() {
                       render: (v: number) => v > 0 ? `${v}%` : '-',
                     },
                     {
-                      title: 'Subtotal', key: 'sub', width: 120, align: 'center' as const,
+                      title: 'Subtotal', key: 'sub', width: 140, align: 'center' as const,
                       render: (_: unknown, r: any) => (
                         <Text strong>{fmtMoney(r.PRECIO_UNITARIO_DTO * r.CANTIDAD)}</Text>
                       ),

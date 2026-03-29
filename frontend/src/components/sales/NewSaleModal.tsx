@@ -14,6 +14,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { salesApi } from '../../services/sales.api';
+import { remitosApi } from '../../services/remitos.api';
 import { cajaApi } from '../../services/caja.api';
 import { useAuthStore } from '../../store/authStore';
 import { useTabStore } from '../../store/tabStore';
@@ -22,7 +23,7 @@ import { fmtMoney } from '../../utils/format';
 import { printReceipt } from '../../utils/printReceipt';
 import { printFETicket, openFEPdf } from '../../utils/printReceipt';
 import type { ReceiptData } from '../../utils/printReceipt';
-import type { VentaItemInput, ProductoSearch, VentaInput, ClienteVenta } from '../../types';
+import type { VentaItemInput, ProductoSearch, VentaInput, ClienteVenta, RemitoPendiente } from '../../types';
 import { ProductSearchModal } from '../ProductSearchModal';
 
 const { Title, Text } = Typography;
@@ -36,6 +37,7 @@ interface CartItem extends VentaItemInput {
   STOCK: number;
   UNIDAD: string;
   UNIDAD_NOMBRE: string;
+  DESDE_REMITO?: boolean;
 }
 
 export interface PedidoParaVenta {
@@ -102,6 +104,12 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const [productSearchInitial, setProductSearchInitial] = useState('');
   const refocusSearchAfterProductModalClose = useRef(true);
   const productSearchKey = useRef(0);
+
+  // ── Remitos pendientes state ──
+  const [remitosPendientes, setRemitosPendientes] = useState<RemitoPendiente[]>([]);
+  const [selectedRemitoIds, setSelectedRemitoIds] = useState<number[]>([]);
+  const [loadingRemitos, setLoadingRemitos] = useState(false);
+  const [loadingRemitoItems, setLoadingRemitoItems] = useState(false);
 
   // Saldo CTA CTE confirmation
   const [saldoModalOpen, setSaldoModalOpen] = useState(false);
@@ -290,16 +298,24 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
 
   const esMonotributo = (empresaIva?.CONDICION_IVA || '').toUpperCase() === 'MONOTRIBUTO';
 
+  const esRI = (empresaIva?.CONDICION_IVA || '').toUpperCase() === 'RESPONSABLE INSCRIPTO';
+  const clienteEsRI = (selectedCliente?.CONDICION_IVA || '').toUpperCase() === 'RESPONSABLE INSCRIPTO';
+
   const comprobanteOptions = useMemo(() => {
     if (esMonotributo) {
       return [{ value: 'Fa.C', label: 'Factura C' }];
+    }
+    if (esRI) {
+      return clienteEsRI
+        ? [{ value: 'Fa.A', label: 'Factura A' }]
+        : [{ value: 'Fa.B', label: 'Factura B' }];
     }
     return [
       { value: 'Fa.A', label: 'Factura A' },
       { value: 'Fa.B', label: 'Factura B' },
       { value: 'Fa.C', label: 'Factura C' },
     ];
-  }, [esMonotributo]);
+  }, [esMonotributo, esRI, clienteEsRI]);
 
   // Derive the correct comprobante type
   const comprobanteAutoValue = useMemo(() => {
@@ -330,6 +346,28 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       setEsCtaCorriente(false);
     }
   }, [clienteTieneCtaCte]);
+
+  // Fetch pending remitos when client changes (only for non-Consumidor Final)
+  useEffect(() => {
+    if (!open || !clienteId || clienteId === 1) {
+      setRemitosPendientes([]);
+      setSelectedRemitoIds([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingRemitos(true);
+    remitosApi.getPendientesCliente(clienteId).then(data => {
+      if (!cancelled) {
+        setRemitosPendientes(data);
+        setSelectedRemitoIds([]);
+      }
+    }).catch(() => {
+      if (!cancelled) setRemitosPendientes([]);
+    }).finally(() => {
+      if (!cancelled) setLoadingRemitos(false);
+    });
+    return () => { cancelled = true; };
+  }, [open, clienteId]);
 
   // When switching to CTA CTE, turn off facturación
   useEffect(() => {
@@ -513,6 +551,8 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     setWantFEPdf(false);
     setLastAddedKey(null);
     setFacturando(false);
+    setRemitosPendientes([]);
+    setSelectedRemitoIds([]);
   }, [comprobanteAutoValue]);
 
   const handleClose = () => {
@@ -595,6 +635,43 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const isBalanzaBarcode = (code: string): boolean => {
     return /^2\d{12}$/.test(code);
   };
+
+  // Load items from selected remitos into the cart
+  const handleCargarRemitos = useCallback(async (remitoIds: number[]) => {
+    if (remitoIds.length === 0) return;
+    setLoadingRemitoItems(true);
+    try {
+      const allItems: CartItem[] = [];
+      for (const rId of remitoIds) {
+        const items = await remitosApi.getItemsParaVenta(rId);
+        for (const item of items) {
+          allItems.push({
+            key: `remito-${rId}-${item.PRODUCTO_ID}-${Date.now()}-${Math.random()}`,
+            PRODUCTO_ID: item.PRODUCTO_ID,
+            NOMBRE: item.PRODUCTO_NOMBRE,
+            CODIGO: item.PRODUCTO_CODIGO,
+            PRECIO_UNITARIO: item.PRECIO_VENTA || item.PRECIO_UNITARIO,
+            CANTIDAD: item.CANTIDAD,
+            DESCUENTO: 0,
+            PRECIO_COMPRA: item.PRECIO_COMPRA || 0,
+            STOCK: item.STOCK,
+            UNIDAD: item.UNIDAD_ABREVIACION || 'u',
+            UNIDAD_NOMBRE: item.UNIDAD_NOMBRE || '',
+            DEPOSITO_ID: item.DEPOSITO_ID || depositoId || undefined,
+            LISTA_ID: 1,
+            DESDE_REMITO: true,
+          });
+        }
+      }
+      setCart(allItems);
+      setSelectedRemitoIds(remitoIds);
+      message.success(`Se cargaron ${allItems.length} producto(s) desde ${remitoIds.length} remito(s)`);
+    } catch (err: any) {
+      message.error('Error al cargar productos del remito');
+    } finally {
+      setLoadingRemitoItems(false);
+    }
+  }, [depositoId]);
 
   // Auto-focus price field when a new product is added
   useEffect(() => {
@@ -748,10 +825,12 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       MONTO_EFECTIVO: 0,
       MONTO_DIGITAL: 0,
       VUELTO: 0,
-      items: cart.map(({ PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID }) => ({
+      items: cart.map(({ PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID, DESDE_REMITO }) => ({
         PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID,
+        ...(DESDE_REMITO ? { DESDE_REMITO: true } : {}),
       })),
       ...(pedido ? { PEDIDO_ID: pedido.PEDIDO_ID, MESA_ID: pedido.MESA_ID } : {}),
+      ...(selectedRemitoIds.length > 0 ? { REMITO_IDS: selectedRemitoIds } : {}),
     };
     createMutation.mutate(input);
   };
@@ -815,11 +894,13 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       MONTO_EFECTIVO: efectivoFinal,
       MONTO_DIGITAL: digitalFinal,
       VUELTO: vueltoFinal,
-      items: cart.map(({ PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID }) => ({
+      items: cart.map(({ PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID, DESDE_REMITO }) => ({
         PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID,
+        ...(DESDE_REMITO ? { DESDE_REMITO: true } : {}),
       })),
       metodos_pago: metodosPagoInput,
       ...(pedido ? { PEDIDO_ID: pedido.PEDIDO_ID, MESA_ID: pedido.MESA_ID } : {}),
+      ...(selectedRemitoIds.length > 0 ? { REMITO_IDS: selectedRemitoIds } : {}),
     };
     createMutation.mutate(input);
   };
@@ -1327,6 +1408,71 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                 />
               </div>
 
+              {/* Remitos pendientes */}
+              {loadingRemitos && clienteId !== 1 && (
+                <div className="nsm-field-group">
+                  <Spin size="small" /> <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>Buscando remitos...</Text>
+                </div>
+              )}
+              {remitosPendientes.length > 0 && (
+                <div className="nsm-field-group">
+                  <label className="nsm-label">
+                    <FileTextOutlined style={{ marginRight: 6, color: '#1677ff' }} />
+                    Remitos pendientes de facturar
+                    <Badge count={remitosPendientes.length} style={{ backgroundColor: '#1677ff', marginLeft: 8 }} />
+                  </label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
+                    {remitosPendientes.map(r => {
+                      const isSelected = selectedRemitoIds.includes(r.REMITO_ID);
+                      return (
+                        <div
+                          key={r.REMITO_ID}
+                          onClick={() => {
+                            setSelectedRemitoIds(prev =>
+                              isSelected
+                                ? prev.filter(id => id !== r.REMITO_ID)
+                                : [...prev, r.REMITO_ID]
+                            );
+                          }}
+                          style={{
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            padding: '8px 12px', borderRadius: 8, cursor: 'pointer',
+                            border: isSelected ? '2px solid #1677ff' : '1px solid #d9d9d9',
+                            background: isSelected ? 'rgba(22, 119, 255, 0.06)' : 'transparent',
+                            transition: 'all 0.15s',
+                          }}
+                        >
+                          <div>
+                            <Text strong style={{ fontSize: 13 }}>
+                              R {String(r.PTO_VTA).padStart(4, '0')}-{String(r.NRO_REMITO).padStart(8, '0')}
+                            </Text>
+                            <br />
+                            <Text type="secondary" style={{ fontSize: 11 }}>
+                              {new Date(r.FECHA).toLocaleDateString('es-AR')}
+                            </Text>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <Text strong style={{ fontSize: 13 }}>{fmtMoney(r.TOTAL)}</Text>
+                            {isSelected && <CheckCircleOutlined style={{ color: '#1677ff', marginLeft: 8 }} />}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <Button
+                    type="primary"
+                    size="small"
+                    icon={<PlusOutlined />}
+                    disabled={selectedRemitoIds.length === 0}
+                    loading={loadingRemitoItems}
+                    onClick={() => handleCargarRemitos(selectedRemitoIds)}
+                    style={{ marginTop: 8 }}
+                  >
+                    Cargar {selectedRemitoIds.length > 0 ? `${selectedRemitoIds.length} remito(s)` : 'remitos'} en la venta
+                  </Button>
+                </div>
+              )}
+
               {/* Deposito */}
               <div className="nsm-field-group">
                 <label className="nsm-label">
@@ -1357,7 +1503,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                   style={{ width: '100%' }}
                   value={tipoComprobante || undefined}
                   onChange={setTipoComprobante}
-                  disabled={esMonotributo}
+                  disabled={esMonotributo || esRI}
                   size="large"
                   options={comprobanteOptions}
                 />

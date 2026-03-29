@@ -196,8 +196,17 @@ export interface DesgloseMetodo {
   TOTAL: number;
 }
 
+export interface RemitoAsociado {
+  REMITO_ID: number;
+  PTO_VTA: string;
+  NRO_REMITO: string;
+  FECHA: string;
+  TOTAL: number;
+}
+
 export interface VentaDetalle extends Venta {
   items: VentaItem[];
+  remitos_asociados?: RemitoAsociado[];
 }
 
 export interface VentaItemInput {
@@ -219,6 +228,7 @@ export interface VentaItemInput {
   CANTIDAD_PRODUCTOS_PROMO?: number;
   NOMBRE?: string;
   CODIGO?: string;
+  DESDE_REMITO?: boolean;
 }
 
 export interface VentaInput {
@@ -236,6 +246,7 @@ export interface VentaInput {
   metodos_pago?: MetodoPagoItem[];
   PEDIDO_ID?: number;
   MESA_ID?: number;
+  REMITO_IDS?: number[];
 }
 
 export interface PaymentInput {
@@ -693,6 +704,11 @@ export interface RemitoDetalle extends Remito {
   PROVEEDOR_DOMICILIO?: string;
   PROVEEDOR_TIPO_DOC?: string;
   PROVEEDOR_NUMERO_DOC?: string;
+  VENTA_ID?: number | null;
+  VENTA_TIPO_COMPROBANTE?: string | null;
+  VENTA_NUMERO_FISCAL?: string | null;
+  VENTA_TOTAL?: number | null;
+  VENTA_FECHA?: string | null;
 }
 
 export interface RemitoItemInput {
@@ -728,6 +744,40 @@ export interface ProductoSearchRemito {
   UNIDAD_ID: number | null;
   UNIDAD_NOMBRE: string;
   UNIDAD_ABREVIACION: string;
+}
+
+export interface RemitoPendiente {
+  REMITO_ID: number;
+  TIPO: string;
+  FECHA: string;
+  PTO_VTA: string;
+  NRO_REMITO: string;
+  CLIENTE_ID: number;
+  TOTAL: number;
+  OBSERVACIONES: string | null;
+}
+
+export interface RemitoItemParaVenta {
+  ITEM_ID: number;
+  PRODUCTO_ID: number;
+  CANTIDAD: number;
+  PRECIO_UNITARIO: number;
+  TOTAL_PRODUCTO: number;
+  DEPOSITO_ID: number | null;
+  PRODUCTO_NOMBRE: string;
+  PRODUCTO_CODIGO: string;
+  STOCK: number;
+  PRECIO_COMPRA: number;
+  PRECIO_VENTA: number;
+  ES_CONJUNTO: boolean | null;
+  ES_SERVICIO: boolean;
+  DESCUENTA_STOCK: boolean;
+  IMP_INT: number;
+  TASA_IVA_ID: number | null;
+  UNIDAD_ID: number | null;
+  UNIDAD_NOMBRE: string;
+  UNIDAD_ABREVIACION: string;
+  IVA_PORCENTAJE: number;
 }
 
 export interface EmpresaData {

@@ -17,7 +17,7 @@ import { PriceCheckModal } from '../components/purchases/PriceCheckModal';
 import { DateFilterPopover, type DatePreset } from '../components/DateFilterPopover';
 import { useTabStore } from '../store/tabStore';
 import { useNavigationStore } from '../store/navigationStore';
-import { fmtMoney, fmtNum } from '../utils/format';
+import { fmtComprobanteTipo, fmtMoney, fmtNum } from '../utils/format';
 import type { Compra, CompraDetalle } from '../types';
 
 const { Title, Text } = Typography;
@@ -159,7 +159,7 @@ export function PurchasesPage() {
         const pv = record.PTO_VTA || '0000';
         const nro = record.NRO_COMPROBANTE || '00000000';
         if (!tipo && pv === '0000' && nro === '00000000') return '-';
-        const tipoLabel = tipo.startsWith('F') ? `Fact.${tipo.slice(1)}` : tipo;
+        const tipoLabel = fmtComprobanteTipo(tipo);
         return `${tipoLabel} ${pv}-${nro}`;
       },
     },

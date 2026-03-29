@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Drawer, Descriptions, Spin, Alert,
@@ -17,6 +18,7 @@ import { DateFilterPopover, type DatePreset } from '../components/DateFilterPopo
 import { NewRemitoModal } from '../components/remitos/NewRemitoModal.js';
 import { generateRemitoPdf, type CopiasTipo } from '../components/remitos/remitoPdf.js';
 import { useTabStore } from '../store/tabStore';
+import { useNavigationStore } from '../store/navigationStore';
 import { fmtMoney, fmtNum, statFormatter } from '../utils/format';
 
 const { Title, Text } = Typography;
@@ -33,6 +35,12 @@ export function RemitosPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [newRemitoOpen, setNewRemitoOpen] = useState(false);
   const [newRemitoTipo, setNewRemitoTipo] = useState<'ENTRADA' | 'SALIDA'>('SALIDA');
+  const navigate = useNavigate();
+  const openTab = useTabStore(s => s.openTab);
+  const navTo = useNavigationStore(s => s.navigate);
+  const navEvent = useNavigationStore(s => s.event);
+  const clearNavEvent = useNavigationStore(s => s.clearEvent);
+  const lastNavTimestamp = useRef<number>(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
 
@@ -65,6 +73,17 @@ export function RemitosPage() {
   useEffect(() => {
     if (activeKey === '/remitos') refetch();
   }, [activeKey]);
+
+  // Consume navigation events to auto-open detail drawer
+  useEffect(() => {
+    if (!navEvent || navEvent.target !== '/remitos' || !navEvent.payload?.remitoId) return;
+    if (navEvent.timestamp === lastNavTimestamp.current) return;
+    lastNavTimestamp.current = navEvent.timestamp;
+    const targetId = navEvent.payload.remitoId as number;
+    clearNavEvent();
+    setSelectedId(targetId);
+    setDrawerOpen(true);
+  }, [navEvent, clearNavEvent]);
 
   // ── Detail query ───────────────────────────────
   const { data: detail, isLoading: detailLoading, error: detailError } = useQuery({
@@ -322,6 +341,34 @@ export function RemitosPage() {
               )}
               {detail.OBSERVACIONES && (
                 <Descriptions.Item label="Observaciones" span={2}>{detail.OBSERVACIONES}</Descriptions.Item>
+              )}
+              {detail.VENTA_ID && (
+                <Descriptions.Item label="Factura asociada" span={2}>
+                  <Tag
+                    color="gold"
+                    style={{ fontSize: 13, cursor: 'pointer' }}
+                    onClick={() => {
+                      setDrawerOpen(false);
+                      setSelectedId(null);
+                      openTab({ key: '/sales', label: 'Ventas', closable: true });
+                      navTo('/sales', { ventaId: detail.VENTA_ID });
+                      navigate('/sales');
+                    }}
+                  >
+                    {detail.VENTA_TIPO_COMPROBANTE || 'Venta'} #{detail.VENTA_ID}
+                    {detail.VENTA_NUMERO_FISCAL ? ` — Nro. Fiscal: ${detail.VENTA_NUMERO_FISCAL}` : ''}
+                  </Tag>
+                  {detail.VENTA_FECHA && (
+                    <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+                      {dayjs(detail.VENTA_FECHA).format('DD/MM/YYYY')}
+                    </Text>
+                  )}
+                  {detail.VENTA_TOTAL != null && (
+                    <Text strong style={{ marginLeft: 8 }}>
+                      {fmtMoney(detail.VENTA_TOTAL)}
+                    </Text>
+                  )}
+                </Descriptions.Item>
               )}
             </Descriptions>
 

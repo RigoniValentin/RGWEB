@@ -13,7 +13,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { ncComprasApi, type NCCompraInput, type NCCompraItemInput, type CompraParaNC } from '../../services/ncCompras.api';
 import { purchasesApi } from '../../services/purchases.api';
 import { cajaApi } from '../../services/caja.api';
-import { fmtMoney, fmtNum } from '../../utils/format';
+import { fmtComprobanteTipo, fmtMoney, fmtNum } from '../../utils/format';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -246,7 +246,7 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
         const pv = r.PTO_VTA || '0000';
         const nro = r.NRO_COMPROBANTE || '00000000';
         if (!tipo && pv === '0000' && nro === '00000000') return '-';
-        const tipoLabel = tipo.startsWith('F') ? `Fact.${tipo.slice(1)}` : tipo;
+        const tipoLabel = fmtComprobanteTipo(tipo);
         return `${tipoLabel} ${pv}-${nro}`;
       },
     },

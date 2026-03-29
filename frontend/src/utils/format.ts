@@ -28,6 +28,22 @@ export function fmtUsd(value: number | null | undefined): string {
   return `U$S ${fmtNum(value)}`;
 }
 
+/** Normaliza tipos tipo "Fa.A"/"F.A"/"FA" a etiqueta "Fact.A" */
+export function fmtComprobanteTipo(tipo: string | null | undefined): string {
+  const t = (tipo || '').trim();
+  if (!t) return '';
+  if (!/^F/i.test(t)) return t;
+
+  const letra = t
+    .replace(/^Fa\./i, '')
+    .replace(/^F\./i, '')
+    .replace(/^F/i, '')
+    .trim()
+    .toUpperCase();
+
+  return `Fact.${letra || t.toUpperCase()}`;
+}
+
 /**
  * Formatter para el componente <Statistic> de Ant Design.
  * Uso: <Statistic formatter={statFormatter} ... />

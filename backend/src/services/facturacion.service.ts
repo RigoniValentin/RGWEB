@@ -60,6 +60,7 @@ export interface FEComprobante {
   impuestos_internos: string;
   impuestos_internos_base: string;
   impuestos_internos_alicuota: string;
+  comprobantes_asociados?: { tipo_comprobante: string; punto_venta: string; numero: number; }[];
 }
 
 export interface FEFactura {

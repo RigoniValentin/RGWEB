@@ -82,6 +82,14 @@ async function ensureRemitosTable(pool: any): Promise<void> {
       )
     END
   `);
+  // Add VENTA_ID column if not exists (migration)
+  await pool.request().query(`
+    IF NOT EXISTS (
+      SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_NAME = 'REMITOS' AND COLUMN_NAME = 'VENTA_ID'
+    )
+    ALTER TABLE REMITOS ADD VENTA_ID INT NULL
+  `);
   _remitosTableReady = true;
 }
 
@@ -353,6 +361,7 @@ export const remitosService = {
           r.CLIENTE_ID, r.PROVEEDOR_ID, r.DEPOSITO_ID,
           r.OBSERVACIONES, r.SUBTOTAL, r.TOTAL,
           r.ANULADO, r.USUARIO_ID, r.FECHA_CREACION,
+          r.VENTA_ID,
           cl.NOMBRE AS CLIENTE_NOMBRE,
           cl.DOMICILIO AS CLIENTE_DOMICILIO,
           cl.TIPO_DOCUMENTO AS CLIENTE_TIPO_DOC,
@@ -363,12 +372,17 @@ export const remitosService = {
           p.TIPO_DOCUMENTO AS PROVEEDOR_TIPO_DOC,
           p.NUMERO_DOC AS PROVEEDOR_NUMERO_DOC,
           d.NOMBRE AS DEPOSITO_NOMBRE,
-          u.NOMBRE AS USUARIO_NOMBRE
+          u.NOMBRE AS USUARIO_NOMBRE,
+          v.TIPO_COMPROBANTE AS VENTA_TIPO_COMPROBANTE,
+          v.NUMERO_FISCAL AS VENTA_NUMERO_FISCAL,
+          v.TOTAL AS VENTA_TOTAL,
+          v.FECHA_VENTA AS VENTA_FECHA
         FROM REMITOS r
         LEFT JOIN CLIENTES cl ON r.CLIENTE_ID = cl.CLIENTE_ID
         LEFT JOIN PROVEEDORES p ON r.PROVEEDOR_ID = p.PROVEEDOR_ID
         LEFT JOIN DEPOSITOS d ON r.DEPOSITO_ID = d.DEPOSITO_ID
         LEFT JOIN USUARIOS u ON r.USUARIO_ID = u.USUARIO_ID
+        LEFT JOIN VENTAS v ON r.VENTA_ID = v.VENTA_ID
         WHERE r.REMITO_ID = @id
       `);
 
@@ -733,6 +747,64 @@ export const remitosService = {
       `);
 
     return result.recordset;
+  },
+
+  // ── Remitos pendientes de facturar por cliente ──
+  async getRemitosPendientesCliente(clienteId: number) {
+    const pool = await getPool();
+    await ensureRemitosTable(pool);
+    const result = await pool.request()
+      .input('clienteId', sql.Int, clienteId)
+      .query(`
+        SELECT r.REMITO_ID, r.TIPO, r.FECHA, r.PTO_VTA, r.NRO_REMITO,
+               r.CLIENTE_ID, r.TOTAL, r.OBSERVACIONES
+        FROM REMITOS r
+        WHERE r.CLIENTE_ID = @clienteId
+          AND r.TIPO = 'SALIDA'
+          AND r.ANULADO = 0
+          AND r.VENTA_ID IS NULL
+        ORDER BY r.FECHA DESC
+      `);
+    return result.recordset;
+  },
+
+  // ── Detalle de un remito con items (para cargar en venta) ──
+  async getRemitoItemsParaVenta(remitoId: number) {
+    const pool = await getPool();
+    const result = await pool.request()
+      .input('remitoId', sql.Int, remitoId)
+      .query(`
+        SELECT ri.ITEM_ID, ri.PRODUCTO_ID, ri.CANTIDAD, ri.PRECIO_UNITARIO,
+               ri.TOTAL_PRODUCTO, ri.DEPOSITO_ID,
+               p.NOMBRE AS PRODUCTO_NOMBRE,
+               p.CODIGOPARTICULAR AS PRODUCTO_CODIGO,
+               p.CANTIDAD AS STOCK,
+               p.PRECIO_COMPRA,
+               ISNULL(p.LISTA_1, 0) AS PRECIO_VENTA,
+               p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK,
+               ISNULL(p.IMP_INT, 0) AS IMP_INT,
+               p.TASA_IVA_ID, p.UNIDAD_ID,
+               ISNULL(u.NOMBRE, '') AS UNIDAD_NOMBRE,
+               ISNULL(u.ABREVIACION, 'u') AS UNIDAD_ABREVIACION,
+               ISNULL(ti.PORCENTAJE, 0) AS IVA_PORCENTAJE
+        FROM REMITOS_ITEMS ri
+        JOIN PRODUCTOS p ON ri.PRODUCTO_ID = p.PRODUCTO_ID
+        LEFT JOIN UNIDADES_MEDIDA u ON p.UNIDAD_ID = u.UNIDAD_ID
+        LEFT JOIN TASAS_IMPUESTOS ti ON p.TASA_IVA_ID = ti.TASA_ID
+        WHERE ri.REMITO_ID = @remitoId
+      `);
+    return result.recordset;
+  },
+
+  // ── Asociar remitos a una venta ────────────────
+  async asociarRemitosAVenta(remitoIds: number[], ventaId: number, tx?: any) {
+    const executor = tx || await getPool();
+    for (const remitoId of remitoIds) {
+      await executor.request()
+        .input(`ventaId_${remitoId}`, sql.Int, ventaId)
+        .input(`remitoId_${remitoId}`, sql.Int, remitoId)
+        .query(`UPDATE REMITOS SET VENTA_ID = @ventaId_${remitoId} WHERE REMITO_ID = @remitoId_${remitoId}`);
+    }
   },
 
   // ── Clientes ───────────────────────────────────

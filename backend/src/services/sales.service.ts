@@ -37,6 +37,7 @@ export interface VentaItemInput {
   IVA_ALICUOTA?: number;
   IVA_MONTO?: number;
   CANTIDAD_PRODUCTOS_PROMO?: number;
+  DESDE_REMITO?: boolean;
 }
 
 export interface MetodoPagoItem {
@@ -59,6 +60,7 @@ export interface VentaInput {
   metodos_pago?: MetodoPagoItem[];
   PEDIDO_ID?: number;
   MESA_ID?: number;
+  REMITO_IDS?: number[];
 }
 
 export interface PaymentInput {
@@ -495,9 +497,20 @@ export const salesService = {
         ORDER BY vi.ITEM_ID
       `);
 
+    // ── Linked remitos ──
+    const remitosResult = await pool.request()
+      .input('ventaId', sql.Int, id)
+      .query(`
+        SELECT REMITO_ID, PTO_VTA, NRO_REMITO, FECHA, TOTAL
+        FROM REMITOS
+        WHERE VENTA_ID = @ventaId AND ANULADO = 0
+        ORDER BY FECHA
+      `);
+
     return {
       ...ventaResult.recordset[0],
       items: itemsResult.recordset,
+      remitos_asociados: remitosResult.recordset,
     };
   },
 
@@ -683,7 +696,10 @@ export const salesService = {
           `);
 
         // Decrement stock (handles DESCUENTA_STOCK flag + conjuntos)
-        await decrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID || null);
+        // Skip if item comes from a remito (stock already decremented when remito SALIDA was created)
+        if (!item.DESDE_REMITO) {
+          await decrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID || null);
+        }
       }
 
       // ── 5. CAJA_ITEMS (if not cta corriente and caja active) ──
@@ -826,6 +842,17 @@ export const salesService = {
               .input('mesaId', sql.Int, input.MESA_ID)
               .query(`UPDATE MESAS SET ESTADO = 'LIBRE' WHERE MESA_ID = @mesaId`);
           }
+        }
+      }
+
+      // ── 9. Link remitos to this sale ──
+      if (input.REMITO_IDS && input.REMITO_IDS.length > 0) {
+        for (let i = 0; i < input.REMITO_IDS.length; i++) {
+          const rId = input.REMITO_IDS[i]!;
+          await tx.request()
+            .input(`remitoVentaId_${i}`, sql.Int, ventaId)
+            .input(`remitoId_${i}`, sql.Int, rId)
+            .query(`UPDATE REMITOS SET VENTA_ID = @remitoVentaId_${i} WHERE REMITO_ID = @remitoId_${i} AND VENTA_ID IS NULL`);
         }
       }
 

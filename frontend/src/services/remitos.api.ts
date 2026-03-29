@@ -2,6 +2,7 @@ import api from './api';
 import type {
   Remito, RemitoDetalle, RemitoInput,
   PaginatedResponse, ProductoSearchRemito, ProductoSearch, Deposito, EmpresaData,
+  RemitoPendiente, RemitoItemParaVenta,
 } from '../types';
 
 export const remitosApi = {
@@ -40,4 +41,10 @@ export const remitosApi = {
 
   getEmpresaData: () =>
     api.get<EmpresaData>('/remitos/empresa').then(r => r.data),
+
+  getPendientesCliente: (clienteId: number) =>
+    api.get<RemitoPendiente[]>(`/remitos/pendientes-cliente/${clienteId}`).then(r => r.data),
+
+  getItemsParaVenta: (remitoId: number) =>
+    api.get<RemitoItemParaVenta[]>(`/remitos/items-para-venta/${remitoId}`).then(r => r.data),
 };
