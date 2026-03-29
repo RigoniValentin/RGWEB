@@ -124,13 +124,13 @@ function renderRemitoCopy(
 
   labelValue(lx, ly, 'Razón Social: ', (empresa.RAZON_SOCIAL || empresa.NOMBRE_FANTASIA || '').substring(0, 45));
   ly += 5;
-  labelValue(lx, ly, 'Domicilio Comercial: ', domicilio.substring(0, 50));
-  ly += 5;
-  labelValue(lx, ly, 'Condición frente al IVA: ', empresa.CONDICION_IVA || '');
   if (empresa.CUIT) {
-    ly += 5;
     labelValue(lx, ly, 'CUIT: ', empresa.CUIT);
+    ly += 5;
   }
+  labelValue(lx, ly, 'Condición frente al IVA: ', empresa.CONDICION_IVA || '');
+  ly += 5;
+  labelValue(lx, ly, 'Domicilio Comercial: ', domicilio.substring(0, 50));
 
   // ── Right side: REMITO title + numbering ──
   doc.setFontSize(16);
@@ -179,13 +179,13 @@ function renderRemitoCopy(
   const destRightCol = centerX + 3; // right column start
   let dy = destTop + 5;
 
-  // Row 1: CUIT (left) | Razón Social (right)
-  labelValue(lx, dy, `${destinatarioTipoDoc}: `, destinatarioDoc);
-  labelValue(destRightCol, dy, 'Razón Social: ', destinatarioNombre.substring(0, 45));
+  // Row 1: Razón Social (left) | Condición frente al IVA (right)
+  labelValue(lx, dy, 'Razón Social: ', (destinatarioNombre || '-').substring(0, 45));
+  labelValue(destRightCol, dy, 'Condición frente al IVA: ', condicionIva || '-');
 
-  // Row 2: Condición IVA (left) | Domicilio (right)
+  // Row 2: CUIT (left) | Domicilio (right)
   dy += 5;
-  labelValue(lx, dy, 'Condición frente al IVA: ', condicionIva || '-');
+  labelValue(lx, dy, 'CUIT: ', destinatarioDoc || '-');
   labelValue(destRightCol, dy, 'Domicilio Comercial: ', (destinatarioDomicilio || '-').substring(0, 45));
 
   // Row 4: Observaciones (full width, wrapping)
