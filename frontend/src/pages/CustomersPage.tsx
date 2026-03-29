@@ -231,7 +231,7 @@ export function CustomersPage() {
     {
       title: 'Documento',
       key: 'doc',
-      width: 150,
+      width: 180,
       render: (_: unknown, r: Cliente) =>
         r.NUMERO_DOC ? `${r.TIPO_DOCUMENTO} ${r.NUMERO_DOC}` : '-',
     },

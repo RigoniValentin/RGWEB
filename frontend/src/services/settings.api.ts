@@ -59,6 +59,22 @@ export const settingsApi = {
     }
   },
 
+  /** Get company logo as base64 data URL (for PDF embedding) */
+  getLogoDataUrl: async (): Promise<string | null> => {
+    try {
+      const res = await api.get('/settings/logo', { responseType: 'blob' });
+      const blob: Blob = res.data;
+      return await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return null;
+    }
+  },
+
   /** Upload company logo */
   uploadLogo: (file: File) =>
     api.put('/settings/logo', file, {

@@ -287,8 +287,8 @@ export function ProductsPage() {
       title: 'Listas $',
       dataIndex: 'LISTA_1',
       key: 'LISTA_1',
-      width: 130,
-      align: 'right',
+      width: 140,
+      align: 'center',
       sorter: true,
       render: (_: number, record: Producto) => {
         const defList = record.LISTA_DEFECTO ?? 1;

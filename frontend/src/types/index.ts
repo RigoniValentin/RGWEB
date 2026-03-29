@@ -648,3 +648,96 @@ export interface ProductoSearchMesa {
   STOCK: number;
   UNIDAD_ABREVIACION: string;
 }
+
+// ── Remitos ──────────────────────────────────────
+export interface Remito {
+  REMITO_ID: number;
+  TIPO: 'ENTRADA' | 'SALIDA';
+  FECHA: string;
+  PTO_VTA: string;
+  NRO_REMITO: string;
+  CLIENTE_ID: number | null;
+  PROVEEDOR_ID: number | null;
+  DEPOSITO_ID: number | null;
+  OBSERVACIONES: string | null;
+  SUBTOTAL: number;
+  TOTAL: number;
+  ANULADO: boolean;
+  USUARIO_ID: number | null;
+  FECHA_CREACION: string;
+  CLIENTE_NOMBRE?: string;
+  PROVEEDOR_NOMBRE?: string;
+  DEPOSITO_NOMBRE?: string;
+  USUARIO_NOMBRE?: string;
+}
+
+export interface RemitoItem {
+  ITEM_ID: number;
+  REMITO_ID: number;
+  PRODUCTO_ID: number;
+  CANTIDAD: number;
+  PRECIO_UNITARIO: number;
+  TOTAL_PRODUCTO: number;
+  DEPOSITO_ID: number | null;
+  PRODUCTO_NOMBRE?: string;
+  PRODUCTO_CODIGO?: string;
+  UNIDAD_ABREVIACION?: string;
+}
+
+export interface RemitoDetalle extends Remito {
+  items: RemitoItem[];
+  CLIENTE_DOMICILIO?: string;
+  CLIENTE_TIPO_DOC?: string;
+  CLIENTE_NUMERO_DOC?: string;
+  CLIENTE_CONDICION_IVA?: string;
+  PROVEEDOR_DOMICILIO?: string;
+  PROVEEDOR_TIPO_DOC?: string;
+  PROVEEDOR_NUMERO_DOC?: string;
+}
+
+export interface RemitoItemInput {
+  PRODUCTO_ID: number;
+  CANTIDAD: number;
+  PRECIO_UNITARIO?: number;
+  DEPOSITO_ID?: number;
+  NOMBRE?: string;
+  CODIGO?: string;
+}
+
+export interface RemitoInput {
+  TIPO: 'ENTRADA' | 'SALIDA';
+  FECHA?: string;
+  PTO_VTA?: string;
+  CLIENTE_ID?: number;
+  PROVEEDOR_ID?: number;
+  DEPOSITO_ID?: number;
+  OBSERVACIONES?: string;
+  items: RemitoItemInput[];
+}
+
+export interface ProductoSearchRemito {
+  PRODUCTO_ID: number;
+  CODIGOPARTICULAR: string;
+  NOMBRE: string;
+  PRECIO_COMPRA: number;
+  PRECIO_VENTA: number;
+  STOCK: number;
+  ES_CONJUNTO: boolean | null;
+  ES_SERVICIO: boolean;
+  DESCUENTA_STOCK: boolean;
+  UNIDAD_ID: number | null;
+  UNIDAD_NOMBRE: string;
+  UNIDAD_ABREVIACION: string;
+}
+
+export interface EmpresaData {
+  RAZON_SOCIAL: string;
+  NOMBRE_FANTASIA: string;
+  DOMICILIO: string;
+  CUIT: string;
+  INGRESOS_BRUTOS: string;
+  CONDICION_IVA: string;
+  INICIO_ACTIVIDADES: string;
+  LOCALIDAD: string;
+  PUNTO_VENTA?: string;
+}

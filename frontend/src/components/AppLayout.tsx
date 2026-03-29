@@ -66,6 +66,7 @@ import { NCComprasPage } from '../pages/NCComprasPage';
 import { EtiquetasPage } from '../pages/EtiquetasPage';
 import { MesasPage } from '../pages/MesasPage';
 import { PaymentMethodsPage } from '../pages/PaymentMethodsPage';
+import { RemitosPage } from '../pages/RemitosPage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -97,6 +98,7 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/etiquetas':        { label: 'Etiquetas',       icon: <TagOutlined />,             component: EtiquetasPage,   closable: true },
   '/settings/general': { label: 'Configuración', icon: <SettingOutlined />,       component: SettingsPage,     closable: true },
   '/gastronomy/tables': { label: 'Gestión de Mesas', icon: <CoffeeOutlined />,    component: MesasPage,        closable: true },
+  '/remitos':          { label: 'Remitos',         icon: <FileTextOutlined />,   component: RemitosPage,      closable: true },
 };
 
 /** Icon map for TabBar */
@@ -134,6 +136,7 @@ const menuItems = [
       { type: 'group' as const, label: 'Movimientos', className: 'rg-popup-group-title', children: [
         { key: '/sales', icon: <DollarOutlined />, label: 'Ventas' },
         { key: '/purchases', icon: <ShoppingCartOutlined />, label: 'Compras' },
+        { key: '/remitos', icon: <FileTextOutlined />, label: 'Remitos' },
         { key: '/cashregisters', icon: <BankOutlined />, label: 'Cajas' },
         { key: '/cashcentral', icon: <WalletOutlined />, label: 'Caja Central' },
         { key: 'ctas-corrientes', icon: <WalletOutlined />, label: 'Cuentas Corrientes', children: [
