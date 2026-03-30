@@ -282,6 +282,19 @@ function r2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+// ── NETO_EXENTO column helper ────────────────────
+
+let _netoExentoColumnReady = false;
+
+async function ensureNetoExentoColumn(pool: any): Promise<void> {
+  if (_netoExentoColumnReady) return;
+  await pool.request().query(`
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('VENTAS') AND name = 'NETO_EXENTO')
+      ALTER TABLE VENTAS ADD NETO_EXENTO DECIMAL(18,2) NULL DEFAULT 0
+  `);
+  _netoExentoColumnReady = true;
+}
+
 // ── VENTAS_METODOS_PAGO table helper ─────────────
 
 let _metodosPagoTableReady = false;
@@ -517,11 +530,31 @@ export const salesService = {
   // ── Create sale with items ─────────────────────
   async create(input: VentaInput, usuarioId: number) {
     const pool = await getPool();
+    await ensureNetoExentoColumn(pool);
     const tx = pool.transaction();
     await tx.begin();
 
     try {
-      // ── 1. Calculate totals from items ──
+      // ── 1. Batch-fetch IVA rates for all products ──
+      const productIds = input.items.map(i => Number(i.PRODUCTO_ID));
+      const ivaReq = tx.request();
+      productIds.forEach((id, i) => ivaReq.input(`pid${i}`, sql.Int, id));
+      const idList = productIds.map((_, i) => `@pid${i}`).join(', ');
+      const ivaResult = await ivaReq.query(`
+        SELECT p.PRODUCTO_ID, ISNULL(t.PORCENTAJE, 0) AS PORCENTAJE, ISNULL(t.NOMBRE, '') AS TASA_NOMBRE
+        FROM PRODUCTOS p
+        LEFT JOIN TASAS_IMPUESTOS t ON p.TASA_IVA_ID = t.TASA_ID AND t.ACTIVA = 1
+        WHERE p.PRODUCTO_ID IN (${idList})
+      `);
+      const ivaMap = new Map<number, { porcentaje: number; esExento: boolean }>();
+      for (const row of ivaResult.recordset) {
+        ivaMap.set(row.PRODUCTO_ID, {
+          porcentaje: row.PORCENTAJE,
+          esExento: (row.TASA_NOMBRE || '').toUpperCase().includes('EXENTO'),
+        });
+      }
+
+      // ── 2. Calculate totals from items ──
       let subtotal = 0;
       let ganancias = 0;
       let ivaTotal = 0;
@@ -529,6 +562,7 @@ export const salesService = {
       let bonificaciones = 0;
       let netoGravado = 0;
       let netoNoGravado = 0;
+      let netoExento = 0;
       const dtoGral = input.DTO_GRAL || 0;
 
       for (const item of input.items) {
@@ -548,8 +582,11 @@ export const salesService = {
         ivaTotal += ivaMonto * item.CANTIDAD;
         impuestoInternoTotal += (item.IMPUESTO_INTERNO_MONTO || 0) * item.CANTIDAD;
 
-        // NETO split: gravado vs no gravado
-        if (ivaAlicuota > 0) {
+        // NETO split: gravado vs no gravado vs exento
+        const ivaInfo = ivaMap.get(item.PRODUCTO_ID);
+        if (ivaInfo?.esExento) {
+          netoExento += precioConDto * item.CANTIDAD;
+        } else if (ivaAlicuota > 0) {
           netoGravado += (precioConDto - ivaMonto) * item.CANTIDAD;
         } else {
           netoNoGravado += precioConDto * item.CANTIDAD;
@@ -567,6 +604,7 @@ export const salesService = {
         const factor = 1 - dtoGral / 100;
         netoGravado *= factor;
         netoNoGravado *= factor;
+        netoExento *= factor;
       }
 
       let cobrada = input.COBRADA !== undefined ? input.COBRADA : !input.ES_CTA_CORRIENTE;
@@ -635,19 +673,20 @@ export const salesService = {
         .input('montoAnticipo', sql.Decimal(18, 2), montoAnticipo)
         .input('netoGravado', sql.Decimal(18, 2), r2(netoGravado))
         .input('netoNoGravado', sql.Decimal(18, 2), r2(netoNoGravado))
+        .input('netoExento', sql.Decimal(18, 2), r2(netoExento))
         .query(`
           INSERT INTO VENTAS (
             CLIENTE_ID, FECHA_VENTA, TOTAL, GANANCIAS, ES_CTA_CORRIENTE,
             MONTO_EFECTIVO, MONTO_DIGITAL, VUELTO, TIPO_COMPROBANTE,
             COBRADA, PUNTO_VENTA_ID, USUARIO_ID, DTO_GRAL,
             SUBTOTAL, BONIFICACIONES, IMPUESTO_INTERNO, IVA_TOTAL, MONTO_ANTICIPO,
-            NETO_GRAVADO, NETO_NO_GRAVADO
+            NETO_GRAVADO, NETO_NO_GRAVADO, NETO_EXENTO
           ) VALUES (
             @clienteId, GETDATE(), @total, @ganancias, @esCtaCorriente,
             @montoEfectivo, @montoDigital, @vuelto, @tipoComprobante,
             @cobrada, @puntoVentaId, @usuarioId, @dtoGral,
             @subtotal, @bonificaciones, @impuestoInterno, @ivaTotal, @montoAnticipo,
-            @netoGravado, @netoNoGravado
+            @netoGravado, @netoNoGravado, @netoExento
           );
           SELECT SCOPE_IDENTITY() AS VENTA_ID;
         `);
@@ -867,6 +906,7 @@ export const salesService = {
   // ── Update sale ────────────────────────────────
   async update(id: number, input: VentaInput, usuarioId: number) {
     const pool = await getPool();
+    await ensureNetoExentoColumn(pool);
     const tx = pool.transaction();
     await tx.begin();
 
@@ -915,7 +955,26 @@ export const salesService = {
           .query(`DELETE FROM VENTAS_CTA_CORRIENTE WHERE COMPROBANTE_ID = @comprobanteId AND TIPO_COMPROBANTE = 'VENTA'`);
       }
 
-      // ── 5. Calculate new totals ──
+      // ── 5. Batch-fetch IVA rates for all products ──
+      const productIds = input.items.map(i => Number(i.PRODUCTO_ID));
+      const ivaReq = tx.request();
+      productIds.forEach((pid, i) => ivaReq.input(`pid${i}`, sql.Int, pid));
+      const idList = productIds.map((_, i) => `@pid${i}`).join(', ');
+      const ivaResult = await ivaReq.query(`
+        SELECT p.PRODUCTO_ID, ISNULL(t.PORCENTAJE, 0) AS PORCENTAJE, ISNULL(t.NOMBRE, '') AS TASA_NOMBRE
+        FROM PRODUCTOS p
+        LEFT JOIN TASAS_IMPUESTOS t ON p.TASA_IVA_ID = t.TASA_ID AND t.ACTIVA = 1
+        WHERE p.PRODUCTO_ID IN (${idList})
+      `);
+      const ivaMap = new Map<number, { porcentaje: number; esExento: boolean }>();
+      for (const row of ivaResult.recordset) {
+        ivaMap.set(row.PRODUCTO_ID, {
+          porcentaje: row.PORCENTAJE,
+          esExento: (row.TASA_NOMBRE || '').toUpperCase().includes('EXENTO'),
+        });
+      }
+
+      // ── 5b. Calculate new totals ──
       let subtotal = 0;
       let ganancias = 0;
       let bonificaciones = 0;
@@ -923,6 +982,7 @@ export const salesService = {
       let impuestoInternoTotal = 0;
       let netoGravado = 0;
       let netoNoGravado = 0;
+      let netoExento = 0;
       const dtoGral = input.DTO_GRAL || 0;
 
       for (const item of input.items) {
@@ -942,7 +1002,10 @@ export const salesService = {
         ivaTotal += ivaMonto * item.CANTIDAD;
         impuestoInternoTotal += (item.IMPUESTO_INTERNO_MONTO || 0) * item.CANTIDAD;
 
-        if (ivaAlicuota > 0) {
+        const ivaInfo = ivaMap.get(item.PRODUCTO_ID);
+        if (ivaInfo?.esExento) {
+          netoExento += precioConDto * item.CANTIDAD;
+        } else if (ivaAlicuota > 0) {
           netoGravado += (precioConDto - ivaMonto) * item.CANTIDAD;
         } else {
           netoNoGravado += precioConDto * item.CANTIDAD;
@@ -958,6 +1021,7 @@ export const salesService = {
         const factor = 1 - dtoGral / 100;
         netoGravado *= factor;
         netoNoGravado *= factor;
+        netoExento *= factor;
       }
 
       const cobrada = input.COBRADA !== undefined ? input.COBRADA : oldVenta.COBRADA;
@@ -982,6 +1046,7 @@ export const salesService = {
         .input('ivaTotal', sql.Decimal(18, 2), r2(ivaTotal))
         .input('netoGravado', sql.Decimal(18, 2), r2(netoGravado))
         .input('netoNoGravado', sql.Decimal(18, 2), r2(netoNoGravado))
+        .input('netoExento', sql.Decimal(18, 2), r2(netoExento))
         .query(`
           UPDATE VENTAS SET
             CLIENTE_ID=@clienteId, FECHA_VENTA=@fechaVenta, TOTAL=@total,
@@ -990,7 +1055,8 @@ export const salesService = {
             TIPO_COMPROBANTE=@tipoComprobante, COBRADA=@cobrada, DTO_GRAL=@dtoGral,
             SUBTOTAL=@subtotal, BONIFICACIONES=@bonificaciones,
             IMPUESTO_INTERNO=@impuestoInterno, IVA_TOTAL=@ivaTotal,
-            NETO_GRAVADO=@netoGravado, NETO_NO_GRAVADO=@netoNoGravado
+            NETO_GRAVADO=@netoGravado, NETO_NO_GRAVADO=@netoNoGravado,
+            NETO_EXENTO=@netoExento
           WHERE VENTA_ID = @id
         `);
 

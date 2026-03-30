@@ -140,9 +140,15 @@ export interface Venta {
   PUNTO_VENTA_ID: number | null;
   USUARIO_ID: number | null;
   MONTO_ANTICIPO: number | null;
+  NETO_GRAVADO: number | null;
+  NETO_NO_GRAVADO: number | null;
+  NETO_EXENTO: number | null;
+  SUBTOTAL: number | null;
+  IVA_TOTAL: number | null;
   DTO_GRAL: number | null;
   ERROR_FE: string | null;
   ERRORES: string | null;
+  NETO_EXENTO: number | null;
   NRO_ENVIO_DETALLE: string | null;
   NOMBRE_ENVIO_DETALLE: string | null;
   CLIENTE_NOMBRE?: string;

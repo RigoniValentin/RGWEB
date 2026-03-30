@@ -710,7 +710,9 @@ export const productService = {
     const pool = await getPool();
     const result = await pool.request().query(`
       SELECT TASA_ID, NOMBRE, PORCENTAJE, PREDETERMINADA, ACTIVA
-      FROM TASAS_IMPUESTOS WHERE ACTIVA = 1 ORDER BY TASA_ID
+      FROM TASAS_IMPUESTOS
+      WHERE ACTIVA = 1 AND TIPO = 1
+      ORDER BY TASA_ID
     `);
     return result.recordset;
   },

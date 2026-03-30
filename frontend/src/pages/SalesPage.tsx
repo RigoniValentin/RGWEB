@@ -625,6 +625,30 @@ export function SalesPage() {
                   {detail.DTO_GRAL}%
                 </Descriptions.Item>
               )}
+              {((detail.NETO_EXENTO ?? 0) > 0 || (detail.NETO_GRAVADO ?? 0) > 0 || (detail.IVA_TOTAL ?? 0) > 0) && (
+                <>
+                  {(detail.NETO_GRAVADO ?? 0) > 0 && (
+                    <Descriptions.Item label="Neto Gravado">
+                      {fmtMoney(detail.NETO_GRAVADO)}
+                    </Descriptions.Item>
+                  )}
+                  {(detail.NETO_EXENTO ?? 0) > 0 && (
+                    <Descriptions.Item label="Neto Exento">
+                      {fmtMoney(detail.NETO_EXENTO)}
+                    </Descriptions.Item>
+                  )}
+                  {(detail.NETO_NO_GRAVADO ?? 0) > 0 && (
+                    <Descriptions.Item label="Neto No Gravado">
+                      {fmtMoney(detail.NETO_NO_GRAVADO)}
+                    </Descriptions.Item>
+                  )}
+                  {(detail.IVA_TOTAL ?? 0) > 0 && (
+                    <Descriptions.Item label="IVA">
+                      {fmtMoney(detail.IVA_TOTAL)}
+                    </Descriptions.Item>
+                  )}
+                </>
+              )}
               <Descriptions.Item label="Total" span={2}>
                 <span style={{ fontSize: 20, fontWeight: 'bold', color: '#EABD23' }}>
                   {fmtMoney(detail.TOTAL)}

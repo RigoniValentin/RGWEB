@@ -141,8 +141,7 @@ export interface Venta {
   USUARIO_ID: number | null;
   MONTO_ANTICIPO: number | null;
   NETO_NO_GRAVADO: number | null;
-  NETO_GRAVADO: number | null;
-  SUBTOTAL: number | null;
+  NETO_GRAVADO: number | null;  NETO_EXENTO: number | null;  SUBTOTAL: number | null;
   BONIFICACIONES: number | null;
   IMPUESTO_INTERNO: number | null;
   IVA_TOTAL: number | null;

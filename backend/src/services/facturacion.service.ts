@@ -57,6 +57,7 @@ export interface FEComprobante {
   detalle: FEDetalle[];
   total: string;
   bonificacion: string;
+  exentos: string;
   impuestos_internos: string;
   impuestos_internos_base: string;
   impuestos_internos_alicuota: string;
@@ -294,28 +295,34 @@ export const facturacionService = {
 
   /**
    * Get the IVA alícuota (as decimal, e.g. 0.21) for a product.
-   * Returns 0 for Monotributo companies (they don't discriminate IVA).
+   * Returns { porcentaje: 0, esExento: false } for Monotributo companies.
+   * Returns esExento: true when the tax rate name contains "Exento".
    */
-  async getAlicuotaProducto(productoId: number): Promise<number> {
+  async getAlicuotaProducto(productoId: number): Promise<{ porcentaje: number; esExento: boolean }> {
     const empresaIva = (await this.getEmpresaCondicionIVA()).toUpperCase();
 
     // Monotributo never discriminates IVA
-    if (empresaIva === 'MONOTRIBUTO') return 0;
+    if (empresaIva === 'MONOTRIBUTO') return { porcentaje: 0, esExento: false };
     // Only RI discriminates
-    if (empresaIva !== 'RESPONSABLE INSCRIPTO') return 0;
+    if (empresaIva !== 'RESPONSABLE INSCRIPTO') return { porcentaje: 0, esExento: false };
 
     const pool = await getPool();
     const result = await pool.request()
       .input('pid', sql.Int, productoId)
       .query(`
-        SELECT t.PORCENTAJE
+        SELECT t.PORCENTAJE, t.NOMBRE AS TASA_NOMBRE
         FROM PRODUCTOS p
         LEFT JOIN TASAS_IMPUESTOS t ON p.TASA_IVA_ID = t.TASA_ID AND t.ACTIVA = 1
         WHERE p.PRODUCTO_ID = @pid
       `);
 
-    if (result.recordset.length === 0 || result.recordset[0].PORCENTAJE == null) return 0;
-    return result.recordset[0].PORCENTAJE / 100; // e.g. 21 → 0.21
+    if (result.recordset.length === 0 || result.recordset[0].PORCENTAJE == null) {
+      return { porcentaje: 0, esExento: false };
+    }
+
+    const row = result.recordset[0];
+    const esExento = (row.TASA_NOMBRE || '').toUpperCase().includes('EXENTO');
+    return { porcentaje: row.PORCENTAJE / 100, esExento }; // e.g. 21 → 0.21
   },
 
   /**
@@ -426,47 +433,73 @@ export const facturacionService = {
     // ── 6. Get fiscal punto de venta ──
     const puntoVenta = await this.getPuntoVentaFiscal();
 
-    // ── 7. Calculate bonificacion (dto general as money amount) ──
-    const dtoGral = venta.DTO_GRAL || 0;
-    const subtotal = items.reduce((sum: number, item: any) => {
-      const precioConDto = item.DESCUENTO > 0
-        ? item.PRECIO_UNITARIO * (1 - item.DESCUENTO / 100)
-        : item.PRECIO_UNITARIO;
-      return sum + precioConDto * item.CANTIDAD;
+    // ── 7. Normalize detail totals against sale total ──
+    // Some historical sales can have item sums that don't exactly match VENTAS.TOTAL
+    // (discount persistence differences, legacy data). We normalize line values so that
+    // TusFacturas receives internally consistent totals.
+    const subtotalItems = items.reduce((sum: number, item: any) => {
+      const unitConDto = item.PRECIO_UNITARIO_DTO != null
+        ? Number(item.PRECIO_UNITARIO_DTO)
+        : (item.DESCUENTO > 0
+          ? item.PRECIO_UNITARIO * (1 - item.DESCUENTO / 100)
+          : item.PRECIO_UNITARIO);
+      return sum + (unitConDto * item.CANTIDAD);
     }, 0);
-    const bonificacionMonto = dtoGral > 0 ? (subtotal * dtoGral / 100) : 0;
+    const factorNormalizacion = subtotalItems > 0
+      ? (Number(venta.TOTAL) / subtotalItems)
+      : 1;
 
     // ── 8. Build detalle ──
     const detalle: FEDetalle[] = [];
+    let totalExentos = 0;
 
     for (const item of items) {
       const productoId = item.PRODUCTO_ID;
       const unidadId = item.UNIDAD_ID || 1;
       const unidadMedidaAFIP = mapUnidadAFIP(unidadId);
 
-      // Get IVA alícuota for this item
+      // Get IVA alícuota for this item (includes exento flag)
       let alicuotaDecimal = 0;
+      let esExento = false;
       if (item.IVA_ALICUOTA != null && item.IVA_ALICUOTA > 0) {
         alicuotaDecimal = item.IVA_ALICUOTA;
       } else {
-        alicuotaDecimal = await this.getAlicuotaProducto(productoId);
+        const alicuotaInfo = await this.getAlicuotaProducto(productoId);
+        alicuotaDecimal = alicuotaInfo.porcentaje;
+        esExento = alicuotaInfo.esExento;
       }
 
-      // AFIP expects alicuota in percentage (e.g. "21", "10.5", "0")
-      const alicuotaPorcentaje = (alicuotaDecimal * 100).toFixed(2).replace(/\.?0+$/, '');
+      // TusFacturas: -1 = Exento, percentage for gravado, 0 for no gravado
+      let alicuotaParaAPI: string;
+      if (esExento) {
+        alicuotaParaAPI = '-1';
+      } else {
+        alicuotaParaAPI = (alicuotaDecimal * 100).toFixed(2).replace(/\.?0+$/, '');
+      }
+
+      // Build final unit price to send (already discounted)
+      const precioUnitarioConDtoItem = item.PRECIO_UNITARIO_DTO != null
+        ? Number(item.PRECIO_UNITARIO_DTO)
+        : (item.DESCUENTO > 0
+          ? item.PRECIO_UNITARIO * (1 - item.DESCUENTO / 100)
+          : item.PRECIO_UNITARIO);
+      const precioUnitarioFinal = precioUnitarioConDtoItem * factorNormalizacion;
 
       // Calculate price to send to AFIP
       let precioUnitarioAFIP: string;
-      if (esFacturaConIVA && alicuotaDecimal > 0) {
+      if (esFacturaConIVA && alicuotaDecimal > 0 && !esExento) {
         // For A/B invoices: prices in the system include IVA, send neto
-        const { neto } = calcularNetoEIva(item.PRECIO_UNITARIO, alicuotaDecimal);
+        const { neto } = calcularNetoEIva(precioUnitarioFinal, alicuotaDecimal);
         precioUnitarioAFIP = fmtNum(neto);
       } else {
-        // For C invoices or items with 0% IVA: send the full price
-        precioUnitarioAFIP = fmtNum(item.PRECIO_UNITARIO);
+        // For C invoices, exento, or items with 0% IVA: send the full price
+        precioUnitarioAFIP = fmtNum(precioUnitarioFinal);
       }
 
-      const descuento = (item.DESCUENTO || 0).toString();
+      // Accumulate exento total for comprobante
+      if (esExento) {
+        totalExentos += precioUnitarioFinal * item.CANTIDAD;
+      }
 
       const producto: FEProducto = {
         descripcion: item.PRODUCTO_NOMBRE || '',
@@ -475,18 +508,22 @@ export const facturacionService = {
         precio_unitario_sin_iva: precioUnitarioAFIP,
         unidad_medida: unidadMedidaAFIP,
         lista_precios: 'Lista 1',
-        alicuota: alicuotaPorcentaje,
+        alicuota: alicuotaParaAPI,
         rg5329: 'N',
         impuestos_internos_alicuota: 0,
       };
 
       detalle.push({
         cantidad: item.CANTIDAD.toString(),
-        bonificacion_porcentaje: descuento,
+        bonificacion_porcentaje: '0',
         producto,
         leyenda: '',
       });
     }
+
+    // TusFacturas calculates exentos automatically from detalle items with alicuota=-1.
+    // The comprobante-level "exentos" field is only for additional exempt amounts NOT
+    // covered by detail lines, so we send "0" to avoid double-counting.
 
     // ── 9. Build the full factura object ──
     const factura: FEFactura = {
@@ -507,7 +544,8 @@ export const facturacionService = {
         cotizacion: 1,
         detalle,
         total: fmtNum(venta.TOTAL),
-        bonificacion: fmtNum(bonificacionMonto),
+        bonificacion: '0',
+        exentos: '0',
         impuestos_internos: '0',
         impuestos_internos_base: '0',
         impuestos_internos_alicuota: '0',
