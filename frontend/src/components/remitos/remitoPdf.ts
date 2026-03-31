@@ -172,7 +172,6 @@ function renderRemitoCopy(
   const destinatarioNombre = remito.CLIENTE_NOMBRE || remito.PROVEEDOR_NOMBRE || '-';
   const destinatarioDomicilio = remito.CLIENTE_DOMICILIO || remito.PROVEEDOR_DOMICILIO || '';
   const destinatarioDoc = remito.CLIENTE_NUMERO_DOC || remito.PROVEEDOR_NUMERO_DOC || '';
-  const destinatarioTipoDoc = remito.CLIENTE_TIPO_DOC || remito.PROVEEDOR_TIPO_DOC || 'CUIT';
   const condicionIva = remito.CLIENTE_CONDICION_IVA || '';
 
   doc.setFontSize(8);

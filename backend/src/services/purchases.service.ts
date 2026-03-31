@@ -552,7 +552,7 @@ export const purchasesService = {
   },
 
   // ── Get by ID (full detail with items) ─────────
-  async getById(id: number): Promise<Compra & { items: CompraItem[] }> {
+  async getById(id: number): Promise<Compra & { items: CompraItem[]; metodos_pago: { METODO_PAGO_ID: number; MONTO: number; METODO_PAGO_NOMBRE: string }[] }> {
     const pool = await getPool();
 
     const compraResult = await pool.request()
@@ -607,9 +607,22 @@ export const purchasesService = {
         ORDER BY ci.PRODUCTO_ID
       `);
 
+    // Fetch payment method breakdown
+    await ensureComprasMetodosPagoTable(pool);
+    const metodosResult = await pool.request()
+      .input('cid', sql.Int, id)
+      .query(`
+        SELECT cmp.METODO_PAGO_ID, cmp.MONTO,
+               mp.NOMBRE AS METODO_PAGO_NOMBRE
+        FROM COMPRAS_METODOS_PAGO cmp
+        JOIN METODOS_PAGO mp ON cmp.METODO_PAGO_ID = mp.METODO_PAGO_ID
+        WHERE cmp.COMPRA_ID = @cid
+      `);
+
     return {
       ...compraResult.recordset[0],
       items: itemsResult.recordset,
+      metodos_pago: metodosResult.recordset,
     };
   },
 
@@ -892,7 +905,11 @@ export const purchasesService = {
 
       // ── 5. REGISTRAR EGRESO (if not cta corriente and has payment) ──
       if (!input.ES_CTA_CORRIENTE) {
-        const efectivoNeto = Math.max(0, montoEfectivo - vuelto);
+        // When metodos_pago are provided the frontend already subtracts vuelto
+        // from the effective amounts, so we must NOT subtract it again here.
+        const efectivoNeto = (input.metodos_pago && input.metodos_pago.length > 0)
+          ? montoEfectivo
+          : Math.max(0, montoEfectivo - vuelto);
         if (efectivoNeto > 0 || montoDigital > 0) {
           const destino = input.DESTINO_PAGO || 'CAJA_CENTRAL';
 
@@ -1209,7 +1226,10 @@ export const purchasesService = {
         const montoEfectivoUpd = montoEfectivoUpd2;
         const montoDigitalUpd = montoDigitalUpd2;
         const vueltoUpd = input.VUELTO || 0;
-        const efectivoNetoUpd = Math.max(0, montoEfectivoUpd - vueltoUpd);
+        // When metodos_pago are provided the frontend already subtracts vuelto
+        const efectivoNetoUpd = (input.metodos_pago && input.metodos_pago.length > 0)
+          ? montoEfectivoUpd
+          : Math.max(0, montoEfectivoUpd - vueltoUpd);
         if (efectivoNetoUpd > 0 || montoDigitalUpd > 0) {
           const destino = input.DESTINO_PAGO || 'CAJA_CENTRAL';
 

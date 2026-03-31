@@ -307,15 +307,32 @@ export function PurchasesPage() {
               <Descriptions.Item label="Precios sin IVA">
                 {detail.PRECIOS_SIN_IVA ? 'Sí' : 'No'}
               </Descriptions.Item>
-              <Descriptions.Item label="Efectivo">
-                {fmtMoney(detail.MONTO_EFECTIVO)}
-              </Descriptions.Item>
-              <Descriptions.Item label="Digital">
-                {fmtMoney(detail.MONTO_DIGITAL)}
-              </Descriptions.Item>
-              <Descriptions.Item label="Vuelto">
-                {fmtMoney(detail.VUELTO)}
-              </Descriptions.Item>
+              {detail.metodos_pago && detail.metodos_pago.length > 0 ? (
+                <Descriptions.Item label="Métodos de Pago" span={2}>
+                  <Space direction="vertical" size={2}>
+                    {detail.metodos_pago.map((mp) => (
+                      <span key={mp.METODO_PAGO_ID}>
+                        {mp.METODO_PAGO_NOMBRE}: <Text strong>{fmtMoney(mp.MONTO)}</Text>
+                      </span>
+                    ))}
+                    {(detail.VUELTO ?? 0) > 0 && (
+                      <span>Vuelto: <Text type="warning">{fmtMoney(detail.VUELTO)}</Text></span>
+                    )}
+                  </Space>
+                </Descriptions.Item>
+              ) : (
+                <>
+                  <Descriptions.Item label="Efectivo">
+                    {fmtMoney(detail.MONTO_EFECTIVO)}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Digital">
+                    {fmtMoney(detail.MONTO_DIGITAL)}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Vuelto">
+                    {fmtMoney(detail.VUELTO)}
+                  </Descriptions.Item>
+                </>
+              )}
               {(detail.BONIFICACION_TOTAL ?? 0) > 0 && (
                 <Descriptions.Item label="Bonificación Total">
                   {fmtMoney(detail.BONIFICACION_TOTAL)}

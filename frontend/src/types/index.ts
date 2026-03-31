@@ -148,7 +148,6 @@ export interface Venta {
   DTO_GRAL: number | null;
   ERROR_FE: string | null;
   ERRORES: string | null;
-  NETO_EXENTO: number | null;
   NRO_ENVIO_DETALLE: string | null;
   NOMBRE_ENVIO_DETALLE: string | null;
   CLIENTE_NOMBRE?: string;
@@ -510,6 +509,7 @@ export interface CompraItem {
 
 export interface CompraDetalle extends Compra {
   items: CompraItem[];
+  metodos_pago?: { METODO_PAGO_ID: number; MONTO: number; METODO_PAGO_NOMBRE: string }[];
 }
 
 export interface CompraItemInput {

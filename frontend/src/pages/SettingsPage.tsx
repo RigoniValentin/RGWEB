@@ -507,8 +507,8 @@ export function SettingsPage() {
         {moduleKeys.map((modKey) => {
           const meta = MODULE_META[modKey] || { label: modKey, description: '', icon: <SettingOutlined />, color: '#999' };
           const subModules = grouped[modKey];
-          const paramCount = Object.values(subModules).flat().length;
-          const modifiedCount = Object.values(subModules).flat().filter(p => {
+          const paramCount = Object.values(subModules ?? {}).flat().length;
+          const modifiedCount = Object.values(subModules ?? {}).flat().filter(p => {
             const current = localValues[p.PARAMETRO_ID];
             const original = p.VALOR ?? p.VALOR_DEFECTO ?? '';
             return current !== undefined && current !== original;

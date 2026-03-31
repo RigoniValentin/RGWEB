@@ -2,8 +2,8 @@ import api from './api';
 import type { Producto, PaginatedResponse, StockDeposito } from '../types';
 
 export interface ProductInput {
-  CODIGOPARTICULAR: string;
-  NOMBRE: string;
+  CODIGOPARTICULAR?: string;
+  NOMBRE?: string;
   DESCRIPCION?: string | null;
   CATEGORIA_ID?: number | null;
   MARCA_ID?: number | null;

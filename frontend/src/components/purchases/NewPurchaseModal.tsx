@@ -258,6 +258,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       PRECIO_COMPRA: product.PRECIO_COMPRA,
       STOCK: product.STOCK,
       ES_CONJUNTO: product.ES_CONJUNTO,
+      ES_SERVICIO: product.ES_SERVICIO,
       DESCUENTA_STOCK: product.DESCUENTA_STOCK,
       IMP_INT: product.IMP_INT,
       TASA_IVA_ID: product.TASA_IVA_ID,

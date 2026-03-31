@@ -19,7 +19,7 @@ export interface ProductFilter {
 
 export interface ProductInput {
   CODIGOPARTICULAR?: string;
-  NOMBRE: string;
+  NOMBRE?: string;
   DESCRIPCION?: string | null;
   CATEGORIA_ID?: number | null;
   MARCA_ID?: number | null;
@@ -350,43 +350,43 @@ export const productService = {
     const tx = pool.transaction();
     await tx.begin();
     try {
-      await tx.request()
-        .input('id', sql.Int, id)
-        .input('codigo', sql.NVarChar, input.CODIGOPARTICULAR)
-        .input('nombre', sql.NVarChar, input.NOMBRE)
-        .input('descripcion', sql.VarChar, input.DESCRIPCION || null)
-        .input('categoriaId', sql.Int, input.CATEGORIA_ID || null)
-        .input('marcaId', sql.Int, input.MARCA_ID || null)
-        .input('unidadId', sql.Int, input.UNIDAD_ID || null)
-        .input('precioCompra', sql.Decimal(18, 4), input.PRECIO_COMPRA || 0)
-        .input('costoUsd', sql.Decimal(18, 4), input.COSTO_USD || 0)
-        .input('precioCompraBase', sql.Decimal(18, 4), input.PRECIO_COMPRA_BASE || 0)
-        .input('stockMinimo', sql.Decimal(18, 4), input.STOCK_MINIMO || 0)
-        .input('tasaIvaId', sql.Int, input.TASA_IVA_ID || null)
-        .input('impInt', sql.Decimal(18, 4), input.IMP_INT || 0)
-        .input('esConjunto', sql.Bit, input.ES_CONJUNTO ? 1 : 0)
-        .input('esServicio', sql.Bit, input.ES_SERVICIO ? 1 : 0)
-        .input('descuentaStock', sql.Bit, input.ES_SERVICIO ? 0 : (input.DESCUENTA_STOCK !== false ? 1 : 0))
-        .input('activo', sql.Bit, input.ACTIVO !== false ? 1 : 0)
-        .input('lista1', sql.Decimal(18, 4), input.LISTA_1 || 0)
-        .input('lista2', sql.Decimal(18, 4), input.LISTA_2 || 0)
-        .input('lista3', sql.Decimal(18, 4), input.LISTA_3 || 0)
-        .input('lista4', sql.Decimal(18, 4), input.LISTA_4 || 0)
-        .input('lista5', sql.Decimal(18, 4), input.LISTA_5 || 0)
-        .input('listaDefecto', sql.Int, input.LISTA_DEFECTO || null)
-        .input('fechaVenc', sql.Date, input.FECHA_VENCIMIENTO || null)
-        .input('margenInd', sql.Bit, input.MARGEN_INDIVIDUAL ? 1 : 0)
-        .query(`
-          UPDATE PRODUCTOS SET
-            CODIGOPARTICULAR=@codigo, NOMBRE=@nombre, DESCRIPCION=@descripcion,
-            CATEGORIA_ID=@categoriaId, MARCA_ID=@marcaId, UNIDAD_ID=@unidadId,
-            PRECIO_COMPRA=@precioCompra, COSTO_USD=@costoUsd, PRECIO_COMPRA_BASE=@precioCompraBase,
-            STOCK_MINIMO=@stockMinimo, TASA_IVA_ID=@tasaIvaId, IMP_INT=@impInt,
-            ES_CONJUNTO=@esConjunto, ES_SERVICIO=@esServicio, DESCUENTA_STOCK=@descuentaStock, ACTIVO=@activo,
-            LISTA_1=@lista1, LISTA_2=@lista2, LISTA_3=@lista3, LISTA_4=@lista4, LISTA_5=@lista5,
-            LISTA_DEFECTO=@listaDefecto, FECHA_VENCIMIENTO=@fechaVenc, MARGEN_INDIVIDUAL=@margenInd
-          WHERE PRODUCTO_ID = @id
-        `);
+      // Build dynamic SET — only update columns that are explicitly provided
+      const fieldMap: { column: string; param: string; type: any; value: any; key: keyof ProductInput }[] = [
+        { column: 'CODIGOPARTICULAR', param: 'codigo', type: sql.NVarChar, value: input.CODIGOPARTICULAR, key: 'CODIGOPARTICULAR' },
+        { column: 'NOMBRE', param: 'nombre', type: sql.NVarChar, value: input.NOMBRE, key: 'NOMBRE' },
+        { column: 'DESCRIPCION', param: 'descripcion', type: sql.VarChar, value: input.DESCRIPCION || null, key: 'DESCRIPCION' },
+        { column: 'CATEGORIA_ID', param: 'categoriaId', type: sql.Int, value: input.CATEGORIA_ID || null, key: 'CATEGORIA_ID' },
+        { column: 'MARCA_ID', param: 'marcaId', type: sql.Int, value: input.MARCA_ID || null, key: 'MARCA_ID' },
+        { column: 'UNIDAD_ID', param: 'unidadId', type: sql.Int, value: input.UNIDAD_ID || null, key: 'UNIDAD_ID' },
+        { column: 'PRECIO_COMPRA', param: 'precioCompra', type: sql.Decimal(18, 4), value: input.PRECIO_COMPRA || 0, key: 'PRECIO_COMPRA' },
+        { column: 'COSTO_USD', param: 'costoUsd', type: sql.Decimal(18, 4), value: input.COSTO_USD || 0, key: 'COSTO_USD' },
+        { column: 'PRECIO_COMPRA_BASE', param: 'precioCompraBase', type: sql.Decimal(18, 4), value: input.PRECIO_COMPRA_BASE || 0, key: 'PRECIO_COMPRA_BASE' },
+        { column: 'STOCK_MINIMO', param: 'stockMinimo', type: sql.Decimal(18, 4), value: input.STOCK_MINIMO || 0, key: 'STOCK_MINIMO' },
+        { column: 'TASA_IVA_ID', param: 'tasaIvaId', type: sql.Int, value: input.TASA_IVA_ID || null, key: 'TASA_IVA_ID' },
+        { column: 'IMP_INT', param: 'impInt', type: sql.Decimal(18, 4), value: input.IMP_INT || 0, key: 'IMP_INT' },
+        { column: 'ES_CONJUNTO', param: 'esConjunto', type: sql.Bit, value: input.ES_CONJUNTO ? 1 : 0, key: 'ES_CONJUNTO' },
+        { column: 'ES_SERVICIO', param: 'esServicio', type: sql.Bit, value: input.ES_SERVICIO ? 1 : 0, key: 'ES_SERVICIO' },
+        { column: 'DESCUENTA_STOCK', param: 'descuentaStock', type: sql.Bit, value: input.ES_SERVICIO ? 0 : (input.DESCUENTA_STOCK !== false ? 1 : 0), key: 'DESCUENTA_STOCK' },
+        { column: 'ACTIVO', param: 'activo', type: sql.Bit, value: input.ACTIVO !== false ? 1 : 0, key: 'ACTIVO' },
+        { column: 'LISTA_1', param: 'lista1', type: sql.Decimal(18, 4), value: input.LISTA_1 || 0, key: 'LISTA_1' },
+        { column: 'LISTA_2', param: 'lista2', type: sql.Decimal(18, 4), value: input.LISTA_2 || 0, key: 'LISTA_2' },
+        { column: 'LISTA_3', param: 'lista3', type: sql.Decimal(18, 4), value: input.LISTA_3 || 0, key: 'LISTA_3' },
+        { column: 'LISTA_4', param: 'lista4', type: sql.Decimal(18, 4), value: input.LISTA_4 || 0, key: 'LISTA_4' },
+        { column: 'LISTA_5', param: 'lista5', type: sql.Decimal(18, 4), value: input.LISTA_5 || 0, key: 'LISTA_5' },
+        { column: 'LISTA_DEFECTO', param: 'listaDefecto', type: sql.Int, value: input.LISTA_DEFECTO || null, key: 'LISTA_DEFECTO' },
+        { column: 'FECHA_VENCIMIENTO', param: 'fechaVenc', type: sql.Date, value: input.FECHA_VENCIMIENTO || null, key: 'FECHA_VENCIMIENTO' },
+        { column: 'MARGEN_INDIVIDUAL', param: 'margenInd', type: sql.Bit, value: input.MARGEN_INDIVIDUAL ? 1 : 0, key: 'MARGEN_INDIVIDUAL' },
+      ];
+
+      // Only include fields that were explicitly sent in the input
+      const toUpdate = fieldMap.filter(f => f.key in input);
+
+      if (toUpdate.length > 0) {
+        const req = tx.request().input('id', sql.Int, id);
+        for (const f of toUpdate) req.input(f.param, f.type, f.value);
+        const setClauses = toUpdate.map(f => `${f.column}=@${f.param}`).join(', ');
+        await req.query(`UPDATE PRODUCTOS SET ${setClauses} WHERE PRODUCTO_ID = @id`);
+      }
 
       if (input.codigosBarras !== undefined) {
         await tx.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTOS_COD_BARRAS WHERE PRODUCTO_ID = @id`);

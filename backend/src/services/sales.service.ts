@@ -466,7 +466,16 @@ export const salesService = {
   },
 
   // ── Get by ID (full detail with items) ─────────
-  async getById(id: number): Promise<Venta & { items: VentaItem[] }> {
+  async getById(id: number): Promise<Venta & {
+    items: VentaItem[];
+    remitos_asociados: Array<{
+      REMITO_ID: number;
+      PTO_VTA: string;
+      NRO_REMITO: string;
+      FECHA: string;
+      TOTAL: number;
+    }>;
+  }> {
     const pool = await getPool();
 
     const ventaResult = await pool
@@ -513,7 +522,13 @@ export const salesService = {
     // ── Linked remitos ──
     const remitosResult = await pool.request()
       .input('ventaId', sql.Int, id)
-      .query(`
+      .query<{
+        REMITO_ID: number;
+        PTO_VTA: string;
+        NRO_REMITO: string;
+        FECHA: string;
+        TOTAL: number;
+      }>(`
         SELECT REMITO_ID, PTO_VTA, NRO_REMITO, FECHA, TOTAL
         FROM REMITOS
         WHERE VENTA_ID = @ventaId AND ANULADO = 0
