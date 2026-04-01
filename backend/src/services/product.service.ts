@@ -102,7 +102,7 @@ export const productService = {
       params.push({ name: 'marcaId', type: sql.Int, value: filter.marcaId });
     }
     if (filter.stockBajo) {
-      where += ' AND p.STOCK_MINIMO IS NOT NULL AND p.CANTIDAD <= p.STOCK_MINIMO';
+      where += ' AND p.STOCK_MINIMO IS NOT NULL AND (SELECT ISNULL(SUM(sd2.CANTIDAD),0) FROM STOCK_DEPOSITOS sd2 WHERE sd2.PRODUCTO_ID = p.PRODUCTO_ID) <= p.STOCK_MINIMO';
     }
 
     const bind = (req: any) => {
@@ -123,7 +123,7 @@ export const productService = {
 
     const validCols: Record<string, string> = {
       nombre: 'p.NOMBRE', codigo: 'p.CODIGOPARTICULAR', categoria: 'c.NOMBRE',
-      marca: 'm.NOMBRE', precio: 'p.PRECIO_COMPRA', lista1: 'p.LISTA_1', stock: 'p.CANTIDAD',
+      marca: 'm.NOMBRE', precio: 'p.PRECIO_COMPRA', lista1: 'p.LISTA_1', stock: '(SELECT ISNULL(SUM(sd2.CANTIDAD),0) FROM STOCK_DEPOSITOS sd2 WHERE sd2.PRODUCTO_ID = p.PRODUCTO_ID)',
     };
     const orderCol = validCols[(filter.orderBy || 'nombre').toLowerCase()] || 'p.NOMBRE';
     const orderDir = filter.orderDir === 'DESC' ? 'DESC' : 'ASC';
@@ -135,7 +135,8 @@ export const productService = {
     const dataResult = await dataReq.query(`
       SELECT DISTINCT
         p.PRODUCTO_ID, p.CODIGOPARTICULAR, p.NOMBRE, p.DESCRIPCION,
-        p.CANTIDAD, p.CATEGORIA_ID, p.PRECIO_COMPRA, p.MARCA_ID,
+        (SELECT ISNULL(SUM(sd2.CANTIDAD),0) FROM STOCK_DEPOSITOS sd2 WHERE sd2.PRODUCTO_ID = p.PRODUCTO_ID) AS CANTIDAD,
+        p.CATEGORIA_ID, p.PRECIO_COMPRA, p.MARCA_ID,
         p.STOCK_MINIMO, p.UNIDAD_ID, p.ACTIVO,
         p.LISTA_1, p.LISTA_2, p.LISTA_3, p.LISTA_4, p.LISTA_5,
         p.LISTA_DEFECTO, p.COSTO_USD, p.TASA_IVA_ID,
