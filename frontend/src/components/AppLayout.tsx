@@ -67,6 +67,7 @@ import { EtiquetasPage } from '../pages/EtiquetasPage';
 import { MesasPage } from '../pages/MesasPage';
 import { PaymentMethodsPage } from '../pages/PaymentMethodsPage';
 import { RemitosPage } from '../pages/RemitosPage';
+import { StockPage } from '../pages/StockPage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -99,6 +100,7 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/settings/general': { label: 'Configuración', icon: <SettingOutlined />,       component: SettingsPage,     closable: true },
   '/gastronomy/tables': { label: 'Gestión de Mesas', icon: <CoffeeOutlined />,    component: MesasPage,        closable: true },
   '/remitos':          { label: 'Remitos',         icon: <FileTextOutlined />,   component: RemitosPage,      closable: true },
+  '/stock':            { label: 'Stock',           icon: <InboxOutlined />,      component: StockPage,        closable: true },
 };
 
 /** Icon map for TabBar */
@@ -116,6 +118,7 @@ const menuItems = [
       { type: 'group' as const, label: 'Archivos', className: 'rg-popup-group-title', children: [
         { key: 'productos-sub', icon: <ShoppingOutlined />, label: 'Productos', children: [
           { key: '/products', icon: <ShoppingOutlined />, label: 'ABM Productos' },
+          { key: '/stock', icon: <InboxOutlined />, label: 'Stock' },
           { key: '/etiquetas', icon: <TagOutlined />, label: 'Etiquetas de Precios' },
         ]},
         { key: '/customers', icon: <TeamOutlined />, label: 'Clientes' },
@@ -316,6 +319,7 @@ export function AppLayout() {
         '/cta-corriente': ['cta-corriente-list', 'cta-movimientos', 'cta-cobranzas'],
         '/cta-corriente-prov': ['cta-corriente-prov-list', 'cta-prov-movimientos', 'cta-prov-ordenes-pago'],
         '/gastronomy/tables': ['mesas-sectores', 'mesas-mesas'],
+        '/stock':         ['stock', 'stock-depositos'],
       };
       const keys = keyMap[activeKey];
       if (keys) {
@@ -391,7 +395,7 @@ export function AppLayout() {
   // Detect which submenu should be open based on path
   const getOpenKeys = (): string[] => {
     const groups: Record<string, string[]> = {
-      archivos: ['/customers', '/suppliers', '/deposits', '/categories', '/brands', '/payment-methods', '/products', '/etiquetas', '/promotions'],
+      archivos: ['/customers', '/suppliers', '/deposits', '/categories', '/brands', '/payment-methods', '/products', '/etiquetas', '/promotions', '/stock'],
       movimientos: ['/sales', '/purchases', '/cashregisters', '/cashcentral', '/arca', '/expenses', '/audit'],
       produccion: ['/production/structures', '/production/orders'],
       gastronomia: ['/gastronomy/tables'],

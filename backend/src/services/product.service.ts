@@ -1,5 +1,6 @@
 import { getPool, sql } from '../database/connection.js';
 import type { Producto, PaginatedResult } from '../types/index.js';
+import { registrarHistorialStock } from './stockHistorial.helper.js';
 
 // ═══════════════════════════════════════════════════
 //  Product Service — Full CRUD + Bulk Operations
@@ -219,7 +220,7 @@ export const productService = {
   },
 
   // ── Create product ─────────────────────────────
-  async create(input: ProductInput) {
+  async create(input: ProductInput, usuarioId?: number) {
     const pool = await getPool();
     const tx = pool.transaction();
     await tx.begin();
@@ -310,6 +311,12 @@ export const productService = {
             .input('prodId2', sql.Int, productoId).input('depId2', sql.Int, dep.DEPOSITO_ID)
             .input('cant', sql.Decimal(18, 4), dep.CANTIDAD)
             .query(`INSERT INTO STOCK_DEPOSITOS (ITEM_ID, PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@itemId, @prodId2, @depId2, @cant)`);
+          await registrarHistorialStock(tx, {
+            productoId, depositoId: dep.DEPOSITO_ID,
+            cantidadAnterior: 0, cantidadNueva: dep.CANTIDAD,
+            tipoOperacion: 'PRODUCTO_EDIT', referenciaId: productoId,
+            referenciaDetalle: `Alta Producto #${productoId}`, usuarioId,
+          });
         }
         await tx.request().input('prodId', sql.Int, productoId)
           .query(`UPDATE PRODUCTOS SET CANTIDAD = (SELECT ISNULL(SUM(CANTIDAD),0) FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @prodId) WHERE PRODUCTO_ID = @prodId`);
@@ -345,7 +352,7 @@ export const productService = {
   },
 
   // ── Update product ─────────────────────────────
-  async update(id: number, input: ProductInput) {
+  async update(id: number, input: ProductInput, usuarioId?: number) {
     const pool = await getPool();
     const tx = pool.transaction();
     await tx.begin();
@@ -399,6 +406,14 @@ export const productService = {
       }
 
       if (input.depositos !== undefined) {
+        // Capture old stock per deposit before clearing
+        const oldStockRows = await tx.request().input('id', sql.Int, id)
+          .query(`SELECT DEPOSITO_ID, CANTIDAD FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @id`);
+        const oldStockMap = new Map<number, number>();
+        for (const row of oldStockRows.recordset) {
+          oldStockMap.set(row.DEPOSITO_ID, parseFloat(row.CANTIDAD));
+        }
+
         // Clear both relationship and stock tables
         await tx.request().input('id', sql.Int, id).query(`DELETE FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @id`);
         await tx.request().input('id2', sql.Int, id).query(`DELETE FROM PRODUCTO_DEPOSITOS WHERE PRODUCTO_ID = @id2`);
@@ -415,6 +430,16 @@ export const productService = {
             .input('prodId2', sql.Int, id).input('depId2', sql.Int, dep.DEPOSITO_ID)
             .input('cant', sql.Decimal(18, 4), dep.CANTIDAD)
             .query(`INSERT INTO STOCK_DEPOSITOS (ITEM_ID, PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@itemId, @prodId2, @depId2, @cant)`);
+
+          const prevQty = oldStockMap.get(dep.DEPOSITO_ID) || 0;
+          if (dep.CANTIDAD !== prevQty) {
+            await registrarHistorialStock(tx, {
+              productoId: id, depositoId: dep.DEPOSITO_ID,
+              cantidadAnterior: prevQty, cantidadNueva: dep.CANTIDAD,
+              tipoOperacion: 'PRODUCTO_EDIT', referenciaId: id,
+              referenciaDetalle: `Edición Producto #${id}`, usuarioId,
+            });
+          }
         }
         await tx.request().input('id', sql.Int, id)
           .query(`UPDATE PRODUCTOS SET CANTIDAD = (SELECT ISNULL(SUM(CANTIDAD),0) FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @id) WHERE PRODUCTO_ID = @id`);

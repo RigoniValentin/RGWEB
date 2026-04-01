@@ -202,10 +202,10 @@ export function RemitosPage() {
   ];
 
   return (
-    <div style={{ padding: '12px 16px' }}>
+    <div className="page-enter">
       {/* ── Header ── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <Title level={4} style={{ margin: 0 }}>Remitos</Title>
+      <div className="page-header">
+        <Title level={3}>Remitos</Title>
         <Space>
           <Button type="primary" icon={<ImportOutlined />} onClick={() => openNewRemito('ENTRADA')}>
             Remito de Entrada

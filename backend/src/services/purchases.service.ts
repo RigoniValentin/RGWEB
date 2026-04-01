@@ -1,5 +1,6 @@
 import { getPool, sql } from '../database/connection.js';
 import type { Compra, CompraItem, PaginatedResult } from '../types/index.js';
+import { registrarHistorialStock, getCurrentStock } from './stockHistorial.helper.js';
 
 // ═══════════════════════════════════════════════════
 //  Purchases Service — Full CRUD + Stock/Cost Update
@@ -159,7 +160,9 @@ async function incrementarStock(
   tx: any,
   productoId: number,
   cantidad: number,
-  depositoId: number | null
+  depositoId: number | null,
+  referenciaId?: number,
+  usuarioId?: number
 ) {
   const prod = await tx.request()
     .input('pid', sql.Int, productoId)
@@ -177,6 +180,7 @@ async function incrementarStock(
 
     for (const child of children.recordset) {
       const childQty = cantidad * child.CANTIDAD;
+      const prevStock = await getCurrentStock(tx, child.PRODUCTO_ID_HIJO, child.DEPOSITO_ID);
       await tx.request()
         .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
         .input('depId', sql.Int, child.DEPOSITO_ID)
@@ -187,16 +191,27 @@ async function incrementarStock(
         .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
         .input('cant', sql.Decimal(18, 4), childQty)
         .query(`UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @prodId`);
+      await registrarHistorialStock(tx, {
+        productoId: child.PRODUCTO_ID_HIJO, depositoId: child.DEPOSITO_ID,
+        cantidadAnterior: prevStock, cantidadNueva: prevStock + childQty,
+        tipoOperacion: 'COMPRA', referenciaId, referenciaDetalle: `Compra #${referenciaId || ''}`, usuarioId,
+      });
     }
 
     if (descuentaStock) {
       if (depositoId) {
+        const prevStock = await getCurrentStock(tx, productoId, depositoId);
         await tx.request()
           .input('prodId', sql.Int, productoId)
           .input('depId', sql.Int, depositoId)
           .input('cant', sql.Decimal(18, 4), cantidad)
           .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant
                   WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+        await registrarHistorialStock(tx, {
+          productoId, depositoId,
+          cantidadAnterior: prevStock, cantidadNueva: prevStock + cantidad,
+          tipoOperacion: 'COMPRA', referenciaId, referenciaDetalle: `Compra #${referenciaId || ''}`, usuarioId,
+        });
       }
       await tx.request()
         .input('prodId', sql.Int, productoId)
@@ -205,12 +220,18 @@ async function incrementarStock(
     }
   } else if (descuentaStock) {
     if (depositoId) {
+      const prevStock = await getCurrentStock(tx, productoId, depositoId);
       await tx.request()
         .input('prodId', sql.Int, productoId)
         .input('depId', sql.Int, depositoId)
         .input('cant', sql.Decimal(18, 4), cantidad)
         .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant
                 WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+      await registrarHistorialStock(tx, {
+        productoId, depositoId,
+        cantidadAnterior: prevStock, cantidadNueva: prevStock + cantidad,
+        tipoOperacion: 'COMPRA', referenciaId, referenciaDetalle: `Compra #${referenciaId || ''}`, usuarioId,
+      });
     }
     await tx.request()
       .input('prodId', sql.Int, productoId)
@@ -223,7 +244,9 @@ async function decrementarStock(
   tx: any,
   productoId: number,
   cantidad: number,
-  depositoId: number | null
+  depositoId: number | null,
+  referenciaId?: number,
+  usuarioId?: number
 ) {
   const prod = await tx.request()
     .input('pid', sql.Int, productoId)
@@ -241,6 +264,7 @@ async function decrementarStock(
 
     for (const child of children.recordset) {
       const childQty = cantidad * child.CANTIDAD;
+      const prevStock = await getCurrentStock(tx, child.PRODUCTO_ID_HIJO, child.DEPOSITO_ID);
       await tx.request()
         .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
         .input('depId', sql.Int, child.DEPOSITO_ID)
@@ -251,16 +275,27 @@ async function decrementarStock(
         .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
         .input('cant', sql.Decimal(18, 4), childQty)
         .query(`UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @prodId`);
+      await registrarHistorialStock(tx, {
+        productoId: child.PRODUCTO_ID_HIJO, depositoId: child.DEPOSITO_ID,
+        cantidadAnterior: prevStock, cantidadNueva: prevStock - childQty,
+        tipoOperacion: 'COMPRA', referenciaId, referenciaDetalle: `Anulación Compra #${referenciaId || ''}`, usuarioId,
+      });
     }
 
     if (descuentaStock) {
       if (depositoId) {
+        const prevStock = await getCurrentStock(tx, productoId, depositoId);
         await tx.request()
           .input('prodId', sql.Int, productoId)
           .input('depId', sql.Int, depositoId)
           .input('cant', sql.Decimal(18, 4), cantidad)
           .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant
                   WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+        await registrarHistorialStock(tx, {
+          productoId, depositoId,
+          cantidadAnterior: prevStock, cantidadNueva: prevStock - cantidad,
+          tipoOperacion: 'COMPRA', referenciaId, referenciaDetalle: `Anulación Compra #${referenciaId || ''}`, usuarioId,
+        });
       }
       await tx.request()
         .input('prodId', sql.Int, productoId)
@@ -269,12 +304,18 @@ async function decrementarStock(
     }
   } else if (descuentaStock) {
     if (depositoId) {
+      const prevStock = await getCurrentStock(tx, productoId, depositoId);
       await tx.request()
         .input('prodId', sql.Int, productoId)
         .input('depId', sql.Int, depositoId)
         .input('cant', sql.Decimal(18, 4), cantidad)
         .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant
                 WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+      await registrarHistorialStock(tx, {
+        productoId, depositoId,
+        cantidadAnterior: prevStock, cantidadNueva: prevStock - cantidad,
+        tipoOperacion: 'COMPRA', referenciaId, referenciaDetalle: `Anulación Compra #${referenciaId || ''}`, usuarioId,
+      });
     }
     await tx.request()
       .input('prodId', sql.Int, productoId)
@@ -803,7 +844,7 @@ export const purchasesService = {
           `);
 
         // Increment stock (purchase increases inventory)
-        await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, depositoId);
+        await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, depositoId, compraId, usuarioId);
 
         // Update costs if requested
         if (input.ACTUALIZAR_COSTOS) {
@@ -1022,7 +1063,7 @@ export const purchasesService = {
         .query(`SELECT PRODUCTO_ID, CANTIDAD, DEPOSITO_ID FROM COMPRAS_ITEMS WHERE COMPRA_ID = @compraId`);
 
       for (const oldItem of oldItems.recordset) {
-        await decrementarStock(tx, oldItem.PRODUCTO_ID, oldItem.CANTIDAD, oldItem.DEPOSITO_ID);
+        await decrementarStock(tx, oldItem.PRODUCTO_ID, oldItem.CANTIDAD, oldItem.DEPOSITO_ID, id, usuarioId);
       }
 
       // ── 2. Delete old items ──
@@ -1176,7 +1217,7 @@ export const purchasesService = {
             )
           `);
 
-        await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, depositoId);
+        await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, depositoId, id, usuarioId);
 
         if (input.ACTUALIZAR_COSTOS) {
           const impIntUnit = (item.IMP_INTERNOS || 0);
@@ -1340,7 +1381,7 @@ export const purchasesService = {
         .query(`SELECT PRODUCTO_ID, CANTIDAD, DEPOSITO_ID FROM COMPRAS_ITEMS WHERE COMPRA_ID = @compraId`);
 
       for (const item of items.recordset) {
-        await decrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID);
+        await decrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID, id, usuarioId);
       }
 
       // ── 2. Remove CAJA_ITEMS ──

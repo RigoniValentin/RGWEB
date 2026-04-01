@@ -73,7 +73,7 @@ router.get('/:id/stock', async (req: Request, res: Response) => {
 // POST /api/products
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    const result = await productService.create(req.body);
+    const result = await productService.create(req.body, req.user?.id);
     res.status(201).json(result);
   } catch (err: any) {
     res.status(400).json({ error: err.message });
@@ -83,7 +83,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 // PUT /api/products/:id
 router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    await productService.update(parseInt(req.params.id as string), req.body);
+    await productService.update(parseInt(req.params.id as string), req.body, req.user?.id);
     res.json({ ok: true });
   } catch (err: any) {
     res.status(400).json({ error: err.message });

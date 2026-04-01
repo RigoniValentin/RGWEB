@@ -6,6 +6,7 @@ import { frontendDir, isPkg } from './config/paths.js';
 import { getPool, closePool } from './database/connection.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import apiRoutes from './routes/index.js';
+import { stockService } from './services/stock.service.js';
 
 // ── Console styling ──────────────────────────────────
 const S = {
@@ -107,6 +108,7 @@ app.use(errorHandler);
 async function start() {
   try {
     await getPool();
+    await stockService.ensureHistorialTable();
 
     app.listen(config.port, () => {
       if (isPkg) process.stdout.write('\x1bc');

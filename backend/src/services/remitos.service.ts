@@ -1,5 +1,6 @@
 import { getPool, sql } from '../database/connection.js';
 import type { PaginatedResult } from '../types/index.js';
+import { registrarHistorialStock, getCurrentStock } from './stockHistorial.helper.js';
 
 // ═══════════════════════════════════════════════════
 //  Remitos Service — Delivery Notes (Entrada/Salida)
@@ -96,7 +97,8 @@ async function ensureRemitosTable(pool: any): Promise<void> {
 // ── Stock helpers ────────────────────────────────
 
 async function incrementarStock(
-  tx: any, productoId: number, cantidad: number, depositoId: number | null
+  tx: any, productoId: number, cantidad: number, depositoId: number | null,
+  referenciaId?: number, usuarioId?: number, referenciaDetalle?: string
 ) {
   const prod = await tx.request()
     .input('pid', sql.Int, productoId)
@@ -105,6 +107,7 @@ async function incrementarStock(
 
   const esConjunto = prod.recordset[0].ES_CONJUNTO;
   const descuentaStock = prod.recordset[0].DESCUENTA_STOCK;
+  const detalle = referenciaDetalle || `Remito #${referenciaId || ''}`;
 
   if (esConjunto) {
     const children = await tx.request()
@@ -113,6 +116,7 @@ async function incrementarStock(
               FROM PRODUCTO_CONJUNTO_DEPOSITO WHERE PRODUCTO_ID = @pid`);
     for (const child of children.recordset) {
       const childQty = cantidad * child.CANTIDAD;
+      const prevStock = await getCurrentStock(tx, child.PRODUCTO_ID_HIJO, child.DEPOSITO_ID);
       await tx.request()
         .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
         .input('depId', sql.Int, child.DEPOSITO_ID)
@@ -123,15 +127,26 @@ async function incrementarStock(
         .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
         .input('cant', sql.Decimal(18, 4), childQty)
         .query(`UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @prodId`);
+      await registrarHistorialStock(tx, {
+        productoId: child.PRODUCTO_ID_HIJO, depositoId: child.DEPOSITO_ID,
+        cantidadAnterior: prevStock, cantidadNueva: prevStock + childQty,
+        tipoOperacion: 'REMITO', referenciaId, referenciaDetalle: detalle, usuarioId,
+      });
     }
     if (descuentaStock) {
       if (depositoId) {
+        const prevStock = await getCurrentStock(tx, productoId, depositoId);
         await tx.request()
           .input('prodId', sql.Int, productoId)
           .input('depId', sql.Int, depositoId)
           .input('cant', sql.Decimal(18, 4), cantidad)
           .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant
                   WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+        await registrarHistorialStock(tx, {
+          productoId, depositoId,
+          cantidadAnterior: prevStock, cantidadNueva: prevStock + cantidad,
+          tipoOperacion: 'REMITO', referenciaId, referenciaDetalle: detalle, usuarioId,
+        });
       }
       await tx.request()
         .input('prodId', sql.Int, productoId)
@@ -140,12 +155,18 @@ async function incrementarStock(
     }
   } else if (descuentaStock) {
     if (depositoId) {
+      const prevStock = await getCurrentStock(tx, productoId, depositoId);
       await tx.request()
         .input('prodId', sql.Int, productoId)
         .input('depId', sql.Int, depositoId)
         .input('cant', sql.Decimal(18, 4), cantidad)
         .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant
                 WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+      await registrarHistorialStock(tx, {
+        productoId, depositoId,
+        cantidadAnterior: prevStock, cantidadNueva: prevStock + cantidad,
+        tipoOperacion: 'REMITO', referenciaId, referenciaDetalle: detalle, usuarioId,
+      });
     }
     await tx.request()
       .input('prodId', sql.Int, productoId)
@@ -155,7 +176,8 @@ async function incrementarStock(
 }
 
 async function decrementarStock(
-  tx: any, productoId: number, cantidad: number, depositoId: number | null
+  tx: any, productoId: number, cantidad: number, depositoId: number | null,
+  referenciaId?: number, usuarioId?: number, referenciaDetalle?: string
 ) {
   const prod = await tx.request()
     .input('pid', sql.Int, productoId)
@@ -164,6 +186,7 @@ async function decrementarStock(
 
   const esConjunto = prod.recordset[0].ES_CONJUNTO;
   const descuentaStock = prod.recordset[0].DESCUENTA_STOCK;
+  const detalle = referenciaDetalle || `Anulación Remito #${referenciaId || ''}`;
 
   if (esConjunto) {
     const children = await tx.request()
@@ -172,6 +195,7 @@ async function decrementarStock(
               FROM PRODUCTO_CONJUNTO_DEPOSITO WHERE PRODUCTO_ID = @pid`);
     for (const child of children.recordset) {
       const childQty = cantidad * child.CANTIDAD;
+      const prevStock = await getCurrentStock(tx, child.PRODUCTO_ID_HIJO, child.DEPOSITO_ID);
       await tx.request()
         .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
         .input('depId', sql.Int, child.DEPOSITO_ID)
@@ -182,15 +206,26 @@ async function decrementarStock(
         .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
         .input('cant', sql.Decimal(18, 4), childQty)
         .query(`UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @prodId`);
+      await registrarHistorialStock(tx, {
+        productoId: child.PRODUCTO_ID_HIJO, depositoId: child.DEPOSITO_ID,
+        cantidadAnterior: prevStock, cantidadNueva: prevStock - childQty,
+        tipoOperacion: 'REMITO', referenciaId, referenciaDetalle: detalle, usuarioId,
+      });
     }
     if (descuentaStock) {
       if (depositoId) {
+        const prevStock = await getCurrentStock(tx, productoId, depositoId);
         await tx.request()
           .input('prodId', sql.Int, productoId)
           .input('depId', sql.Int, depositoId)
           .input('cant', sql.Decimal(18, 4), cantidad)
           .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant
                   WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+        await registrarHistorialStock(tx, {
+          productoId, depositoId,
+          cantidadAnterior: prevStock, cantidadNueva: prevStock - cantidad,
+          tipoOperacion: 'REMITO', referenciaId, referenciaDetalle: detalle, usuarioId,
+        });
       }
       await tx.request()
         .input('prodId', sql.Int, productoId)
@@ -199,12 +234,18 @@ async function decrementarStock(
     }
   } else if (descuentaStock) {
     if (depositoId) {
+      const prevStock = await getCurrentStock(tx, productoId, depositoId);
       await tx.request()
         .input('prodId', sql.Int, productoId)
         .input('depId', sql.Int, depositoId)
         .input('cant', sql.Decimal(18, 4), cantidad)
         .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant
                 WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+      await registrarHistorialStock(tx, {
+        productoId, depositoId,
+        cantidadAnterior: prevStock, cantidadNueva: prevStock - cantidad,
+        tipoOperacion: 'REMITO', referenciaId, referenciaDetalle: detalle, usuarioId,
+      });
     }
     await tx.request()
       .input('prodId', sql.Int, productoId)
@@ -491,9 +532,9 @@ export const remitosService = {
 
         // ENTRADA = incrementar stock, SALIDA = decrementar stock
         if (input.TIPO === 'ENTRADA') {
-          await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, depositoId);
+          await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, depositoId, remitoId, usuarioId, `Remito Entrada #${remitoId}`);
         } else {
-          await decrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, depositoId);
+          await decrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, depositoId, remitoId, usuarioId, `Remito Salida #${remitoId}`);
         }
       }
 
@@ -540,9 +581,9 @@ export const remitosService = {
       for (const item of items.recordset) {
         // Reverse: if it was ENTRADA, decrement; if SALIDA, increment
         if (remito.TIPO === 'ENTRADA') {
-          await decrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID);
+          await decrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID, id, usuarioId, `Anulación Remito Entrada #${id}`);
         } else {
-          await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID);
+          await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID, id, usuarioId, `Anulación Remito Salida #${id}`);
         }
       }
 
@@ -590,9 +631,9 @@ export const remitosService = {
 
         for (const item of items.recordset) {
           if (remito.TIPO === 'ENTRADA') {
-            await decrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID);
+            await decrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID, id, usuarioId, `Eliminación Remito Entrada #${id}`);
           } else {
-            await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID);
+            await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID, id, usuarioId, `Eliminación Remito Salida #${id}`);
           }
         }
       }

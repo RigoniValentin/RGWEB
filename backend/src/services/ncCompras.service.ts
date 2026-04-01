@@ -1,4 +1,5 @@
 import { getPool, sql } from '../database/connection.js';
+import { registrarHistorialStock, getCurrentStock } from './stockHistorial.helper.js';
 
 // ═══════════════════════════════════════════════════
 //  NC Compras Service — Credit Notes for Purchases
@@ -89,7 +90,9 @@ async function decrementarStockTx(
   tx: any,
   productoId: number,
   cantidad: number,
-  depositoId: number | null
+  depositoId: number | null,
+  referenciaId?: number,
+  usuarioId?: number
 ) {
   const prod = await tx.request()
     .input('pid', sql.Int, productoId)
@@ -104,6 +107,7 @@ async function decrementarStockTx(
 
   // Deposit stock
   if (depositoId) {
+    const prevStock = await getCurrentStock(tx, productoId, depositoId);
     const dep = await tx.request()
       .input('pid', sql.Int, productoId)
       .input('did', sql.Int, depositoId)
@@ -115,6 +119,11 @@ async function decrementarStockTx(
         .input('cant', sql.Decimal(18, 2), cantidad)
         .query('UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @pid AND DEPOSITO_ID = @did');
     }
+    await registrarHistorialStock(tx, {
+      productoId, depositoId,
+      cantidadAnterior: prevStock, cantidadNueva: prevStock - cantidad,
+      tipoOperacion: 'NC_COMPRA', referenciaId, referenciaDetalle: `NC Compra #${referenciaId || ''}`, usuarioId,
+    });
   }
 }
 
@@ -122,7 +131,9 @@ async function incrementarStockTx(
   tx: any,
   productoId: number,
   cantidad: number,
-  depositoId: number | null
+  depositoId: number | null,
+  referenciaId?: number,
+  usuarioId?: number
 ) {
   const prod = await tx.request()
     .input('pid', sql.Int, productoId)
@@ -135,6 +146,7 @@ async function incrementarStockTx(
     .query('UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @pid');
 
   if (depositoId) {
+    const prevStock = await getCurrentStock(tx, productoId, depositoId);
     const dep = await tx.request()
       .input('pid', sql.Int, productoId)
       .input('did', sql.Int, depositoId)
@@ -152,6 +164,11 @@ async function incrementarStockTx(
         .input('cant', sql.Decimal(18, 2), cantidad)
         .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@pid, @did, @cant)');
     }
+    await registrarHistorialStock(tx, {
+      productoId, depositoId,
+      cantidadAnterior: prevStock, cantidadNueva: prevStock + cantidad,
+      tipoOperacion: 'NC_COMPRA', referenciaId, referenciaDetalle: `Anulación NC Compra #${referenciaId || ''}`, usuarioId,
+    });
   }
 }
 
@@ -560,7 +577,7 @@ export const ncComprasService = {
 
           // Decrement stock (devolution = product comes back, but for purchases devolution means
           // we returned goods to supplier → decrease OUR stock)
-          await decrementarStockTx(tx, item.PRODUCTO_ID, item.CANTIDAD_DEVUELTA, depId);
+          await decrementarStockTx(tx, item.PRODUCTO_ID, item.CANTIDAD_DEVUELTA, depId, ncId, usuarioId);
         }
       } else {
         // For DESCUENTO / DIFERENCIA PRECIO — no items, just a single historial entry
@@ -728,7 +745,7 @@ export const ncComprasService = {
             WHERE NC_ID = @ncId
           `);
         for (const item of ncItems.recordset) {
-          await incrementarStockTx(tx, item.PRODUCTO_ID, parseFloat(item.CANTIDAD_DEVUELTA), item.DEPOSITO_ID);
+          await incrementarStockTx(tx, item.PRODUCTO_ID, parseFloat(item.CANTIDAD_DEVUELTA), item.DEPOSITO_ID, ncId, usuarioId);
         }
       }
 
