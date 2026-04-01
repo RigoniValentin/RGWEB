@@ -1,0 +1,3 @@
+DELETE FROM CONFIG_USUARIO WHERE PARAMETRO_ID IN (SELECT PARAMETRO_ID FROM CONFIG_PARAMETROS WHERE CLAVE IN ('imprimir_ticket','lista_precio_defecto','mostrar_rentabilidad'));
+DELETE FROM CONFIG_GLOBAL WHERE PARAMETRO_ID IN (SELECT PARAMETRO_ID FROM CONFIG_PARAMETROS WHERE CLAVE IN ('imprimir_ticket','lista_precio_defecto','mostrar_rentabilidad'));
+DELETE FROM CONFIG_PARAMETROS WHERE CLAVE IN ('imprimir_ticket','lista_precio_defecto','mostrar_rentabilidad');

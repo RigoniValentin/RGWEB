@@ -55,6 +55,7 @@ export function CajaPage() {
   const [ieType, setIeType] = useState<'INGRESO' | 'EGRESO'>('INGRESO');
   const [desgloseModalOpen, setDesgloseModalOpen] = useState(false);
   const [desgloseData, setDesgloseData] = useState<DesgloseMetodo[]>([]);
+  const [desgloseCategoria, setDesgloseCategoria] = useState<'EFECTIVO' | 'DIGITAL' | null>(null);
   const [ieMonto, setIeMonto] = useState<number>(0);
   const [ieDescripcion, setIeDescripcion] = useState('');
   const [fondoModalOpen, setFondoModalOpen] = useState(false);
@@ -311,7 +312,7 @@ export function CajaPage() {
   // ── Item columns for detail drawer ─────────────
   const itemColumns = [
     {
-      title: 'Fecha', dataIndex: 'FECHA', key: 'date', width: 140, align: 'center' as const,
+      title: 'Fecha', dataIndex: 'FECHA', key: 'date', width: 155, align: 'center' as const,
       render: (v: string) => new Date(v).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }),
     },
     {
@@ -327,10 +328,79 @@ export function CajaPage() {
       render: (v: string, r: any) => r.ORIGEN_TIPO === 'FONDO_CAMBIO' ? v?.replace(/Fondo de Cambio/gi, 'FC') : v,
     },
     {
-      title: 'Total', key: 'total', width: 120, align: 'center' as const,
+      title: 'Efectivo', dataIndex: 'MONTO_EFECTIVO', key: 'efectivo', width: 140, align: 'center' as const,
+      onCell: () => ({ style: { textAlign: 'right' as const } }),
+      render: (v: number, r: CajaItem) => {
+        const val = v || 0;
+        if (val === 0) return <Text type="secondary">{fmtMoney(0)}</Text>;
+        const clickable = r.ORIGEN_TIPO === 'VENTA' && !!r.ORIGEN_ID;
+        return (
+          <span
+            style={{
+              color: val < 0 ? '#ff4d4f' : '#52c41a',
+              cursor: clickable ? 'pointer' : undefined,
+            }}
+            onMouseEnter={clickable ? e => { e.currentTarget.style.textDecoration = 'underline'; } : undefined}
+            onMouseLeave={clickable ? e => { e.currentTarget.style.textDecoration = 'none'; } : undefined}
+            onClick={clickable ? () => {
+              salesApi.getMetodosPagoVenta(r.ORIGEN_ID!).then(metodos => {
+                setDesgloseData(metodos.map(m => ({
+                  METODO_PAGO_ID: m.METODO_PAGO_ID,
+                  NOMBRE: m.METODO_NOMBRE || `Método #${m.METODO_PAGO_ID}`,
+                  CATEGORIA: m.METODO_CATEGORIA || 'EFECTIVO',
+                  IMAGEN_BASE64: null,
+                  TOTAL: m.MONTO,
+                })));
+                setDesgloseCategoria('EFECTIVO');
+                setDesgloseModalOpen(true);
+              });
+            } : undefined}
+          >
+            {fmtMoney(val)}
+          </span>
+        );
+      },
+    },
+    {
+      title: 'Digital', dataIndex: 'MONTO_DIGITAL', key: 'digital', width: 140, align: 'center' as const,
+      onCell: () => ({ style: { textAlign: 'right' as const } }),
+      render: (v: number, r: CajaItem) => {
+        const val = v || 0;
+        if (val === 0) return <Text type="secondary">{fmtMoney(0)}</Text>;
+        const clickable = r.ORIGEN_TIPO === 'VENTA' && !!r.ORIGEN_ID;
+        return (
+          <span
+            style={{
+              color: val < 0 ? '#ff4d4f' : '#1890ff',
+              cursor: clickable ? 'pointer' : undefined,
+            }}
+            onMouseEnter={clickable ? e => { e.currentTarget.style.textDecoration = 'underline'; } : undefined}
+            onMouseLeave={clickable ? e => { e.currentTarget.style.textDecoration = 'none'; } : undefined}
+            onClick={clickable ? () => {
+              salesApi.getMetodosPagoVenta(r.ORIGEN_ID!).then(metodos => {
+                setDesgloseData(metodos.map(m => ({
+                  METODO_PAGO_ID: m.METODO_PAGO_ID,
+                  NOMBRE: m.METODO_NOMBRE || `Método #${m.METODO_PAGO_ID}`,
+                  CATEGORIA: m.METODO_CATEGORIA || 'EFECTIVO',
+                  IMAGEN_BASE64: null,
+                  TOTAL: m.MONTO,
+                })));
+                setDesgloseCategoria('DIGITAL');
+                setDesgloseModalOpen(true);
+              });
+            } : undefined}
+          >
+            {fmtMoney(val)}
+          </span>
+        );
+      },
+    },
+    {
+      title: 'Total', key: 'total', width: 145, align: 'center' as const,
+      onCell: () => ({ style: { textAlign: 'right' as const } }),
       render: (_: unknown, r: CajaItem) => {
         const t = (r.MONTO_EFECTIVO || 0) + (r.MONTO_DIGITAL || 0);
-        return <Text type={t < 0 ? 'danger' : undefined}>{fmtMoney(t)}</Text>;
+        return <Text strong type={t < 0 ? 'danger' : undefined}>{fmtMoney(t)}</Text>;
       },
     },
   ];
@@ -484,7 +554,7 @@ export function CajaPage() {
         title={`Caja #${selectedId}`}
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); setSelectedId(null); }}
-        width={900}
+        width={1100}
         className="rg-drawer"
         extra={
           detail && (
@@ -577,6 +647,7 @@ export function CajaPage() {
                     onClick={() => {
                       cajaApi.getDesgloseMetodos(detail.CAJA_ID).then(data => {
                         setDesgloseData(data);
+                        setDesgloseCategoria(null);
                         setDesgloseModalOpen(true);
                       });
                     }}
@@ -816,38 +887,45 @@ export function CajaPage() {
         open={desgloseModalOpen}
         onCancel={() => setDesgloseModalOpen(false)}
         footer={<Button onClick={() => setDesgloseModalOpen(false)}>Cerrar</Button>}
-        title="Desglose por método de pago"
+        title={`Desglose — ${desgloseCategoria === 'EFECTIVO' ? 'Efectivo' : desgloseCategoria === 'DIGITAL' ? 'Digital' : 'Todos los métodos'}`}
         width={480}
         destroyOnClose
       >
-        {desgloseData.length === 0 ? (
-          <Text type="secondary">No hay métodos de pago registrados para esta caja.</Text>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
-            {desgloseData.map(d => (
-              <div key={d.METODO_PAGO_ID} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '10px 14px', borderRadius: 8,
-                background: d.CATEGORIA === 'EFECTIVO' ? 'rgba(82,196,26,0.06)' : 'rgba(22,119,255,0.06)',
-                border: `1px solid ${d.CATEGORIA === 'EFECTIVO' ? '#b7eb8f' : '#91caff'}`,
-              }}>
-                <Space>
-                  {d.IMAGEN_BASE64 ? (
-                    <img src={d.IMAGEN_BASE64} alt={d.NOMBRE} style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 4 }} />
-                  ) : null}
-                  <div>
-                    <Text strong>{d.NOMBRE}</Text>
-                    <br />
-                    <Tag color={d.CATEGORIA === 'EFECTIVO' ? 'green' : 'blue'} style={{ fontSize: 10 }}>
-                      {d.CATEGORIA}
-                    </Tag>
-                  </div>
-                </Space>
-                <Text strong style={{ fontSize: 16 }}>{fmtMoney(d.TOTAL)}</Text>
-              </div>
-            ))}
-          </div>
-        )}
+        {(() => {
+          const filtered = desgloseCategoria ? desgloseData.filter(d => d.CATEGORIA === desgloseCategoria) : desgloseData;
+          return filtered.length === 0 ? (
+            <Text type="secondary">No hay métodos de pago registrados para esta caja.</Text>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
+              {filtered.map(d => (
+                <div key={d.METODO_PAGO_ID} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 14px', borderRadius: 8,
+                  background: d.CATEGORIA === 'EFECTIVO' ? 'rgba(82,196,26,0.06)' : 'rgba(22,119,255,0.06)',
+                  border: `1px solid ${d.CATEGORIA === 'EFECTIVO' ? '#b7eb8f' : '#91caff'}`,
+                }}>
+                  <Space>
+                    {d.IMAGEN_BASE64 ? (
+                      <img src={d.IMAGEN_BASE64} alt={d.NOMBRE} style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 4 }} />
+                    ) : null}
+                    <div>
+                      <Text strong>{d.NOMBRE}</Text>
+                      {!desgloseCategoria && (
+                        <>
+                          <br />
+                          <Tag color={d.CATEGORIA === 'EFECTIVO' ? 'green' : 'blue'} style={{ fontSize: 10 }}>
+                            {d.CATEGORIA}
+                          </Tag>
+                        </>
+                      )}
+                    </div>
+                  </Space>
+                  <Text strong style={{ fontSize: 16 }}>{fmtMoney(d.TOTAL)}</Text>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </Modal>
     </div>
   );
