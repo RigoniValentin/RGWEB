@@ -520,7 +520,7 @@ export function CajaPage() {
           <Card size="small" className="rg-card">
             <Statistic
               title="Cajas Activas"
-              value={data?.data?.filter(c => c.ESTADO === 'ACTIVA').length ?? 0}
+              value={data?.activas ?? 0}
               prefix={<UnlockOutlined />}
               valueStyle={{ color: '#EABD23' }}
             />
@@ -554,7 +554,7 @@ export function CajaPage() {
         title={`Caja #${selectedId}`}
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); setSelectedId(null); }}
-        width={1100}
+        width={945}
         className="rg-drawer"
         extra={
           detail && (

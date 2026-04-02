@@ -397,6 +397,7 @@ export interface PaginatedResult<T> {
   total: number;
   page: number;
   pageSize: number;
+  activas?: number;
 }
 
 export interface PaginationParams {

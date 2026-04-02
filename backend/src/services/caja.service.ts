@@ -73,6 +73,10 @@ export const cajaService = {
       `SELECT COUNT(*) AS total FROM CAJA c ${where}`
     );
 
+    const activasResult = await pool.request().query(
+      `SELECT COUNT(*) AS activas FROM CAJA WHERE ESTADO = 'ACTIVA'`
+    );
+
     const dataResult = await bind(pool.request()).query(`
       SELECT c.*, 
         u.NOMBRE AS USUARIO_NOMBRE,
@@ -90,6 +94,7 @@ export const cajaService = {
       total: countResult.recordset[0].total,
       page,
       pageSize,
+      activas: activasResult.recordset[0].activas,
     };
   },
 

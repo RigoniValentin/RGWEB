@@ -268,6 +268,11 @@ export interface ProductoSearch {
   NOMBRE: string;
   PRECIO_VENTA: number;
   LISTA_DEFECTO: number;
+  LISTA_1: number;
+  LISTA_2: number;
+  LISTA_3: number;
+  LISTA_4: number;
+  LISTA_5: number;
   PRECIO_COMPRA: number;
   STOCK: number;
   ES_CONJUNTO: boolean | null;
@@ -580,6 +585,7 @@ export interface PaginatedResponse<T> {
   total: number;
   page: number;
   pageSize: number;
+  activas?: number;
 }
 // ── Fondo de Cambio Transfers ────────────────────────────
 export type TransferEntity = 'CAJA_CENTRAL' | 'FONDO_CAMBIO' | 'CAJA';

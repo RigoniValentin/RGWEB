@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Modal, Input, Select, Button, InputNumber, Table, Space, Typography,
-  Divider, Spin, Switch, message, Badge, Tag, Checkbox,
+  Divider, Spin, Switch, message, Badge, Tag, Checkbox, Popover,
 } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, ShoppingCartOutlined,
@@ -16,6 +16,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { salesApi } from '../../services/sales.api';
 import { remitosApi } from '../../services/remitos.api';
 import { cajaApi } from '../../services/caja.api';
+import { catalogApi } from '../../services/catalog.api';
 import { useAuthStore } from '../../store/authStore';
 import { useTabStore } from '../../store/tabStore';
 import { useSettingsStore } from '../../store/settingsStore';
@@ -38,6 +39,11 @@ interface CartItem extends VentaItemInput {
   UNIDAD: string;
   UNIDAD_NOMBRE: string;
   DESDE_REMITO?: boolean;
+  LISTA_1?: number;
+  LISTA_2?: number;
+  LISTA_3?: number;
+  LISTA_4?: number;
+  LISTA_5?: number;
 }
 
 export interface PedidoParaVenta {
@@ -94,6 +100,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const dtoRefs = useRef<Record<string, any>>({});
   // Track last added item key for auto-focus
   const [lastAddedKey, setLastAddedKey] = useState<string | null>(null);
+  const [listaPopoverKey, setListaPopoverKey] = useState<string | null>(null);
   const [wspModalOpen, setWspModalOpen] = useState(false);
   const [wspTelefono, setWspTelefono] = useState('');
   const [wspNombre, setWspNombre] = useState('');
@@ -220,6 +227,13 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const { data: metodosPago = [] } = useQuery({
     queryKey: ['sales-active-payment-methods'],
     queryFn: () => salesApi.getActivePaymentMethods(),
+    enabled: open,
+    staleTime: 60000,
+  });
+
+  const { data: listasPrecios = [] } = useQuery({
+    queryKey: ['listas-precios'],
+    queryFn: () => catalogApi.getListasPrecios(),
     enabled: open,
     staleTime: 60000,
   });
@@ -598,6 +612,11 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         UNIDAD_NOMBRE: product.UNIDAD_NOMBRE || '',
         DEPOSITO_ID: depositoId || undefined,
         LISTA_ID: product.LISTA_DEFECTO || 1,
+        LISTA_1: product.LISTA_1,
+        LISTA_2: product.LISTA_2,
+        LISTA_3: product.LISTA_3,
+        LISTA_4: product.LISTA_4,
+        LISTA_5: product.LISTA_5,
       }];
     });
     setSearchText('');
@@ -625,6 +644,11 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         UNIDAD_NOMBRE: product.UNIDAD_NOMBRE || '',
         DEPOSITO_ID: depositoId || undefined,
         LISTA_ID: product.LISTA_DEFECTO || 1,
+        LISTA_1: product.LISTA_1,
+        LISTA_2: product.LISTA_2,
+        LISTA_3: product.LISTA_3,
+        LISTA_4: product.LISTA_4,
+        LISTA_5: product.LISTA_5,
       }];
     });
     setSearchText('');
@@ -756,6 +780,22 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
 
   const removeCartItem = (key: string) => {
     setCart(prev => prev.filter(item => item.key !== key));
+  };
+
+  const getListPrice = (item: CartItem, listaId: number): number => {
+    const map: Record<number, number | undefined> = {
+      1: item.LISTA_1, 2: item.LISTA_2, 3: item.LISTA_3,
+      4: item.LISTA_4, 5: item.LISTA_5,
+    };
+    return map[listaId] ?? item.PRECIO_UNITARIO;
+  };
+
+  const handleListaChange = (key: string, newListaId: number) => {
+    setCart(prev => prev.map(item => {
+      if (item.key !== key) return item;
+      const newPrice = getListPrice(item, newListaId);
+      return { ...item, LISTA_ID: newListaId, PRECIO_UNITARIO: newPrice };
+    }));
   };
 
   // Calculate totals (round to 2 decimals to avoid floating-point artifacts)
@@ -960,6 +1000,8 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     return () => window.removeEventListener('keydown', handler, true);
   }, [open, step, cart.length, pagoValido]);
 
+  const activeListasPrecios = useMemo(() => listasPrecios.filter(l => l.ACTIVA), [listasPrecios]);
+
   const cartColumns = [
     {
       title: 'PRODUCTO', dataIndex: 'NOMBRE', key: 'name', ellipsis: true,
@@ -968,6 +1010,9 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         const isKg = upperUnidad.includes('KILOGRAMO');
         const isLt = upperUnidad.includes('LITRO');
         const unitTag = isKg ? 'Peso' : isLt ? 'Volumen' : null;
+        const listaId = record.LISTA_ID || 1;
+        const listaName = activeListasPrecios.find(l => l.LISTA_ID === listaId)?.NOMBRE || `Lista ${listaId}`;
+        const hasListPrices = record.LISTA_1 != null;
         return (
           <div className="nsm-cart-product">
             <div className="nsm-cart-product-name">{name}</div>
@@ -975,6 +1020,47 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
               <span className="nsm-cart-product-code">{record.CODIGO}</span>
               {unitTag && <span className="nsm-cart-product-unit-tag">{unitTag}</span>}
               <span className="nsm-cart-product-stock">Stock: {record.STOCK} {record.UNIDAD}</span>
+              {hasListPrices && activeListasPrecios.length > 1 ? (
+                <Popover
+                  trigger="click"
+                  placement="bottomLeft"
+                  open={listaPopoverKey === record.key}
+                  onOpenChange={(visible) => setListaPopoverKey(visible ? record.key : null)}
+                  content={
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 140 }}>
+                      {activeListasPrecios.map(l => {
+                        const price = getListPrice(record, l.LISTA_ID);
+                        const isSelected = l.LISTA_ID === listaId;
+                        return (
+                          <div
+                            key={l.LISTA_ID}
+                            onClick={() => { handleListaChange(record.key, l.LISTA_ID); setListaPopoverKey(null); }}
+                            style={{
+                              padding: '4px 8px', borderRadius: 4, cursor: 'pointer',
+                              background: isSelected ? '#e6f4ff' : 'transparent',
+                              fontWeight: isSelected ? 600 : 400,
+                              display: 'flex', justifyContent: 'space-between', gap: 12,
+                            }}
+                            onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = '#f5f5f5'; }}
+                            onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                          >
+                            <span>{l.NOMBRE}</span>
+                            <span style={{ color: '#888' }}>{fmtMoney(price)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  }
+                >
+                  <Tag
+                    style={{ cursor: 'pointer', fontSize: 11, lineHeight: '18px', marginRight: 0 }}
+                  >
+                    {listaName} ▾
+                  </Tag>
+                </Popover>
+              ) : (
+                <Tag style={{ fontSize: 11, lineHeight: '18px', marginRight: 0, color: '#999' }}>{listaName}</Tag>
+              )}
             </div>
           </div>
         );
