@@ -2019,7 +2019,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     >
       <div style={{ marginTop: 12 }}>
         <Text type="secondary" style={{ fontSize: 12, marginBottom: 12, display: 'block' }}>
-          Seleccione uno o más métodos. Si elige varios, podrá distribuir los montos.
+          Haga click para seleccionar un método. Mantenga Ctrl presionado para seleccionar varios.
         </Text>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12 }}>
           {metodosPagoOrdenados.map(m => {
@@ -2027,12 +2027,18 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
             return (
               <div
                 key={m.METODO_PAGO_ID}
-                onClick={() => {
-                  setMetodoModalSelection(prev =>
-                    isSelected
-                      ? prev.filter(id => id !== m.METODO_PAGO_ID)
-                      : [...prev, m.METODO_PAGO_ID]
-                  );
+                onClick={(e: React.MouseEvent) => {
+                  if (e.ctrlKey || e.metaKey) {
+                    // Ctrl+Click: toggle individual
+                    setMetodoModalSelection(prev =>
+                      isSelected
+                        ? prev.filter(id => id !== m.METODO_PAGO_ID)
+                        : [...prev, m.METODO_PAGO_ID]
+                    );
+                  } else {
+                    // Plain click: select only this one
+                    setMetodoModalSelection([m.METODO_PAGO_ID]);
+                  }
                 }}
                 style={{
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,

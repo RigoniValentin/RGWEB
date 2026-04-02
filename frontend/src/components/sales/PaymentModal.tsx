@@ -156,7 +156,7 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
           <div style={{ marginBottom: 16 }}>
             <Text strong style={{ marginBottom: 8, display: 'block' }}>Método de pago</Text>
             <Text type="secondary" style={{ fontSize: 12, marginBottom: 10, display: 'block' }}>
-              Seleccione uno o más métodos. Si elige varios, podrá distribuir los montos.
+              Haga click para seleccionar un método. Mantenga Ctrl presionado para seleccionar varios.
             </Text>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 10 }}>
               {metodosPagoOrdenados.map(m => {
@@ -164,16 +164,23 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
                 return (
                   <div
                     key={m.METODO_PAGO_ID}
-                    onClick={() => {
-                      if (isSelected) {
-                        setSelectedMetodos(prev => prev.filter(id => id !== m.METODO_PAGO_ID));
-                        setMontosPorMetodo(prev => {
-                          const next = { ...prev };
-                          delete next[m.METODO_PAGO_ID];
-                          return next;
-                        });
+                    onClick={(e: React.MouseEvent) => {
+                      if (e.ctrlKey || e.metaKey) {
+                        // Ctrl+Click: toggle individual
+                        if (isSelected) {
+                          setSelectedMetodos(prev => prev.filter(id => id !== m.METODO_PAGO_ID));
+                          setMontosPorMetodo(prev => {
+                            const next = { ...prev };
+                            delete next[m.METODO_PAGO_ID];
+                            return next;
+                          });
+                        } else {
+                          setSelectedMetodos(prev => [...prev, m.METODO_PAGO_ID]);
+                        }
                       } else {
-                        setSelectedMetodos(prev => [...prev, m.METODO_PAGO_ID]);
+                        // Plain click: select only this one
+                        setSelectedMetodos([m.METODO_PAGO_ID]);
+                        setMontosPorMetodo({});
                       }
                     }}
                     style={{

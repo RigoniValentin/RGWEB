@@ -49,6 +49,8 @@ export function ProductSearchModal({
   const searchedOnOpen = useRef(false);
   // Track whether the user has edited keywords since the last search
   const keywordsDirty = useRef(false);
+  // Track last clicked row index for Shift+Click range selection
+  const lastClickedIndex = useRef<number>(-1);
 
   // Reset state when modal opens
   useEffect(() => {
@@ -361,17 +363,40 @@ export function ProductSearchModal({
               onChange: (keys) => setSelectedRowKeys(keys),
             }}
             onRow={(record, index) => ({
-              onClick: () => {
+              onClick: (e: React.MouseEvent) => {
+                const idx = index ?? -1;
+                if (e.shiftKey) {
+                  e.preventDefault();
+                  window.getSelection()?.removeAllRanges();
+                }
                 if (multiSelect) {
-                  setSelectedRowKeys(prev =>
-                    prev.includes(record.PRODUCTO_ID)
-                      ? prev.filter(k => k !== record.PRODUCTO_ID)
-                      : [...prev, record.PRODUCTO_ID]
-                  );
+                  if (e.shiftKey && lastClickedIndex.current >= 0 && idx >= 0) {
+                    // Shift+Click: select range from last clicked to current
+                    const start = Math.min(lastClickedIndex.current, idx);
+                    const end = Math.max(lastClickedIndex.current, idx);
+                    const rangeKeys = results.slice(start, end + 1).map(r => r.PRODUCTO_ID);
+                    setSelectedRowKeys(prev => {
+                      const combined = new Set([...prev, ...rangeKeys]);
+                      return Array.from(combined);
+                    });
+                  } else if (e.ctrlKey || e.metaKey) {
+                    // Ctrl+Click: toggle individual item
+                    setSelectedRowKeys(prev =>
+                      prev.includes(record.PRODUCTO_ID)
+                        ? prev.filter(k => k !== record.PRODUCTO_ID)
+                        : [...prev, record.PRODUCTO_ID]
+                    );
+                    lastClickedIndex.current = idx;
+                  } else {
+                    // Plain click: select only this item
+                    setSelectedRowKeys([record.PRODUCTO_ID]);
+                    lastClickedIndex.current = idx;
+                  }
                 } else {
                   setSelectedRowKeys([record.PRODUCTO_ID]);
+                  lastClickedIndex.current = idx;
                 }
-                setActiveRowIndex(index ?? -1);
+                setActiveRowIndex(idx);
               },
               onDoubleClick: () => {
                 setSelectedRowKeys([record.PRODUCTO_ID]);
