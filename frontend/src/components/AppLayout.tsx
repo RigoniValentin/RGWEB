@@ -68,6 +68,7 @@ import { MesasPage } from '../pages/MesasPage';
 import { PaymentMethodsPage } from '../pages/PaymentMethodsPage';
 import { RemitosPage } from '../pages/RemitosPage';
 import { StockPage } from '../pages/StockPage';
+import { ListadoComandasPage } from '../pages/ListadoComandasPage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -99,6 +100,7 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/etiquetas':        { label: 'Etiquetas',       icon: <TagOutlined />,             component: EtiquetasPage,   closable: true },
   '/settings/general': { label: 'Configuración', icon: <SettingOutlined />,       component: SettingsPage,     closable: true },
   '/gastronomy/tables': { label: 'Gestión de Mesas', icon: <CoffeeOutlined />,    component: MesasPage,        closable: true },
+  '/gastronomy/comandas': { label: 'Listado Comandas', icon: <UnorderedListOutlined />, component: ListadoComandasPage, closable: true },
   '/remitos':          { label: 'Remitos',         icon: <FileTextOutlined />,   component: RemitosPage,      closable: true },
   '/stock':            { label: 'Stock',           icon: <InboxOutlined />,      component: StockPage,        closable: true },
 };
@@ -178,6 +180,7 @@ const menuItems = [
     children: [
       { type: 'group' as const, label: 'Gastronomía', className: 'rg-popup-group-title', children: [
         { key: '/gastronomy/tables', icon: <TableOutlined />, label: 'Gestión de Mesas' },
+        { key: '/gastronomy/comandas', icon: <UnorderedListOutlined />, label: 'Listado Comandas' },
       ]},
     ],
   },
@@ -398,7 +401,7 @@ export function AppLayout() {
       archivos: ['/customers', '/suppliers', '/deposits', '/categories', '/brands', '/payment-methods', '/products', '/etiquetas', '/promotions', '/stock'],
       movimientos: ['/sales', '/purchases', '/cashregisters', '/cashcentral', '/arca', '/expenses', '/audit'],
       produccion: ['/production/structures', '/production/orders'],
-      gastronomia: ['/gastronomy/tables'],
+      gastronomia: ['/gastronomy/tables', '/gastronomy/comandas'],
       reportes: ['/reports/reports', '/reports/listings'],
       usuarios: ['/users/users', '/users/staff', '/users/permissions'],
       configuracion: ['/settings/general', '/settings/company', '/settings/pos'],

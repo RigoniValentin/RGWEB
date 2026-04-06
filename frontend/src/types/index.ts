@@ -642,6 +642,7 @@ export interface Pedido {
   PUNTO_VENTA_ID: number | null;
   MOZO: string | null;
   MESA_NUMERO?: string;
+  VENTA_ID?: number | null;
 }
 
 export interface PedidoItem {
@@ -670,6 +671,58 @@ export interface ProductoSearchMesa {
   LISTA_DEFECTO: number;
   STOCK: number;
   UNIDAD_ABREVIACION: string;
+}
+
+// ── Tipo Servicio Comanda ────────────────────────
+export interface TipoServicioComanda {
+  TIPO_SERVICIO_ID: number;
+  NOMBRE: string;
+  PUNTO_VENTA_ID: number | null;
+}
+
+export interface ProductoServicioComanda {
+  PRODUCTO_ID: number;
+  PUNTO_VENTA_ID: number;
+  TIPO_SERVICIO_ID: number;
+  PRODUCTO_NOMBRE?: string;
+  PRODUCTO_CODIGO?: string;
+}
+
+export interface ProductoParaAsignar {
+  PRODUCTO_ID: number;
+  CODIGOPARTICULAR: string;
+  NOMBRE: string;
+  TIPO_SERVICIO_ACTUAL: number | null;
+}
+
+export interface ComandaPrintData {
+  PEDIDO_ID: number;
+  MESA: string;
+  SECTOR: string;
+  FECHA: string;
+  MOZO: string;
+  TOTAL: number;
+  NOMBRE_FANTASIA?: string;
+  items: { NOMBRE: string; CANTIDAD: number; PRECIO_UNITARIO: number; TOTAL: number }[];
+}
+
+export interface TipoServicioEnPedido {
+  TIPO_SERVICIO_ID: number;
+  NOMBRE: string;
+}
+
+export interface ComandaListItem {
+  PEDIDO_ID: number;
+  MESA_ID: number | null;
+  ESTADO: string;
+  FECHA_CREACION: string;
+  FECHA_CIERRE: string | null;
+  TOTAL: number;
+  MOZO: string | null;
+  NUMERO_MESA: string | null;
+  SECTOR_NOMBRE: string | null;
+  CANT_ITEMS: number;
+  VENTA_ID: number | null;
 }
 
 // ── Remitos ──────────────────────────────────────

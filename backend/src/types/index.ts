@@ -370,6 +370,7 @@ export interface Pedido {
   MOZO: string | null;
   // Joined
   MESA_NUMERO?: string;
+  VENTA_ID?: number | null;
 }
 
 export interface PedidoItem {
@@ -389,6 +390,21 @@ export interface PedidoItem {
 
 export interface PedidoDetalle extends Pedido {
   items: PedidoItem[];
+}
+
+// ── Tipo Servicio Comanda ─────────────────────────
+export interface TipoServicioComanda {
+  TIPO_SERVICIO_ID: number;
+  NOMBRE: string;
+  PUNTO_VENTA_ID: number | null;
+}
+
+export interface ProductoServicioComanda {
+  PRODUCTO_ID: number;
+  PUNTO_VENTA_ID: number;
+  TIPO_SERVICIO_ID: number;
+  PRODUCTO_NOMBRE?: string;
+  PRODUCTO_CODIGO?: string;
 }
 
 // ── Pagination helpers ───────────────────────────

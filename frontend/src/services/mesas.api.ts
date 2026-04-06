@@ -1,5 +1,9 @@
 import api from './api';
-import type { Sector, Mesa, Pedido, PedidoDetalle, PedidoItem, ProductoSearchMesa, ProductoSearch } from '../types';
+import type {
+  Sector, Mesa, Pedido, PedidoDetalle, PedidoItem, ProductoSearchMesa, ProductoSearch,
+  TipoServicioComanda, ProductoServicioComanda, ProductoParaAsignar,
+  ComandaPrintData, TipoServicioEnPedido, ComandaListItem,
+} from '../types';
 
 const BASE = '/mesas';
 
@@ -87,3 +91,53 @@ export const searchProductosMesaAdvanced = (params: {
   soloActivos?: boolean; soloConStock?: boolean; listaId?: number; limit?: number;
 }) =>
   api.get<ProductoSearch[]>(`${BASE}/search-products-advanced`, { params }).then(r => r.data);
+
+// ── Tipos de Servicio Comanda ────────────────────
+
+export const getTiposServicioComanda = (puntoVentaId?: number) =>
+  api.get<TipoServicioComanda[]>(`${BASE}/tipos-servicio`, { params: { puntoVentaId } }).then(r => r.data);
+
+export const createTipoServicioComanda = (data: { NOMBRE: string; PUNTO_VENTA_ID: number }) =>
+  api.post<TipoServicioComanda>(`${BASE}/tipos-servicio`, data).then(r => r.data);
+
+export const updateTipoServicioComanda = (id: number, data: { NOMBRE: string }) =>
+  api.put(`${BASE}/tipos-servicio/${id}`, data).then(r => r.data);
+
+export const deleteTipoServicioComanda = (id: number) =>
+  api.delete(`${BASE}/tipos-servicio/${id}`).then(r => r.data);
+
+// ── Producto ↔ Tipo Servicio association ─────────
+
+export const getProductosByTipoServicio = (tipoServicioId: number, puntoVentaId: number) =>
+  api.get<ProductoServicioComanda[]>(`${BASE}/tipos-servicio/${tipoServicioId}/productos`, { params: { puntoVentaId } }).then(r => r.data);
+
+export const asignarProductoTipoServicio = (tipoServicioId: number, productoId: number, puntoVentaId: number) =>
+  api.post(`${BASE}/tipos-servicio/${tipoServicioId}/productos`, { PRODUCTO_ID: productoId, PUNTO_VENTA_ID: puntoVentaId }).then(r => r.data);
+
+export const desasignarProductoTipoServicio = (tipoServicioId: number, productoId: number, puntoVentaId: number) =>
+  api.delete(`${BASE}/tipos-servicio/${tipoServicioId}/productos/${productoId}`, { params: { puntoVentaId } }).then(r => r.data);
+
+export const searchProductosParaAsignar = (search: string, puntoVentaId: number, tipoServicioId: number) =>
+  api.get<ProductoParaAsignar[]>(`${BASE}/tipos-servicio/search-productos`, { params: { search, puntoVentaId, tipoServicioId } }).then(r => r.data);
+
+// ── Print data ──────────────────────────────────
+
+export const getTiposServicioEnPedido = (pedidoId: number, puntoVentaId: number) =>
+  api.get<TipoServicioEnPedido[]>(`${BASE}/pedidos/${pedidoId}/tipos-servicio`, { params: { puntoVentaId } }).then(r => r.data);
+
+export const getComandaData = (pedidoId: number, tipoServicioId?: number) =>
+  api.get<ComandaPrintData>(`${BASE}/pedidos/${pedidoId}/comanda`, { params: { tipoServicioId } }).then(r => r.data);
+
+export const getCuentaClienteData = (pedidoId: number) =>
+  api.get<ComandaPrintData>(`${BASE}/pedidos/${pedidoId}/cuenta-cliente`).then(r => r.data);
+
+// ── Listado de Comandas ──────────────────────────
+
+export const getListadoComandas = (params: {
+  puntoVentaId: number;
+  fechaDesde: string;
+  fechaHasta: string;
+  estado?: string;
+  mesaId?: number;
+}) =>
+  api.get<ComandaListItem[]>(`${BASE}/comandas`, { params }).then(r => r.data);

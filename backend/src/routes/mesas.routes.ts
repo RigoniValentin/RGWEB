@@ -87,6 +87,27 @@ router.patch('/mesas/:id/estado', async (req: AuthRequest, res: Response, next: 
 });
 
 // ══════════════════════════════════════════════════
+//  Listado de Comandas
+// ══════════════════════════════════════════════════
+
+router.get('/comandas', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { puntoVentaId, fechaDesde, fechaHasta, estado, mesaId } = req.query;
+    if (!puntoVentaId || !fechaDesde || !fechaHasta) {
+      return res.status(400).json({ error: 'puntoVentaId, fechaDesde y fechaHasta son requeridos' });
+    }
+    const data = await mesasService.getListadoComandas({
+      puntoVentaId: Number(puntoVentaId),
+      fechaDesde: String(fechaDesde),
+      fechaHasta: String(fechaHasta),
+      estado: estado ? String(estado) : undefined,
+      mesaId: mesaId ? Number(mesaId) : undefined,
+    });
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// ══════════════════════════════════════════════════
 //  Pedidos
 // ══════════════════════════════════════════════════
 
@@ -195,6 +216,108 @@ router.get('/search-products-advanced', async (req: AuthRequest, res: Response, 
       limit: req.query.limit ? Number(req.query.limit) : 50,
     });
     res.json(results);
+  } catch (err) { next(err); }
+});
+
+// ══════════════════════════════════════════════════
+//  Tipos de Servicio Comanda
+// ══════════════════════════════════════════════════
+
+router.get('/tipos-servicio/search-productos', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const search = (req.query.search as string) || '';
+    const pvId = Number(req.query.puntoVentaId);
+    const tsId = Number(req.query.tipoServicioId) || 0;
+    if (!pvId) { res.status(400).json({ error: 'puntoVentaId requerido' }); return; }
+    const results = await mesasService.searchProductosParaAsignar(search, pvId, tsId);
+    res.json(results);
+  } catch (err) { next(err); }
+});
+
+router.get('/tipos-servicio', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const pvId = req.query.puntoVentaId ? Number(req.query.puntoVentaId) : undefined;
+    const tipos = await mesasService.getTiposServicioComanda(pvId);
+    res.json(tipos);
+  } catch (err) { next(err); }
+});
+
+router.post('/tipos-servicio', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tipo = await mesasService.createTipoServicioComanda(req.body);
+    res.status(201).json(tipo);
+  } catch (err) { next(err); }
+});
+
+router.put('/tipos-servicio/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    await mesasService.updateTipoServicioComanda(Number(req.params.id), req.body);
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+router.delete('/tipos-servicio/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    await mesasService.deleteTipoServicioComanda(Number(req.params.id));
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ── Producto ↔ Tipo Servicio association ─────────
+
+router.get('/tipos-servicio/:id/productos', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const pvId = Number(req.query.puntoVentaId);
+    if (!pvId) { res.status(400).json({ error: 'puntoVentaId requerido' }); return; }
+    const productos = await mesasService.getProductosByTipoServicio(Number(req.params.id), pvId);
+    res.json(productos);
+  } catch (err) { next(err); }
+});
+
+router.post('/tipos-servicio/:id/productos', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const pvId = Number(req.body.PUNTO_VENTA_ID);
+    const prodId = Number(req.body.PRODUCTO_ID);
+    if (!pvId || !prodId) { res.status(400).json({ error: 'PRODUCTO_ID y PUNTO_VENTA_ID requeridos' }); return; }
+    await mesasService.asignarProductoTipoServicio(prodId, pvId, Number(req.params.id));
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+router.delete('/tipos-servicio/:id/productos/:productoId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const pvId = Number(req.query.puntoVentaId);
+    if (!pvId) { res.status(400).json({ error: 'puntoVentaId requerido' }); return; }
+    await mesasService.desasignarProductoTipoServicio(Number(req.params.productoId), pvId);
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ── Print data ──────────────────────────────────
+
+router.get('/pedidos/:id/tipos-servicio', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const pvId = Number(req.query.puntoVentaId);
+    if (!pvId) { res.status(400).json({ error: 'puntoVentaId requerido' }); return; }
+    const tipos = await mesasService.getTiposServicioEnPedido(Number(req.params.id), pvId);
+    res.json(tipos);
+  } catch (err) { next(err); }
+});
+
+router.get('/pedidos/:id/comanda', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tsId = req.query.tipoServicioId ? Number(req.query.tipoServicioId) : undefined;
+    const data = await mesasService.getComandaData(Number(req.params.id), tsId);
+    if (!data) { res.status(404).json({ error: 'Pedido no encontrado' }); return; }
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.get('/pedidos/:id/cuenta-cliente', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const data = await mesasService.getCuentaClienteData(Number(req.params.id));
+    if (!data) { res.status(404).json({ error: 'Pedido no encontrado' }); return; }
+    res.json(data);
   } catch (err) { next(err); }
 });
 

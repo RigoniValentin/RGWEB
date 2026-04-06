@@ -1,5 +1,6 @@
 import { getPool, sql } from '../database/connection.js';
-import type { Sector, Mesa, Pedido, PedidoItem, PedidoDetalle, PaginatedResult } from '../types/index.js';
+import { config } from '../config/index.js';
+import type { Sector, Mesa, Pedido, PedidoItem, PedidoDetalle, PaginatedResult, TipoServicioComanda, ProductoServicioComanda } from '../types/index.js';
 
 /* ═══════════════════════════════════════════════════
    Mesas (Gastronomía) Service
@@ -136,9 +137,11 @@ async function getPedidosMesa(mesaId: number): Promise<Pedido[]> {
     .query(`
       SELECT p.PEDIDO_ID, p.MESA_ID, p.ESTADO, p.FECHA_CREACION,
              p.FECHA_CIERRE, p.TOTAL, p.PUNTO_VENTA_ID, p.MOZO,
-             m.NUMERO_MESA AS MESA_NUMERO
+             m.NUMERO_MESA AS MESA_NUMERO,
+             pv.VENTA_ID
       FROM PEDIDOS p
       LEFT JOIN MESAS m ON p.MESA_ID = m.MESA_ID
+      LEFT JOIN PEDIDOS_VENTAS pv ON p.PEDIDO_ID = pv.PEDIDO_ID
       WHERE p.MESA_ID = @mesaId
       ORDER BY p.FECHA_CREACION DESC
     `);
@@ -245,6 +248,20 @@ async function agregarItemPedido(pedidoId: number, data: {
                 SELECT * FROM PEDIDO_ITEMS WHERE PEDIDO_ITEM_ID = @itemId`);
       item = result.recordset[0];
     } else {
+      // Lookup TIPO_SERVICIO_ID from PRODUCTO_PUNTO_VENTA_SERVICIO_COMANDA
+      let tipoServicioId: number | null = null;
+      if (data.PRODUCTO_ID && data.PUNTO_VENTA_ID) {
+        const tsResult = await tx.request()
+          .input('prodIdTs', sql.Int, data.PRODUCTO_ID)
+          .input('pvIdTs', sql.Int, data.PUNTO_VENTA_ID)
+          .query(`SELECT TOP 1 TIPO_SERVICIO_ID FROM PRODUCTO_PUNTO_VENTA_SERVICIO_COMANDA
+                  WHERE PRODUCTO_ID = @prodIdTs AND PUNTO_VENTA_ID = @pvIdTs
+                  ORDER BY TIPO_SERVICIO_ID`);
+        if (tsResult.recordset.length > 0) {
+          tipoServicioId = tsResult.recordset[0].TIPO_SERVICIO_ID;
+        }
+      }
+
       // Insert new item
       const result = await tx.request()
         .input('pedidoId', sql.Int, pedidoId)
@@ -254,9 +271,10 @@ async function agregarItemPedido(pedidoId: number, data: {
         .input('precio', sql.Decimal(18, 2), data.PRECIO_UNITARIO)
         .input('pvId', sql.Int, data.PUNTO_VENTA_ID ?? null)
         .input('lista', sql.Int, data.LISTA_PRECIO_SELECCIONADA ?? 1)
-        .query(`INSERT INTO PEDIDO_ITEMS (PEDIDO_ID, PRODUCTO_ID, PROMOCION_ID, CANTIDAD, PRECIO_UNITARIO, PUNTO_VENTA_ID, LISTA_PRECIO_SELECCIONADA)
+        .input('tipoServId', sql.Int, tipoServicioId)
+        .query(`INSERT INTO PEDIDO_ITEMS (PEDIDO_ID, PRODUCTO_ID, PROMOCION_ID, CANTIDAD, PRECIO_UNITARIO, PUNTO_VENTA_ID, LISTA_PRECIO_SELECCIONADA, TIPO_SERVICIO_ID)
                 OUTPUT INSERTED.*
-                VALUES (@pedidoId, @prodId, @promoId, @qty, @precio, @pvId, @lista)`);
+                VALUES (@pedidoId, @prodId, @promoId, @qty, @precio, @pvId, @lista, @tipoServId)`);
       item = result.recordset[0];
     }
 
@@ -642,6 +660,239 @@ async function getPedidoActivoMesa(mesaId: number): Promise<PedidoDetalle | null
   return getPedidoById(result.recordset[0].PEDIDO_ID);
 }
 
+// ── Tipos de Servicio Comanda ────────────────────
+
+async function getTiposServicioComanda(puntoVentaId?: number): Promise<TipoServicioComanda[]> {
+  const pool = await getPool();
+  const req = pool.request();
+  let query = `SELECT TIPO_SERVICIO_ID, NOMBRE, PUNTO_VENTA_ID
+               FROM TIPO_SERVICIO_COMANDA`;
+  if (puntoVentaId) {
+    query += ` WHERE PUNTO_VENTA_ID = @pvId`;
+    req.input('pvId', sql.Int, puntoVentaId);
+  }
+  query += ` ORDER BY NOMBRE`;
+  const result = await req.query(query);
+  return result.recordset;
+}
+
+async function createTipoServicioComanda(data: { NOMBRE: string; PUNTO_VENTA_ID: number }): Promise<TipoServicioComanda> {
+  const pool = await getPool();
+  const result = await pool.request()
+    .input('nombre', sql.NVarChar(100), data.NOMBRE)
+    .input('pvId', sql.Int, data.PUNTO_VENTA_ID)
+    .query(`INSERT INTO TIPO_SERVICIO_COMANDA (NOMBRE, PUNTO_VENTA_ID)
+            OUTPUT INSERTED.*
+            VALUES (@nombre, @pvId)`);
+  return result.recordset[0];
+}
+
+async function updateTipoServicioComanda(id: number, data: { NOMBRE: string }): Promise<void> {
+  const pool = await getPool();
+  await pool.request()
+    .input('id', sql.Int, id)
+    .input('nombre', sql.NVarChar(100), data.NOMBRE)
+    .query(`UPDATE TIPO_SERVICIO_COMANDA SET NOMBRE = @nombre WHERE TIPO_SERVICIO_ID = @id`);
+}
+
+async function deleteTipoServicioComanda(id: number): Promise<void> {
+  const pool = await getPool();
+  // Remove product associations first
+  await pool.request()
+    .input('id', sql.Int, id)
+    .query(`DELETE FROM PRODUCTO_PUNTO_VENTA_SERVICIO_COMANDA WHERE TIPO_SERVICIO_ID = @id`);
+  // Delete the tipo
+  await pool.request()
+    .input('id', sql.Int, id)
+    .query(`DELETE FROM TIPO_SERVICIO_COMANDA WHERE TIPO_SERVICIO_ID = @id`);
+}
+
+// ── Producto ↔ Tipo Servicio association ─────────
+
+async function getProductosByTipoServicio(tipoServicioId: number, puntoVentaId: number): Promise<ProductoServicioComanda[]> {
+  const pool = await getPool();
+  const result = await pool.request()
+    .input('tsId', sql.Int, tipoServicioId)
+    .input('pvId', sql.Int, puntoVentaId)
+    .query(`
+      SELECT ppvsc.PRODUCTO_ID, ppvsc.PUNTO_VENTA_ID, ppvsc.TIPO_SERVICIO_ID,
+             p.NOMBRE AS PRODUCTO_NOMBRE, p.CODIGOPARTICULAR AS PRODUCTO_CODIGO
+      FROM PRODUCTO_PUNTO_VENTA_SERVICIO_COMANDA ppvsc
+      INNER JOIN PRODUCTOS p ON ppvsc.PRODUCTO_ID = p.PRODUCTO_ID
+      WHERE ppvsc.TIPO_SERVICIO_ID = @tsId AND ppvsc.PUNTO_VENTA_ID = @pvId
+      ORDER BY p.NOMBRE
+    `);
+  return result.recordset;
+}
+
+async function asignarProductoTipoServicio(productoId: number, puntoVentaId: number, tipoServicioId: number): Promise<void> {
+  const pool = await getPool();
+  // Upsert: delete existing assignment for this product+pv, then insert new one
+  await pool.request()
+    .input('prodId', sql.Int, productoId)
+    .input('pvId', sql.Int, puntoVentaId)
+    .query(`DELETE FROM PRODUCTO_PUNTO_VENTA_SERVICIO_COMANDA WHERE PRODUCTO_ID = @prodId AND PUNTO_VENTA_ID = @pvId`);
+  await pool.request()
+    .input('prodId', sql.Int, productoId)
+    .input('pvId', sql.Int, puntoVentaId)
+    .input('tsId', sql.Int, tipoServicioId)
+    .query(`INSERT INTO PRODUCTO_PUNTO_VENTA_SERVICIO_COMANDA (PRODUCTO_ID, PUNTO_VENTA_ID, TIPO_SERVICIO_ID)
+            VALUES (@prodId, @pvId, @tsId)`);
+}
+
+async function desasignarProductoTipoServicio(productoId: number, puntoVentaId: number): Promise<void> {
+  const pool = await getPool();
+  await pool.request()
+    .input('prodId', sql.Int, productoId)
+    .input('pvId', sql.Int, puntoVentaId)
+    .query(`DELETE FROM PRODUCTO_PUNTO_VENTA_SERVICIO_COMANDA WHERE PRODUCTO_ID = @prodId AND PUNTO_VENTA_ID = @pvId`);
+}
+
+async function searchProductosParaAsignar(search: string, puntoVentaId: number, tipoServicioId: number): Promise<any[]> {
+  const pool = await getPool();
+  const req = pool.request();
+  req.input('pvId', sql.Int, puntoVentaId);
+  req.input('tsId', sql.Int, tipoServicioId);
+
+  let where = `p.ACTIVO = 1`;
+  if (search) {
+    const tokens = search.trim().split(/\s+/);
+    tokens.forEach((token, i) => {
+      req.input(`s${i}`, sql.NVarChar, `%${token}%`);
+      where += ` AND (p.NOMBRE LIKE @s${i} OR p.CODIGOPARTICULAR LIKE @s${i})`;
+    });
+  }
+
+  const result = await req.query(`
+    SELECT TOP 50 p.PRODUCTO_ID, p.CODIGOPARTICULAR, p.NOMBRE,
+           ppvsc.TIPO_SERVICIO_ID AS TIPO_SERVICIO_ACTUAL
+    FROM PRODUCTOS p
+    LEFT JOIN PRODUCTO_PUNTO_VENTA_SERVICIO_COMANDA ppvsc
+      ON p.PRODUCTO_ID = ppvsc.PRODUCTO_ID AND ppvsc.PUNTO_VENTA_ID = @pvId
+    WHERE ${where}
+    ORDER BY p.NOMBRE
+  `);
+  return result.recordset;
+}
+
+// ── Print data endpoints ─────────────────────────
+
+async function getTiposServicioEnPedido(pedidoId: number, puntoVentaId: number): Promise<{ TIPO_SERVICIO_ID: number; NOMBRE: string }[]> {
+  const pool = await getPool();
+  const result = await pool.request()
+    .input('pedidoId', sql.Int, pedidoId)
+    .input('pvId', sql.Int, puntoVentaId)
+    .query(`
+      SELECT DISTINCT ts.TIPO_SERVICIO_ID, ts.NOMBRE
+      FROM PEDIDO_ITEMS pi
+      INNER JOIN TIPO_SERVICIO_COMANDA ts ON pi.TIPO_SERVICIO_ID = ts.TIPO_SERVICIO_ID
+      WHERE pi.PEDIDO_ID = @pedidoId
+        AND pi.TIPO_SERVICIO_ID IS NOT NULL
+        AND ts.PUNTO_VENTA_ID = @pvId
+      ORDER BY ts.NOMBRE
+    `);
+  return result.recordset;
+}
+
+async function getComandaData(pedidoId: number, tipoServicioId?: number): Promise<any> {
+  const pool = await getPool();
+
+  // Get pedido header
+  const headerResult = await pool.request()
+    .input('pedidoId', sql.Int, pedidoId)
+    .query(`
+      SELECT p.PEDIDO_ID, p.TOTAL, p.FECHA_CREACION, p.MOZO,
+             m.NUMERO_MESA, s.NOMBRE AS SECTOR_NOMBRE
+      FROM PEDIDOS p
+      INNER JOIN MESAS m ON p.MESA_ID = m.MESA_ID
+      INNER JOIN SECTORES s ON m.SECTOR_ID = s.SECTOR_ID
+      WHERE p.PEDIDO_ID = @pedidoId
+    `);
+  if (headerResult.recordset.length === 0) return null;
+  const header = headerResult.recordset[0];
+
+  // Get items, optionally filtered by tipo servicio
+  const itemReq = pool.request().input('pedidoId', sql.Int, pedidoId);
+  let itemQuery = `
+    SELECT pi.CANTIDAD,
+           CASE
+             WHEN pi.PRODUCTO_ID IS NOT NULL THEN p.NOMBRE
+             WHEN pi.PROMOCION_ID IS NOT NULL THEN CONCAT('[PROMO] ', pr.DESCRIPCION)
+             ELSE 'Item desconocido'
+           END AS NOMBRE,
+           pi.PRECIO_UNITARIO,
+           (pi.CANTIDAD * pi.PRECIO_UNITARIO) AS TOTAL
+    FROM PEDIDO_ITEMS pi
+    LEFT JOIN PRODUCTOS p ON pi.PRODUCTO_ID = p.PRODUCTO_ID
+    LEFT JOIN PROMOCIONES pr ON pi.PROMOCION_ID = pr.PROMOCION_ID
+    WHERE pi.PEDIDO_ID = @pedidoId`;
+
+  if (tipoServicioId) {
+    itemQuery += ` AND pi.TIPO_SERVICIO_ID = @tsId`;
+    itemReq.input('tsId', sql.Int, tipoServicioId);
+  }
+  itemQuery += ` ORDER BY pi.PEDIDO_ITEM_ID`;
+
+  const itemsResult = await itemReq.query(itemQuery);
+
+  return {
+    NOMBRE_FANTASIA: config.app.nombreFantasia || '',
+    PEDIDO_ID: header.PEDIDO_ID,
+    MESA: header.NUMERO_MESA,
+    SECTOR: header.SECTOR_NOMBRE,
+    FECHA: header.FECHA_CREACION,
+    MOZO: header.MOZO || 'Sin asignar',
+    TOTAL: header.TOTAL,
+    items: itemsResult.recordset,
+  };
+}
+
+async function getCuentaClienteData(pedidoId: number): Promise<any> {
+  const pool = await getPool();
+
+  const headerResult = await pool.request()
+    .input('pedidoId', sql.Int, pedidoId)
+    .query(`
+      SELECT p.PEDIDO_ID, p.TOTAL, p.FECHA_CREACION, p.MOZO,
+             m.NUMERO_MESA, s.NOMBRE AS SECTOR_NOMBRE
+      FROM PEDIDOS p
+      INNER JOIN MESAS m ON p.MESA_ID = m.MESA_ID
+      INNER JOIN SECTORES s ON m.SECTOR_ID = s.SECTOR_ID
+      WHERE p.PEDIDO_ID = @pedidoId
+    `);
+  if (headerResult.recordset.length === 0) return null;
+  const header = headerResult.recordset[0];
+
+  const itemsResult = await pool.request()
+    .input('pedidoId', sql.Int, pedidoId)
+    .query(`
+      SELECT pi.CANTIDAD,
+             CASE
+               WHEN pi.PRODUCTO_ID IS NOT NULL THEN p.NOMBRE
+               WHEN pi.PROMOCION_ID IS NOT NULL THEN CONCAT('[PROMOCIÓN] ', pr.DESCRIPCION)
+               ELSE 'Item desconocido'
+             END AS NOMBRE,
+             pi.PRECIO_UNITARIO,
+             (pi.CANTIDAD * pi.PRECIO_UNITARIO) AS TOTAL
+      FROM PEDIDO_ITEMS pi
+      LEFT JOIN PRODUCTOS p ON pi.PRODUCTO_ID = p.PRODUCTO_ID
+      LEFT JOIN PROMOCIONES pr ON pi.PROMOCION_ID = pr.PROMOCION_ID
+      WHERE pi.PEDIDO_ID = @pedidoId
+      ORDER BY pi.PEDIDO_ITEM_ID
+    `);
+
+  return {
+    NOMBRE_FANTASIA: config.app.nombreFantasia || '',
+    PEDIDO_ID: header.PEDIDO_ID,
+    MESA: header.NUMERO_MESA,
+    SECTOR: header.SECTOR_NOMBRE,
+    FECHA: header.FECHA_CREACION,
+    MOZO: header.MOZO || 'Sin asignar',
+    TOTAL: header.TOTAL,
+    items: itemsResult.recordset,
+  };
+}
+
 export const mesasService = {
   getSectores,
   createSector,
@@ -664,4 +915,62 @@ export const mesasService = {
   pasarPedidoAVenta,
   searchProductos,
   searchProductosAdvanced,
+  getTiposServicioComanda,
+  createTipoServicioComanda,
+  updateTipoServicioComanda,
+  deleteTipoServicioComanda,
+  getProductosByTipoServicio,
+  asignarProductoTipoServicio,
+  desasignarProductoTipoServicio,
+  getTiposServicioEnPedido,
+  getComandaData,
+  getCuentaClienteData,
+  searchProductosParaAsignar,
+  getListadoComandas,
 };
+
+// ── Listado de Comandas ────────────────────────
+
+interface ComandaFilters {
+  puntoVentaId: number;
+  fechaDesde: string;
+  fechaHasta: string;
+  estado?: string;
+  mesaId?: number;
+}
+
+async function getListadoComandas(filters: ComandaFilters) {
+  const pool = await getPool();
+  const req = pool.request()
+    .input('pvId', sql.Int, filters.puntoVentaId)
+    .input('fechaDesde', sql.DateTime, new Date(filters.fechaDesde))
+    .input('fechaHasta', sql.DateTime, new Date(filters.fechaHasta));
+
+  let where = `WHERE p.PUNTO_VENTA_ID = @pvId
+               AND p.FECHA_CREACION >= @fechaDesde
+               AND p.FECHA_CREACION <= @fechaHasta`;
+
+  if (filters.estado && filters.estado !== 'TODOS') {
+    where += ` AND p.ESTADO = @estado`;
+    req.input('estado', sql.NVarChar(20), filters.estado);
+  }
+  if (filters.mesaId) {
+    where += ` AND p.MESA_ID = @mesaId`;
+    req.input('mesaId', sql.Int, filters.mesaId);
+  }
+
+  const result = await req.query(`
+    SELECT p.PEDIDO_ID, p.MESA_ID, p.ESTADO, p.FECHA_CREACION,
+           p.FECHA_CIERRE, p.TOTAL, p.MOZO,
+           m.NUMERO_MESA, s.NOMBRE AS SECTOR_NOMBRE,
+           (SELECT COUNT(*) FROM PEDIDO_ITEMS pi WHERE pi.PEDIDO_ID = p.PEDIDO_ID) AS CANT_ITEMS,
+           pv.VENTA_ID
+    FROM PEDIDOS p
+    LEFT JOIN MESAS m ON p.MESA_ID = m.MESA_ID
+    LEFT JOIN SECTORES s ON m.SECTOR_ID = s.SECTOR_ID
+    LEFT JOIN PEDIDOS_VENTAS pv ON p.PEDIDO_ID = pv.PEDIDO_ID
+    ${where}
+    ORDER BY p.FECHA_CREACION DESC
+  `);
+  return result.recordset;
+}
