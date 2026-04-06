@@ -53,6 +53,12 @@ export interface AppDataSettings {
   apiToken: string;
   ipWsp: string;
 
+  // ARCA (ex-AFIP) direct integration
+  arcaCuit: string;
+  arcaCertPath: string;
+  arcaKeyPath: string;
+  arcaEnvironment: 'testing' | 'production';
+
   // Server (optional — sensible defaults)
   port: number;
   jwtSecret: string;
@@ -164,6 +170,10 @@ export function loadAppData(): AppDataSettings {
     apiKey: db['ApiKey'] || '',
     apiToken: db['ApiToken'] || '',
     ipWsp: db['IpWsp'] || '',
+    arcaCuit: db['ArcaCuit'] || '',
+    arcaCertPath: db['ArcaCertPath'] || '',
+    arcaKeyPath: db['ArcaKeyPath'] || '',
+    arcaEnvironment: (db['ArcaEnvironment'] === 'production' ? 'production' : 'testing') as 'testing' | 'production',
     port: parseInt(srv['Port'] || '3001', 10),
     jwtSecret: srv['JwtSecret'] || 'RG-Web-Jwt-Secret-2026!',
     jwtExpiresIn: srv['JwtExpiresIn'] || '8h',

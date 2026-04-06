@@ -51,4 +51,12 @@ export const config = {
     apiToken: appData.apiToken,
     ipWsp: appData.ipWsp,
   },
+
+  // ── ARCA (direct electronic invoicing) ─────────────
+  arca: {
+    cuit: appData.arcaCuit,
+    certPath: appData.arcaCertPath,
+    keyPath: appData.arcaKeyPath,
+    environment: appData.arcaEnvironment,
+  },
 };

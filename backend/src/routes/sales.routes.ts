@@ -86,7 +86,27 @@ router.get('/fe-config', async (_req: Request, res: Response) => {
   }
 });
 
-// POST /api/sales/:id/facturar  (emit factura electrónica)
+// GET /api/sales/fe-health  (ARCA health check)
+router.get('/fe-health', async (_req: Request, res: Response) => {
+  try {
+    const data = await facturacionService.healthCheck();
+    res.json(data);
+  } catch (err: any) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// GET /api/sales/fe-puntos-venta  (ARCA registered puntos de venta)
+router.get('/fe-puntos-venta', async (_req: Request, res: Response) => {
+  try {
+    const data = await facturacionService.getPuntosVentaARCA();
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sales/:id/facturar  (emit factura electrónica via ARCA)
 router.post('/:id/facturar', async (req: AuthRequest, res: Response) => {
   try {
     const ventaId = parseInt(req.params.id as string);
