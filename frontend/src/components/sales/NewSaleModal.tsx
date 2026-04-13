@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Modal, Input, Select, Button, InputNumber, Table, Space, Typography,
-  Divider, Spin, Switch, message, Badge, Tag, Checkbox, Popover,
+  Divider, Spin, Switch, message, Badge, Tag, Checkbox, Popover, Tabs,
 } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, ShoppingCartOutlined,
@@ -9,7 +9,7 @@ import {
   FileTextOutlined, SwapOutlined, DollarOutlined, CreditCardOutlined,
   WalletOutlined, ArrowLeftOutlined, CheckCircleOutlined,
   WarningOutlined, BankOutlined, PrinterOutlined, WhatsAppOutlined,
-  SendOutlined,
+  SendOutlined, ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -20,6 +20,7 @@ import { catalogApi } from '../../services/catalog.api';
 import { useAuthStore } from '../../store/authStore';
 import { useTabStore } from '../../store/tabStore';
 import { useSettingsStore } from '../../store/settingsStore';
+import { useSaleDraftsStore, type CartItem, type ModalStep } from '../../store/saleDraftsStore';
 import { fmtMoney } from '../../utils/format';
 import { printReceipt } from '../../utils/printReceipt';
 import { generateFacturaPdf } from './facturaPdf';
@@ -28,27 +29,12 @@ import { settingsApi } from '../../services/settings.api';
 import { FilePdfOutlined } from '@ant-design/icons';
 
 import type { ReceiptData } from '../../utils/printReceipt';
-import type { VentaItemInput, ProductoSearch, VentaInput, ClienteVenta, RemitoPendiente } from '../../types';
+import type { ProductoSearch, VentaInput, ClienteVenta, RemitoPendiente } from '../../types';
 import { ProductSearchModal } from '../ProductSearchModal';
 
 const { Title, Text } = Typography;
 
-type ModalStep = 'cart' | 'cobro';
-
-interface CartItem extends VentaItemInput {
-  key: string;
-  NOMBRE: string;
-  CODIGO: string;
-  STOCK: number;
-  UNIDAD: string;
-  UNIDAD_NOMBRE: string;
-  DESDE_REMITO?: boolean;
-  LISTA_1?: number;
-  LISTA_2?: number;
-  LISTA_3?: number;
-  LISTA_4?: number;
-  LISTA_5?: number;
-}
+export type { CartItem } from '../../store/saleDraftsStore';
 
 export interface PedidoParaVenta {
   PEDIDO_ID: number;
@@ -68,35 +54,95 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const queryClient = useQueryClient();
   const openTab = useTabStore(s => s.openTab);
   const { puntoVentaActivo, user } = useAuthStore();
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [clienteId, setClienteId] = useState<number>(1);
-  const [depositoId, setDepositoId] = useState<number | null>(null);
-  const [tipoComprobante, setTipoComprobante] = useState<string>('');
-  const [esCtaCorriente, setEsCtaCorriente] = useState(false);
-  const [dtoGral, setDtoGral] = useState(0);
+
+  // ── Draft store (persistent state) ─────────────
+  const drafts = useSaleDraftsStore(s => s.drafts);
+  const activeDraftId = useSaleDraftsStore(s => s.activeDraftId);
+  const activeDraft = useSaleDraftsStore(s => s.getActiveDraft());
+  const createDraft = useSaleDraftsStore(s => s.createDraft);
+  const createDraftFrom = useSaleDraftsStore(s => s.createDraftFrom);
+  const removeDraft = useSaleDraftsStore(s => s.removeDraft);
+  const setActiveDraft = useSaleDraftsStore(s => s.setActiveDraft);
+  const updateDraft = useSaleDraftsStore(s => s.updateDraft);
+
+  // Read draft-backed state (falls back to defaults if no active draft)
+  const cart = activeDraft?.cart ?? [];
+  const clienteId = activeDraft?.clienteId ?? 1;
+  const depositoId = activeDraft?.depositoId ?? null;
+  const tipoComprobante = activeDraft?.tipoComprobante ?? '';
+  const esCtaCorriente = activeDraft?.esCtaCorriente ?? false;
+  const dtoGral = activeDraft?.dtoGral ?? 0;
+  const gramosMode = activeDraft?.gramosMode ?? {};
+  const precioFinalMode = activeDraft?.precioFinalMode ?? {};
+  const precioFinalValues = activeDraft?.precioFinalValues ?? {};
+  const step = activeDraft?.step ?? 'cart' as ModalStep;
+  const selectedMetodos = activeDraft?.selectedMetodos ?? [];
+  const montosPorMetodo = activeDraft?.montosPorMetodo ?? {};
+  const wantPrint = activeDraft?.wantPrint ?? false;
+  const wantWhatsApp = activeDraft?.wantWhatsApp ?? false;
+  const wantFacturar = activeDraft?.wantFacturar ?? false;
+  const wantFEPdf = activeDraft?.wantFEPdf ?? false;
+  const wantFETicket = activeDraft?.wantFETicket ?? false;
+  const selectedRemitoIds = activeDraft?.selectedRemitoIds ?? [];
+
+  // Helper: update a field on the active draft
+  const ud = useCallback(<K extends keyof import('../../store/saleDraftsStore').SaleDraft>(
+    field: K, value: import('../../store/saleDraftsStore').SaleDraft[K]
+  ) => {
+    if (activeDraftId) updateDraft(activeDraftId, { [field]: value });
+  }, [activeDraftId, updateDraft]);
+
+  // Wrapper setters that write to the store
+  const setCart = useCallback((v: CartItem[] | ((prev: CartItem[]) => CartItem[])) => {
+    if (!activeDraftId) return;
+    const newVal = typeof v === 'function' ? v(useSaleDraftsStore.getState().getActiveDraft()?.cart ?? []) : v;
+    updateDraft(activeDraftId, { cart: newVal });
+  }, [activeDraftId, updateDraft]);
+  const setClienteId = useCallback((v: number) => ud('clienteId', v), [ud]);
+  const setDepositoId = useCallback((v: number | null) => ud('depositoId', v), [ud]);
+  const setTipoComprobante = useCallback((v: string) => ud('tipoComprobante', v), [ud]);
+  const setEsCtaCorriente = useCallback((v: boolean) => ud('esCtaCorriente', v), [ud]);
+  const setDtoGral = useCallback((v: number) => ud('dtoGral', v), [ud]);
+  const setGramosMode = useCallback((v: Record<string, boolean> | ((prev: Record<string, boolean>) => Record<string, boolean>)) => {
+    if (!activeDraftId) return;
+    const newVal = typeof v === 'function' ? v(useSaleDraftsStore.getState().getActiveDraft()?.gramosMode ?? {}) : v;
+    updateDraft(activeDraftId, { gramosMode: newVal });
+  }, [activeDraftId, updateDraft]);
+  const setPrecioFinalMode = useCallback((v: Record<string, boolean> | ((prev: Record<string, boolean>) => Record<string, boolean>)) => {
+    if (!activeDraftId) return;
+    const newVal = typeof v === 'function' ? v(useSaleDraftsStore.getState().getActiveDraft()?.precioFinalMode ?? {}) : v;
+    updateDraft(activeDraftId, { precioFinalMode: newVal });
+  }, [activeDraftId, updateDraft]);
+  const setPrecioFinalValues = useCallback((v: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => {
+    if (!activeDraftId) return;
+    const newVal = typeof v === 'function' ? v(useSaleDraftsStore.getState().getActiveDraft()?.precioFinalValues ?? {}) : v;
+    updateDraft(activeDraftId, { precioFinalValues: newVal });
+  }, [activeDraftId, updateDraft]);
+  const setStep = useCallback((v: ModalStep) => ud('step', v), [ud]);
+  const setSelectedMetodos = useCallback((v: number[]) => ud('selectedMetodos', v), [ud]);
+  const setMontosPorMetodo = useCallback((v: Record<number, number> | ((prev: Record<number, number>) => Record<number, number>)) => {
+    if (!activeDraftId) return;
+    const newVal = typeof v === 'function' ? v(useSaleDraftsStore.getState().getActiveDraft()?.montosPorMetodo ?? {}) : v;
+    updateDraft(activeDraftId, { montosPorMetodo: newVal });
+  }, [activeDraftId, updateDraft]);
+  const setWantPrint = useCallback((v: boolean) => ud('wantPrint', v), [ud]);
+  const setWantWhatsApp = useCallback((v: boolean) => ud('wantWhatsApp', v), [ud]);
+  const setWantFacturar = useCallback((v: boolean) => ud('wantFacturar', v), [ud]);
+  const setWantFEPdf = useCallback((v: boolean) => ud('wantFEPdf', v), [ud]);
+  const setWantFETicket = useCallback((v: boolean) => ud('wantFETicket', v), [ud]);
+  const setSelectedRemitoIds = useCallback((v: number[] | ((prev: number[]) => number[])) => {
+    if (!activeDraftId) return;
+    const newVal = typeof v === 'function' ? v(useSaleDraftsStore.getState().getActiveDraft()?.selectedRemitoIds ?? []) : v;
+    updateDraft(activeDraftId, { selectedRemitoIds: newVal });
+  }, [activeDraftId, updateDraft]);
+
+  // ── Local-only state (ephemeral / UI) ──────────
   const [searchText, setSearchText] = useState('');
   const searchRef = useRef<any>(null);
 
-  // Track which cart items are in grams mode (key -> true)
-  const [gramosMode, setGramosMode] = useState<Record<string, boolean>>({});
-  // Track which cart items are in "precio final" mode (key -> target price)
-  const [precioFinalMode, setPrecioFinalMode] = useState<Record<string, boolean>>({});
-  const [precioFinalValues, setPrecioFinalValues] = useState<Record<string, number>>({});
-
-  // Payment step state
-  const [step, setStep] = useState<ModalStep>('cart');
-  const [selectedMetodos, setSelectedMetodos] = useState<number[]>([]);
-  const [montosPorMetodo, setMontosPorMetodo] = useState<Record<number, number>>({});
   const efectivoRef = useRef<any>(null);
   const [metodoModalOpen, setMetodoModalOpen] = useState(false);
   const [metodoModalSelection, setMetodoModalSelection] = useState<number[]>([]);
-
-  // Print / WhatsApp toggles
-  const [wantPrint, setWantPrint] = useState(false);
-  const [wantWhatsApp, setWantWhatsApp] = useState(false);
-  const [wantFacturar, setWantFacturar] = useState(false);
-  const [wantFEPdf, setWantFEPdf] = useState(false);
-  const [wantFETicket, setWantFETicket] = useState(false);
 
 
   // ── Refs for Enter-flow: price → qty → dto → search ──
@@ -119,7 +165,6 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
 
   // ── Remitos pendientes state ──
   const [remitosPendientes, setRemitosPendientes] = useState<RemitoPendiente[]>([]);
-  const [selectedRemitoIds, setSelectedRemitoIds] = useState<number[]>([]);
   const [loadingRemitos, setLoadingRemitos] = useState(false);
   const [loadingRemitoItems, setLoadingRemitoItems] = useState(false);
 
@@ -130,6 +175,40 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
 
   // ── Check if user has an open caja ─────────────
   const [cajaCheckState, setCajaCheckState] = useState<'checking' | 'open' | 'closed'>('checking');
+
+  // ── Draft lifecycle: ensure at least one draft exists when modal opens ──
+  useEffect(() => {
+    if (open && drafts.length === 0 && !pedido) {
+      createDraft();
+    }
+  }, [open, drafts.length, pedido, createDraft]);
+
+  // ── Create draft from pedido (mesa → venta flow) ──
+  useEffect(() => {
+    if (open && pedido && pedido.items.length > 0) {
+      // Check if we already have a draft for this pedido
+      const existing = drafts.find(d => d.label === `Mesa #${pedido.MESA_ID}`);
+      if (!existing) {
+        const pedidoCart: CartItem[] = pedido.items.map(item => ({
+          key: `pedido-${item.PRODUCTO_ID}-${Date.now()}-${Math.random()}`,
+          PRODUCTO_ID: item.PRODUCTO_ID,
+          NOMBRE: item.NOMBRE || `Producto #${item.PRODUCTO_ID}`,
+          CODIGO: item.CODIGO || '',
+          PRECIO_UNITARIO: item.PRECIO_UNITARIO,
+          CANTIDAD: item.CANTIDAD,
+          DESCUENTO: 0,
+          PRECIO_COMPRA: 0,
+          STOCK: 999,
+          UNIDAD: 'u',
+          UNIDAD_NOMBRE: '',
+          LISTA_ID: item.LISTA_PRECIO_SELECCIONADA || 1,
+        }));
+        createDraftFrom({ cart: pedidoCart, label: `Mesa #${pedido.MESA_ID}` });
+      } else {
+        setActiveDraft(existing.id);
+      }
+    }
+  }, [open, pedido]);
 
   useEffect(() => {
     if (!open) {
@@ -161,26 +240,6 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       setTimeout(() => searchRef.current?.focus(), 50);
     }
   }, [open, cajaCheckState]);
-
-  // Pre-populate cart from pedido (mesa → venta flow)
-  useEffect(() => {
-    if (open && pedido && pedido.items.length > 0 && cart.length === 0) {
-      setCart(pedido.items.map(item => ({
-        key: `pedido-${item.PRODUCTO_ID}-${Date.now()}-${Math.random()}`,
-        PRODUCTO_ID: item.PRODUCTO_ID,
-        NOMBRE: item.NOMBRE || `Producto #${item.PRODUCTO_ID}`,
-        CODIGO: item.CODIGO || '',
-        PRECIO_UNITARIO: item.PRECIO_UNITARIO,
-        CANTIDAD: item.CANTIDAD,
-        DESCUENTO: 0,
-        PRECIO_COMPRA: 0,
-        STOCK: 999,
-        UNIDAD: 'u',
-        UNIDAD_NOMBRE: '',
-        LISTA_ID: item.LISTA_PRECIO_SELECCIONADA || 1,
-      })));
-    }
-  }, [open, pedido]);
 
   const handleGoToCaja = () => {
     handleClose();
@@ -314,6 +373,17 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     () => clientes.find((c: ClienteVenta) => c.CLIENTE_ID === clienteId),
     [clientes, clienteId]
   );
+
+  // Update draft label when client changes
+  useEffect(() => {
+    if (!activeDraftId || !activeDraft) return;
+    const baseName = activeDraft.label.replace(/ — .+$/, '');
+    if (selectedCliente && clienteId !== 1) {
+      updateDraft(activeDraftId, { label: `${baseName} — ${selectedCliente.NOMBRE}` });
+    } else if (activeDraft.label.includes(' — ')) {
+      updateDraft(activeDraftId, { label: baseName });
+    }
+  }, [clienteId, selectedCliente?.NOMBRE]);
 
   const esMonotributo = (empresaIva?.CONDICION_IVA || '').toUpperCase() === 'MONOTRIBUTO';
 
@@ -505,11 +575,15 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
 
       // Check if the user wants to reopen the new sale form
       const reabrir = useSettingsStore.getState().getBool('reabrir_nueva_venta');
+      const remainingDrafts = useSaleDraftsStore.getState().drafts.filter(d => d.id !== activeDraftId);
       resetForm();
-      if (reabrir) {
-        // Refetch sales list but keep modal open for the next sale
-        queryClient.invalidateQueries({ queryKey: ['sales'] });
-        // Focus product search for the next sale
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+      if (reabrir || remainingDrafts.length > 0) {
+        // Keep modal open: either setting says reopen, or there are other drafts
+        if (reabrir && remainingDrafts.length === 0) {
+          // Create a fresh draft for the next sale
+          createDraft();
+        }
         setTimeout(() => searchRef.current?.focus(), 0);
       } else {
         onSuccess();
@@ -552,35 +626,50 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     resetForm();
   };
 
+  // Remove the current draft from the store (after a sale is completed)
   const resetForm = useCallback(() => {
-    setCart([]);
-    setClienteId(1);
-    setDepositoId(null);
-    setTipoComprobante(comprobanteAutoValue);
-    setEsCtaCorriente(false);
-    setDtoGral(0);
+    if (activeDraftId) {
+      removeDraft(activeDraftId);
+    }
     setSearchText('');
-    setStep('cart');
-    setSelectedMetodos([]);
-    setMontosPorMetodo({});
     setMetodoModalOpen(false);
     setMetodoModalSelection([]);
-    setWantPrint(false);
-    setWantWhatsApp(false);
-    setWantFacturar(false);
-    setWantFEPdf(false);
-    setWantFETicket(false);
-
     setLastAddedKey(null);
     setFacturando(false);
     setRemitosPendientes([]);
-    setSelectedRemitoIds([]);
-  }, [comprobanteAutoValue]);
+  }, [activeDraftId, removeDraft]);
 
+  // Close modal — drafts persist in the store
   const handleClose = () => {
-    resetForm();
     onClose();
   };
+
+  // Discard a specific draft tab (with confirmation if it has items)
+  const handleDiscardDraft = useCallback((draftId: string) => {
+    const draft = drafts.find(d => d.id === draftId);
+    if (draft && draft.cart.length > 0) {
+      Modal.confirm({
+        title: '¿Descartar borrador?',
+        icon: <ExclamationCircleOutlined />,
+        content: `El borrador "${draft.label}" tiene ${draft.cart.length} producto(s). ¿Desea descartarlo?`,
+        okText: 'Descartar',
+        okType: 'danger',
+        cancelText: 'Cancelar',
+        onOk: () => {
+          const newActive = removeDraft(draftId);
+          if (!newActive) {
+            // All drafts removed — close the modal
+            onClose();
+          }
+        },
+      });
+    } else {
+      const newActive = removeDraft(draftId);
+      if (!newActive) {
+        onClose();
+      }
+    }
+  }, [drafts, removeDraft, onClose]);
 
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1003,10 +1092,43 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         searchRef.current?.focus();
         return;
       }
+
+      // ── Draft navigation shortcuts ──
+      // Ctrl+T → new draft
+      if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toUpperCase() === 'T') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (drafts.length >= 10) {
+          message.warning('Máximo 10 borradores simultáneos');
+        } else {
+          createDraft();
+        }
+        return;
+      }
+      // Ctrl+W → close current draft
+      if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toUpperCase() === 'W') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (activeDraftId) handleDiscardDraft(activeDraftId);
+        return;
+      }
+      // Alt+← / Alt+→ → switch between drafts
+      if (e.altKey && !e.ctrlKey && !e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (drafts.length <= 1) return;
+        const currentIdx = drafts.findIndex(d => d.id === activeDraftId);
+        const nextIdx = e.key === 'ArrowRight'
+          ? (currentIdx + 1) % drafts.length
+          : (currentIdx - 1 + drafts.length) % drafts.length;
+        const nextDraft = drafts[nextIdx];
+        if (nextDraft) setActiveDraft(nextDraft.id);
+        return;
+      }
     };
     window.addEventListener('keydown', handler, true);
     return () => window.removeEventListener('keydown', handler, true);
-  }, [open, step, cart.length, pagoValido]);
+  }, [open, step, cart.length, pagoValido, drafts, activeDraftId]);
 
   const activeListasPrecios = useMemo(() => listasPrecios.filter(l => l.ACTIVA), [listasPrecios]);
 
@@ -1362,7 +1484,6 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       width="95vw"
       style={{ top: 20, maxWidth: 1400 }}
       footer={null}
-      destroyOnClose
       closable={false}
       className="new-sale-modal"
       styles={{ body: { padding: 0, overflow: 'hidden' } }}
@@ -1391,6 +1512,49 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
           ✕
         </Button>
       </div>
+
+      {/* ── Draft tabs bar ──────────────────────── */}
+      {drafts.length > 0 && (
+        <div className="nsm-drafts-bar">
+          <Tabs
+            type="editable-card"
+            size="small"
+            activeKey={activeDraftId ?? undefined}
+            onChange={(key) => setActiveDraft(key)}
+            onEdit={(targetKey, action) => {
+              if (action === 'add') {
+                if (drafts.length >= 10) {
+                  message.warning('Máximo 10 borradores simultáneos');
+                } else {
+                  createDraft();
+                }
+              } else if (action === 'remove' && typeof targetKey === 'string') {
+                handleDiscardDraft(targetKey);
+              }
+            }}
+            items={drafts.map((d) => {
+              const itemCount = d.cart.length;
+              return {
+                key: d.id,
+                label: (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {d.label}
+                    {itemCount > 0 && (
+                      <Badge
+                        count={itemCount}
+                        size="small"
+                        style={{ backgroundColor: d.id === activeDraftId ? '#EABD23' : '#999', color: '#1E1F22', fontSize: 10 }}
+                      />
+                    )}
+                  </span>
+                ),
+                closable: true,
+              };
+            })}
+            tabBarStyle={{ margin: 0, paddingLeft: 12, paddingRight: 12 }}
+          />
+        </div>
+      )}
 
       {cajaCheckState === 'checking' ? (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '80px 0' }}>

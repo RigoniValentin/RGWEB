@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Drawer, Descriptions, Spin,
-  Button, Input, Dropdown, Popconfirm, message, Checkbox, Modal, Tooltip,
+  Button, Input, Dropdown, Popconfirm, message, Checkbox, Modal, Tooltip, Badge,
 } from 'antd';
 import {
   EyeOutlined, PlusOutlined, DeleteOutlined, DollarOutlined,
@@ -23,6 +23,7 @@ import { DateFilterPopover, type DatePreset } from '../components/DateFilterPopo
 import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
 import { useAuthStore } from '../store/authStore';
 import { useTabStore } from '../store/tabStore';
+import { useSaleDraftsStore } from '../store/saleDraftsStore';
 import { useNavigationStore } from '../store/navigationStore';
 import { fmtMoney, fmtNum, fmtComprobanteTipo } from '../utils/format';
 import { generateFacturaPdf, type CopiasTipo } from '../components/sales/facturaPdf';
@@ -37,6 +38,7 @@ export function SalesPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const openTab = useTabStore(s => s.openTab);
+  const draftCount = useSaleDraftsStore(s => s.drafts.length);
   const navTo = useNavigationStore(s => s.navigate);
   const navEvent = useNavigationStore(s => s.event);
   const clearNavEvent = useNavigationStore(s => s.clearEvent);
@@ -507,14 +509,16 @@ export function SalesPage() {
               Ver mi Caja
             </Button>
           )}
-          <Button
-            type="primary"
-            className="btn-gold"
-            icon={<PlusOutlined />}
-            onClick={() => setNewSaleOpen(true)}
-          >
-            Nueva Venta
-          </Button>
+          <Badge count={draftCount} offset={[-4, 4]} size="small" style={{ backgroundColor: '#EABD23', color: '#1E1F22' }}>
+            <Button
+              type="primary"
+              className="btn-gold"
+              icon={<PlusOutlined />}
+              onClick={() => setNewSaleOpen(true)}
+            >
+              Nueva Venta
+            </Button>
+          </Badge>
         </Space>
       </div>
 

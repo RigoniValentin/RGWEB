@@ -990,6 +990,67 @@ body {
   color: var(--rg-gold);
 }
 
+/* ── Draft tabs bar ─────────────────────────── */
+.nsm-drafts-bar {
+  background: #1E1F22;
+  border-bottom: 1px solid #333;
+}
+.nsm-drafts-bar .ant-tabs {
+  color: rgba(255, 255, 255, 0.65);
+}
+.nsm-drafts-bar .ant-tabs-nav {
+  margin-bottom: 0 !important;
+}
+.nsm-drafts-bar .ant-tabs-tab {
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-bottom: none !important;
+  color: rgba(255, 255, 255, 0.55) !important;
+  padding: 6px 14px !important;
+  margin: 0 2px !important;
+  border-radius: 6px 6px 0 0 !important;
+  transition: all 0.15s;
+}
+.nsm-drafts-bar .ant-tabs-tab:hover {
+  color: rgba(255, 255, 255, 0.85) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+.nsm-drafts-bar .ant-tabs-tab-active {
+  background: #2B2D31 !important;
+  border-color: #444 !important;
+  border-bottom-color: #2B2D31 !important;
+  color: #fff !important;
+}
+.nsm-drafts-bar .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #fff !important;
+}
+.nsm-drafts-bar .ant-tabs-tab-remove {
+  color: rgba(255, 255, 255, 0.35) !important;
+  margin-left: 4px !important;
+}
+.nsm-drafts-bar .ant-tabs-tab-remove:hover {
+  color: #ff7875 !important;
+}
+.nsm-drafts-bar .ant-tabs-nav-add {
+  background: transparent !important;
+  border: 1px dashed rgba(255, 255, 255, 0.2) !important;
+  color: rgba(255, 255, 255, 0.45) !important;
+  border-radius: 6px !important;
+  min-width: 32px !important;
+  height: 28px !important;
+  margin: 4px 0 4px 4px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.nsm-drafts-bar .ant-tabs-nav-add:hover {
+  border-color: var(--rg-gold) !important;
+  color: var(--rg-gold) !important;
+}
+.nsm-drafts-bar .ant-tabs-ink-bar {
+  display: none;
+}
+
 /* Two-column body */
 .nsm-body {
   display: flex;
