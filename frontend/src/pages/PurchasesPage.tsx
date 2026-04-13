@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Drawer, Descriptions, Spin, Alert,
-  Button, Input, Dropdown, Popconfirm, message, Checkbox,
+  Button, Input, Dropdown, Popconfirm, message, Checkbox, Badge,
 } from 'antd';
 import {
   EyeOutlined, PlusOutlined, DeleteOutlined,
   SearchOutlined, MoreOutlined, ReloadOutlined, SwapOutlined,
   CheckCircleOutlined,
 } from '@ant-design/icons';
+import { usePurchaseDraftStore } from '../store/purchaseDraftStore';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchasesApi } from '../services/purchases.api';
@@ -222,14 +223,16 @@ export function PurchasesPage() {
             Pago pendiente
           </Checkbox>
           <Button icon={<ReloadOutlined />} onClick={() => refetch()} />
-          <Button
-            type="primary"
-            className="btn-gold"
-            icon={<PlusOutlined />}
-            onClick={() => setNewPurchaseOpen(true)}
-          >
-            Nueva Compra
-          </Button>
+          <Badge dot={usePurchaseDraftStore(s => s.hasDraft())} offset={[-4, 4]}>
+            <Button
+              type="primary"
+              className="btn-gold"
+              icon={<PlusOutlined />}
+              onClick={() => setNewPurchaseOpen(true)}
+            >
+              Nueva Compra
+            </Button>
+          </Badge>
         </Space>
       </div>
 
