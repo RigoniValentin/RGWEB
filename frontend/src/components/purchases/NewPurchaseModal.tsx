@@ -388,9 +388,9 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     setCart(prev => prev.filter(item => item.key !== key));
   };
 
-  // Recalculate net unit prices when IVA inclusion or comprobante type changes
+  // Recalculate net unit prices when IVA inclusion or comprobante type changes (simple mode only)
   useEffect(() => {
-    if (cart.length === 0) return;
+    if (cart.length === 0 || isDetallada) return;
     const extractIva = tipoComprobante === 'FA' && ivaIncluido;
     setCart(prev => prev.map(item => {
       const unitPrice = item.CANTIDAD > 0 ? item.PRECIO_FINAL / item.CANTIDAD : 0;
@@ -400,7 +400,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
         PRECIO_COMPRA: extractIva ? unitPrice / (1 + ivaAli) : unitPrice,
       };
     }));
-  }, [ivaIncluido, tipoComprobante]);
+  }, [ivaIncluido, tipoComprobante, isDetallada]);
 
   // ── Total calculations ─────────────────────────
   const isFacturaA = tipoComprobante === 'FA';
@@ -412,13 +412,12 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const ivaCalculado = useMemo(() => {
     if (!isDetallada || !isFacturaA) return 0;
     return cart.reduce((s, item) => {
-      const iva = (item as any).IVA_PORCENTAJE ?? 21;
-      const impInt = (item as any).IMP_INTERNOS ?? 0;
-      const netoUnit = item.PRECIO_COMPRA;
-      const bonifPct = (item as any).BONIFICACION ?? 0;
-      const netoConBonif = netoUnit * (1 - bonifPct / 100);
-      const baseIva = impIntGravaIva ? (netoConBonif - impInt) : netoConBonif;
-      return s + baseIva * item.CANTIDAD * (iva / 100);
+      const ivaPct = item.IVA_PORCENTAJE ?? 21;
+      const impInt = item.IMP_INTERNOS ?? 0;
+      const impIntLine = impInt * item.CANTIDAD;
+      // PRECIO_FINAL is the authoritative net line subtotal (PRECIO_COMPRA * (1 - bonif/100) * qty)
+      const baseIva = impIntGravaIva ? (item.PRECIO_FINAL - impIntLine) : item.PRECIO_FINAL;
+      return s + baseIva * (ivaPct / 100);
     }, 0);
   }, [cart, isDetallada, isFacturaA, impIntGravaIva]);
 
@@ -567,7 +566,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       MONTO_DIGITAL: esCtaCorriente ? 0 : digitalFinal,
       VUELTO: vueltoFinal,
       COBRADA: !esCtaCorriente,
-      PRECIOS_SIN_IVA: isDetallada ? !isFacturaA : (isFacturaA ? !ivaIncluido : true),
+      PRECIOS_SIN_IVA: isDetallada ? true : (isFacturaA ? !ivaIncluido : true),
       IMP_INT_GRAVA_IVA: isDetallada ? impIntGravaIva : false,
       PERCEPCION_IVA: percepcionIva,
       PERCEPCION_IIBB: percepcionIibb,
@@ -1166,7 +1165,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                     disabled={cart.length === 0 || !proveedorId}
                     icon={<ShoppingCartOutlined />}
                   >
-                    Continuar al Pago {fmtMoney(total)}
+                    Pagar {fmtMoney(total)}
                   </Button>
                 )}
               </div>

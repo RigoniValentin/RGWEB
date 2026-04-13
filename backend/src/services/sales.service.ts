@@ -576,10 +576,43 @@ export const salesService = {
         ORDER BY FECHA
       `);
 
+    // ── Payment method breakdown ──
+    let metodos_pago: any[] = [];
+    try {
+      const mpResult = await pool.request()
+        .input('ventaId', sql.Int, id)
+        .query(`
+          SELECT mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64,
+                 vmp.MONTO AS TOTAL
+          FROM VENTAS_METODOS_PAGO vmp
+          JOIN METODOS_PAGO mp ON vmp.METODO_PAGO_ID = mp.METODO_PAGO_ID
+          WHERE vmp.VENTA_ID = @ventaId
+          ORDER BY CASE WHEN mp.CATEGORIA = 'EFECTIVO' THEN 0 ELSE 1 END, mp.NOMBRE
+        `);
+      metodos_pago = mpResult.recordset;
+    } catch { /* table may not exist yet */ }
+
+    // ── Associated NCs (Notas de Crédito) ──
+    let nc_asociadas: any[] = [];
+    try {
+      const ncResult = await pool.request()
+        .input('ventaId', sql.Int, id)
+        .query(`
+          SELECT NC_ID, FECHA, MOTIVO, MONTO, ANULADA,
+                 NUMERO_FISCAL, TIPO_COMPROBANTE, PUNTO_VENTA AS PUNTO_VENTA_FISCAL
+          FROM NC_VENTAS
+          WHERE VENTA_ID = @ventaId
+          ORDER BY FECHA DESC
+        `);
+      nc_asociadas = ncResult.recordset;
+    } catch { /* table may not exist yet */ }
+
     return {
       ...ventaResult.recordset[0],
       items: itemsResult.recordset,
       remitos_asociados: remitosResult.recordset,
+      metodos_pago,
+      nc_asociadas,
     };
   },
 

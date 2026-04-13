@@ -259,7 +259,7 @@ export function PurchasesPage() {
         title={`Compra #${selectedId}`}
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); setSelectedId(null); }}
-        width={900}
+        width={1000}
         className="rg-drawer"
         extra={
           detail && (
@@ -381,22 +381,22 @@ export function PurchasesPage() {
                       render: (v: number) => v % 1 === 0 ? v : fmtNum(v),
                     },
                     {
-                      title: 'P. Compra', dataIndex: 'PRECIO_COMPRA', width: 120,
+                      title: 'P. Compra', dataIndex: 'PRECIO_COMPRA', width: 140,
                       align: 'center' as const,
                       render: (v: number) => fmtMoney(v),
                     },
                     {
-                      title: 'Bonif.', dataIndex: 'PORCENTAJE_DESCUENTO', width: 72,
+                      title: 'Bonif.', dataIndex: 'PORCENTAJE_DESCUENTO', width: 80,
                       align: 'center' as const,
                       render: (v: number) => v > 0 ? `${fmtNum(v)}%` : '-',
                     },
                     {
-                      title: 'IVA', dataIndex: 'IVA_IMPORTE', width: 100,
+                      title: 'IVA', dataIndex: 'IVA_IMPORTE', width: 150,
                       align: 'center' as const,
                       render: (v: number, r: any) => v > 0 ? `${fmtMoney(v)} (${(r.IVA_ALICUOTA * 100).toFixed(0)}%)` : '-',
                     },
                     {
-                      title: 'Subtotal', dataIndex: 'TOTAL_PRODUCTO', width: 120, align: 'center' as const,
+                      title: 'Subtotal', dataIndex: 'TOTAL_PRODUCTO', width: 140, align: 'center' as const,
                       render: (v: number) => <Text strong>{fmtMoney(v)}</Text>,
                     },
                   ]}

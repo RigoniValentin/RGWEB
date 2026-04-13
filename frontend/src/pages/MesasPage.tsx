@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Typography, Button, Space, Tag, Spin, Empty, message, Dropdown,
   Modal, Form, Input, InputNumber, Drawer, Table, Popconfirm, Tooltip,
-  Segmented, Divider, Select,
+  Segmented, Divider,
 } from 'antd';
 import {
   PlusOutlined, ReloadOutlined, EditOutlined, DeleteOutlined,
@@ -21,7 +21,7 @@ import dayjs from 'dayjs';
 import * as mesasApi from '../services/mesas.api';
 import { NewSaleModal } from '../components/sales/NewSaleModal';
 import type { PedidoParaVenta } from '../components/sales/NewSaleModal';
-import type { Sector, Mesa, PedidoDetalle, ProductoSearchMesa, ProductoSearch, TipoServicioComanda, TipoServicioEnPedido, ProductoServicioComanda, ProductoParaAsignar } from '../types';
+import type { Sector, Mesa, PedidoDetalle, ProductoSearchMesa, ProductoSearch, TipoServicioComanda } from '../types';
 import { ProductSearchModal } from '../components/ProductSearchModal';
 
 const { Title, Text } = Typography;

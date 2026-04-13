@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Drawer, Descriptions, Spin, Alert,
   Button, Input, Dropdown, Popconfirm, message, Select, Statistic, Card, Row, Col,
+  Tooltip, Modal,
 } from 'antd';
 import {
   EyeOutlined, PlusOutlined, StopOutlined,
   SearchOutlined, MoreOutlined, ReloadOutlined,
   FileExclamationOutlined, UndoOutlined,
+  BankOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { ncComprasApi, type NCCompra } from '../services/ncCompras.api';
@@ -33,6 +36,9 @@ const MOTIVO_LABELS: Record<string, string> = {
 };
 
 export function NCComprasPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { openTab } = useTabStore();
   const [datePreset, setDatePreset] = useState<DatePreset>('mes');
   const [fechaDesde, setFechaDesde] = useState<string | undefined>(dayjs().startOf('month').format('YYYY-MM-DD'));
   const [fechaHasta, setFechaHasta] = useState<string | undefined>(dayjs().format('YYYY-MM-DD'));
@@ -43,6 +49,7 @@ export function NCComprasPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [newNCOpen, setNewNCOpen] = useState(false);
+  const [desgloseModalOpen, setDesgloseModalOpen] = useState(false);
 
   // ── Debounced search ───────────────────────────
   const [searchTimer, setSearchTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
@@ -69,6 +76,16 @@ export function NCComprasPage() {
   useEffect(() => {
     if (activeKey === '/nc-compras') refetch();
   }, [activeKey]);
+
+  // ── Open NC from navigation state (cross-nav from CajaCentral) ──
+  useEffect(() => {
+    const st = location.state as { openNCId?: number } | null;
+    if (st?.openNCId) {
+      setSelectedId(st.openNCId);
+      setDrawerOpen(true);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state]);
 
   // ── Detail query ───────────────────────────────
   const { data: detail, isLoading: detailLoading, error: detailError } = useQuery({
@@ -174,7 +191,6 @@ export function NCComprasPage() {
       {/* ── Header ─────────────────────────────── */}
       <div className="page-header">
         <Title level={3}>
-          <FileExclamationOutlined style={{ marginRight: 8 }} />
           Notas de Crédito — Compras
         </Title>
         <Space wrap>
@@ -343,7 +359,21 @@ export function NCComprasPage() {
               </Descriptions.Item>
               {detail.MEDIO_PAGO === 'CN' && detail.DESTINO_PAGO && (
                 <Descriptions.Item label="Destino">
-                  {detail.DESTINO_PAGO === 'CAJA' ? 'Caja Usuario' : 'Caja Central'}
+                  {detail.DESTINO_PAGO === 'CAJA' ? 'Caja Usuario' : (
+                    <Tooltip title="Ver en Caja Central">
+                      <span
+                        style={{ cursor: 'pointer', color: '#EABD23' }}
+                        onClick={() => {
+                          setDrawerOpen(false);
+                          setSelectedId(null);
+                          openTab({ key: '/cashcentral', label: 'Caja Central', closable: true });
+                          navigate('/cashcentral');
+                        }}
+                      >
+                        Caja Central <BankOutlined />
+                      </span>
+                    </Tooltip>
+                  )}
                 </Descriptions.Item>
               )}
               {detail.DESCRIPCION && (
@@ -357,9 +387,18 @@ export function NCComprasPage() {
                 </Descriptions.Item>
               )}
               <Descriptions.Item label="Monto" span={2}>
-                <span style={{ fontSize: 20, fontWeight: 'bold', color: '#EABD23' }}>
-                  {fmtMoney(detail.MONTO)}
-                </span>
+                {detail.metodos_pago && detail.metodos_pago.length > 0 ? (
+                  <span
+                    style={{ fontSize: 20, fontWeight: 'bold', color: '#EABD23', cursor: 'pointer' }}
+                    onClick={() => setDesgloseModalOpen(true)}
+                  >
+                    {fmtMoney(detail.MONTO)} ▸
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 20, fontWeight: 'bold', color: '#EABD23' }}>
+                    {fmtMoney(detail.MONTO)}
+                  </span>
+                )}
               </Descriptions.Item>
             </Descriptions>
 
@@ -377,36 +416,127 @@ export function NCComprasPage() {
                     { title: 'Código', dataIndex: 'PRODUCTO_CODIGO', width: 90, align: 'center' as const },
                     { title: 'Producto', dataIndex: 'PRODUCTO_NOMBRE', ellipsis: true },
                     {
+                      title: 'U.', key: 'unidad', width: 50, align: 'center' as const,
+                      render: (_: unknown, r: any) => <Text type="secondary">{r.UNIDAD_ABREVIACION || '—'}</Text>,
+                    },
+                    {
                       title: 'Cant. Devuelta', dataIndex: 'CANTIDAD_DEVUELTA', width: 120, align: 'center' as const,
                       render: (v: number) => <Text strong style={{ color: '#ff4d4f' }}>{v % 1 === 0 ? v : fmtNum(v)}</Text>,
                     },
                     {
-                      title: 'P. Compra', dataIndex: 'PRECIO_COMPRA', width: 120, align: 'center' as const,
+                      title: 'Precio', dataIndex: 'PRECIO_COMPRA', width: 120, align: 'center' as const,
                       render: (v: number) => fmtMoney(v),
                     },
                     {
+                      title: 'Bonif.', key: 'desc', width: 80, align: 'center' as const,
+                      render: (_: unknown, r: any) => {
+                        const d = r.PORCENTAJE_DESCUENTO || 0;
+                        return d > 0 ? <Text type="warning">{fmtNum(d)}%</Text> : <Text type="secondary">—</Text>;
+                      },
+                    },
+                    {
                       title: 'Subtotal', key: 'sub', width: 120, align: 'center' as const,
-                      render: (_: unknown, r: any) => <Text strong>{fmtMoney(r.CANTIDAD_DEVUELTA * r.PRECIO_COMPRA)}</Text>,
+                      render: (_: unknown, r: any) => {
+                        const bruto = r.CANTIDAD_DEVUELTA * r.PRECIO_COMPRA;
+                        const neto = Math.round(bruto * (1 - (r.PORCENTAJE_DESCUENTO || 0) / 100) * 100) / 100;
+                        return <Text strong>{fmtMoney(neto)}</Text>;
+                      },
                     },
                   ]}
-                  summary={() => (
-                    <Table.Summary.Row>
-                      <Table.Summary.Cell index={0} colSpan={4}>
-                        <Text strong style={{ marginLeft: 13 }}>Total</Text>
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell index={4} align="center">
-                        <Text strong style={{ color: '#EABD23' }}>
-                          {fmtMoney(detail.items.reduce((s, i) => s + i.CANTIDAD_DEVUELTA * i.PRECIO_COMPRA, 0))}
-                        </Text>
-                      </Table.Summary.Cell>
-                    </Table.Summary.Row>
-                  )}
+                  summary={() => {
+                    const isFA = detail.COMPRA_TIPO_COMPROBANTE === 'FA';
+                    const totalNeto = Math.round(detail.items.reduce((s, i: any) => {
+                      const bruto = i.CANTIDAD_DEVUELTA * i.PRECIO_COMPRA;
+                      return s + Math.round(bruto * (1 - (i.PORCENTAJE_DESCUENTO || 0) / 100) * 100) / 100;
+                    }, 0) * 100) / 100;
+                    const totalIva = isFA
+                      ? Math.round(detail.items.reduce((s, i: any) => {
+                          const bruto = i.CANTIDAD_DEVUELTA * i.PRECIO_COMPRA;
+                          const netoLinea = Math.round(bruto * (1 - (i.PORCENTAJE_DESCUENTO || 0) / 100) * 100) / 100;
+                          return s + Math.round(netoLinea * (i.IVA_ALICUOTA || 0) * 100) / 100;
+                        }, 0) * 100) / 100
+                      : 0;
+                    const totalFinal = detail.MONTO;
+                    return (
+                      <>
+                        {isFA && (
+                          <>
+                            <Table.Summary.Row>
+                              <Table.Summary.Cell index={0} colSpan={6}>
+                                <Text type="secondary" style={{ marginLeft: 13 }}>Neto</Text>
+                              </Table.Summary.Cell>
+                              <Table.Summary.Cell index={6} align="center">
+                                <Text type="secondary">{fmtMoney(totalNeto)}</Text>
+                              </Table.Summary.Cell>
+                            </Table.Summary.Row>
+                            <Table.Summary.Row>
+                              <Table.Summary.Cell index={0} colSpan={6}>
+                                <Text type="secondary" style={{ marginLeft: 13 }}>IVA</Text>
+                              </Table.Summary.Cell>
+                              <Table.Summary.Cell index={6} align="center">
+                                <Text type="secondary">{fmtMoney(totalIva)}</Text>
+                              </Table.Summary.Cell>
+                            </Table.Summary.Row>
+                          </>
+                        )}
+                        <Table.Summary.Row>
+                          <Table.Summary.Cell index={0} colSpan={6}>
+                            <Text strong style={{ marginLeft: 13 }}>Total</Text>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={6} align="center">
+                            <Text strong style={{ color: '#EABD23' }}>
+                              {fmtMoney(totalFinal)}
+                            </Text>
+                          </Table.Summary.Cell>
+                        </Table.Summary.Row>
+                      </>
+                    );
+                  }}
                 />
               </div>
             )}
           </>
         )}
       </Drawer>
+
+      {/* ── Desglose Métodos de Pago Modal ──── */}
+      <Modal
+        open={desgloseModalOpen}
+        onCancel={() => setDesgloseModalOpen(false)}
+        footer={<Button onClick={() => setDesgloseModalOpen(false)}>Cerrar</Button>}
+        title="Desglose por método de pago"
+        width={480}
+        destroyOnClose
+      >
+        {detail?.metodos_pago && detail.metodos_pago.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
+            {detail.metodos_pago.map(d => (
+              <div key={d.METODO_PAGO_ID} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '10px 14px', borderRadius: 8,
+                background: d.CATEGORIA === 'EFECTIVO' ? 'rgba(82,196,26,0.06)' : 'rgba(22,119,255,0.06)',
+                border: `1px solid ${d.CATEGORIA === 'EFECTIVO' ? '#b7eb8f' : '#91caff'}`,
+              }}>
+                <Space>
+                  {d.IMAGEN_BASE64 ? (
+                    <img src={d.IMAGEN_BASE64} alt={d.NOMBRE} style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 4 }} />
+                  ) : null}
+                  <div>
+                    <Text strong>{d.NOMBRE}</Text>
+                    <br />
+                    <Tag color={d.CATEGORIA === 'EFECTIVO' ? 'green' : 'blue'} style={{ fontSize: 10 }}>
+                      {d.CATEGORIA}
+                    </Tag>
+                  </div>
+                </Space>
+                <Text strong style={{ fontSize: 16 }}>{fmtMoney(Math.abs(d.TOTAL))}</Text>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Text type="secondary">No hay métodos de pago registrados.</Text>
+        )}
+      </Modal>
 
       {/* ── New NC Modal ──────────────────────── */}
       <NewNCCompraModal

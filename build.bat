@@ -62,6 +62,10 @@ REM -- Step 5: Copy utility scripts --------------------
 echo [5/6] Copying utility scripts...
 copy /y "%ROOT%enable-tcp-admin.ps1" "%INSTALLER_DIR%\enable-tcp-admin.ps1" > nul
 copy /y "%BACKEND%\RGWeb-hidden.vbs" "%INSTALLER_DIR%\RGWeb-hidden.vbs" > nul
+REM -- Create certs folder for ARCA certificates ------
+if not exist "%INSTALLER_DIR%\certs" mkdir "%INSTALLER_DIR%\certs"
+if exist "%ROOT%certs\*.crt" xcopy /y /q "%ROOT%certs\*.crt" "%INSTALLER_DIR%\certs\" > nul
+if exist "%ROOT%certs\*.key" xcopy /y /q "%ROOT%certs\*.key" "%INSTALLER_DIR%\certs\" > nul
 echo       Done.
 echo.
 
@@ -89,6 +93,7 @@ echo   Contents:
 echo     RGWeb.exe            - Server executable
 echo     RGWeb-hidden.vbs     - Launcher sin ventana de consola
 echo     public/              - Frontend files
+echo     certs/               - Certificados ARCA (.crt/.key)
 echo     enable-tcp-admin.ps1 - Habilitar TCP en SQL Server
 echo.
 echo   Para desplegar, copiar la carpeta "Rio Gestion WEB"

@@ -74,7 +74,14 @@ function serverBanner() {
 const app = express();
 
 // ── Middleware ────────────────────────────────────────
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      'img-src': ["'self'", 'data:', 'blob:'],
+    },
+  },
+}));
 app.use(cors({
   origin: config.nodeEnv === 'development'
     ? ['http://localhost:5173', 'http://localhost:3000']

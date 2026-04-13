@@ -22,7 +22,11 @@ import { useTabStore } from '../../store/tabStore';
 import { useSettingsStore } from '../../store/settingsStore';
 import { fmtMoney } from '../../utils/format';
 import { printReceipt } from '../../utils/printReceipt';
-import { printFETicket, openFEPdf } from '../../utils/printReceipt';
+import { generateFacturaPdf } from './facturaPdf';
+import { printFacturaTicket } from './facturaTicket';
+import { settingsApi } from '../../services/settings.api';
+import { FilePdfOutlined } from '@ant-design/icons';
+
 import type { ReceiptData } from '../../utils/printReceipt';
 import type { VentaItemInput, ProductoSearch, VentaInput, ClienteVenta, RemitoPendiente } from '../../types';
 import { ProductSearchModal } from '../ProductSearchModal';
@@ -91,8 +95,9 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const [wantPrint, setWantPrint] = useState(false);
   const [wantWhatsApp, setWantWhatsApp] = useState(false);
   const [wantFacturar, setWantFacturar] = useState(false);
-  const [wantFETicket, setWantFETicket] = useState(false);
   const [wantFEPdf, setWantFEPdf] = useState(false);
+  const [wantFETicket, setWantFETicket] = useState(false);
+
 
   // ── Refs for Enter-flow: price → qty → dto → search ──
   const priceRefs = useRef<Record<string, any>>({});
@@ -411,9 +416,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         message.success(`Venta #${result.VENTA_ID} creada — Total: ${fmtMoney(result.TOTAL)}`);
       }
 
-      // Track whether FE succeeded and has ticket/pdf URLs
-      let feTicketUrl = '';
-      let fePdfUrl = '';
+      // Track whether FE succeeded
       let feSuccess = false;
 
       // ── Post-sale: Facturación Electrónica ──
@@ -423,12 +426,26 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
           const feResult = await salesApi.facturar(result.VENTA_ID);
           if (feResult.success) {
             feSuccess = true;
-            feTicketUrl = feResult.ticket_url || '';
-            fePdfUrl = feResult.pdf_url || '';
             message.success(
               `Factura emitida: ${feResult.tipo_comprobante} Nº ${feResult.comprobante_nro} — CAE: ${feResult.cae}`,
               6
             );
+            // ── Post-factura: PDF / Ticket ──
+            try {
+              if (wantFEPdf) {
+                const [facturaData, logoDataUrl] = await Promise.all([
+                  salesApi.getFacturaData(result.VENTA_ID),
+                  settingsApi.getLogoDataUrl(),
+                ]);
+                await generateFacturaPdf(facturaData, 'original', logoDataUrl);
+              }
+              if (wantFETicket) {
+                const facturaData = await salesApi.getFacturaData(result.VENTA_ID);
+                printFacturaTicket(facturaData);
+              }
+            } catch (printErr: any) {
+              message.warning('Factura emitida, pero no se pudo generar el PDF/ticket: ' + (printErr.message || ''));
+            }
           } else {
             message.error(
               `Error al facturar: ${(feResult.errores || []).join(', ') || 'Error desconocido'}`,
@@ -440,16 +457,6 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         } finally {
           setFacturando(false);
         }
-      }
-
-      // ── Post-sale: FE ticket 80mm (from TusFacturas) ──
-      if (feSuccess && wantFETicket && feTicketUrl) {
-        printFETicket(feTicketUrl);
-      }
-
-      // ── Post-sale: FE PDF download ──
-      if (feSuccess && wantFEPdf && fePdfUrl) {
-        openFEPdf(fePdfUrl);
       }
 
       // ── Post-sale: Print local receipt (only when FE is NOT used or FE failed) ──
@@ -561,8 +568,9 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     setWantPrint(false);
     setWantWhatsApp(false);
     setWantFacturar(false);
-    setWantFETicket(false);
     setWantFEPdf(false);
+    setWantFETicket(false);
+
     setLastAddedKey(null);
     setFacturando(false);
     setRemitosPendientes([]);
@@ -1702,21 +1710,21 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                           {wantFacturar && (
                             <div style={{ marginLeft: 24, display: 'flex', flexDirection: 'column', gap: 4 }}>
                               <Checkbox
+                                checked={wantFEPdf}
+                                onChange={e => setWantFEPdf(e.target.checked)}
+                              >
+                                <Space size={6}>
+                                  <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                                  <span>Descargar PDF</span>
+                                </Space>
+                              </Checkbox>
+                              <Checkbox
                                 checked={wantFETicket}
                                 onChange={e => setWantFETicket(e.target.checked)}
                               >
                                 <Space size={6}>
                                   <PrinterOutlined />
-                                  <span>Descargar ticket 80mm</span>
-                                </Space>
-                              </Checkbox>
-                              <Checkbox
-                                checked={wantFEPdf}
-                                onChange={e => setWantFEPdf(e.target.checked)}
-                              >
-                                <Space size={6}>
-                                  <FileTextOutlined style={{ color: '#ff4d4f' }} />
-                                  <span>Descargar PDF</span>
+                                  <span>Imprimir ticket 80mm</span>
                                 </Space>
                               </Checkbox>
                             </div>
@@ -1924,25 +1932,26 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                 {wantFacturar && (
                   <div style={{ marginLeft: 24, display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <Checkbox
+                      checked={wantFEPdf}
+                      onChange={e => setWantFEPdf(e.target.checked)}
+                    >
+                      <Space size={6}>
+                        <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                        <span>Descargar PDF</span>
+                      </Space>
+                    </Checkbox>
+                    <Checkbox
                       checked={wantFETicket}
                       onChange={e => setWantFETicket(e.target.checked)}
                     >
                       <Space size={6}>
                         <PrinterOutlined />
-                        <span>Descargar ticket 80mm</span>
-                      </Space>
-                    </Checkbox>
-                    <Checkbox
-                      checked={wantFEPdf}
-                      onChange={e => setWantFEPdf(e.target.checked)}
-                    >
-                      <Space size={6}>
-                        <FileTextOutlined />
-                        <span>Descargar PDF</span>
+                        <span>Imprimir ticket 80mm</span>
                       </Space>
                     </Checkbox>
                   </div>
                 )}
+
               </div>
               </div>{/* /npm-sidebar-scroll */}
 

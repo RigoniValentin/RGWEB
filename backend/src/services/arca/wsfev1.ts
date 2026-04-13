@@ -3,6 +3,7 @@
  * ──────────────────────────────────────────────────────
  * Implements the SOAP calls to WSFEv1 for electronic invoicing:
  *   - FECAESolicitar (request CAE)
+
  *   - FECompUltimoAutorizado (last authorized receipt number)
  *   - FEParamGetTiposCbte, FEParamGetTiposIva, etc. (parametric tables)
  *   - FECompConsultar (query an issued receipt)
@@ -12,6 +13,7 @@
  */
 
 import { parseStringPromise, Builder } from 'xml2js';
+import { arcaFetch } from './arcaFetch.js';
 
 // ── Endpoints ────────────────────────────────────────
 export const WSFEV1_URLS = {
@@ -100,6 +102,7 @@ export interface FEComprobante {
   CbtesAsoc?: { Tipo: number; PtoVta: number; Nro: number; Cuit?: string; CbteFch?: string }[];
   Tributos?: { Id: number; Desc: string; BaseImp: number; Alic: number; Importe: number }[];
   Opcionales?: { Id: string; Valor: string }[];
+  CondicionIvaReceptor?: number;
 }
 
 export interface FECAEResponse {
@@ -150,7 +153,7 @@ function buildAuthXml(auth: FEAuthRequest): string {
 async function callSoap(url: string, method: string, body: string): Promise<any> {
   const envelope = buildSoapEnvelope(method, body);
 
-  const response = await fetch(url, {
+  const response = await arcaFetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'text/xml; charset=utf-8',
@@ -160,14 +163,13 @@ async function callSoap(url: string, method: string, body: string): Promise<any>
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
     throw Object.assign(
-      new Error(`WSFEv1 HTTP ${response.status}: ${errorText.substring(0, 500)}`),
+      new Error(`WSFEv1 HTTP ${response.status}: ${response.text.substring(0, 500)}`),
       { name: 'WSFEv1Error' }
     );
   }
 
-  const xml = await response.text();
+  const xml = response.text;
   const parsed = await parseStringPromise(xml, { explicitArray: false, ignoreAttrs: true });
 
   // Navigate to the SOAP body
@@ -320,11 +322,12 @@ export async function feCAESolicitar(
             <ar:ImpTotConc>${comprobante.ImpTotConc.toFixed(2)}</ar:ImpTotConc>
             <ar:ImpNeto>${comprobante.ImpNeto.toFixed(2)}</ar:ImpNeto>
             <ar:ImpOpEx>${comprobante.ImpOpEx.toFixed(2)}</ar:ImpOpEx>
-            <ar:ImpIVA>${comprobante.ImpIVA.toFixed(2)}</ar:ImpIVA>
             <ar:ImpTrib>${comprobante.ImpTrib.toFixed(2)}</ar:ImpTrib>
+            <ar:ImpIVA>${comprobante.ImpIVA.toFixed(2)}</ar:ImpIVA>
             ${servicePeriodXml}
             <ar:MonId>${comprobante.MonId}</ar:MonId>
             <ar:MonCotiz>${comprobante.MonCotiz}</ar:MonCotiz>
+            ${comprobante.CondicionIvaReceptor ? `<ar:CondicionIVAReceptorId>${comprobante.CondicionIvaReceptor}</ar:CondicionIVAReceptorId>` : ''}
             ${asocXml}
             ${tributosXml}
             ${ivaXml}

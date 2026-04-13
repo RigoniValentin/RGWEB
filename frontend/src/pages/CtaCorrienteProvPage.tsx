@@ -252,7 +252,7 @@ export function CtaCorrienteProvPage() {
       render: (v: string) => <Tag>{v}</Tag>,
     },
     {
-      title: 'Fecha', dataIndex: 'FECHA', width: 150, align: 'center',
+      title: 'Fecha', dataIndex: 'FECHA', width: 160, align: 'center',
       render: (v: string) => dayjs(v).format('DD/MM/YYYY HH:mm'),
     },
     {

@@ -57,9 +57,12 @@ export interface NCCompraInput {
   MONTO?: number;
   DESCUENTO?: number;
   DESCRIPCION?: string;
+  PTO_VTA?: string;
+  NRO_COMPROBANTE?: string;
   PUNTO_VENTA_ID?: number;
   DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
   items?: NCCompraItemInput[];
+  metodos_pago?: { METODO_PAGO_ID: number; MONTO: number }[];
 }
 
 // ── Helpers ─────────────────────────────────────
@@ -82,6 +85,23 @@ async function getCajaAbiertaTx(
     .input('uid', sql.Int, usuarioId)
     .query(`SELECT CAJA_ID, PUNTO_VENTA_ID FROM CAJA WHERE USUARIO_ID = @uid AND ESTADO = 'ACTIVA'`);
   return result.recordset.length > 0 ? result.recordset[0] : null;
+}
+
+// ── MOVIMIENTOS_CAJA_METODOS_PAGO table helper ──
+
+let _movCajaMetodosPagoTableReady = false;
+async function ensureMovCajaMetodosPagoTable(poolOrTx: any): Promise<void> {
+  if (_movCajaMetodosPagoTableReady) return;
+  await poolOrTx.request().query(`
+    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'MOVIMIENTOS_CAJA_METODOS_PAGO')
+    CREATE TABLE MOVIMIENTOS_CAJA_METODOS_PAGO (
+      ID INT IDENTITY(1,1) PRIMARY KEY,
+      MOVIMIENTO_ID INT NOT NULL,
+      METODO_PAGO_ID INT NOT NULL,
+      MONTO DECIMAL(18,2) NOT NULL
+    )
+  `);
+  _movCajaMetodosPagoTableReady = true;
 }
 
 // ── Stock helpers (mirror purchases.service) ────
@@ -176,15 +196,170 @@ async function incrementarStockTx(
 //  Auto-migration: ensure COMPRAS.ANULADA exists
 // ══════════════════════════════════════════════════
 
-let _migrationDone = false;
-async function ensureMigrations() {
-  if (_migrationDone) return;
+let _migrationPromise: Promise<void> | null = null;
+function ensureMigrations(): Promise<void> {
+  if (!_migrationPromise) _migrationPromise = _runMigrations().catch(err => {
+    _migrationPromise = null;
+    throw err;
+  });
+  return _migrationPromise;
+}
+async function _runMigrations() {
   const pool = await getPool();
+
+  // Ensure NC_COMPRAS table exists
+  await pool.request().query(`
+    IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'NC_COMPRAS')
+    CREATE TABLE NC_COMPRAS (
+      NC_ID INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+      COMPRA_ID INT NOT NULL,
+      MONTO DECIMAL(18,2) NOT NULL,
+      DESCUENTO DECIMAL(18,2) NULL,
+      FECHA DATETIME NOT NULL,
+      MOTIVO NVARCHAR(100) NOT NULL,
+      MEDIO_PAGO NVARCHAR(100) NOT NULL,
+      DESCRIPCION NVARCHAR(250) NULL,
+      ANULADA BIT NOT NULL DEFAULT 0,
+      NUMERO_FISCAL NVARCHAR(100) NULL,
+      CAE NVARCHAR(100) NULL,
+      PUNTO_VENTA NVARCHAR(100) NULL,
+      TIPO_COMPROBANTE NVARCHAR(50) NULL,
+      PROVEEDOR_ID INT NULL,
+      USUARIO_ID INT NULL,
+      PUNTO_VENTA_ID INT NULL,
+      DESTINO_PAGO VARCHAR(20) NULL,
+      NRO_COMPROBANTE NVARCHAR(100) NULL
+    );
+  `);
+
+  // Ensure NC_COMPRAS_ITEMS table exists
+  await pool.request().query(`
+    IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'NC_COMPRAS_ITEMS')
+    CREATE TABLE NC_COMPRAS_ITEMS (
+      NC_ITEM_ID INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+      NC_ID INT NOT NULL,
+      COMPRA_ID INT NOT NULL,
+      PRODUCTO_ID INT NOT NULL,
+      CANTIDAD_DEVUELTA DECIMAL(18,2) NOT NULL,
+      PRECIO_COMPRA DECIMAL(18,2) NOT NULL,
+      DEPOSITO_ID INT NULL
+    );
+  `);
+
+  // Ensure NC_COMPRAS_HISTORIAL table exists
+  await pool.request().query(`
+    IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'NC_COMPRAS_HISTORIAL')
+    CREATE TABLE NC_COMPRAS_HISTORIAL (
+      HISTORIAL_ID INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+      COMPRA_ID INT NOT NULL,
+      NC_ID INT NOT NULL,
+      FECHA DATETIME NOT NULL,
+      PRODUCTO_ID INT NOT NULL,
+      CANTIDAD_ORIGINAL DECIMAL(18,2) NOT NULL,
+      CANTIDAD_MODIFICADO DECIMAL(18,2) NOT NULL,
+      PRECIO_ORIGINAL DECIMAL(18,2) NOT NULL,
+      PRECIO_MODIFICADO DECIMAL(18,2) NOT NULL,
+      TOTAL_PRODUCTO_ORIGINAL DECIMAL(18,2) NOT NULL,
+      TOTAL_PRODUCTO_MODIFICADO DECIMAL(18,2) NOT NULL,
+      TOTAL_COMPRA_ORIGINAL DECIMAL(18,2) NOT NULL,
+      TOTAL_COMPRA_MODIFICADO DECIMAL(18,2) NOT NULL,
+      MOTIVO VARCHAR(50) NOT NULL,
+      DEPOSITO_ID INT NULL
+    );
+  `);
+
+  // Ensure ND_COMPRAS table exists
+  await pool.request().query(`
+    IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'ND_COMPRAS')
+    CREATE TABLE ND_COMPRAS (
+      ND_ID INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+      COMPRA_ID INT NOT NULL,
+      MONTO DECIMAL(18,2) NOT NULL,
+      FECHA DATETIME NOT NULL,
+      MOTIVO NVARCHAR(100) NOT NULL,
+      MEDIO_PAGO NVARCHAR(100) NOT NULL,
+      DESCRIPCION NVARCHAR(250) NULL,
+      ANULADA BIT NOT NULL DEFAULT 0,
+      NUMERO_FISCAL NVARCHAR(100) NULL,
+      CAE NVARCHAR(100) NULL,
+      PUNTO_VENTA NVARCHAR(100) NULL,
+      TIPO_COMPROBANTE NVARCHAR(50) NULL,
+      PROVEEDOR_ID INT NULL,
+      NC_ID INT NULL,
+      USUARIO_ID INT NULL,
+      PUNTO_VENTA_ID INT NULL
+    );
+  `);
+
+  // Ensure COMPRAS.ANULADA column exists
   await pool.request().query(`
     IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'COMPRAS' AND COLUMN_NAME = 'ANULADA')
       ALTER TABLE COMPRAS ADD ANULADA BIT NOT NULL DEFAULT 0;
   `);
-  _migrationDone = true;
+
+  // Ensure columns that may be missing on older tables
+  await pool.request().query(`
+    IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'NC_COMPRAS' AND COLUMN_NAME = 'DESTINO_PAGO')
+      ALTER TABLE NC_COMPRAS ADD DESTINO_PAGO VARCHAR(20) NULL;
+    IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'NC_COMPRAS' AND COLUMN_NAME = 'NRO_COMPROBANTE')
+      ALTER TABLE NC_COMPRAS ADD NRO_COMPROBANTE NVARCHAR(100) NULL;
+    IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'NC_COMPRAS' AND COLUMN_NAME = 'PUNTO_VENTA_ID')
+      ALTER TABLE NC_COMPRAS ADD PUNTO_VENTA_ID INT NULL;
+    IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'NC_COMPRAS' AND COLUMN_NAME = 'USUARIO_ID')
+      ALTER TABLE NC_COMPRAS ADD USUARIO_ID INT NULL;
+  `);
+
+  // Ensure NC_ID is IDENTITY (existing tables may have plain INT NOT NULL)
+  await pool.request().query(`
+    IF NOT EXISTS (
+      SELECT 1 FROM sys.identity_columns
+      WHERE object_id = OBJECT_ID('NC_COMPRAS') AND name = 'NC_ID'
+    )
+    BEGIN
+      CREATE TABLE NC_COMPRAS_TMP (
+        NC_ID INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        COMPRA_ID INT NOT NULL,
+        MONTO DECIMAL(18,2) NOT NULL,
+        DESCUENTO DECIMAL(18,2) NULL,
+        FECHA DATETIME NOT NULL,
+        MOTIVO NVARCHAR(100) NOT NULL,
+        MEDIO_PAGO NVARCHAR(100) NOT NULL,
+        DESCRIPCION NVARCHAR(250) NULL,
+        ANULADA BIT NOT NULL DEFAULT 0,
+        NUMERO_FISCAL NVARCHAR(100) NULL,
+        CAE NVARCHAR(100) NULL,
+        PUNTO_VENTA NVARCHAR(100) NULL,
+        TIPO_COMPROBANTE NVARCHAR(50) NULL,
+        PROVEEDOR_ID INT NULL,
+        USUARIO_ID INT NULL,
+        PUNTO_VENTA_ID INT NULL,
+        DESTINO_PAGO VARCHAR(20) NULL,
+        NRO_COMPROBANTE NVARCHAR(100) NULL
+      );
+
+      SET IDENTITY_INSERT NC_COMPRAS_TMP ON;
+      INSERT INTO NC_COMPRAS_TMP (
+        NC_ID, COMPRA_ID, MONTO, DESCUENTO, FECHA, MOTIVO, MEDIO_PAGO,
+        DESCRIPCION, ANULADA, NUMERO_FISCAL, CAE, PUNTO_VENTA,
+        TIPO_COMPROBANTE, PROVEEDOR_ID, DESTINO_PAGO, NRO_COMPROBANTE
+      )
+      SELECT
+        NC_ID, COMPRA_ID, MONTO, DESCUENTO, FECHA, MOTIVO, MEDIO_PAGO,
+        DESCRIPCION, ANULADA, NUMERO_FISCAL, CAE, PUNTO_VENTA,
+        TIPO_COMPROBANTE, PROVEEDOR_ID, DESTINO_PAGO, NRO_COMPROBANTE
+      FROM NC_COMPRAS;
+      SET IDENTITY_INSERT NC_COMPRAS_TMP OFF;
+
+      DECLARE @maxId INT = (SELECT ISNULL(MAX(NC_ID), 0) FROM NC_COMPRAS_TMP);
+
+      DROP TABLE NC_COMPRAS;
+      EXEC sp_rename 'NC_COMPRAS_TMP', 'NC_COMPRAS';
+
+      IF @maxId > 0
+        DBCC CHECKIDENT('NC_COMPRAS', RESEED, @maxId);
+    END
+  `);
+
 }
 
 // ══════════════════════════════════════════════════
@@ -195,6 +370,7 @@ export const ncComprasService = {
 
   // ── List all NCs ────────────────────────────────
   async getAll(filter: NCCompraFilter) {
+    await ensureMigrations();
     const pool = await getPool();
     const req = pool.request();
     const conditions: string[] = [];
@@ -251,6 +427,7 @@ export const ncComprasService = {
 
   // ── Get NC detail by ID ─────────────────────────
   async getById(id: number) {
+    await ensureMigrations();
     const pool = await getPool();
 
     const header = await pool.request()
@@ -271,10 +448,12 @@ export const ncComprasService = {
           nc.USUARIO_ID,
           nc.PUNTO_VENTA_ID,
           p.NOMBRE AS PROVEEDOR_NOMBRE,
-          u.NOMBRE AS USUARIO_NOMBRE
+          u.NOMBRE AS USUARIO_NOMBRE,
+          c.TIPO_COMPROBANTE AS COMPRA_TIPO_COMPROBANTE
         FROM NC_COMPRAS nc
         LEFT JOIN PROVEEDORES p ON p.PROVEEDOR_ID = nc.PROVEEDOR_ID
         LEFT JOIN USUARIOS u ON u.USUARIO_ID = nc.USUARIO_ID
+        LEFT JOIN COMPRAS c ON c.COMPRA_ID = nc.COMPRA_ID
         WHERE nc.NC_ID = @id
       `);
     if (header.recordset.length === 0) {
@@ -292,23 +471,56 @@ export const ncComprasService = {
           i.CANTIDAD_DEVUELTA,
           i.PRECIO_COMPRA,
           i.DEPOSITO_ID,
+          ISNULL(ci.IVA_ALICUOTA, 0) AS IVA_ALICUOTA,
+          ISNULL(ci.PORCENTAJE_DESCUENTO, 0) AS PORCENTAJE_DESCUENTO,
           pr.NOMBRE AS PRODUCTO_NOMBRE,
           pr.CODIGOPARTICULAR AS PRODUCTO_CODIGO,
           u.ABREVIACION AS UNIDAD_ABREVIACION
         FROM NC_COMPRAS_ITEMS i
         JOIN PRODUCTOS pr ON pr.PRODUCTO_ID = i.PRODUCTO_ID
         LEFT JOIN UNIDADES_MEDIDA u ON u.UNIDAD_ID = pr.UNIDAD_ID
+        LEFT JOIN COMPRAS_ITEMS ci ON ci.COMPRA_ID = i.COMPRA_ID AND ci.PRODUCTO_ID = i.PRODUCTO_ID
         WHERE i.NC_ID = @id
       `);
+
+    // Fetch payment method breakdown from MOVIMIENTOS_CAJA
+    let metodos_pago: any[] = [];
+    try {
+      const movRes = await pool.request()
+        .input('ncId', sql.Int, id)
+        .input('tipoEntidad', sql.VarChar(20), 'NC_COMPRA')
+        .query(`
+          SELECT TOP 1 ID FROM MOVIMIENTOS_CAJA
+          WHERE TIPO_ENTIDAD = @tipoEntidad
+            AND MOVIMIENTO LIKE 'NC Compra #' + CAST(@ncId AS VARCHAR) + ' -%'
+          ORDER BY ID DESC
+        `);
+      if (movRes.recordset.length > 0) {
+        const movId = movRes.recordset[0].ID;
+        const mpRes = await pool.request()
+          .input('movId', sql.Int, movId)
+          .query(`
+            SELECT mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64,
+                   mcm.MONTO AS TOTAL
+            FROM MOVIMIENTOS_CAJA_METODOS_PAGO mcm
+            JOIN METODOS_PAGO mp ON mcm.METODO_PAGO_ID = mp.METODO_PAGO_ID
+            WHERE mcm.MOVIMIENTO_ID = @movId
+            ORDER BY CASE WHEN mp.CATEGORIA = 'EFECTIVO' THEN 0 ELSE 1 END, mp.NOMBRE
+          `);
+        metodos_pago = mpRes.recordset;
+      }
+    } catch { /* table may not exist yet */ }
 
     return {
       ...header.recordset[0],
       items: items.recordset,
+      metodos_pago,
     };
   },
 
   // ── Purchases available for NC ──────────────────
   async getComprasParaNC(proveedorId: number, fechaDesde?: string, fechaHasta?: string) {
+    await ensureMigrations();
     const pool = await getPool();
     const req = pool.request();
     req.input('provId', sql.Int, proveedorId);
@@ -348,6 +560,7 @@ export const ncComprasService = {
 
   // ── Items from a purchase for devolution grid ───
   async getItemsCompra(compraId: number) {
+    await ensureMigrations();
     const pool = await getPool();
     const result = await pool.request()
       .input('cid', sql.Int, compraId)
@@ -361,6 +574,7 @@ export const ncComprasService = {
           ci.DEPOSITO_ID,
           ci.PORCENTAJE_DESCUENTO,
           ci.DESCUENTO_IMPORTE,
+          ISNULL(ci.IVA_ALICUOTA, 0) AS IVA_ALICUOTA,
           pr.NOMBRE   AS PRODUCTO_NOMBRE,
           pr.CODIGOPARTICULAR AS PRODUCTO_CODIGO,
           u.ABREVIACION AS UNIDAD_ABREVIACION,
@@ -382,6 +596,7 @@ export const ncComprasService = {
 
   // ── Check if NCs exist for a purchase ───────────
   async existeNCParaCompra(compraId: number) {
+    await ensureMigrations();
     const pool = await getPool();
     const result = await pool.request()
       .input('cid', sql.Int, compraId)
@@ -399,6 +614,7 @@ export const ncComprasService = {
 
   // ── Create NC ───────────────────────────────────
   async create(input: NCCompraInput, usuarioId: number) {
+    await ensureMigrations();
     const pool = await getPool();
     const tx = pool.transaction();
     await tx.begin();
@@ -463,7 +679,42 @@ export const ncComprasService = {
           }
         }
 
-        monto = r2(input.items.reduce((s, it) => s + r2(it.CANTIDAD_DEVUELTA * it.PRECIO_COMPRA), 0));
+        // Use frontend-calculated MONTO if provided (includes discount + IVA)
+        if (input.MONTO && input.MONTO > 0) {
+          monto = r2(input.MONTO);
+        } else {
+          // Fallback: calculate with discount + IVA from DB
+          const tipoComprobanteRes = await tx.request()
+            .input('cid', sql.Int, input.COMPRA_ID)
+            .query(`SELECT TIPO_COMPROBANTE FROM COMPRAS WHERE COMPRA_ID = @cid`);
+          const tipoComprobante = tipoComprobanteRes.recordset[0]?.TIPO_COMPROBANTE;
+          const isFA = tipoComprobante === 'FA';
+
+          // Fetch discount + IVA per item
+          const itemDetailsRes = await tx.request()
+            .input('cid', sql.Int, input.COMPRA_ID)
+            .query(`
+              SELECT PRODUCTO_ID, ISNULL(PORCENTAJE_DESCUENTO, 0) AS PORCENTAJE_DESCUENTO,
+                     ISNULL(IVA_ALICUOTA, 0) AS IVA_ALICUOTA
+              FROM COMPRAS_ITEMS WHERE COMPRA_ID = @cid
+            `);
+          const detailMap = new Map(itemDetailsRes.recordset.map((r: any) => [r.PRODUCTO_ID, r]));
+
+          let neto = 0;
+          let iva = 0;
+          for (const item of input.items) {
+            const det = detailMap.get(item.PRODUCTO_ID) as any;
+            const desc = det?.PORCENTAJE_DESCUENTO || 0;
+            const bruto = r2(item.CANTIDAD_DEVUELTA * item.PRECIO_COMPRA);
+            const lineNeto = r2(bruto * (1 - desc / 100));
+            neto += lineNeto;
+            if (isFA) {
+              const ivaAliq = det?.IVA_ALICUOTA || 0;
+              iva += r2(lineNeto * ivaAliq);
+            }
+          }
+          monto = r2(neto + iva);
+        }
       } else {
         // POR DESCUENTO / POR DIFERENCIA PRECIO
         if (!input.MONTO || input.MONTO <= 0) {
@@ -486,6 +737,8 @@ export const ncComprasService = {
         .input('medioPago', sql.NVarChar(100), input.MEDIO_PAGO)
         .input('descripcion', sql.NVarChar(250), input.DESCRIPCION ?? null)
         .input('anulada', sql.Bit, 0)
+        .input('ptoVta', sql.NVarChar(100), input.PTO_VTA || null)
+        .input('nroComprobante', sql.NVarChar(100), input.NRO_COMPROBANTE || null)
         .input('proveedorId', sql.Int, input.PROVEEDOR_ID)
         .input('usuarioId', sql.Int, usuarioId)
         .input('puntoVentaId', sql.Int, puntoVentaId)
@@ -494,13 +747,13 @@ export const ncComprasService = {
           INSERT INTO NC_COMPRAS (
             COMPRA_ID, MONTO, DESCUENTO, FECHA, MOTIVO, MEDIO_PAGO,
             DESCRIPCION, ANULADA, NUMERO_FISCAL, CAE, PUNTO_VENTA, TIPO_COMPROBANTE,
-            PROVEEDOR_ID, USUARIO_ID, PUNTO_VENTA_ID, DESTINO_PAGO
+            PROVEEDOR_ID, USUARIO_ID, PUNTO_VENTA_ID, DESTINO_PAGO, NRO_COMPROBANTE
           )
           OUTPUT INSERTED.NC_ID
           VALUES (
             @compraId, @monto, @descuento, @fecha, @motivo, @medioPago,
-            @descripcion, @anulada, NULL, NULL, NULL, NULL,
-            @proveedorId, @usuarioId, @puntoVentaId, @destinoPago
+            @descripcion, @anulada, NULL, NULL, @ptoVta, NULL,
+            @proveedorId, @usuarioId, @puntoVentaId, @destinoPago, @nroComprobante
           )
         `);
       const ncId: number = ncInsert.recordset[0].NC_ID;
@@ -624,38 +877,89 @@ export const ncComprasService = {
 
       // 9) Handle payment side-effects (CC balance / Caja)
       if (input.MEDIO_PAGO === 'CC') {
-        // Credit Cuenta Corriente Proveedor (reduce debt)
-        await tx.request()
-          .input('provId', sql.Int, input.PROVEEDOR_ID)
-          .input('monto', sql.Decimal(18, 2), monto)
-          .query('UPDATE PROVEEDORES SET SALDO_CC = ISNULL(SALDO_CC, 0) - @monto WHERE PROVEEDOR_ID = @provId');
+        // Register in COMPRAS_CTA_CORRIENTE (HABER = reduces what we owe)
+        const ctaCteRes = await tx.request()
+          .input('pid', sql.Int, input.PROVEEDOR_ID)
+          .query('SELECT CTA_CORRIENTE_ID FROM CTA_CORRIENTE_P WHERE PROVEEDOR_ID = @pid');
+        if (ctaCteRes.recordset.length > 0) {
+          const ctaCteId = ctaCteRes.recordset[0].CTA_CORRIENTE_ID;
+          await tx.request()
+            .input('comprobanteId', sql.Int, ncId)
+            .input('ctaCteId', sql.Int, ctaCteId)
+            .input('fecha', sql.DateTime, new Date())
+            .input('concepto', sql.NVarChar(255), `NC Compra #${ncId} - ${input.MOTIVO}`)
+            .input('tipoComp', sql.NVarChar(50), 'NCA')
+            .input('debe', sql.Decimal(18, 2), 0)
+            .input('haber', sql.Decimal(18, 2), monto)
+            .query(`
+              INSERT INTO COMPRAS_CTA_CORRIENTE
+                (COMPROBANTE_ID, CTA_CORRIENTE_ID, FECHA, CONCEPTO, TIPO_COMPROBANTE, DEBE, HABER)
+              VALUES
+                (@comprobanteId, @ctaCteId, @fecha, @concepto, @tipoComp, @debe, @haber)
+            `);
+        }
       } else if (input.MEDIO_PAGO === 'CN') {
         // Register movement in caja if open
         if (caja) {
+          // Calculate EFECTIVO / DIGITAL split from payment methods
+          let montoEfectivo = monto;
+          let montoDigital = 0;
+          if (input.metodos_pago && input.metodos_pago.length > 0) {
+            const metodosRes = await tx.request().query(`SELECT METODO_PAGO_ID, CATEGORIA FROM METODOS_PAGO`);
+            const catMap = new Map(metodosRes.recordset.map((r: any) => [r.METODO_PAGO_ID, r.CATEGORIA]));
+            montoEfectivo = 0;
+            montoDigital = 0;
+            for (const mp of input.metodos_pago) {
+              if (mp.MONTO <= 0) continue;
+              const cat = catMap.get(mp.METODO_PAGO_ID) || 'EFECTIVO';
+              if (cat === 'EFECTIVO') montoEfectivo += mp.MONTO;
+              else montoDigital += mp.MONTO;
+            }
+          }
+
           const destino = input.DESTINO_PAGO ?? 'CAJA';
           if (destino === 'CAJA') {
             await tx.request()
               .input('cajaId', sql.Int, caja.CAJA_ID)
               .input('origenTipo', sql.VarChar(30), 'NC_COMPRA')
-              .input('efectivo', sql.Decimal(18, 2), monto)
+              .input('efectivo', sql.Decimal(18, 2), r2(montoEfectivo))
+              .input('digital', sql.Decimal(18, 2), r2(montoDigital))
               .input('descr', sql.NVarChar(255), `NC Compra #${ncId} - ${input.MOTIVO}`)
               .input('uid', sql.Int, usuarioId)
               .query(`
                 INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
-                VALUES (@cajaId, GETDATE(), @origenTipo, @efectivo, 0, @descr, @uid)
+                VALUES (@cajaId, GETDATE(), @origenTipo, @efectivo, @digital, @descr, @uid)
               `);
           } else {
             // CAJA_CENTRAL
-            await tx.request()
+            const totalIngreso = r2(montoEfectivo + montoDigital);
+            const movResult = await tx.request()
               .input('tipoEntidad', sql.VarChar(20), 'NC_COMPRA')
               .input('movimiento', sql.NVarChar(500), `NC Compra #${ncId} - ${input.MOTIVO}`)
               .input('uid', sql.Int, usuarioId)
-              .input('efectivo', sql.Decimal(18, 2), monto)
+              .input('efectivo', sql.Decimal(18, 2), r2(montoEfectivo))
+              .input('digital', sql.Decimal(18, 2), r2(montoDigital))
+              .input('total', sql.Decimal(18, 2), totalIngreso)
               .input('pvId', sql.Int, puntoVentaId)
               .query(`
                 INSERT INTO MOVIMIENTOS_CAJA (TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
-                VALUES (@tipoEntidad, @movimiento, @uid, @efectivo, 0, 0, 0, @efectivo, @pvId, 0)
+                OUTPUT INSERTED.ID
+                VALUES (@tipoEntidad, @movimiento, @uid, @efectivo, @digital, 0, 0, @total, @pvId, 0)
               `);
+
+            // Insert payment method breakdown
+            if (input.metodos_pago && input.metodos_pago.length > 0) {
+              const movId = movResult.recordset[0].ID;
+              await ensureMovCajaMetodosPagoTable(tx);
+              for (const mp of input.metodos_pago) {
+                if (mp.MONTO <= 0) continue;
+                await tx.request()
+                  .input('movId', sql.Int, movId)
+                  .input('mpId', sql.Int, mp.METODO_PAGO_ID)
+                  .input('monto', sql.Decimal(18, 2), r2(mp.MONTO))
+                  .query(`INSERT INTO MOVIMIENTOS_CAJA_METODOS_PAGO (MOVIMIENTO_ID, METODO_PAGO_ID, MONTO) VALUES (@movId, @mpId, @monto)`);
+              }
+            }
           }
         }
       }
@@ -670,6 +974,7 @@ export const ncComprasService = {
 
   // ── Void NC (generates ND) ─────────────────────
   async anular(ncId: number, usuarioId: number) {
+    await ensureMigrations();
     const pool = await getPool();
     const tx = pool.transaction();
     await tx.begin();
@@ -751,10 +1056,27 @@ export const ncComprasService = {
 
       // 6) Reverse payment effects
       if (nc.MEDIO_PAGO === 'CC') {
-        await tx.request()
-          .input('provId', sql.Int, nc.PROVEEDOR_ID)
-          .input('monto', sql.Decimal(18, 2), nc.MONTO)
-          .query('UPDATE PROVEEDORES SET SALDO_CC = ISNULL(SALDO_CC, 0) + @monto WHERE PROVEEDOR_ID = @provId');
+        // Reverse COMPRAS_CTA_CORRIENTE entry (DEBE = restores what we owe)
+        const ctaCteRes = await tx.request()
+          .input('pid', sql.Int, nc.PROVEEDOR_ID)
+          .query('SELECT CTA_CORRIENTE_ID FROM CTA_CORRIENTE_P WHERE PROVEEDOR_ID = @pid');
+        if (ctaCteRes.recordset.length > 0) {
+          const ctaCteId = ctaCteRes.recordset[0].CTA_CORRIENTE_ID;
+          await tx.request()
+            .input('comprobanteId', sql.Int, ndId)
+            .input('ctaCteId', sql.Int, ctaCteId)
+            .input('fecha', sql.DateTime, new Date())
+            .input('concepto', sql.NVarChar(255), `ND Compra (anulación NC #${ncId})`)
+            .input('tipoComp', sql.NVarChar(50), 'NDA')
+            .input('debe', sql.Decimal(18, 2), nc.MONTO)
+            .input('haber', sql.Decimal(18, 2), 0)
+            .query(`
+              INSERT INTO COMPRAS_CTA_CORRIENTE
+                (COMPROBANTE_ID, CTA_CORRIENTE_ID, FECHA, CONCEPTO, TIPO_COMPROBANTE, DEBE, HABER)
+              VALUES
+                (@comprobanteId, @ctaCteId, @fecha, @concepto, @tipoComp, @debe, @haber)
+            `);
+        }
       } else if (nc.MEDIO_PAGO === 'CN') {
         if (caja) {
           const destino = nc.DESTINO_PAGO ?? 'CAJA';

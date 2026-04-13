@@ -2,11 +2,56 @@ import api from './api';
 import type {
   Venta, VentaDetalle, VentaInput, PaymentInput,
   PaginatedResponse, ProductoSearch, ClienteVenta, Deposito,
-  MetodoPago, VentaMetodoPago,
+  MetodoPago, VentaMetodoPago, EmpresaData,
 } from '../types';
 
 export interface DepositoPV extends Deposito {
   ES_PREFERIDO: boolean;
+}
+
+export interface FacturaDataVenta {
+  VENTA_ID: number;
+  FECHA_VENTA: string;
+  TOTAL: number;
+  SUBTOTAL: number | null;
+  DTO_GRAL: number | null;
+  NUMERO_FISCAL: string;
+  CAE: string;
+  PUNTO_VENTA: string;
+  TIPO_COMPROBANTE: string;
+  NETO_GRAVADO: number | null;
+  NETO_NO_GRAVADO: number | null;
+  NETO_EXENTO: number | null;
+  IVA_TOTAL: number | null;
+  CLIENTE_NOMBRE: string;
+  CLIENTE_NUMERO_DOC: string | null;
+  CLIENTE_TIPO_DOC: string | null;
+  CLIENTE_CONDICION_IVA: string | null;
+  CLIENTE_DOMICILIO: string | null;
+  items: FacturaDataItem[];
+}
+
+export interface FacturaDataItem {
+  PRECIO_UNITARIO: number;
+  CANTIDAD: number;
+  DESCUENTO: number;
+  PRECIO_UNITARIO_DTO: number | null;
+  IVA_ALICUOTA: number;
+  IVA_MONTO: number;
+  PRODUCTO_NOMBRE: string;
+  PRODUCTO_CODIGO: string;
+  UNIDAD_ABREVIACION: string;
+}
+
+export interface FacturaData {
+  venta: FacturaDataVenta;
+  feResp: {
+    CAE: string;
+    VENCIMIENTO_CAE: string;
+    COMPROBANTE_NRO: string;
+    COMPROBANTE_TIPO: string;
+  } | null;
+  empresa: EmpresaData;
 }
 
 export const salesApi = {
@@ -80,14 +125,16 @@ export const salesApi = {
       success: boolean;
       comprobante_nro: string;
       cae: string;
+      cae_vto: string;
       tipo_comprobante: string;
-      pdf_url: string;
-      ticket_url: string;
       errores?: string[];
     }>(`/sales/${ventaId}/facturar`).then(r => r.data),
 
   getFERespuesta: (ventaId: number) =>
     api.get(`/sales/${ventaId}/fe-respuesta`).then(r => r.data),
+
+  getFacturaData: (ventaId: number) =>
+    api.get<FacturaData>(`/sales/${ventaId}/factura-data`).then(r => r.data),
 
   getActivePaymentMethods: () =>
     api.get<MetodoPago[]>('/sales/active-payment-methods').then(r => r.data),

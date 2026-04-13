@@ -9,9 +9,10 @@ import {
   SearchOutlined, MoreOutlined, WalletOutlined, CloseCircleOutlined, ReloadOutlined,
   PrinterOutlined, WhatsAppOutlined, SendOutlined, UserOutlined,
   FileTextOutlined, FilePdfOutlined, SwapOutlined, BankOutlined,
+  FileExclamationOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { printReceipt, printFETicket, openFEPdf } from '../utils/printReceipt';
+import { printReceipt } from '../utils/printReceipt';
 import type { ReceiptData } from '../utils/printReceipt';
 import dayjs from 'dayjs';
 import { salesApi } from '../services/sales.api';
@@ -24,6 +25,10 @@ import { useAuthStore } from '../store/authStore';
 import { useTabStore } from '../store/tabStore';
 import { useNavigationStore } from '../store/navigationStore';
 import { fmtMoney, fmtNum, fmtComprobanteTipo } from '../utils/format';
+import { generateFacturaPdf, type CopiasTipo } from '../components/sales/facturaPdf';
+import { printFacturaTicket } from '../components/sales/facturaTicket';
+import { NewNCVentaModal } from '../components/sales/NewNCVentaModal';
+import { settingsApi } from '../services/settings.api';
 import type { Venta, VentaDetalle } from '../types';
 
 const { Title, Text } = Typography;
@@ -52,6 +57,12 @@ export function SalesPage() {
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [paymentMode, setPaymentMode] = useState<'total' | 'parcial'>('total');
   const [paymentVenta, setPaymentVenta] = useState<Venta | null>(null);
+
+  // Desglose métodos de pago
+  const [desgloseModalOpen, setDesgloseModalOpen] = useState(false);
+
+  // NC asociadas modal
+  const [ncModalOpen, setNCModalOpen] = useState(false);
 
   // WhatsApp resend state
   const [wspModalOpen, setWspModalOpen] = useState(false);
@@ -121,6 +132,10 @@ export function SalesPage() {
   const utilizaFE = feConfig?.utilizaFE === true;
   const [facturando, setFacturando] = useState(false);
 
+  // ── NC Ventas state ────────────────────────────
+  const [ncVentaOpen, setNCVentaOpen] = useState(false);
+  const [ncVentaPreselected, setNCVentaPreselected] = useState<{ ventaId?: number; clienteId?: number }>({});
+
   // ── Delete mutation ────────────────────────────
   const deleteMutation = useMutation({
     mutationFn: (id: number) => salesApi.delete(id),
@@ -185,16 +200,14 @@ export function SalesPage() {
 
   // ── Reprint receipt ────────────────────────────
   const handleReprint = async (v: VentaDetalle) => {
-    // If the sale has a fiscal number (FE emitted), try to use the TusFacturas ticket
+    // If the sale has a fiscal number (FE emitted), print fiscal ticket
     if (v.NUMERO_FISCAL) {
       try {
-        const feResp = await salesApi.getFERespuesta(v.VENTA_ID);
-        if (feResp?.COMPROBANTE_TICKET_URL) {
-          printFETicket(feResp.COMPROBANTE_TICKET_URL);
-          return;
-        }
+        const facturaData = await salesApi.getFacturaData(v.VENTA_ID);
+        printFacturaTicket(facturaData);
+        return;
       } catch {
-        // FE response not available, fall through to local receipt
+        // FE data not available, fall through to local receipt
       }
     }
 
@@ -272,26 +285,6 @@ export function SalesPage() {
           6
         );
 
-        // Offer ticket/PDF download via confirmation dialogs
-        if (result.ticket_url) {
-          Modal.confirm({
-            title: 'Ticket 80mm',
-            content: '¿Desea descargar el ticket 80mm?',
-            okText: 'Sí',
-            cancelText: 'No',
-            onOk: () => printFETicket(result.ticket_url),
-          });
-        }
-        if (result.pdf_url) {
-          Modal.confirm({
-            title: 'Comprobante PDF',
-            content: '¿Desea descargar el PDF del comprobante?',
-            okText: 'Sí',
-            cancelText: 'No',
-            onOk: () => openFEPdf(result.pdf_url),
-          });
-        }
-
         refetch();
         queryClient.invalidateQueries({ queryKey: ['sale', ventaId] });
       } else {
@@ -304,6 +297,27 @@ export function SalesPage() {
       message.error(`Error al emitir factura: ${err.response?.data?.error || err.message}`, 8);
     } finally {
       setFacturando(false);
+    }
+  };
+
+  const handleFacturaPdf = async (ventaId: number, copias: CopiasTipo = 'original') => {
+    try {
+      const [facturaData, logoDataUrl] = await Promise.all([
+        salesApi.getFacturaData(ventaId),
+        settingsApi.getLogoDataUrl(),
+      ]);
+      await generateFacturaPdf(facturaData, copias, logoDataUrl);
+    } catch (err: any) {
+      message.error(err.response?.data?.error || 'Error al generar PDF de factura');
+    }
+  };
+
+  const handleFacturaTicket = async (ventaId: number) => {
+    try {
+      const facturaData = await salesApi.getFacturaData(ventaId);
+      printFacturaTicket(facturaData);
+    } catch (err: any) {
+      message.error(err.response?.data?.error || 'Error al generar ticket de factura');
     }
   };
 
@@ -333,6 +347,29 @@ export function SalesPage() {
       items.push(
         { type: 'divider' as const },
         { key: 'delete', label: 'Eliminar', icon: <DeleteOutlined />, danger: true, onClick: () => deleteMutation.mutate(record.VENTA_ID) },
+      );
+    } else {
+      items.push(
+        { type: 'divider' as const },
+        { key: 'fe-pdf', label: 'Descargar PDF', icon: <FilePdfOutlined />, onClick: () => handleFacturaPdf(record.VENTA_ID) },
+        { key: 'fe-pdf-dup', label: 'PDF Original + Duplicado', icon: <FilePdfOutlined />, onClick: () => handleFacturaPdf(record.VENTA_ID, 'original-duplicado') },
+        { key: 'fe-ticket', label: 'Imprimir ticket 80mm', icon: <PrinterOutlined />, onClick: () => handleFacturaTicket(record.VENTA_ID) },
+      );
+    }
+
+    // Nota de Crédito
+    if (record.COBRADA) {
+      items.push(
+        { type: 'divider' as const },
+        {
+          key: 'nc-venta',
+          label: 'Nota de Crédito',
+          icon: <FileExclamationOutlined />,
+          onClick: () => {
+            setNCVentaPreselected({ ventaId: record.VENTA_ID, clienteId: record.CLIENTE_ID });
+            setNCVentaOpen(true);
+          },
+        },
       );
     }
 
@@ -539,23 +576,12 @@ export function SalesPage() {
                 </Tooltip>
               )}
               {detail.NUMERO_FISCAL && (
-                <Tooltip title="Ver PDF del comprobante">
+                <Tooltip title="Descargar PDF del comprobante">
                   <Button
                     size="small"
                     icon={<FilePdfOutlined />}
                     style={{ color: '#e74c3c', borderColor: '#e74c3c' }}
-                    onClick={async () => {
-                      try {
-                        const feResp = await salesApi.getFERespuesta(detail.VENTA_ID);
-                        if (feResp?.COMPROBANTE_PDF_URL) {
-                          openFEPdf(feResp.COMPROBANTE_PDF_URL);
-                        } else {
-                          message.warning('No se encontró el PDF del comprobante');
-                        }
-                      } catch {
-                        message.error('Error al obtener el PDF');
-                      }
-                    }}
+                    onClick={() => handleFacturaPdf(detail.VENTA_ID)}
                   />
                 </Tooltip>
               )}
@@ -615,7 +641,16 @@ export function SalesPage() {
                 {detail.ES_CTA_CORRIENTE ? <Tag color="blue">Sí</Tag> : 'No'}
               </Descriptions.Item>
               <Descriptions.Item label="Cobrado">
-                {fmtMoney((detail.MONTO_EFECTIVO ?? 0) + (detail.MONTO_DIGITAL ?? 0))}
+                {detail.metodos_pago && detail.metodos_pago.length > 0 ? (
+                  <span
+                    style={{ fontWeight: 'bold', color: '#EABD23', cursor: 'pointer' }}
+                    onClick={() => setDesgloseModalOpen(true)}
+                  >
+                    {fmtMoney((detail.MONTO_EFECTIVO ?? 0) + (detail.MONTO_DIGITAL ?? 0))} ▸
+                  </span>
+                ) : (
+                  fmtMoney((detail.MONTO_EFECTIVO ?? 0) + (detail.MONTO_DIGITAL ?? 0))
+                )}
               </Descriptions.Item>
               <Descriptions.Item label="Vuelto">
                 {fmtMoney(detail.VUELTO)}
@@ -661,6 +696,16 @@ export function SalesPage() {
                     <Text>{detail.NOMBRE_ENVIO_DETALLE || 'Cliente'}</Text>
                     <Text type="secondary">({detail.NRO_ENVIO_DETALLE})</Text>
                   </Space>
+                </Descriptions.Item>
+              )}
+              {detail.nc_asociadas && detail.nc_asociadas.length > 0 && (
+                <Descriptions.Item label="Notas de Crédito">
+                  <span
+                    style={{ fontWeight: 'bold', color: '#EABD23', cursor: 'pointer' }}
+                    onClick={() => setNCModalOpen(true)}
+                  >
+                    {detail.nc_asociadas.filter(nc => !nc.ANULADA).length} comprobante{detail.nc_asociadas.filter(nc => !nc.ANULADA).length !== 1 ? 's' : ''} ▸
+                  </span>
                 </Descriptions.Item>
               )}
             </Descriptions>
@@ -771,6 +816,16 @@ export function SalesPage() {
         onSuccess={handlePaymentSuccess}
       />
 
+      {/* ── NC Venta Modal ─────────────────────── */}
+      <NewNCVentaModal
+        open={ncVentaOpen}
+        onClose={() => { setNCVentaOpen(false); setNCVentaPreselected({}); }}
+        onSuccess={() => { setNCVentaOpen(false); setNCVentaPreselected({}); queryClient.invalidateQueries({ queryKey: ['ventas'] }); }}
+        preselectedVentaId={ncVentaPreselected.ventaId}
+        preselectedClienteId={ncVentaPreselected.clienteId}
+        utilizaFE={utilizaFE}
+      />
+
       {/* ── WhatsApp Resend Modal ───────────────── */}
       <Modal
         open={wspModalOpen}
@@ -824,6 +879,102 @@ export function SalesPage() {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      {/* ── NC Asociadas Modal ──────────── */}
+      <Modal
+        open={ncModalOpen}
+        onCancel={() => setNCModalOpen(false)}
+        footer={<Button onClick={() => setNCModalOpen(false)}>Cerrar</Button>}
+        title={<><FileExclamationOutlined style={{ marginRight: 8 }} />Notas de Crédito asociadas</>}
+        width={520}
+        destroyOnClose
+      >
+        {detail?.nc_asociadas && detail.nc_asociadas.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
+            {detail.nc_asociadas.map((nc: any) => (
+              <div
+                key={nc.NC_ID}
+                onClick={() => {
+                  setNCModalOpen(false);
+                  setDrawerOpen(false);
+                  setSelectedId(null);
+                  openTab({ key: '/nc-ventas', label: 'NC Ventas', closable: true });
+                  navTo('/nc-ventas', { ncId: nc.NC_ID });
+                  navigate('/nc-ventas');
+                }}
+                style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '10px 16px', borderRadius: 8, border: '1px solid #d9d9d9',
+                  background: nc.ANULADA ? 'rgba(255, 77, 79, 0.04)' : 'rgba(234,189,35,0.06)',
+                  cursor: 'pointer', opacity: nc.ANULADA ? 0.5 : 1,
+                  transition: 'border-color 0.2s',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = '#EABD23')}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = '#d9d9d9')}
+              >
+                <Space>
+                  <FileExclamationOutlined style={{ color: nc.ANULADA ? '#ff4d4f' : '#EABD23' }} />
+                  <div>
+                    <Text strong>
+                      NC #{nc.NC_ID}
+                      {nc.NUMERO_FISCAL ? ` — ${nc.PUNTO_VENTA_FISCAL || ''}-${nc.NUMERO_FISCAL}` : ''}
+                    </Text>
+                    <br />
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {nc.MOTIVO} · {new Date(nc.FECHA).toLocaleDateString('es-AR')}
+                      {nc.ANULADA && <Tag color="red" style={{ marginLeft: 6, fontSize: 10 }}>Anulada</Tag>}
+                    </Text>
+                  </div>
+                </Space>
+                <Text strong style={{ color: nc.ANULADA ? '#ff4d4f' : '#EABD23' }}>
+                  -{fmtMoney(nc.MONTO)}
+                </Text>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Text type="secondary">No hay notas de crédito asociadas.</Text>
+        )}
+      </Modal>
+
+      {/* ── Desglose Métodos de Pago Modal ──── */}
+      <Modal
+        open={desgloseModalOpen}
+        onCancel={() => setDesgloseModalOpen(false)}
+        footer={<Button onClick={() => setDesgloseModalOpen(false)}>Cerrar</Button>}
+        title="Desglose por método de pago"
+        width={480}
+        destroyOnClose
+      >
+        {!detail?.metodos_pago || detail.metodos_pago.length === 0 ? (
+          <Text type="secondary">No hay métodos de pago registrados.</Text>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
+            {detail.metodos_pago.map(d => (
+              <div key={d.METODO_PAGO_ID} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '10px 14px', borderRadius: 8,
+                background: d.CATEGORIA === 'EFECTIVO' ? 'rgba(82,196,26,0.06)' : 'rgba(22,119,255,0.06)',
+                border: `1px solid ${d.CATEGORIA === 'EFECTIVO' ? '#b7eb8f' : '#91caff'}`,
+              }}>
+                <Space>
+                  {d.IMAGEN_BASE64 ? (
+                    <img src={d.IMAGEN_BASE64} alt={d.NOMBRE} style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 4 }} />
+                  ) : null}
+                  <div>
+                    <Text strong>{d.NOMBRE}</Text>
+                    <br />
+                    <Tag color={d.CATEGORIA === 'EFECTIVO' ? 'green' : 'blue'} style={{ fontSize: 10 }}>
+                      {d.CATEGORIA}
+                    </Tag>
+                  </div>
+                </Space>
+                <Text strong style={{ fontSize: 16 }}>{fmtMoney(d.TOTAL)}</Text>
+              </div>
+            ))}
+          </div>
+        )}
       </Modal>
     </div>
   );

@@ -4,6 +4,21 @@ import { facturacionService } from '../services/facturacion.service.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 
 const router = Router();
+
+// ── Public endpoints (no auth required) ──
+
+// GET /api/sales/fe-health  (ARCA health check)
+router.get('/fe-health', async (_req: Request, res: Response) => {
+  try {
+    const data = await facturacionService.healthCheck();
+    res.json(data);
+  } catch (err: any) {
+    const detail = err.cause ? `${err.message}: ${err.cause.message || err.cause}` : err.message;
+    res.status(502).json({ error: detail });
+  }
+});
+
+// ── Protected endpoints ──
 router.use(authMiddleware);
 
 // GET /api/sales
@@ -86,16 +101,6 @@ router.get('/fe-config', async (_req: Request, res: Response) => {
   }
 });
 
-// GET /api/sales/fe-health  (ARCA health check)
-router.get('/fe-health', async (_req: Request, res: Response) => {
-  try {
-    const data = await facturacionService.healthCheck();
-    res.json(data);
-  } catch (err: any) {
-    res.status(502).json({ error: err.message });
-  }
-});
-
 // GET /api/sales/fe-puntos-venta  (ARCA registered puntos de venta)
 router.get('/fe-puntos-venta', async (_req: Request, res: Response) => {
   try {
@@ -126,6 +131,18 @@ router.get('/:id/fe-respuesta', async (req: Request, res: Response) => {
     res.json(data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/sales/:id/factura-data  (full data for PDF/ticket rendering)
+router.get('/:id/factura-data', async (req: Request, res: Response) => {
+  try {
+    const ventaId = parseInt(req.params.id as string);
+    const data = await facturacionService.getFacturaData(ventaId);
+    res.json(data);
+  } catch (err: any) {
+    const status = err.name === 'ValidationError' ? 400 : 500;
+    res.status(status).json({ error: err.message });
   }
 });
 

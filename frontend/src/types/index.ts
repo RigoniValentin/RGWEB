@@ -212,6 +212,17 @@ export interface RemitoAsociado {
 export interface VentaDetalle extends Venta {
   items: VentaItem[];
   remitos_asociados?: RemitoAsociado[];
+  metodos_pago?: DesgloseMetodo[];
+  nc_asociadas?: {
+    NC_ID: number;
+    FECHA: string;
+    MOTIVO: string;
+    MONTO: number;
+    ANULADA: boolean;
+    NUMERO_FISCAL: string | null;
+    TIPO_COMPROBANTE: string | null;
+    PUNTO_VENTA_FISCAL: string | null;
+  }[];
 }
 
 export interface VentaItemInput {

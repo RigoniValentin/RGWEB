@@ -4,6 +4,55 @@ import { getPool, sql } from '../database/connection.js';
 //  Cuenta Corriente Clientes — Service
 // ═══════════════════════════════════════════════════
 
+function r2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+// ── COBRANZAS_METODOS_PAGO table helper ──
+
+let _cobranzasMetodosPagoTableReady = false;
+
+async function ensureCobranzasMetodosPagoTable(poolOrTx: any): Promise<void> {
+  if (_cobranzasMetodosPagoTableReady) return;
+  await poolOrTx.request().query(`
+    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'COBRANZAS_METODOS_PAGO')
+    CREATE TABLE COBRANZAS_METODOS_PAGO (
+      ID INT IDENTITY(1,1) PRIMARY KEY,
+      PAGO_ID INT NOT NULL,
+      METODO_PAGO_ID INT NOT NULL,
+      MONTO DECIMAL(18,2) NOT NULL
+    )
+  `);
+  _cobranzasMetodosPagoTableReady = true;
+}
+
+export interface CobranzaMetodoPagoItem {
+  METODO_PAGO_ID: number;
+  MONTO: number;
+}
+
+/** Derive EFECTIVO / DIGITAL totals from metodos_pago */
+async function derivarCategoriasCO(
+  tx: any,
+  metodosPago: CobranzaMetodoPagoItem[]
+): Promise<{ efectivo: number; digital: number }> {
+  let efectivo = 0;
+  let digital = 0;
+  for (const mp of metodosPago) {
+    if (mp.MONTO <= 0) continue;
+    const cat = await tx.request()
+      .input('mid', sql.Int, mp.METODO_PAGO_ID)
+      .query(`SELECT CATEGORIA FROM METODOS_PAGO WHERE METODO_PAGO_ID = @mid`);
+    const categoria = cat.recordset[0]?.CATEGORIA || 'EFECTIVO';
+    if (categoria === 'DIGITAL') {
+      digital += mp.MONTO;
+    } else {
+      efectivo += mp.MONTO;
+    }
+  }
+  return { efectivo: r2(efectivo), digital: r2(digital) };
+}
+
 export interface CtaCorrienteListItem {
   CTA_CORRIENTE_ID: number;
   CLIENTE_ID: number;
@@ -46,6 +95,7 @@ export interface CobranzaInput {
   DIGITAL: number;
   CHEQUES: number;
   CONCEPTO: string;
+  metodos_pago?: CobranzaMetodoPagoItem[];
 }
 
 export interface CtaCorrienteTotales {
@@ -253,7 +303,7 @@ export const ctaCorrienteService = {
   },
 
   // ── Get single cobranza for edit ───────────────
-  async getCobranzaById(pagoId: number): Promise<CobranzaItem & { EFECTIVO: number; DIGITAL: number; CHEQUES: number }> {
+  async getCobranzaById(pagoId: number): Promise<CobranzaItem & { EFECTIVO: number; DIGITAL: number; CHEQUES: number; metodos_pago: CobranzaMetodoPagoItem[] }> {
     const pool = await getPool();
     const result = await pool.request()
       .input('pagoId', sql.Int, pagoId)
@@ -272,7 +322,14 @@ export const ctaCorrienteService = {
     if (result.recordset.length === 0) {
       throw Object.assign(new Error('Cobranza no encontrada'), { name: 'ValidationError' });
     }
-    return result.recordset[0];
+
+    // Fetch stored metodos_pago breakdown if available
+    await ensureCobranzasMetodosPagoTable(pool);
+    const mpResult = await pool.request()
+      .input('pagoId', sql.Int, pagoId)
+      .query(`SELECT METODO_PAGO_ID, MONTO FROM COBRANZAS_METODOS_PAGO WHERE PAGO_ID = @pagoId`);
+
+    return { ...result.recordset[0], metodos_pago: mpResult.recordset };
   },
 
   // ── Create cobranza ────────────────────────────
@@ -287,7 +344,18 @@ export const ctaCorrienteService = {
     await tx.begin();
 
     try {
-      const total = input.EFECTIVO + input.DIGITAL + input.CHEQUES;
+      // Derive efectivo/digital from metodos_pago if provided
+      let efectivo = input.EFECTIVO || 0;
+      let digital = input.DIGITAL || 0;
+      const cheques = input.CHEQUES || 0;
+
+      if (input.metodos_pago && input.metodos_pago.length > 0) {
+        const derived = await derivarCategoriasCO(tx, input.metodos_pago);
+        efectivo = derived.efectivo;
+        digital = derived.digital;
+      }
+
+      const total = r2(efectivo + digital + cheques);
 
       if (total <= 0) {
         throw Object.assign(new Error('El total debe ser mayor a cero'), { name: 'ValidationError' });
@@ -299,9 +367,9 @@ export const ctaCorrienteService = {
         .input('fecha', sql.DateTime, new Date(input.FECHA))
         .input('total', sql.Decimal(18, 2), total)
         .input('concepto', sql.NVarChar, input.CONCEPTO || '')
-        .input('efectivo', sql.Decimal(18, 2), input.EFECTIVO)
-        .input('digital', sql.Decimal(18, 2), input.DIGITAL)
-        .input('cheques', sql.Decimal(18, 2), input.CHEQUES)
+        .input('efectivo', sql.Decimal(18, 2), efectivo)
+        .input('digital', sql.Decimal(18, 2), digital)
+        .input('cheques', sql.Decimal(18, 2), cheques)
         .input('usuarioId', sql.Int, usuarioId)
         .query(`
           INSERT INTO PAGOS_CTA_CORRIENTE_C 
@@ -311,6 +379,19 @@ export const ctaCorrienteService = {
         `);
 
       const pagoId = insertResult.recordset[0].PAGO_ID;
+
+      // 1b) Store payment method breakdown
+      if (input.metodos_pago && input.metodos_pago.length > 0) {
+        await ensureCobranzasMetodosPagoTable(tx);
+        for (const mp of input.metodos_pago) {
+          if (mp.MONTO <= 0) continue;
+          await tx.request()
+            .input('pagoId', sql.Int, pagoId)
+            .input('mpId', sql.Int, mp.METODO_PAGO_ID)
+            .input('monto', sql.Decimal(18, 2), r2(mp.MONTO))
+            .query(`INSERT INTO COBRANZAS_METODOS_PAGO (PAGO_ID, METODO_PAGO_ID, MONTO) VALUES (@pagoId, @mpId, @monto)`);
+        }
+      }
 
       // 2) Update concepto with format "CO #[ID] - [Desc]"
       const conceptoFinal = input.CONCEPTO?.trim()
@@ -359,7 +440,18 @@ export const ctaCorrienteService = {
     await tx.begin();
 
     try {
-      const total = input.EFECTIVO + input.DIGITAL + input.CHEQUES;
+      // Derive efectivo/digital from metodos_pago if provided
+      let efectivo = input.EFECTIVO || 0;
+      let digital = input.DIGITAL || 0;
+      const cheques = input.CHEQUES || 0;
+
+      if (input.metodos_pago && input.metodos_pago.length > 0) {
+        const derived = await derivarCategoriasCO(tx, input.metodos_pago);
+        efectivo = derived.efectivo;
+        digital = derived.digital;
+      }
+
+      const total = r2(efectivo + digital + cheques);
 
       if (total <= 0) {
         throw Object.assign(new Error('El total debe ser mayor a cero'), { name: 'ValidationError' });
@@ -378,9 +470,9 @@ export const ctaCorrienteService = {
         .input('fecha', sql.DateTime, new Date(input.FECHA))
         .input('total', sql.Decimal(18, 2), total)
         .input('concepto', sql.NVarChar, conceptoFinal)
-        .input('efectivo', sql.Decimal(18, 2), input.EFECTIVO)
-        .input('digital', sql.Decimal(18, 2), input.DIGITAL)
-        .input('cheques', sql.Decimal(18, 2), input.CHEQUES)
+        .input('efectivo', sql.Decimal(18, 2), efectivo)
+        .input('digital', sql.Decimal(18, 2), digital)
+        .input('cheques', sql.Decimal(18, 2), cheques)
         .input('usuarioId', sql.Int, usuarioId)
         .query(`
           UPDATE PAGOS_CTA_CORRIENTE_C SET
@@ -389,6 +481,21 @@ export const ctaCorrienteService = {
             USUARIO_ID = @usuarioId
           WHERE PAGO_ID = @pagoId
         `);
+
+      // 2b) Update payment method breakdown
+      await ensureCobranzasMetodosPagoTable(tx);
+      await tx.request().input('pagoId', sql.Int, pagoId)
+        .query(`DELETE FROM COBRANZAS_METODOS_PAGO WHERE PAGO_ID = @pagoId`);
+      if (input.metodos_pago && input.metodos_pago.length > 0) {
+        for (const mp of input.metodos_pago) {
+          if (mp.MONTO <= 0) continue;
+          await tx.request()
+            .input('pagoId', sql.Int, pagoId)
+            .input('mpId', sql.Int, mp.METODO_PAGO_ID)
+            .input('monto', sql.Decimal(18, 2), r2(mp.MONTO))
+            .query(`INSERT INTO COBRANZAS_METODOS_PAGO (PAGO_ID, METODO_PAGO_ID, MONTO) VALUES (@pagoId, @mpId, @monto)`);
+        }
+      }
 
       // 3) Update comprobante in VENTAS_CTA_CORRIENTE
       await tx.request()
@@ -431,6 +538,11 @@ export const ctaCorrienteService = {
       await tx.request()
         .input('pagoId', sql.Int, pagoId)
         .query("DELETE FROM VENTAS_CTA_CORRIENTE WHERE COMPROBANTE_ID = @pagoId AND TIPO_COMPROBANTE = 'CO'");
+
+      // 3b) Remove payment method breakdown
+      await ensureCobranzasMetodosPagoTable(tx);
+      await tx.request().input('pagoId', sql.Int, pagoId)
+        .query(`DELETE FROM COBRANZAS_METODOS_PAGO WHERE PAGO_ID = @pagoId`);
 
       // 4) Delete payment
       const del = await tx.request()
@@ -597,5 +709,17 @@ export const ctaCorrienteService = {
           AND vc.TIPO_COMPROBANTE IN ('Fa.A', 'Fa.B', 'Fa.C', 'Nd.A', 'Nd.B', 'Nd.C')
       `);
     }
+  },
+
+  // ── Get active payment methods ─────────────────
+  async getActivePaymentMethods() {
+    const pool = await getPool();
+    const result = await pool.request().query(`
+      SELECT METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64, ACTIVA, POR_DEFECTO
+      FROM METODOS_PAGO
+      WHERE ACTIVA = 1
+      ORDER BY POR_DEFECTO DESC, CATEGORIA, NOMBRE
+    `);
+    return result.recordset;
   },
 };

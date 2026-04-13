@@ -196,7 +196,7 @@ export function CajaCentralPage() {
     {
       title: 'Total', dataIndex: 'TOTAL', key: 'total', width: 160, align: 'center' as const,
       render: (v: number, record: MovimientoCaja) => {
-        const showDesglose = record.CAJA_ID || record.ES_MANUAL || record.TIPO_ENTIDAD === 'COMPRA' || record.TIPO_ENTIDAD === 'ORDEN_PAGO';
+        const showDesglose = record.CAJA_ID || record.ES_MANUAL || record.TIPO_ENTIDAD === 'COMPRA' || record.TIPO_ENTIDAD === 'ORDEN_PAGO' || record.TIPO_ENTIDAD === 'NC_VENTA' || record.TIPO_ENTIDAD === 'NC_COMPRA';
         if (showDesglose) {
           return (
             <Text
@@ -221,30 +221,60 @@ export function CajaCentralPage() {
     },
     {
       title: '', key: 'actions', width: 60, align: 'center' as const,
-      render: (_: unknown, record: MovimientoCaja) => (
-        <Space size={4}>
-          {record.TIPO_ENTIDAD === 'CIERRE_CAJA' && record.CAJA_ID && (
-            <Tooltip title={`Ver Caja #${record.CAJA_ID}`}>
-              <EyeOutlined
-                style={{ cursor: 'pointer', color: '#EABD23', fontSize: 16 }}
-                onClick={() => {
-                  openTab({ key: '/cashregisters', label: 'Cajas', closable: true });
-                  navigate('/cashregisters', { state: { openCajaId: record.CAJA_ID } });
-                }}
-              />
-            </Tooltip>
-          )}
-          {record.ES_MANUAL && record.TIPO_ENTIDAD !== 'TRANSFERENCIA_FC' && (
-            <Popconfirm
-              title="¿Eliminar este movimiento manual?"
-              onConfirm={() => eliminarMutation.mutate(record.ID)}
-              okText="Sí" cancelText="No" okButtonProps={{ danger: true }}
-            >
-              <DeleteOutlined style={{ cursor: 'pointer', color: '#ff4d4f' }} />
-            </Popconfirm>
-          )}
-        </Space>
-      ),
+      render: (_: unknown, record: MovimientoCaja) => {
+        // Extract NC ID from description pattern "NC Venta #123 - ..." or "NC Compra #123 - ..."
+        const ncMatch = record.MOVIMIENTO?.match(/^NC (?:Venta|Compra)(?: [^ ]+)? #(\d+)/);
+        const ncId = ncMatch ? Number(ncMatch[1]) : null;
+        const isNCVenta = record.TIPO_ENTIDAD === 'NC_VENTA';
+        const isNCCompra = record.TIPO_ENTIDAD === 'NC_COMPRA';
+
+        return (
+          <Space size={4}>
+            {record.TIPO_ENTIDAD === 'CIERRE_CAJA' && record.CAJA_ID && (
+              <Tooltip title={`Ver Caja #${record.CAJA_ID}`}>
+                <EyeOutlined
+                  style={{ cursor: 'pointer', color: '#EABD23', fontSize: 16 }}
+                  onClick={() => {
+                    openTab({ key: '/cashregisters', label: 'Cajas', closable: true });
+                    navigate('/cashregisters', { state: { openCajaId: record.CAJA_ID } });
+                  }}
+                />
+              </Tooltip>
+            )}
+            {isNCVenta && (
+              <Tooltip title="Ver NC Venta">
+                <EyeOutlined
+                  style={{ cursor: 'pointer', color: '#EABD23', fontSize: 16 }}
+                  onClick={() => {
+                    openTab({ key: '/nc-ventas', label: 'NC Ventas', closable: true });
+                    navigate('/nc-ventas', { state: { openNCId: ncId } });
+                  }}
+                />
+              </Tooltip>
+            )}
+            {isNCCompra && (
+              <Tooltip title="Ver NC Compra">
+                <EyeOutlined
+                  style={{ cursor: 'pointer', color: '#EABD23', fontSize: 16 }}
+                  onClick={() => {
+                    openTab({ key: '/nc-compras', label: 'NC Compras', closable: true });
+                    navigate('/nc-compras', { state: { openNCId: ncId } });
+                  }}
+                />
+              </Tooltip>
+            )}
+            {record.ES_MANUAL && record.TIPO_ENTIDAD !== 'TRANSFERENCIA_FC' && (
+              <Popconfirm
+                title="¿Eliminar este movimiento manual?"
+                onConfirm={() => eliminarMutation.mutate(record.ID)}
+                okText="Sí" cancelText="No" okButtonProps={{ danger: true }}
+              >
+                <DeleteOutlined style={{ cursor: 'pointer', color: '#ff4d4f' }} />
+              </Popconfirm>
+            )}
+          </Space>
+        );
+      },
     },
   ];
 

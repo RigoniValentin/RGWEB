@@ -33,10 +33,14 @@ export interface NCCompraItem {
   PRODUCTO_NOMBRE?: string;
   PRODUCTO_CODIGO?: string;
   UNIDAD_ABREVIACION?: string;
+  IVA_ALICUOTA?: number;
+  PORCENTAJE_DESCUENTO?: number;
 }
 
 export interface NCCompraDetalle extends NCCompra {
+  COMPRA_TIPO_COMPROBANTE?: string;
   items: NCCompraItem[];
+  metodos_pago?: { METODO_PAGO_ID: number; NOMBRE: string; CATEGORIA: string; IMAGEN_BASE64?: string; TOTAL: number }[];
 }
 
 export interface CompraParaNC {
@@ -61,6 +65,7 @@ export interface ItemCompraParaNC {
   DEPOSITO_ID: number | null;
   PORCENTAJE_DESCUENTO: number;
   DESCUENTO_IMPORTE: number;
+  IVA_ALICUOTA: number;
   PRODUCTO_NOMBRE: string;
   PRODUCTO_CODIGO: string;
   UNIDAD_ABREVIACION: string;
@@ -82,9 +87,12 @@ export interface NCCompraInput {
   MONTO?: number;
   DESCUENTO?: number;
   DESCRIPCION?: string;
+  PTO_VTA?: string;
+  NRO_COMPROBANTE?: string;
   PUNTO_VENTA_ID?: number;
   DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
   items?: NCCompraItemInput[];
+  metodos_pago?: { METODO_PAGO_ID: number; MONTO: number }[];
 }
 
 export const ncComprasApi = {

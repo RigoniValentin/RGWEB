@@ -5,6 +5,16 @@ import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 const router = Router();
 router.use(authMiddleware);
 
+// GET /api/cta-corriente/active-payment-methods — active payment methods
+router.get('/active-payment-methods', async (req: Request, res: Response) => {
+  try {
+    const data = await ctaCorrienteService.getActivePaymentMethods();
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/cta-corriente — list all customers with CTA_CORRIENTE flag
 router.get('/', async (req: Request, res: Response) => {
   try {

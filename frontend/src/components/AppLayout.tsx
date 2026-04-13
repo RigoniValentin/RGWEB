@@ -63,6 +63,7 @@ import { CtaCorrienteProvPage } from '../pages/CtaCorrienteProvPage';
 import { PurchasesPage } from '../pages/PurchasesPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { NCComprasPage } from '../pages/NCComprasPage';
+import { NCVentasPage } from '../pages/NCVentasPage';
 import { EtiquetasPage } from '../pages/EtiquetasPage';
 import { MesasPage } from '../pages/MesasPage';
 import { PaymentMethodsPage } from '../pages/PaymentMethodsPage';
@@ -97,6 +98,7 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/cta-corriente-prov': { label: 'Cta. Cte. Prov.', icon: <ShopOutlined />,     component: CtaCorrienteProvPage, closable: true },
   '/purchases':      { label: 'Compras',       icon: <ShoppingCartOutlined />, component: PurchasesPage,    closable: true },
   '/nc-compras':        { label: 'NC Compras',      icon: <FileAddOutlined />,         component: NCComprasPage,   closable: true },
+  '/nc-ventas':         { label: 'NC Ventas',       icon: <FileAddOutlined />,         component: NCVentasPage,    closable: true },
   '/etiquetas':        { label: 'Etiquetas',       icon: <TagOutlined />,             component: EtiquetasPage,   closable: true },
   '/settings/general': { label: 'Configuración', icon: <SettingOutlined />,       component: SettingsPage,     closable: true },
   '/gastronomy/tables': { label: 'Gestión de Mesas', icon: <CoffeeOutlined />,    component: MesasPage,        closable: true },

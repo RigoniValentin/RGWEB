@@ -1,4 +1,5 @@
 import api from './api';
+import type { MetodoPago, MetodoPagoItem } from '../types';
 
 // ── Types ─────────────────────────────────────────
 export interface CtaCorrienteListItem {
@@ -56,6 +57,11 @@ export interface CobranzaInput {
   DIGITAL: number;
   CHEQUES: number;
   CONCEPTO: string;
+  metodos_pago?: MetodoPagoItem[];
+}
+
+export interface CobranzaEditData extends CobranzaItem {
+  metodos_pago: MetodoPagoItem[];
 }
 
 // ── API ───────────────────────────────────────────
@@ -82,7 +88,11 @@ export const ctaCorrienteApi = {
 
   // Get single cobranza for editing
   getCobranzaById: (pagoId: number) =>
-    api.get<CobranzaItem>(`/cta-corriente/cobranza/${pagoId}`).then(r => r.data),
+    api.get<CobranzaEditData>(`/cta-corriente/cobranza/${pagoId}`).then(r => r.data),
+
+  // Get active payment methods
+  getActivePaymentMethods: () =>
+    api.get<MetodoPago[]>('/cta-corriente/active-payment-methods').then(r => r.data),
 
   // Create cobranza
   crearCobranza: (ctaId: number, data: CobranzaInput) =>

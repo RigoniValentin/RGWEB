@@ -8,12 +8,14 @@ import {
   DollarOutlined, PercentageOutlined, ShopOutlined,
   CheckCircleOutlined,
   ArrowLeftOutlined, ArrowRightOutlined,
+  CreditCardOutlined, WalletOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { ncComprasApi, type NCCompraInput, type NCCompraItemInput, type CompraParaNC } from '../../services/ncCompras.api';
 import { purchasesApi } from '../../services/purchases.api';
 import { cajaApi } from '../../services/caja.api';
 import { fmtComprobanteTipo, fmtMoney, fmtNum } from '../../utils/format';
+import type { MetodoPago } from '../../types';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -38,6 +40,8 @@ interface DevolucionItem {
   CANTIDAD_DEVOLVER: number;
   PRECIO_COMPRA: number;
   DEPOSITO_ID: number | null;
+  IVA_ALICUOTA: number;
+  PORCENTAJE_DESCUENTO: number;
 }
 
 interface Props {
@@ -54,6 +58,8 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
   const [medioPago, setMedioPago] = useState<MedioPago>('CN');
   const [motivo, setMotivo] = useState<Motivo>('POR DEVOLUCION');
   const [destinoPago, setDestinoPago] = useState<'CAJA_CENTRAL' | 'CAJA'>('CAJA_CENTRAL');
+  const [ptoVta, setPtoVta] = useState('0000');
+  const [nroComprobante, setNroComprobante] = useState('00000000');
 
   // Step 1: Compra selection
   const [compraId, setCompraId] = useState<number | null>(null);
@@ -63,6 +69,12 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
   const [descuentoPct, setDescuentoPct] = useState<number>(0);
   const [montoManual, setMontoManual] = useState<number>(0);
   const [descripcion, setDescripcion] = useState('');
+
+  // Payment methods state
+  const [selectedMetodos, setSelectedMetodos] = useState<number[]>([]);
+  const [montosPorMetodo, setMontosPorMetodo] = useState<Record<number, number>>({});
+  const [metodoModalOpen, setMetodoModalOpen] = useState(false);
+  const [metodoModalSelection, setMetodoModalSelection] = useState<number[]>([]);
 
   // Queries
   const { data: proveedores = [] } = useQuery({
@@ -97,6 +109,32 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
     staleTime: 30000,
   });
 
+  const { data: metodosPago = [] } = useQuery<MetodoPago[]>({
+    queryKey: ['purchases-active-payment-methods'],
+    queryFn: () => purchasesApi.getActivePaymentMethods(),
+    enabled: open && medioPago === 'CN',
+    staleTime: 60000,
+  });
+
+  const metodosPagoOrdenados = useMemo(() => {
+    const copy = [...metodosPago];
+    copy.sort((a, b) => {
+      const aScore = a.CATEGORIA === 'EFECTIVO' && a.POR_DEFECTO ? 0 : a.CATEGORIA === 'EFECTIVO' ? 1 : 2;
+      const bScore = b.CATEGORIA === 'EFECTIVO' && b.POR_DEFECTO ? 0 : b.CATEGORIA === 'EFECTIVO' ? 1 : 2;
+      if (aScore !== bScore) return aScore - bScore;
+      return a.NOMBRE.localeCompare(b.NOMBRE);
+    });
+    return copy;
+  }, [metodosPago]);
+
+  const defaultMetodoEfectivoId = useMemo(() => {
+    const efectivoPorDefecto = metodosPago.find(m => m.CATEGORIA === 'EFECTIVO' && m.POR_DEFECTO);
+    if (efectivoPorDefecto) return efectivoPorDefecto.METODO_PAGO_ID;
+    const primerEfectivo = metodosPago.find(m => m.CATEGORIA === 'EFECTIVO');
+    if (primerEfectivo) return primerEfectivo.METODO_PAGO_ID;
+    return metodosPago[0]?.METODO_PAGO_ID;
+  }, [metodosPago]);
+
   // Derived items
   const devItems: DevolucionItem[] = useMemo(() => {
     if (!compraId || itemsCompra.length === 0) return [];
@@ -115,6 +153,8 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
         CANTIDAD_DEVOLVER: cantidadDevolver,
         PRECIO_COMPRA: item.PRECIO_COMPRA,
         DEPOSITO_ID: item.DEPOSITO_ID,
+        IVA_ALICUOTA: item.IVA_ALICUOTA || 0,
+        PORCENTAJE_DESCUENTO: item.PORCENTAJE_DESCUENTO || 0,
       };
     });
   }, [itemsCompra, motivo, compraId, cantidadEdits]);
@@ -130,6 +170,13 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
   useEffect(() => {
     if (compraSeleccionada?.ES_CTA_CORRIENTE) setMedioPago('CC');
   }, [compraSeleccionada]);
+
+  // Auto-select default payment method
+  useEffect(() => {
+    if (medioPago === 'CN' && selectedMetodos.length === 0 && defaultMetodoEfectivoId) {
+      setSelectedMetodos([defaultMetodoEfectivoId]);
+    }
+  }, [medioPago, defaultMetodoEfectivoId]);
 
   // Reset on provider change
   useEffect(() => {
@@ -154,21 +201,33 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
       setMedioPago('CN');
       setMotivo('POR DEVOLUCION');
       setDestinoPago('CAJA_CENTRAL');
+      setPtoVta('0000');
+      setNroComprobante('00000000');
       setDescripcion('');
       setCompraId(null);
       setCantidadEdits({});
       setDescuentoPct(0);
       setMontoManual(0);
+      setSelectedMetodos([]);
+      setMontosPorMetodo({});
+      setMetodoModalOpen(false);
+      setMetodoModalSelection([]);
     }
   }, [open]);
 
-  // Calculate total
-  const montoNC = useMemo(() => {
+  // Is this a Factura A purchase? (prices are net, IVA must be added)
+  const isFacturaA = compraSeleccionada?.TIPO_COMPROBANTE === 'FA';
+
+  // Calculate totals
+  const netoNC = useMemo(() => {
     if (!compraSeleccionada) return 0;
     switch (motivo) {
       case 'POR DEVOLUCION':
       case 'POR ANULACION':
-        return devItems.reduce((s, i) => s + i.CANTIDAD_DEVOLVER * i.PRECIO_COMPRA, 0);
+        return devItems.reduce((s, i) => {
+          const bruto = i.CANTIDAD_DEVOLVER * i.PRECIO_COMPRA;
+          return s + Math.round(bruto * (1 - (i.PORCENTAJE_DESCUENTO || 0) / 100) * 100) / 100;
+        }, 0);
       case 'POR DESCUENTO':
         return Math.round(compraSeleccionada.TOTAL * (descuentoPct / 100) * 100) / 100;
       case 'POR DIFERENCIA PRECIO':
@@ -177,6 +236,30 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
         return 0;
     }
   }, [motivo, devItems, compraSeleccionada, descuentoPct, montoManual]);
+
+  const ivaNC = useMemo(() => {
+    if (!isFacturaA) return 0;
+    if (motivo === 'POR DEVOLUCION' || motivo === 'POR ANULACION') {
+      return devItems.reduce((s, i) => {
+        const bruto = i.CANTIDAD_DEVOLVER * i.PRECIO_COMPRA;
+        const lineNeto = Math.round(bruto * (1 - (i.PORCENTAJE_DESCUENTO || 0) / 100) * 100) / 100;
+        return s + lineNeto * (i.IVA_ALICUOTA || 0.21);
+      }, 0);
+    }
+    // For descuento/dif precio on FA, assume 21% IVA on the net amount
+    return netoNC * 0.21;
+  }, [isFacturaA, motivo, devItems, netoNC]);
+
+  const montoNC = useMemo(() => {
+    return Math.round((netoNC + ivaNC) * 100) / 100;
+  }, [netoNC, ivaNC]);
+
+  // Auto-fill amount when single method selected
+  useEffect(() => {
+    if (selectedMetodos.length === 1 && montoNC > 0) {
+      setMontosPorMetodo({ [selectedMetodos[0]!]: montoNC });
+    }
+  }, [selectedMetodos, montoNC]);
 
   // Mutation
   const createMutation = useMutation({
@@ -219,17 +302,27 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
       PROVEEDOR_ID: proveedorId,
       MOTIVO: motivo,
       MEDIO_PAGO: medioPago,
-      MONTO: motivo === 'POR DIFERENCIA PRECIO' ? montoManual : undefined,
+      MONTO: montoNC,
       DESCUENTO: motivo === 'POR DESCUENTO' ? descuentoPct : undefined,
       DESCRIPCION: descripcion || undefined,
+      PTO_VTA: ptoVta,
+      NRO_COMPROBANTE: nroComprobante,
       DESTINO_PAGO: medioPago === 'CN' ? destinoPago : undefined,
       items,
+      metodos_pago: medioPago === 'CN' && selectedMetodos.length > 0
+        ? selectedMetodos
+            .filter(id => (montosPorMetodo[id] || 0) > 0)
+            .map(id => ({ METODO_PAGO_ID: id, MONTO: montosPorMetodo[id] || 0 }))
+        : undefined,
     });
   };
 
   // Step validation
   const canGoToStep1 = !!proveedorId;
   const canGoToStep2 = !!compraId;
+  const canGoToStep3 = montoNC > 0;
+  const needsStep3 = medioPago === 'CN';
+  const lastStep = needsStep3 ? 3 : 2;
   const canSubmit = !!(proveedorId && compraId && montoNC > 0 && !createMutation.isPending);
 
   // ── Compra selection columns ───────────────────
@@ -264,25 +357,25 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
 
   // ── Item columns for devolucion/anulacion ──────
   const itemColumns = [
-    { title: 'Código', dataIndex: 'PRODUCTO_CODIGO', width: 100, align: 'center' as const },
+    { title: 'Código', dataIndex: 'PRODUCTO_CODIGO', width: 90, align: 'center' as const },
     { title: 'Producto', dataIndex: 'PRODUCTO_NOMBRE', ellipsis: true },
     {
-      title: 'Comprada', dataIndex: 'CANTIDAD_ORIGINAL', width: 130, align: 'center' as const,
+      title: 'Comprada', dataIndex: 'CANTIDAD_ORIGINAL', width: 115, align: 'center' as const,
       render: (v: number, r: DevolucionItem) => `${v % 1 === 0 ? v : fmtNum(v)} ${r.UNIDAD_ABREVIACION || ''}`,
     },
     {
-      title: 'Devueltas', dataIndex: 'CANTIDAD_YA_DEVUELTA', width: 130, align: 'center' as const,
+      title: 'Devueltas', dataIndex: 'CANTIDAD_YA_DEVUELTA', width: 115, align: 'center' as const,
       render: (v: number) => v > 0 ? <Text type="danger">{v % 1 === 0 ? v : fmtNum(v)}</Text> : <Text type="secondary">—</Text>,
     },
     {
-      title: 'Disponible', key: 'dispo', width: 130, align: 'center' as const,
+      title: 'Disponible', key: 'dispo', width: 115, align: 'center' as const,
       render: (_: unknown, r: DevolucionItem) => {
         const dispo = Math.max(0, r.CANTIDAD_ORIGINAL - r.CANTIDAD_YA_DEVUELTA);
         return <Text type="secondary">{dispo % 1 === 0 ? dispo : fmtNum(dispo)}</Text>;
       },
     },
     {
-      title: 'A devolver', key: 'devolver', width: 130, align: 'center' as const,
+      title: 'Devuelve', key: 'devolver', width: 115, align: 'center' as const,
       render: (_: unknown, r: DevolucionItem) => {
         const max = Math.max(0, r.CANTIDAD_ORIGINAL - r.CANTIDAD_YA_DEVUELTA);
         return (
@@ -301,14 +394,22 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
       },
     },
     {
-      title: 'P. Compra', dataIndex: 'PRECIO_COMPRA', width: 100, align: 'right' as const,
+      title: 'P. Compra', dataIndex: 'PRECIO_COMPRA', width: 110, align: 'right' as const,
       render: (v: number) => fmtMoney(v),
     },
     {
-      title: 'Subtotal', key: 'sub', width: 100, align: 'right' as const,
+      title: 'Bonif.', key: 'desc', width: 90, align: 'center' as const,
       render: (_: unknown, r: DevolucionItem) => {
-        const sub = r.CANTIDAD_DEVOLVER * r.PRECIO_COMPRA;
-        return sub > 0 ? <Text strong style={{ color: '#EABD23' }}>{fmtMoney(sub)}</Text> : <Text type="secondary">$ 0,00</Text>;
+        const d = r.PORCENTAJE_DESCUENTO || 0;
+        return d > 0 ? <Text type="warning">{fmtNum(d)}%</Text> : <Text type="secondary">—</Text>;
+      },
+    },
+    {
+      title: 'Subtotal', key: 'sub', width: 120, align: 'right' as const,
+      render: (_: unknown, r: DevolucionItem) => {
+        const bruto = r.CANTIDAD_DEVOLVER * r.PRECIO_COMPRA;
+        const neto = Math.round(bruto * (1 - (r.PORCENTAJE_DESCUENTO || 0) / 100) * 100) / 100;
+        return neto > 0 ? <Text strong style={{ color: '#EABD23' }}>{fmtMoney(neto)}</Text> : <Text type="secondary">$ 0,00</Text>;
       },
     },
   ];
@@ -353,20 +454,46 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
                 style={{
                   padding: '10px 8px',
                   borderRadius: 8,
-                  border: selected ? '2px solid #EABD23' : '1px solid #444',
-                  background: selected ? 'rgba(234,189,35,0.12)' : '#2a2b2e',
+                  border: selected ? '2px solid #EABD23' : '1px solid #d9d9d9',
+                  background: selected ? 'rgba(234,189,35,0.12)' : 'transparent',
                   cursor: 'pointer',
                   textAlign: 'center',
                   transition: 'all 0.15s',
                 }}
               >
                 <div style={{ fontSize: 20 }}>{opt.icon}</div>
-                <Text strong style={{ fontSize: 12, color: selected ? '#EABD23' : '#e0e0e0' }}>
+                <Text strong style={{ fontSize: 12, color: selected ? '#EABD23' : undefined }}>
                   {opt.label}
                 </Text>
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* Punto de Venta y Talonario */}
+      <div>
+        <Text strong style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>Punto de Venta / Talonario</Text>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Input
+            value={ptoVta}
+            onChange={e => setPtoVta(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+            onBlur={() => setPtoVta(prev => prev.padStart(4, '0'))}
+            onFocus={e => e.target.select()}
+            style={{ width: 65, fontFamily: 'monospace', textAlign: 'center', letterSpacing: 1 }}
+            maxLength={4}
+            size="large"
+          />
+          <span style={{ fontFamily: 'monospace', fontSize: 16, userSelect: 'none' }}>-</span>
+          <Input
+            value={nroComprobante}
+            onChange={e => setNroComprobante(e.target.value.replace(/[^0-9]/g, '').slice(0, 8))}
+            onBlur={() => setNroComprobante(prev => prev.padStart(8, '0'))}
+            onFocus={e => e.target.select()}
+            style={{ width: 140, fontFamily: 'monospace', textAlign: 'center', letterSpacing: 1 }}
+            maxLength={8}
+            size="large"
+          />
         </div>
       </div>
 
@@ -452,11 +579,11 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
         {/* Purchase banner */}
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          padding: '8px 12px', background: '#2a2b2e', borderRadius: 6, border: '1px solid #444',
+          padding: '8px 12px', background: 'transparent', borderRadius: 6, border: '1px solid #d9d9d9',
         }}>
           <Space size="middle" style={{ fontSize: 12 }}>
-            <Text style={{ color: '#e0e0e0' }}>Compra <Text strong style={{ color: '#fff' }}>#{compraId}</Text></Text>
-            <Text style={{ color: '#aaa' }}>{new Date(compraSeleccionada.FECHA_COMPRA).toLocaleDateString('es-AR')}</Text>
+            <Text>Compra <Text strong>#{compraId}</Text></Text>
+            <Text type="secondary">{new Date(compraSeleccionada.FECHA_COMPRA).toLocaleDateString('es-AR')}</Text>
             <Tag color={compraSeleccionada.ES_CTA_CORRIENTE ? 'blue' : 'green'} style={{ margin: 0 }}>
               {compraSeleccionada.ES_CTA_CORRIENTE ? 'Cta.Cte.' : 'Contado'}
             </Tag>
@@ -491,7 +618,7 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
                 rowKey="PRODUCTO_ID"
                 size="small"
                 pagination={false}
-                scroll={devItems.length > 6 ? { y: 230 } : undefined}
+                scroll={{ y: 300 }}
               />
             )}
           </>
@@ -499,9 +626,9 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
 
         {/* Descuento */}
         {motivo === 'POR DESCUENTO' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 20, padding: '14px 16px', background: '#2a2b2e', borderRadius: 8, border: '1px solid #444' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 20, padding: '14px 16px', background: 'transparent', borderRadius: 8, border: '1px solid #d9d9d9' }}>
             <div>
-              <Text strong style={{ display: 'block', marginBottom: 6, color: '#e0e0e0' }}>
+              <Text strong style={{ display: 'block', marginBottom: 6 }}>
                 <PercentageOutlined /> Porcentaje de descuento
               </Text>
               <InputNumber
@@ -523,9 +650,9 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
 
         {/* Diferencia de precio */}
         {motivo === 'POR DIFERENCIA PRECIO' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 20, padding: '14px 16px', background: '#2a2b2e', borderRadius: 8, border: '1px solid #444' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 20, padding: '14px 16px', background: 'transparent', borderRadius: 8, border: '1px solid #d9d9d9' }}>
             <div>
-              <Text strong style={{ display: 'block', marginBottom: 6, color: '#e0e0e0' }}>
+              <Text strong style={{ display: 'block', marginBottom: 6 }}>
                 <DollarOutlined /> Monto de la NC
               </Text>
               <InputNumber
@@ -560,18 +687,21 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
         {/* Summary bar */}
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          padding: '10px 16px', background: 'linear-gradient(135deg, #1E1F22, #2a2b2e)',
+          padding: '10px 16px', background: 'rgba(234, 189, 35, 0.06)',
           borderRadius: 8, border: '1px solid #EABD23',
         }}>
           <div>
-            <Text type="secondary" style={{ fontSize: 11 }}>
+            <Text style={{ fontSize: 11 }}>
               {compraSeleccionada.PROVEEDOR_NOMBRE || proveedorSeleccionado?.NOMBRE || ''}
               {' · '}Compra #{compraId}
               {' · '}{medioPago === 'CC' ? 'Cta. Corriente' : `Contado → ${destinoPago === 'CAJA' ? 'Caja' : 'Caja Central'}`}
             </Text>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <Text type="secondary" style={{ fontSize: 10, display: 'block' }}>Total NC</Text>
+            {isFacturaA && netoNC > 0 && (
+              <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>Neto: {fmtMoney(netoNC)} + IVA: {fmtMoney(Math.round(ivaNC * 100) / 100)}</Text>
+            )}
+            <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>Total NC</Text>
             <span style={{ fontSize: 22, fontWeight: 'bold', color: '#EABD23' }}>
               {fmtMoney(montoNC)}
             </span>
@@ -580,6 +710,89 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
       </div>
     );
   };
+
+  const renderStep3 = () => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Summary */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        padding: '10px 16px', background: 'rgba(234, 189, 35, 0.06)',
+        borderRadius: 8, border: '1px solid #EABD23',
+      }}>
+        <div>
+          <Text style={{ fontSize: 11 }}>
+            {compraSeleccionada?.PROVEEDOR_NOMBRE || proveedorSeleccionado?.NOMBRE || ''}
+            {' · '}Compra #{compraId}
+            {' · '}{MOTIVO_OPTIONS.find(o => o.value === motivo)?.label}
+          </Text>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>Total NC</Text>
+          <span style={{ fontSize: 22, fontWeight: 'bold', color: '#EABD23' }}>{fmtMoney(montoNC)}</span>
+        </div>
+      </div>
+
+      {/* Selected payment methods (compact Tags) */}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <Text strong style={{ fontSize: 13 }}>
+            <WalletOutlined style={{ marginRight: 6 }} />Método de pago
+          </Text>
+          <Button type="link" size="small" onClick={() => {
+            setMetodoModalSelection([...selectedMetodos]);
+            setMetodoModalOpen(true);
+          }}>Cambiar</Button>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {selectedMetodos.map(id => {
+            const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+            if (!m) return null;
+            return (
+              <Tag key={id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', fontSize: 13 }}>
+                {m.IMAGEN_BASE64 ? (
+                  <img src={m.IMAGEN_BASE64} alt={m.NOMBRE} style={{ width: 16, height: 16, objectFit: 'contain', borderRadius: 2 }} />
+                ) : (
+                  m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined /> : <CreditCardOutlined />
+                )}
+                {m.NOMBRE}
+              </Tag>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Amount inputs when multiple methods selected */}
+      {selectedMetodos.length > 1 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {selectedMetodos.map(id => {
+            const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+            if (!m) return null;
+            return (
+              <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Text style={{ width: 120, fontSize: 12 }}>
+                  {m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined style={{ marginRight: 4 }} /> : <CreditCardOutlined style={{ marginRight: 4 }} />}
+                  {m.NOMBRE}
+                </Text>
+                <InputNumber
+                  value={montosPorMetodo[id] || 0}
+                  min={0}
+                  step={100}
+                  size="small"
+                  style={{ width: 150 }}
+                  formatter={v => `$ ${v}`}
+                  onChange={v => setMontosPorMetodo(prev => ({ ...prev, [id]: v || 0 }))}
+                />
+              </div>
+            );
+          })}
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            Total asignado: {fmtMoney(selectedMetodos.reduce((s, id) => s + (montosPorMetodo[id] || 0), 0))}
+            {' / '}{fmtMoney(montoNC)}
+          </Text>
+        </div>
+      )}
+    </div>
+  );
 
   // ── Footer buttons ─────────────────────────────
   const footerButtons = () => {
@@ -592,8 +805,8 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
         </Button>
       );
     }
-    if (step < 2) {
-      const disabled = step === 0 ? !canGoToStep1 : !canGoToStep2;
+    if (step < lastStep) {
+      const disabled = step === 0 ? !canGoToStep1 : step === 1 ? !canGoToStep2 : !canGoToStep3;
       buttons.push(
         <Button key="next" type="primary" className="btn-gold" icon={<ArrowRightOutlined />}
           disabled={disabled} onClick={() => setStep(s => s + 1)}>
@@ -611,7 +824,7 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
     return buttons;
   };
 
-  return (
+  return (<>
     <Modal
       open={open}
       onCancel={onClose}
@@ -622,11 +835,12 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
         </Space>
       }
       className="rg-modal"
-      width={step === 0 ? 640 : 920}
+      width={step === 0 ? 640 : step === 1 ? 920 : step === 3 ? 640 : 1100}
+      centered
       footer={footerButtons()}
       destroyOnClose
       styles={{
-        body: { paddingTop: 12 },
+        body: { paddingTop: 12, maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' },
       }}
     >
       <Steps
@@ -637,17 +851,109 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
           if (s < step) setStep(s);
           if (s === 1 && canGoToStep1) setStep(1);
           if (s === 2 && canGoToStep1 && canGoToStep2) setStep(2);
+          if (s === 3 && canGoToStep1 && canGoToStep2 && canGoToStep3) setStep(3);
         }}
         items={[
           { title: 'Configuración', description: proveedorId ? (proveedorSeleccionado?.NOMBRE || '') : undefined },
           { title: 'Compra', description: compraId ? `#${compraId}` : undefined },
           { title: 'Detalle NC' },
+          ...(needsStep3 ? [{ title: 'Pago' }] : []),
         ]}
       />
 
       {step === 0 && renderStep0()}
       {step === 1 && renderStep1()}
       {step === 2 && renderStep2()}
+      {step === 3 && needsStep3 && renderStep3()}
     </Modal>
-  );
+
+    {/* ── Payment method selection modal ── */}
+    <Modal
+      open={metodoModalOpen}
+      onCancel={() => setMetodoModalOpen(false)}
+      centered
+      width={520}
+      destroyOnClose
+      title={
+        <Space>
+          <WalletOutlined style={{ color: '#EABD23', fontSize: 20 }} />
+          <span>Seleccionar método de pago</span>
+        </Space>
+      }
+      footer={
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <Button onClick={() => setMetodoModalOpen(false)}>Cancelar</Button>
+          <Button
+            type="primary"
+            className="btn-gold"
+            disabled={metodoModalSelection.length === 0}
+            onClick={() => {
+              setSelectedMetodos(metodoModalSelection);
+              setMontosPorMetodo(prev => {
+                const next: Record<number, number> = {};
+                for (const id of metodoModalSelection) {
+                  next[id] = prev[id] || 0;
+                }
+                if (metodoModalSelection.length === 1) {
+                  next[metodoModalSelection[0]!] = montoNC;
+                }
+                return next;
+              });
+              setMetodoModalOpen(false);
+            }}
+            icon={<CheckCircleOutlined />}
+          >
+            Confirmar ({metodoModalSelection.length})
+          </Button>
+        </div>
+      }
+    >
+      <div style={{ marginTop: 12 }}>
+        <Text type="secondary" style={{ fontSize: 12, marginBottom: 12, display: 'block' }}>
+          Haga click para seleccionar un método. Mantenga Ctrl presionado para seleccionar varios.
+        </Text>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12 }}>
+          {metodosPagoOrdenados.map(m => {
+            const isSelected = metodoModalSelection.includes(m.METODO_PAGO_ID);
+            return (
+              <div
+                key={m.METODO_PAGO_ID}
+                onClick={(e: React.MouseEvent) => {
+                  if (e.ctrlKey || e.metaKey) {
+                    setMetodoModalSelection(prev =>
+                      isSelected
+                        ? prev.filter(id => id !== m.METODO_PAGO_ID)
+                        : [...prev, m.METODO_PAGO_ID]
+                    );
+                  } else {
+                    setMetodoModalSelection([m.METODO_PAGO_ID]);
+                  }
+                }}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+                  padding: '16px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'center',
+                  border: isSelected ? '2px solid #EABD23' : '1px solid #d9d9d9',
+                  background: isSelected ? 'rgba(234, 189, 35, 0.08)' : 'transparent',
+                  transition: 'all 0.15s', position: 'relative',
+                }}
+              >
+                {m.IMAGEN_BASE64 ? (
+                  <img src={m.IMAGEN_BASE64} alt={m.NOMBRE} style={{ width: 40, height: 40, objectFit: 'contain', borderRadius: 6 }} />
+                ) : (
+                  <div style={{ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: isSelected ? '#EABD23' : '#999' }}>
+                    {m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined /> : <CreditCardOutlined />}
+                  </div>
+                )}
+                <Text strong style={{ fontSize: 13, lineHeight: 1.2 }}>{m.NOMBRE}</Text>
+                <Tag color={m.CATEGORIA === 'EFECTIVO' ? 'green' : 'blue'} style={{ fontSize: 10, margin: 0 }}>{m.CATEGORIA}</Tag>
+                {isSelected && (
+                  <CheckCircleOutlined style={{ color: '#EABD23', fontSize: 16, position: 'absolute', top: 6, right: 6 }} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </Modal>
+  </>);
 }

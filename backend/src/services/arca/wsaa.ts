@@ -15,12 +15,12 @@
  *   - https://www.afip.gob.ar/ws/WSAA/Especificacion_Tecnica_WSAA_1.2.2.pdf
  */
 
-import crypto from 'crypto';
-import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import forge from 'node-forge';
 import { parseStringPromise } from 'xml2js';
+import { arcaFetch } from './arcaFetch.js';
 
 // ── Endpoints ────────────────────────────────────────
 const WSAA_URLS = {
@@ -28,7 +28,7 @@ const WSAA_URLS = {
   production: 'https://wsaa.afip.gov.ar/ws/services/LoginCms',
 } as const;
 
-// ── Cached credentials ──────────────────────────────
+// ── Cached credentials (memory + file persistence) ──
 interface WSAACredentials {
   token: string;
   sign: string;
@@ -36,6 +36,37 @@ interface WSAACredentials {
 }
 
 const credentialsCache: Map<string, WSAACredentials> = new Map();
+
+const CACHE_DIR = path.join(os.tmpdir(), 'rgweb-wsaa');
+
+function getCacheFilePath(cacheKey: string): string {
+  // Sanitize key for filename
+  return path.join(CACHE_DIR, `${cacheKey.replace(/[^a-zA-Z0-9_]/g, '_')}.json`);
+}
+
+function loadCachedCredentials(cacheKey: string): WSAACredentials | null {
+  try {
+    const filePath = getCacheFilePath(cacheKey);
+    if (!fs.existsSync(filePath)) return null;
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    data.expirationTime = new Date(data.expirationTime);
+    if (data.expirationTime.getTime() > Date.now() + 300_000) {
+      return data;
+    }
+    // Expired — remove file
+    try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedCredentials(cacheKey: string, creds: WSAACredentials): void {
+  try {
+    if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
+    fs.writeFileSync(getCacheFilePath(cacheKey), JSON.stringify(creds), 'utf8');
+  } catch { /* ignore */ }
+}
 
 // ── Configuration ───────────────────────────────────
 export interface WSAAConfig {
@@ -58,7 +89,8 @@ function buildTRA(service: string): string {
   const generationTime = new Date(now.getTime() - 600_000); // 10 min in the past (clock skew tolerance)
   const expirationTime = new Date(now.getTime() + 600_000); // 10 min in the future
 
-  const formatDate = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, '-03:00');
+  // Use ISO format with Z (UTC) — WSAA accepts both UTC and local offset
+  const formatDate = (d: Date) => d.toISOString();
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <loginTicketRequest version="1.0">
@@ -72,41 +104,35 @@ function buildTRA(service: string): string {
 }
 
 /**
- * Sign the TRA using OpenSSL to create a CMS (PKCS#7) signed message.
+ * Sign the TRA using node-forge to create a CMS (PKCS#7) signed message.
  * Uses the contributor's private key and certificate.
- *
- * We shell out to OpenSSL because Node.js crypto doesn't natively support
- * creating PKCS#7/CMS signed data in the format ARCA requires.
+ * Pure JS implementation — no system OpenSSL binary required.
  */
 function signTRA(tra: string, privateKeyPath: string, certPath: string): string {
-  // Write TRA to a temp file
-  const tmpDir = os.tmpdir();
-  const traPath = path.join(tmpDir, `tra_${Date.now()}.xml`);
-  const cmsPath = path.join(tmpDir, `cms_${Date.now()}.pem`);
+  const certPem = fs.readFileSync(certPath, 'utf8');
+  const keyPem = fs.readFileSync(privateKeyPath, 'utf8');
 
-  try {
-    fs.writeFileSync(traPath, tra, 'utf8');
+  const certificate = forge.pki.certificateFromPem(certPem);
+  const privateKey = forge.pki.privateKeyFromPem(keyPem);
 
-    // Sign with OpenSSL (creates a PKCS#7 S/MIME signed message in DER→Base64)
-    execSync(
-      `openssl smime -sign -signer "${certPath}" -inkey "${privateKeyPath}" ` +
-      `-in "${traPath}" -out "${cmsPath}" -outform pem -nodetach`,
-      { stdio: 'pipe', timeout: 15_000 }
-    );
+  const p7 = forge.pkcs7.createSignedData();
+  p7.content = forge.util.createBuffer(tra, 'utf8');
+  p7.addCertificate(certificate);
+  p7.addSigner({
+    key: privateKey,
+    certificate: certificate,
+    digestAlgorithm: forge.pki.oids.sha256,
+    authenticatedAttributes: [
+      { type: forge.pki.oids.contentType, value: forge.pki.oids.data },
+      { type: forge.pki.oids.messageDigest },
+      { type: forge.pki.oids.signingTime, value: new Date() as any },
+    ],
+  });
+  p7.sign({ detached: false });
 
-    // Read the CMS output, extract only the Base64 payload (strip headers)
-    const cmsContent = fs.readFileSync(cmsPath, 'utf8');
-    const base64 = cmsContent
-      .replace(/-----BEGIN PKCS7-----/g, '')
-      .replace(/-----END PKCS7-----/g, '')
-      .replace(/\r?\n/g, '');
-
-    return base64;
-  } finally {
-    // Clean up temp files
-    try { fs.unlinkSync(traPath); } catch { /* ignore */ }
-    try { fs.unlinkSync(cmsPath); } catch { /* ignore */ }
-  }
+  const asn1 = p7.toAsn1();
+  const derBytes = forge.asn1.toDer(asn1);
+  return forge.util.encode64(derBytes.getBytes());
 }
 
 /**
@@ -191,10 +217,18 @@ export async function getWSAACredentials(
 ): Promise<{ token: string; sign: string }> {
   const cacheKey = `${config.cuit}_${service}_${config.environment}`;
 
-  // Check cache — reuse if not expired (with 5 min margin)
+  // Check memory cache — reuse if not expired (with 5 min margin)
   const cached = credentialsCache.get(cacheKey);
   if (cached && cached.expirationTime.getTime() > Date.now() + 300_000) {
     return { token: cached.token, sign: cached.sign };
+  }
+
+  // Check file cache (survives server restarts)
+  const fileCached = loadCachedCredentials(cacheKey);
+  if (fileCached) {
+    credentialsCache.set(cacheKey, fileCached);
+    console.log(`[WSAA] Usando TA cacheado en disco (válido hasta ${fileCached.expirationTime.toLocaleString()})`);
+    return { token: fileCached.token, sign: fileCached.sign };
   }
 
   console.log(`[WSAA] Autenticando para servicio "${service}" (${config.environment})...`);
@@ -222,7 +256,7 @@ export async function getWSAACredentials(
     cms = signTRA(tra, config.privateKeyPath, config.certPath);
   } catch (err: any) {
     throw Object.assign(
-      new Error(`WSAA: Error al firmar el TRA: ${err.message}. Verifique que OpenSSL esté instalado y los archivos de certificado sean válidos.`),
+      new Error(`WSAA: Error al firmar el TRA: ${err.message}. Verifique que los archivos de certificado (.crt y .key) sean válidos y coincidan entre sí.`),
       { name: 'WSAASignError' }
     );
   }
@@ -231,7 +265,7 @@ export async function getWSAACredentials(
   const wsaaUrl = WSAA_URLS[config.environment];
   const soapEnvelope = buildLoginCmsRequest(cms);
 
-  const response = await fetch(wsaaUrl, {
+  const response = await arcaFetch(wsaaUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'text/xml; charset=utf-8',
@@ -241,20 +275,67 @@ export async function getWSAACredentials(
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
+    const errorText = response.text;
+
+    // Handle "already authenticated" — ARCA still has a valid TA for this service.
+    // This happens when the server restarts and loses the cached TA.
+    // We cannot recover the old TA, so we wait and retry with exponential backoff.
+    if (errorText.includes('coe.alreadyAuthenticated')) {
+      // Try 3 times with increasing delays (10s, 30s, 60s)
+      const delays = [10_000, 30_000, 60_000];
+      for (let i = 0; i < delays.length; i++) {
+        console.log(`[WSAA] TA aún válido en ARCA, reintentando en ${delays[i] / 1000}s... (${i + 1}/${delays.length})`);
+        await new Promise(resolve => setTimeout(resolve, delays[i]));
+
+        // Rebuild TRA with new timestamps and sign again
+        const newTra = buildTRA(service);
+        const newCms = signTRA(newTra, config.privateKeyPath, config.certPath);
+        const newEnvelope = buildLoginCmsRequest(newCms);
+
+        const retryResponse = await arcaFetch(wsaaUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/xml; charset=utf-8', 'SOAPAction': '' },
+          body: newEnvelope,
+        });
+
+        if (retryResponse.ok) {
+          const retryXml = retryResponse.text;
+          const retryCreds = await parseLoginResponse(retryXml);
+          credentialsCache.set(cacheKey, retryCreds);
+          saveCachedCredentials(cacheKey, retryCreds);
+          console.log(`[WSAA] Autenticación exitosa (reintento ${i + 1}). Token válido hasta: ${retryCreds.expirationTime.toLocaleString()}`);
+          return { token: retryCreds.token, sign: retryCreds.sign };
+        }
+
+        const retryText = retryResponse.text;
+        if (!retryText.includes('coe.alreadyAuthenticated')) {
+          throw Object.assign(
+            new Error(`WSAA: HTTP ${retryResponse.status} - ${retryText.substring(0, 500)}`),
+            { name: 'WSAAError' }
+          );
+        }
+      }
+
+      throw Object.assign(
+        new Error('WSAA: El servidor ARCA aún posee un ticket válido anterior. Intente nuevamente en unos minutos.'),
+        { name: 'WSAAError' }
+      );
+    }
+
     throw Object.assign(
       new Error(`WSAA: HTTP ${response.status} - ${errorText.substring(0, 500)}`),
       { name: 'WSAAError' }
     );
   }
 
-  const responseXml = await response.text();
+  const responseXml = response.text;
 
   // 4. Parse response
   const credentials = await parseLoginResponse(responseXml);
 
-  // 5. Cache
+  // 5. Cache (memory + file)
   credentialsCache.set(cacheKey, credentials);
+  saveCachedCredentials(cacheKey, credentials);
   console.log(`[WSAA] Autenticación exitosa. Token válido hasta: ${credentials.expirationTime.toLocaleString()}`);
 
   return { token: credentials.token, sign: credentials.sign };

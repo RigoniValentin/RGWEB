@@ -1,5 +1,7 @@
 import { getPool, sql } from '../database/connection.js';
+import path from 'path';
 import { config } from '../config/index.js';
+import { rootDir } from '../config/paths.js';
 import { getWSAACredentials, type WSAAConfig } from './arca/wsaa.js';
 import {
   feCAESolicitar, feCompUltimoAutorizado, feDummy,
@@ -84,6 +86,28 @@ function getDocTipoForCondicion(condicionIva: string, documentoTipo: string): nu
 }
 
 /**
+ * Maps CONDICION_IVA string to ARCA CondicionIvaReceptor ID.
+ * Required by RG 5616.
+ * See FEParamGetCondicionIvaReceptor for full list.
+ */
+function getCondicionIvaReceptorId(condicionIva: string): number {
+  const c = (condicionIva || '').toUpperCase().trim();
+  switch (c) {
+    case 'RESPONSABLE INSCRIPTO': return 1;
+    case 'RESPONSABLE NO INSCRIPTO': return 2;
+    case 'EXENTO':
+    case 'IVA EXENTO': return 4;
+    case 'CONSUMIDOR FINAL': return 5;
+    case 'MONOTRIBUTO':
+    case 'RESPONSABLE MONOTRIBUTO': return 6;
+    case 'SUJETO NO CATEGORIZADO': return 7;
+    case 'IVA NO ALCANZADO': return 12;
+    case 'MONOTRIBUTISTA SOCIAL': return 13;
+    default: return 5; // Consumidor Final por defecto
+  }
+}
+
+/**
  * Maps internal comprobante codes to ARCA CbteTipo IDs.
  * Fa.A → 1, Fa.B → 6, Fa.C → 11
  */
@@ -157,8 +181,8 @@ function mapProvinciaAFIP(provincia: string): string {
  */
 function getWSAAConfig(): WSAAConfig {
   return {
-    privateKeyPath: config.arca.keyPath,
-    certPath: config.arca.certPath,
+    privateKeyPath: path.resolve(rootDir, config.arca.keyPath),
+    certPath: path.resolve(rootDir, config.arca.certPath),
     environment: config.arca.environment,
     cuit: config.arca.cuit,
   };
@@ -388,8 +412,16 @@ export const facturacionService = {
     // ── 3. Get client data ──
     const cliente = await this.getClienteData(venta.CLIENTE_ID);
 
-    // ── 4. Determine comprobante type ──
-    const tipoComprobante = venta.TIPO_COMPROBANTE || 'Fa.B';
+    // ── 4. Determine comprobante type (server-side enforced) ──
+    const empresaCondIva = (await this.getEmpresaCondicionIVA()).toUpperCase();
+    let tipoComprobante: string;
+    if (empresaCondIva === 'MONOTRIBUTO') {
+      tipoComprobante = 'Fa.C';
+    } else if (empresaCondIva === 'RESPONSABLE INSCRIPTO') {
+      tipoComprobante = cliente.condicionIva === 'RESPONSABLE INSCRIPTO' ? 'Fa.A' : 'Fa.B';
+    } else {
+      tipoComprobante = 'Fa.C';
+    }
     const cbteTipo = mapTipoComprobanteToARCA(tipoComprobante);
     const esFacturaConIVA = tipoComprobante === 'Fa.A' || tipoComprobante === 'Fa.B';
 
@@ -511,6 +543,7 @@ export const facturacionService = {
       MonId: 'PES',
       MonCotiz: 1,
       Iva: ivaArray.length > 0 ? ivaArray : undefined,
+      CondicionIvaReceptor: getCondicionIvaReceptorId(cliente.condicionIva),
     };
 
     // ── 12. Call ARCA WSFEv1 ──
@@ -729,5 +762,126 @@ export const facturacionService = {
   async getPuntosVentaARCA() {
     const auth = await getAuth();
     return await feParamGetPtosVenta(auth, config.arca.environment);
+  },
+
+  /**
+   * Get all data needed to render a factura PDF/ticket.
+   * Returns venta + items + client info + empresa + FE response in one call.
+   */
+  async getFacturaData(ventaId: number) {
+    const pool = await getPool();
+
+    // Venta + client details
+    const ventaResult = await pool.request()
+      .input('id', sql.Int, ventaId)
+      .query(`
+        SELECT v.VENTA_ID, v.FECHA_VENTA, v.TOTAL, v.SUBTOTAL, v.DTO_GRAL,
+               v.NUMERO_FISCAL, v.CAE, v.PUNTO_VENTA, v.TIPO_COMPROBANTE,
+               v.NETO_GRAVADO, v.NETO_NO_GRAVADO, v.NETO_EXENTO, v.IVA_TOTAL,
+               c.NOMBRE AS CLIENTE_NOMBRE,
+               c.NUMERO_DOC AS CLIENTE_NUMERO_DOC,
+               c.TIPO_DOCUMENTO AS CLIENTE_TIPO_DOC,
+               c.CONDICION_IVA AS CLIENTE_CONDICION_IVA,
+               c.DOMICILIO AS CLIENTE_DOMICILIO
+        FROM VENTAS v
+        LEFT JOIN CLIENTES c ON v.CLIENTE_ID = c.CLIENTE_ID
+        WHERE v.VENTA_ID = @id
+      `);
+
+    if (ventaResult.recordset.length === 0) {
+      throw Object.assign(new Error('Venta no encontrada'), { name: 'ValidationError' });
+    }
+
+    const venta = ventaResult.recordset[0];
+
+    if (!venta.NUMERO_FISCAL || !venta.CAE) {
+      throw Object.assign(new Error('Esta venta no tiene factura electrónica emitida'), { name: 'ValidationError' });
+    }
+
+    // Items
+    const itemsResult = await pool.request()
+      .input('id', sql.Int, ventaId)
+      .query(`
+        SELECT vi.PRECIO_UNITARIO, vi.CANTIDAD, vi.DESCUENTO,
+               vi.PRECIO_UNITARIO_DTO,
+               ISNULL(vi.IVA_ALICUOTA, 0) AS IVA_ALICUOTA,
+               ISNULL(vi.IVA_MONTO, 0) AS IVA_MONTO,
+               p.NOMBRE AS PRODUCTO_NOMBRE,
+               p.CODIGOPARTICULAR AS PRODUCTO_CODIGO,
+               ISNULL(um.ABREVIACION, 'u') AS UNIDAD_ABREVIACION
+        FROM VENTAS_ITEMS vi
+        JOIN PRODUCTOS p ON vi.PRODUCTO_ID = p.PRODUCTO_ID
+        LEFT JOIN UNIDADES_MEDIDA um ON p.UNIDAD_ID = um.UNIDAD_ID
+        WHERE vi.VENTA_ID = @id
+        ORDER BY vi.ITEM_ID
+      `);
+
+    // FE response (CAE vto, etc.)
+    let feResp = null;
+    try {
+      const feResult = await pool.request()
+        .input('id', sql.Int, ventaId)
+        .query(`SELECT * FROM RESPUESTA_FE WHERE COMPROBANTE_ID = @id`);
+      feResp = feResult.recordset[0] || null;
+    } catch { /* table might not exist */ }
+
+    // Empresa data (same pattern as remitos.service.ts getEmpresaData)
+    const empresa: any = {};
+    try {
+      const empResult = await pool.request().query(`
+        SELECT TOP 1
+          ISNULL(RAZON_SOCIAL, '') AS RAZON_SOCIAL,
+          ISNULL(NOMBRE_FANTASIA, '') AS NOMBRE_FANTASIA,
+          ISNULL(DOMICILIO, '') AS DOMICILIO,
+          ISNULL(CUIT, '') AS CUIT,
+          ISNULL(INGRESOS_BRUTOS, '') AS INGRESOS_BRUTOS,
+          ISNULL(CONDICION_IVA, '') AS CONDICION_IVA,
+          ISNULL(INICIO_ACTIVIDADES, '') AS INICIO_ACTIVIDADES,
+          ISNULL(LOCALIDAD, '') AS LOCALIDAD
+        FROM EMPRESA
+      `);
+      Object.assign(empresa, empResult.recordset[0] || {});
+    } catch { /* EMPRESA table may not exist */ }
+
+    try {
+      const ecResult = await pool.request().query(`
+        SELECT TOP 1
+          PUNTO_VENTA,
+          ISNULL(RAZON_SOCIAL, '') AS EC_RAZON_SOCIAL,
+          ISNULL(DOMICILIO_FISCAL, '') AS EC_DOMICILIO,
+          ISNULL(CONDICION_IVA, '') AS EC_CONDICION_IVA,
+          ISNULL(CUIT, '') AS EC_CUIT
+        FROM EMPRESA_CLIENTE
+      `);
+      const ec = ecResult.recordset[0];
+      if (ec) {
+        empresa.PUNTO_VENTA = ec.PUNTO_VENTA?.toString() || '';
+        if (ec.EC_RAZON_SOCIAL) empresa.RAZON_SOCIAL = ec.EC_RAZON_SOCIAL;
+        if (ec.EC_DOMICILIO) empresa.DOMICILIO = ec.EC_DOMICILIO;
+        if (ec.EC_CONDICION_IVA) empresa.CONDICION_IVA = ec.EC_CONDICION_IVA;
+        if (ec.EC_CUIT) empresa.CUIT = ec.EC_CUIT;
+      }
+    } catch {
+      empresa.PUNTO_VENTA = '';
+    }
+
+    return {
+      venta: {
+        ...venta,
+        items: itemsResult.recordset,
+      },
+      feResp,
+      empresa: {
+        RAZON_SOCIAL: empresa.RAZON_SOCIAL || empresa.NOMBRE_FANTASIA || '',
+        NOMBRE_FANTASIA: empresa.NOMBRE_FANTASIA || '',
+        DOMICILIO: empresa.DOMICILIO || '',
+        LOCALIDAD: empresa.LOCALIDAD || '',
+        CUIT: empresa.CUIT || '',
+        CONDICION_IVA: empresa.CONDICION_IVA || '',
+        INGRESOS_BRUTOS: empresa.INGRESOS_BRUTOS || '',
+        INICIO_ACTIVIDADES: empresa.INICIO_ACTIVIDADES || '',
+        PUNTO_VENTA: empresa.PUNTO_VENTA || '',
+      },
+    };
   },
 };
