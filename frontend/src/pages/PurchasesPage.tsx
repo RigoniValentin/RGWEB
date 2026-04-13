@@ -223,7 +223,7 @@ export function PurchasesPage() {
             Pago pendiente
           </Checkbox>
           <Button icon={<ReloadOutlined />} onClick={() => refetch()} />
-          <Badge dot={usePurchaseDraftStore(s => s.hasDraft())} offset={[-4, 4]}>
+          <Badge count={usePurchaseDraftStore(s => s.hasDraft()) ? 1 : 0} offset={[-4, 4]} size="small" style={{ backgroundColor: '#EABD23', color: '#1E1F22' }}>
             <Button
               type="primary"
               className="btn-gold"
