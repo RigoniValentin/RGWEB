@@ -16,6 +16,8 @@ import { cajaApi } from '../../services/caja.api';
 import { fmtMoney } from '../../utils/format';
 import type { CompraItemInput, CompraInput, ProductoSearchCompra, ProductoSearch, MetodoPagoItem } from '../../types';
 import { ProductSearchModal } from '../ProductSearchModal';
+import { usePurchaseDraftStore } from '../../store/purchaseDraftStore';
+import type { PurchaseCartItem } from '../../store/purchaseDraftStore';
 
 const { Title, Text } = Typography;
 
@@ -42,6 +44,9 @@ interface Props {
 }
 
 export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
+  // ── Draft persistence ──────────────────────────
+  const draftInitialized = useRef(false);
+
   const [cart, setCart] = useState<CartItem[]>([]);
   const [proveedorId, setProveedorId] = useState<number | null>(null);
   const [depositoId, setDepositoId] = useState<number | null>(null);
@@ -159,6 +164,55 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       setDepositoId(depositos[0]!.DEPOSITO_ID);
     }
   }, [depositos]);
+
+  // ── Restore draft when modal opens ─────────────
+  useEffect(() => {
+    if (open && !draftInitialized.current) {
+      draftInitialized.current = true;
+      const d = usePurchaseDraftStore.getState().draft;
+      if (d.cart.length > 0) {
+        setCart(d.cart as CartItem[]);
+        setProveedorId(d.proveedorId);
+        if (d.depositoId !== null) setDepositoId(d.depositoId);
+        setTipoComprobante(d.tipoComprobante);
+        setPtoVta(d.ptoVta);
+        setNroComprobante(d.nroComprobante);
+        setEsCtaCorriente(d.esCtaCorriente);
+        setIvaIncluido(d.ivaIncluido);
+        setIvaManual(d.ivaManual);
+        setActualizarCostos(d.actualizarCostos);
+        setActualizarPrecios(d.actualizarPrecios);
+        setPercepcionIva(d.percepcionIva);
+        setPercepcionIibb(d.percepcionIibb);
+        setTipoCarga(d.tipoCarga);
+        setImpIntGravaIva(d.impIntGravaIva);
+        setStep(d.step);
+        setSelectedMetodos(d.selectedMetodos);
+        setMontosPorMetodo(d.montosPorMetodo);
+        setDestinoPago(d.destinoPago);
+      }
+    }
+    if (!open) {
+      draftInitialized.current = false;
+    }
+  }, [open]);
+
+  // ── Auto-save draft on state changes ───────────
+  useEffect(() => {
+    if (!open) return;
+    usePurchaseDraftStore.getState().updateDraft({
+      cart: cart as PurchaseCartItem[],
+      proveedorId, depositoId, tipoComprobante, ptoVta, nroComprobante,
+      esCtaCorriente, ivaIncluido, ivaManual, actualizarCostos, actualizarPrecios,
+      percepcionIva, percepcionIibb, tipoCarga, impIntGravaIva,
+      step, selectedMetodos, montosPorMetodo, destinoPago,
+    });
+  }, [
+    open, cart, proveedorId, depositoId, tipoComprobante, ptoVta, nroComprobante,
+    esCtaCorriente, ivaIncluido, ivaManual, actualizarCostos, actualizarPrecios,
+    percepcionIva, percepcionIibb, tipoCarga, impIntGravaIva,
+    step, selectedMetodos, montosPorMetodo, destinoPago,
+  ]);
 
   // ── Product search ─────────────────────────────
   const isDetallada = tipoCarga === 'detallada';
@@ -461,8 +515,8 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     }
   }, [selectedMetodos, step, total]);
 
-  // Reset on close
-  const handleClose = () => {
+  // Reset all local state to defaults
+  const resetForm = () => {
     setCart([]);
     setProveedorId(null);
     setDepositoId(depositos.length > 0 ? depositos[0]!.DEPOSITO_ID : null);
@@ -487,6 +541,11 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     setDestinoPago('CAJA_CENTRAL');
     setSaldoModalOpen(false);
     setSaldoInfo(null);
+  };
+
+  // Close modal — purge draft if cart is empty, otherwise keep for next open
+  const handleClose = () => {
+    usePurchaseDraftStore.getState().purgeIfEmpty();
     onClose();
   };
 
@@ -511,7 +570,9 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
         message.success(`Compra #${result.COMPRA_ID} registrada — Total: ${fmtMoney(result.TOTAL)}`);
       }
       const didUpdateCosts = actualizarCostos;
-      handleClose();
+      usePurchaseDraftStore.getState().clearDraft();
+      resetForm();
+      onClose();
       onSuccess({ compraId: result.COMPRA_ID, actualizoCostos: didUpdateCosts });
     },
     onError: (err: any) => {
