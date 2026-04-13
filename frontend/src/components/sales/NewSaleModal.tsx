@@ -653,8 +653,9 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     setRemitosPendientes([]);
   }, [activeDraftId, removeDraft]);
 
-  // Close modal — drafts persist in the store
+  // Close modal — purge empty drafts and reset counter if none remain
   const handleClose = () => {
+    useSaleDraftsStore.getState().purgeEmptyDrafts();
     onClose();
   };
 

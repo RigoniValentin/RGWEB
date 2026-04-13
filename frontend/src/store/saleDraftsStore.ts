@@ -121,6 +121,9 @@ interface SaleDraftsState {
   /** Remove all drafts */
   clearAllDrafts: () => void;
 
+  /** Remove drafts with empty carts; reset counter if none remain */
+  purgeEmptyDrafts: () => void;
+
   /** Get draft count */
   draftCount: () => number;
 }
@@ -187,7 +190,24 @@ export const useSaleDraftsStore = create<SaleDraftsState>()(
       },
 
       clearAllDrafts: () => {
+        draftCounter = 1;
         set({ drafts: [], activeDraftId: null });
+      },
+
+      purgeEmptyDrafts: () => {
+        const { drafts, activeDraftId } = get();
+        const remaining = drafts.filter(d => d.cart.length > 0);
+        if (remaining.length === drafts.length) return; // nothing to purge
+        if (remaining.length === 0) {
+          draftCounter = 1;
+          set({ drafts: [], activeDraftId: null });
+          return;
+        }
+        let newActive = activeDraftId;
+        if (!remaining.find(d => d.id === activeDraftId)) {
+          newActive = remaining[0]!.id;
+        }
+        set({ drafts: remaining, activeDraftId: newActive });
       },
 
       draftCount: () => get().drafts.length,
