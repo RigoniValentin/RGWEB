@@ -85,56 +85,70 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const wantFETicket = activeDraft?.wantFETicket ?? false;
   const selectedRemitoIds = activeDraft?.selectedRemitoIds ?? [];
 
-  // Helper: update a field on the active draft
+  // Helper: update a field on the active draft.
+  // Reads activeDraftId from getState() at call-time to avoid stale closures.
   const ud = useCallback(<K extends keyof import('../../store/saleDraftsStore').SaleDraft>(
     field: K, value: import('../../store/saleDraftsStore').SaleDraft[K]
   ) => {
-    if (activeDraftId) updateDraft(activeDraftId, { [field]: value });
-  }, [activeDraftId, updateDraft]);
+    const id = useSaleDraftsStore.getState().activeDraftId;
+    if (id) useSaleDraftsStore.getState().updateDraft(id, { [field]: value });
+  }, []);
 
-  // Wrapper setters that write to the store
+  // Wrapper setters that write to the store (read activeDraftId dynamically)
   const setCart = useCallback((v: CartItem[] | ((prev: CartItem[]) => CartItem[])) => {
-    if (!activeDraftId) return;
-    const newVal = typeof v === 'function' ? v(useSaleDraftsStore.getState().getActiveDraft()?.cart ?? []) : v;
-    updateDraft(activeDraftId, { cart: newVal });
-  }, [activeDraftId, updateDraft]);
+    const st = useSaleDraftsStore.getState();
+    const id = st.activeDraftId;
+    if (!id) return;
+    const newVal = typeof v === 'function' ? v(st.getActiveDraft()?.cart ?? []) : v;
+    st.updateDraft(id, { cart: newVal });
+  }, []);
   const setClienteId = useCallback((v: number) => ud('clienteId', v), [ud]);
   const setDepositoId = useCallback((v: number | null) => ud('depositoId', v), [ud]);
   const setTipoComprobante = useCallback((v: string) => ud('tipoComprobante', v), [ud]);
   const setEsCtaCorriente = useCallback((v: boolean) => ud('esCtaCorriente', v), [ud]);
   const setDtoGral = useCallback((v: number) => ud('dtoGral', v), [ud]);
   const setGramosMode = useCallback((v: Record<string, boolean> | ((prev: Record<string, boolean>) => Record<string, boolean>)) => {
-    if (!activeDraftId) return;
-    const newVal = typeof v === 'function' ? v(useSaleDraftsStore.getState().getActiveDraft()?.gramosMode ?? {}) : v;
-    updateDraft(activeDraftId, { gramosMode: newVal });
-  }, [activeDraftId, updateDraft]);
+    const st = useSaleDraftsStore.getState();
+    const id = st.activeDraftId;
+    if (!id) return;
+    const newVal = typeof v === 'function' ? v(st.getActiveDraft()?.gramosMode ?? {}) : v;
+    st.updateDraft(id, { gramosMode: newVal });
+  }, []);
   const setPrecioFinalMode = useCallback((v: Record<string, boolean> | ((prev: Record<string, boolean>) => Record<string, boolean>)) => {
-    if (!activeDraftId) return;
-    const newVal = typeof v === 'function' ? v(useSaleDraftsStore.getState().getActiveDraft()?.precioFinalMode ?? {}) : v;
-    updateDraft(activeDraftId, { precioFinalMode: newVal });
-  }, [activeDraftId, updateDraft]);
+    const st = useSaleDraftsStore.getState();
+    const id = st.activeDraftId;
+    if (!id) return;
+    const newVal = typeof v === 'function' ? v(st.getActiveDraft()?.precioFinalMode ?? {}) : v;
+    st.updateDraft(id, { precioFinalMode: newVal });
+  }, []);
   const setPrecioFinalValues = useCallback((v: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => {
-    if (!activeDraftId) return;
-    const newVal = typeof v === 'function' ? v(useSaleDraftsStore.getState().getActiveDraft()?.precioFinalValues ?? {}) : v;
-    updateDraft(activeDraftId, { precioFinalValues: newVal });
-  }, [activeDraftId, updateDraft]);
+    const st = useSaleDraftsStore.getState();
+    const id = st.activeDraftId;
+    if (!id) return;
+    const newVal = typeof v === 'function' ? v(st.getActiveDraft()?.precioFinalValues ?? {}) : v;
+    st.updateDraft(id, { precioFinalValues: newVal });
+  }, []);
   const setStep = useCallback((v: ModalStep) => ud('step', v), [ud]);
   const setSelectedMetodos = useCallback((v: number[]) => ud('selectedMetodos', v), [ud]);
   const setMontosPorMetodo = useCallback((v: Record<number, number> | ((prev: Record<number, number>) => Record<number, number>)) => {
-    if (!activeDraftId) return;
-    const newVal = typeof v === 'function' ? v(useSaleDraftsStore.getState().getActiveDraft()?.montosPorMetodo ?? {}) : v;
-    updateDraft(activeDraftId, { montosPorMetodo: newVal });
-  }, [activeDraftId, updateDraft]);
+    const st = useSaleDraftsStore.getState();
+    const id = st.activeDraftId;
+    if (!id) return;
+    const newVal = typeof v === 'function' ? v(st.getActiveDraft()?.montosPorMetodo ?? {}) : v;
+    st.updateDraft(id, { montosPorMetodo: newVal });
+  }, []);
   const setWantPrint = useCallback((v: boolean) => ud('wantPrint', v), [ud]);
   const setWantWhatsApp = useCallback((v: boolean) => ud('wantWhatsApp', v), [ud]);
   const setWantFacturar = useCallback((v: boolean) => ud('wantFacturar', v), [ud]);
   const setWantFEPdf = useCallback((v: boolean) => ud('wantFEPdf', v), [ud]);
   const setWantFETicket = useCallback((v: boolean) => ud('wantFETicket', v), [ud]);
   const setSelectedRemitoIds = useCallback((v: number[] | ((prev: number[]) => number[])) => {
-    if (!activeDraftId) return;
-    const newVal = typeof v === 'function' ? v(useSaleDraftsStore.getState().getActiveDraft()?.selectedRemitoIds ?? []) : v;
-    updateDraft(activeDraftId, { selectedRemitoIds: newVal });
-  }, [activeDraftId, updateDraft]);
+    const st = useSaleDraftsStore.getState();
+    const id = st.activeDraftId;
+    if (!id) return;
+    const newVal = typeof v === 'function' ? v(st.getActiveDraft()?.selectedRemitoIds ?? []) : v;
+    st.updateDraft(id, { selectedRemitoIds: newVal });
+  }, []);
 
   // ── Local-only state (ephemeral / UI) ──────────
   const [searchText, setSearchText] = useState('');
