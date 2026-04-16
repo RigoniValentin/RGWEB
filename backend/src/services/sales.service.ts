@@ -516,6 +516,8 @@ export const salesService = {
       FECHA: string;
       TOTAL: number;
     }>;
+    metodos_pago: any[];
+    nc_asociadas: any[];
   }> {
     const pool = await getPool();
 

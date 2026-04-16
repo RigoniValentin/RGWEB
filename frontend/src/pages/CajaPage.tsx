@@ -318,8 +318,8 @@ export function CajaPage() {
     {
       title: 'Tipo', dataIndex: 'ORIGEN_TIPO', key: 'tipo', width: 100, align: 'center' as const,
       render: (v: string) => {
-        const colorMap: Record<string, string> = { VENTA: 'green', INGRESO: 'blue', EGRESO: 'red', FONDO_CAMBIO: 'orange', ORDEN_PAGO: 'red', COMPRA: 'red' };
-        const labelMap: Record<string, string> = { FONDO_CAMBIO: 'FC', ORDEN_PAGO: 'OP' };
+        const colorMap: Record<string, string> = { VENTA: 'green', INGRESO: 'blue', EGRESO: 'red', FONDO_CAMBIO: 'orange', ORDEN_PAGO: 'red', COMPRA: 'red', COBRANZA: 'green' };
+        const labelMap: Record<string, string> = { FONDO_CAMBIO: 'FC', ORDEN_PAGO: 'OP', COBRANZA: 'CO' };
         return <Tag color={colorMap[v] || 'default'}>{labelMap[v] || v}</Tag>;
       },
     },
@@ -333,7 +333,9 @@ export function CajaPage() {
       render: (v: number, r: CajaItem) => {
         const val = v || 0;
         if (val === 0) return <Text type="secondary">{fmtMoney(0)}</Text>;
-        const clickable = r.ORIGEN_TIPO === 'VENTA' && !!r.ORIGEN_ID;
+        const clickableVenta = r.ORIGEN_TIPO === 'VENTA' && !!r.ORIGEN_ID;
+        const clickableItem = (r.ORIGEN_TIPO === 'COBRANZA' || r.ORIGEN_TIPO === 'ORDEN_PAGO') && !!r.ORIGEN_ID;
+        const clickable = clickableVenta || clickableItem;
         return (
           <span
             style={{
@@ -343,17 +345,25 @@ export function CajaPage() {
             onMouseEnter={clickable ? e => { e.currentTarget.style.textDecoration = 'underline'; } : undefined}
             onMouseLeave={clickable ? e => { e.currentTarget.style.textDecoration = 'none'; } : undefined}
             onClick={clickable ? () => {
-              salesApi.getMetodosPagoVenta(r.ORIGEN_ID!).then(metodos => {
-                setDesgloseData(metodos.map(m => ({
-                  METODO_PAGO_ID: m.METODO_PAGO_ID,
-                  NOMBRE: m.METODO_NOMBRE || `Método #${m.METODO_PAGO_ID}`,
-                  CATEGORIA: m.METODO_CATEGORIA || 'EFECTIVO',
-                  IMAGEN_BASE64: null,
-                  TOTAL: m.MONTO,
-                })));
-                setDesgloseCategoria('EFECTIVO');
-                setDesgloseModalOpen(true);
-              });
+              if (clickableVenta) {
+                salesApi.getMetodosPagoVenta(r.ORIGEN_ID!).then(metodos => {
+                  setDesgloseData(metodos.map(m => ({
+                    METODO_PAGO_ID: m.METODO_PAGO_ID,
+                    NOMBRE: m.METODO_NOMBRE || `Método #${m.METODO_PAGO_ID}`,
+                    CATEGORIA: m.METODO_CATEGORIA || 'EFECTIVO',
+                    IMAGEN_BASE64: null,
+                    TOTAL: m.MONTO,
+                  })));
+                  setDesgloseCategoria('EFECTIVO');
+                  setDesgloseModalOpen(true);
+                });
+              } else {
+                cajaApi.getDesgloseItem(r.ORIGEN_TIPO, r.ORIGEN_ID!).then(data => {
+                  setDesgloseData(data);
+                  setDesgloseCategoria('EFECTIVO');
+                  setDesgloseModalOpen(true);
+                });
+              }
             } : undefined}
           >
             {fmtMoney(val)}
@@ -367,7 +377,9 @@ export function CajaPage() {
       render: (v: number, r: CajaItem) => {
         const val = v || 0;
         if (val === 0) return <Text type="secondary">{fmtMoney(0)}</Text>;
-        const clickable = r.ORIGEN_TIPO === 'VENTA' && !!r.ORIGEN_ID;
+        const clickableVenta = r.ORIGEN_TIPO === 'VENTA' && !!r.ORIGEN_ID;
+        const clickableItem = (r.ORIGEN_TIPO === 'COBRANZA' || r.ORIGEN_TIPO === 'ORDEN_PAGO') && !!r.ORIGEN_ID;
+        const clickable = clickableVenta || clickableItem;
         return (
           <span
             style={{
@@ -377,17 +389,25 @@ export function CajaPage() {
             onMouseEnter={clickable ? e => { e.currentTarget.style.textDecoration = 'underline'; } : undefined}
             onMouseLeave={clickable ? e => { e.currentTarget.style.textDecoration = 'none'; } : undefined}
             onClick={clickable ? () => {
-              salesApi.getMetodosPagoVenta(r.ORIGEN_ID!).then(metodos => {
-                setDesgloseData(metodos.map(m => ({
-                  METODO_PAGO_ID: m.METODO_PAGO_ID,
-                  NOMBRE: m.METODO_NOMBRE || `Método #${m.METODO_PAGO_ID}`,
-                  CATEGORIA: m.METODO_CATEGORIA || 'EFECTIVO',
-                  IMAGEN_BASE64: null,
-                  TOTAL: m.MONTO,
-                })));
-                setDesgloseCategoria('DIGITAL');
-                setDesgloseModalOpen(true);
-              });
+              if (clickableVenta) {
+                salesApi.getMetodosPagoVenta(r.ORIGEN_ID!).then(metodos => {
+                  setDesgloseData(metodos.map(m => ({
+                    METODO_PAGO_ID: m.METODO_PAGO_ID,
+                    NOMBRE: m.METODO_NOMBRE || `Método #${m.METODO_PAGO_ID}`,
+                    CATEGORIA: m.METODO_CATEGORIA || 'EFECTIVO',
+                    IMAGEN_BASE64: null,
+                    TOTAL: m.MONTO,
+                  })));
+                  setDesgloseCategoria('DIGITAL');
+                  setDesgloseModalOpen(true);
+                });
+              } else {
+                cajaApi.getDesgloseItem(r.ORIGEN_TIPO, r.ORIGEN_ID!).then(data => {
+                  setDesgloseData(data);
+                  setDesgloseCategoria('DIGITAL');
+                  setDesgloseModalOpen(true);
+                });
+              }
             } : undefined}
           >
             {fmtMoney(val)}

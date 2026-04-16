@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import {
-  Modal, Form, Input, InputNumber, DatePicker, Space, Typography, App, Divider, Button, Tag,
+  Modal, Form, Input, InputNumber, DatePicker, Space, Typography, App, Divider, Segmented, Button, Tag,
 } from 'antd';
 import {
-  WalletOutlined, CheckCircleOutlined,
+  BankOutlined, InboxOutlined, WalletOutlined, CheckCircleOutlined,
   DollarOutlined, CreditCardOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { ctaCorrienteApi, type CobranzaInput } from '../../services/ctaCorriente.api';
+import { cajaApi } from '../../services/caja.api';
 import { fmtMoney } from '../../utils/format';
 import type { MetodoPagoItem } from '../../types';
 
@@ -29,8 +30,15 @@ export function NuevaCobranzaModal({
 }: Props) {
   const { message } = App.useApp();
   const [form] = Form.useForm();
-  const isEdit = pagoId !== null;
+  const isEdit = pagoId !== null;  const [destinoCobro, setDestinoCobro] = useState<'CAJA_CENTRAL' | 'CAJA'>('CAJA_CENTRAL');
 
+  // Check if user has an open cash register
+  const { data: miCaja } = useQuery({
+    queryKey: ['mi-caja'],
+    queryFn: () => cajaApi.getMiCaja(),
+    enabled: open,
+    staleTime: 30000,
+  });
   // ── Payment method state ────────────────────────
   const [selectedMetodos, setSelectedMetodos] = useState<number[]>([]);
   const [montosPorMetodo, setMontosPorMetodo] = useState<Record<number, number>>({});
@@ -96,6 +104,7 @@ export function NuevaCobranzaModal({
     if (open && !isEdit) {
       form.resetFields();
       form.setFieldsValue({ FECHA: dayjs() });
+      setDestinoCobro('CAJA_CENTRAL');
       setSelectedMetodos([]);
       setMontosPorMetodo({});
     }
@@ -167,6 +176,7 @@ export function NuevaCobranzaModal({
         DIGITAL: digitalFinal,
         CHEQUES: 0,
         CONCEPTO: values.CONCEPTO || '',
+        DESTINO_COBRO: destinoCobro,
         metodos_pago: metodosPagoInput.length > 0 ? metodosPagoInput : undefined,
       };
 
@@ -220,6 +230,40 @@ export function NuevaCobranzaModal({
           </Form.Item>
 
           <Divider style={{ margin: '8px 0' }}>Formas de pago</Divider>
+
+          {/* Payment destination selector */}
+          <div style={{ textAlign: 'center', marginBottom: 16 }}>
+            <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>Destino del cobro</Text>
+            <Segmented
+              value={destinoCobro}
+              onChange={val => setDestinoCobro(val as 'CAJA_CENTRAL' | 'CAJA')}
+              options={[
+                {
+                  value: 'CAJA_CENTRAL',
+                  label: (
+                    <Space>
+                      <BankOutlined />
+                      <span>Caja Central</span>
+                    </Space>
+                  ),
+                },
+                ...(miCaja ? [{
+                  value: 'CAJA' as const,
+                  label: (
+                    <Space>
+                      <InboxOutlined />
+                      <span>Mi Caja</span>
+                    </Space>
+                  ),
+                }] : []),
+              ]}
+            />
+            {!miCaja && (
+              <div style={{ marginTop: 4 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>No tenés una caja abierta — el ingreso se registra en Caja Central</Text>
+              </div>
+            )}
+          </div>
 
           {/* Selected methods display + "Seleccionar" button */}
           <div style={{ marginBottom: 12 }}>

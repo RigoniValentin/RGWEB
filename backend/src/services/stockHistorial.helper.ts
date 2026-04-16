@@ -10,7 +10,7 @@ export interface HistorialStockParams {
   depositoId: number;
   cantidadAnterior: number;
   cantidadNueva: number;
-  tipoOperacion: 'VENTA' | 'COMPRA' | 'AJUSTE_MANUAL' | 'REMITO' | 'NC_COMPRA' | 'TRANSFERENCIA' | 'PRODUCTO_EDIT';
+  tipoOperacion: 'VENTA' | 'COMPRA' | 'AJUSTE_MANUAL' | 'REMITO' | 'NC_COMPRA' | 'NC_VENTA' | 'ND_VENTA' | 'TRANSFERENCIA' | 'PRODUCTO_EDIT';
   referenciaId?: number | null;
   referenciaDetalle?: string | null;
   usuarioId?: number | null;

@@ -9,6 +9,7 @@ import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
   EyeOutlined, ReloadOutlined, DollarOutlined, BankOutlined,
   ArrowUpOutlined, ArrowDownOutlined, WalletOutlined,
+  CreditCardOutlined,
 } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import {
@@ -271,11 +272,11 @@ export function CtaCorrientePage() {
   // ── Cobranza columns ────────────────────────────
   const cobColumns: TableColumnType<CobranzaItem>[] = [
     {
-      title: 'Fecha', dataIndex: 'FECHA', width: 140, align: 'center',
+      title: 'Fecha', dataIndex: 'FECHA', width: 160, align: 'center',
       render: (v: string) => dayjs(v).format('DD/MM/YYYY HH:mm'),
     },
     {
-      title: 'Usuario', dataIndex: 'USUARIO', width: 120, align: 'center',
+      title: 'Usuario', dataIndex: 'USUARIO', width: 150, align: 'center',
     },
     {
       title: 'Concepto', dataIndex: 'CONCEPTO', ellipsis: true,
@@ -433,7 +434,7 @@ export function CtaCorrientePage() {
         }
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); setSelected(null); }}
-        width={1100}
+        width={1000}
         styles={{ body: { padding: '12px 16px' } }}
       >
         {selected && selected.ESTADO_CUENTA !== 'SIN_CREAR' && (
@@ -614,39 +615,10 @@ export function CtaCorrientePage() {
       </Drawer>
 
       {/* Detalle Cobranza Modal */}
-      <Modal
-        title="Detalle de Cobranza"
-        open={!!detalleCobranza}
-        onCancel={() => setDetalleCobranza(null)}
-        footer={null}
-        width={400}
-      >
-        {detalleCobranza && (
-          <Descriptions column={1} bordered size="small" style={{ marginTop: 12 }}>
-            <Descriptions.Item label="Fecha">
-              {dayjs(detalleCobranza.FECHA).format('DD/MM/YYYY HH:mm')}
-            </Descriptions.Item>
-            <Descriptions.Item label="Concepto">
-              {detalleCobranza.CONCEPTO || '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Efectivo">
-              {fmtMoney(detalleCobranza.EFECTIVO)}
-            </Descriptions.Item>
-            <Descriptions.Item label="Digital">
-              {fmtMoney(detalleCobranza.DIGITAL)}
-            </Descriptions.Item>
-            <Descriptions.Item label="Cheques">
-              {fmtMoney(detalleCobranza.CHEQUES)}
-            </Descriptions.Item>
-            <Descriptions.Item label="Total">
-              <Text strong style={{ fontSize: 15 }}>{fmtMoney(detalleCobranza.TOTAL)}</Text>
-            </Descriptions.Item>
-            <Descriptions.Item label="Usuario">
-              {detalleCobranza.USUARIO}
-            </Descriptions.Item>
-          </Descriptions>
-        )}
-      </Modal>
+      <DetalleCobranzaModal
+        detalleCobranza={detalleCobranza}
+        onClose={() => setDetalleCobranza(null)}
+      />
 
       {/* Cobranza Modal */}
       {selected && (
@@ -664,5 +636,106 @@ export function CtaCorrientePage() {
         />
       )}
     </div>
+  );
+}
+
+// ── Detalle Cobranza sub-component ──────────────
+function DetalleCobranzaModal({ detalleCobranza, onClose }: {
+  detalleCobranza: CobranzaItem | null;
+  onClose: () => void;
+}) {
+  const { data: detalle } = useQuery({
+    queryKey: ['cobranza-detalle', detalleCobranza?.PAGO_ID],
+    queryFn: () => ctaCorrienteApi.getCobranzaById(detalleCobranza!.PAGO_ID),
+    enabled: !!detalleCobranza,
+  });
+
+  const { data: metodosPago = [] } = useQuery({
+    queryKey: ['co-active-payment-methods'],
+    queryFn: () => ctaCorrienteApi.getActivePaymentMethods(),
+    enabled: !!detalleCobranza,
+    staleTime: 60000,
+  });
+
+  return (
+    <Modal
+      title="Detalle de Cobranza"
+      open={!!detalleCobranza}
+      onCancel={onClose}
+      footer={null}
+      width={420}
+    >
+      {detalleCobranza && (
+        <>
+          <Descriptions column={1} bordered size="small" style={{ marginTop: 12 }}>
+            <Descriptions.Item label="Fecha">
+              {dayjs(detalleCobranza.FECHA).format('DD/MM/YYYY HH:mm')}
+            </Descriptions.Item>
+            <Descriptions.Item label="Concepto">
+              {detalleCobranza.CONCEPTO || '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="Usuario">
+              {detalleCobranza.USUARIO}
+            </Descriptions.Item>
+          </Descriptions>
+
+          {/* Payment method breakdown */}
+          {detalle?.metodos_pago && detalle.metodos_pago.length > 0 ? (
+            <div style={{ marginTop: 16 }}>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 13 }}>
+                Desglose por método de pago
+              </Text>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {detalle.metodos_pago.map((mp, idx) => {
+                  const m = metodosPago.find(x => x.METODO_PAGO_ID === mp.METODO_PAGO_ID);
+                  return (
+                    <div key={idx} style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '6px 12px', background: '#fafafa', borderRadius: 6,
+                    }}>
+                      <Space size={8}>
+                        {m?.IMAGEN_BASE64 ? (
+                          <img src={m.IMAGEN_BASE64} alt={m.NOMBRE} style={{ width: 20, height: 20, objectFit: 'contain', borderRadius: 3 }} />
+                        ) : m?.CATEGORIA === 'EFECTIVO' ? (
+                          <DollarOutlined style={{ color: '#52c41a' }} />
+                        ) : (
+                          <CreditCardOutlined style={{ color: '#1890ff' }} />
+                        )}
+                        <Text>{m?.NOMBRE || `Método #${mp.METODO_PAGO_ID}`}</Text>
+                      </Space>
+                      <Text strong>{fmtMoney(mp.MONTO)}</Text>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <Descriptions column={1} bordered size="small" style={{ marginTop: 12 }}>
+              <Descriptions.Item label="Efectivo">
+                {fmtMoney(detalleCobranza.EFECTIVO)}
+              </Descriptions.Item>
+              <Descriptions.Item label="Digital">
+                {fmtMoney(detalleCobranza.DIGITAL)}
+              </Descriptions.Item>
+              {detalleCobranza.CHEQUES > 0 && (
+                <Descriptions.Item label="Cheques">
+                  {fmtMoney(detalleCobranza.CHEQUES)}
+                </Descriptions.Item>
+              )}
+            </Descriptions>
+          )}
+
+          <div style={{
+            marginTop: 12, background: '#f5f5f5', borderRadius: 8, padding: '10px 16px',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          }}>
+            <Text strong style={{ fontSize: 15 }}>Total:</Text>
+            <Text strong style={{ fontSize: 18, color: '#3f8600' }}>
+              {fmtMoney(detalleCobranza.TOTAL)}
+            </Text>
+          </div>
+        </>
+      )}
+    </Modal>
   );
 }

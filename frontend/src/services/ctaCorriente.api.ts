@@ -57,6 +57,7 @@ export interface CobranzaInput {
   DIGITAL: number;
   CHEQUES: number;
   CONCEPTO: string;
+  DESTINO_COBRO?: 'CAJA_CENTRAL' | 'CAJA';
   metodos_pago?: MetodoPagoItem[];
 }
 

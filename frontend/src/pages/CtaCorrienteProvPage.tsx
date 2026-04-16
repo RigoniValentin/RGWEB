@@ -279,11 +279,11 @@ export function CtaCorrienteProvPage() {
   // ── Orden de pago columns ───────────────────────
   const opColumns: TableColumnType<OrdenPagoItem>[] = [
     {
-      title: 'Fecha', dataIndex: 'FECHA', width: 140, align: 'center',
+      title: 'Fecha', dataIndex: 'FECHA', width: 160, align: 'center',
       render: (v: string) => dayjs(v).format('DD/MM/YYYY HH:mm'),
     },
     {
-      title: 'Usuario', dataIndex: 'USUARIO', width: 120, align: 'center',
+      title: 'Usuario', dataIndex: 'USUARIO', width: 150, align: 'center',
     },
     {
       title: 'Concepto', dataIndex: 'CONCEPTO', ellipsis: true,
@@ -440,7 +440,7 @@ export function CtaCorrienteProvPage() {
         }
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); setSelected(null); }}
-        width={1100}
+        width={1000}
         styles={{ body: { padding: '12px 16px' } }}
       >
         {selected && selected.ESTADO_CUENTA !== 'SIN_CREAR' && (

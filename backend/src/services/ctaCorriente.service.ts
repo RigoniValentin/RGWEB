@@ -8,6 +8,24 @@ function r2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+// ── MOVIMIENTOS_CAJA_METODOS_PAGO table helper ──
+
+let _movCajaMetodosPagoTableReady = false;
+
+async function ensureMovCajaMetodosPagoTable(poolOrTx: any): Promise<void> {
+  if (_movCajaMetodosPagoTableReady) return;
+  await poolOrTx.request().query(`
+    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'MOVIMIENTOS_CAJA_METODOS_PAGO')
+    CREATE TABLE MOVIMIENTOS_CAJA_METODOS_PAGO (
+      ID INT IDENTITY(1,1) PRIMARY KEY,
+      MOVIMIENTO_ID INT NOT NULL,
+      METODO_PAGO_ID INT NOT NULL,
+      MONTO DECIMAL(18,2) NOT NULL
+    )
+  `);
+  _movCajaMetodosPagoTableReady = true;
+}
+
 // ── COBRANZAS_METODOS_PAGO table helper ──
 
 let _cobranzasMetodosPagoTableReady = false;
@@ -95,6 +113,7 @@ export interface CobranzaInput {
   DIGITAL: number;
   CHEQUES: number;
   CONCEPTO: string;
+  DESTINO_COBRO?: 'CAJA_CENTRAL' | 'CAJA';
   metodos_pago?: CobranzaMetodoPagoItem[];
 }
 
@@ -419,6 +438,77 @@ export const ctaCorrienteService = {
       // 4) Imputar a ventas pendientes
       await this._imputarCobroAVentasPendientes(tx, ctaCorrienteId, clienteId, pagoId, total, new Date(input.FECHA), usuarioId);
 
+      // 5) Registrar ingreso en Caja o Caja Central
+      const efectivoNeto = Math.max(0, efectivo);
+      const digitalNeto = digital;
+      const chequesNeto = cheques;
+      if (efectivoNeto > 0 || digitalNeto > 0 || chequesNeto > 0) {
+        const destino = input.DESTINO_COBRO || 'CAJA_CENTRAL';
+
+        // Get customer name
+        const cliNombreRes = await tx.request()
+          .input('cid', sql.Int, clienteId)
+          .query(`SELECT NOMBRE FROM CLIENTES WHERE CLIENTE_ID = @cid`);
+        const nombreCli = cliNombreRes.recordset[0]?.NOMBRE || '';
+        const descIngreso = `Cobro CO #${pagoId} - ${nombreCli}`;
+
+        if (destino === 'CAJA') {
+          const caja = await this._getCajaAbiertaTx(tx, usuarioId);
+          if (!caja) {
+            throw Object.assign(
+              new Error('No se encontró una caja abierta para el usuario'),
+              { name: 'ValidationError' }
+            );
+          }
+          await tx.request()
+            .input('cajaId', sql.Int, caja.CAJA_ID)
+            .input('origenTipo', sql.VarChar(30), 'COBRANZA')
+            .input('origenId', sql.Int, pagoId)
+            .input('efectivo', sql.Decimal(18, 2), efectivoNeto)
+            .input('digital', sql.Decimal(18, 2), digitalNeto + chequesNeto)
+            .input('desc', sql.NVarChar(255), descIngreso)
+            .input('uid', sql.Int, usuarioId)
+            .query(`
+              INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
+                MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
+              VALUES (@cajaId, GETDATE(), @origenTipo, @origenId,
+                @efectivo, @digital, @desc, @uid)
+            `);
+        } else {
+          const totalIngreso = r2(efectivoNeto + digitalNeto + chequesNeto);
+          const caja = await this._getCajaAbiertaTx(tx, usuarioId);
+          const pvId = caja?.PUNTO_VENTA_ID || null;
+          const movResult = await tx.request()
+            .input('idEntidad', sql.Int, pagoId)
+            .input('tipoEntidad', sql.VarChar(20), 'COBRANZA')
+            .input('movimiento', sql.NVarChar(500), descIngreso)
+            .input('uid', sql.Int, usuarioId)
+            .input('efectivo', sql.Decimal(18, 2), efectivoNeto)
+            .input('digital', sql.Decimal(18, 2), digitalNeto + chequesNeto)
+            .input('total', sql.Decimal(18, 2), totalIngreso)
+            .input('pvId', sql.Int, pvId)
+            .query(`
+              INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+              OUTPUT INSERTED.ID
+              VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, 0, 0, @total, @pvId, 0)
+            `);
+
+          // Insert payment method breakdown for this movement
+          const movId = movResult.recordset[0].ID;
+          if (input.metodos_pago && input.metodos_pago.length > 0) {
+            await ensureMovCajaMetodosPagoTable(tx);
+            for (const mp of input.metodos_pago) {
+              if (mp.MONTO <= 0) continue;
+              await tx.request()
+                .input('movId', sql.Int, movId)
+                .input('mpId', sql.Int, mp.METODO_PAGO_ID)
+                .input('monto', sql.Decimal(18, 2), r2(mp.MONTO))
+                .query(`INSERT INTO MOVIMIENTOS_CAJA_METODOS_PAGO (MOVIMIENTO_ID, METODO_PAGO_ID, MONTO) VALUES (@movId, @mpId, @monto)`);
+            }
+          }
+        }
+      }
+
       await tx.commit();
       return { PAGO_ID: pagoId };
     } catch (err) {
@@ -512,6 +602,83 @@ export const ctaCorrienteService = {
       // 4) Re-imputar
       await this._imputarCobroAVentasPendientes(tx, ctaCorrienteId, clienteId, pagoId, total, new Date(input.FECHA), usuarioId);
 
+      // 5) Remove old ingreso records and re-register
+      await tx.request().input('origenId', sql.Int, pagoId)
+        .query(`DELETE FROM CAJA_ITEMS WHERE ORIGEN_ID = @origenId AND ORIGEN_TIPO = 'COBRANZA'`);
+      await ensureMovCajaMetodosPagoTable(tx);
+      await tx.request().input('origenId', sql.Int, pagoId)
+        .query(`DELETE FROM MOVIMIENTOS_CAJA_METODOS_PAGO WHERE MOVIMIENTO_ID IN (SELECT ID FROM MOVIMIENTOS_CAJA WHERE ID_ENTIDAD = @origenId AND TIPO_ENTIDAD = 'COBRANZA')`);
+      await tx.request().input('origenId', sql.Int, pagoId)
+        .query(`DELETE FROM MOVIMIENTOS_CAJA WHERE ID_ENTIDAD = @origenId AND TIPO_ENTIDAD = 'COBRANZA'`);
+
+      const efectivoNeto = Math.max(0, efectivo);
+      const digitalNeto = digital;
+      const chequesNeto = cheques;
+      if (efectivoNeto > 0 || digitalNeto > 0 || chequesNeto > 0) {
+        const destino = input.DESTINO_COBRO || 'CAJA_CENTRAL';
+
+        const cliNombreRes = await tx.request()
+          .input('cid', sql.Int, clienteId)
+          .query(`SELECT NOMBRE FROM CLIENTES WHERE CLIENTE_ID = @cid`);
+        const nombreCli = cliNombreRes.recordset[0]?.NOMBRE || '';
+        const descIngreso = `Cobro CO #${pagoId} - ${nombreCli}`;
+
+        if (destino === 'CAJA') {
+          const caja = await this._getCajaAbiertaTx(tx, usuarioId);
+          if (!caja) {
+            throw Object.assign(
+              new Error('No se encontró una caja abierta para el usuario'),
+              { name: 'ValidationError' }
+            );
+          }
+          await tx.request()
+            .input('cajaId', sql.Int, caja.CAJA_ID)
+            .input('origenTipo', sql.VarChar(30), 'COBRANZA')
+            .input('origenId2', sql.Int, pagoId)
+            .input('efectivo', sql.Decimal(18, 2), efectivoNeto)
+            .input('digital', sql.Decimal(18, 2), digitalNeto + chequesNeto)
+            .input('desc', sql.NVarChar(255), descIngreso)
+            .input('uid', sql.Int, usuarioId)
+            .query(`
+              INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
+                MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
+              VALUES (@cajaId, GETDATE(), @origenTipo, @origenId2,
+                @efectivo, @digital, @desc, @uid)
+            `);
+        } else {
+          const totalIngreso = r2(efectivoNeto + digitalNeto + chequesNeto);
+          const caja = await this._getCajaAbiertaTx(tx, usuarioId);
+          const pvId = caja?.PUNTO_VENTA_ID || null;
+          const movResult = await tx.request()
+            .input('idEntidad', sql.Int, pagoId)
+            .input('tipoEntidad', sql.VarChar(20), 'COBRANZA')
+            .input('movimiento', sql.NVarChar(500), descIngreso)
+            .input('uid', sql.Int, usuarioId)
+            .input('efectivo', sql.Decimal(18, 2), efectivoNeto)
+            .input('digital', sql.Decimal(18, 2), digitalNeto + chequesNeto)
+            .input('total', sql.Decimal(18, 2), totalIngreso)
+            .input('pvId', sql.Int, pvId)
+            .query(`
+              INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+              OUTPUT INSERTED.ID
+              VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, 0, 0, @total, @pvId, 0)
+            `);
+
+          // Insert payment method breakdown for this movement
+          const movId = movResult.recordset[0].ID;
+          if (input.metodos_pago && input.metodos_pago.length > 0) {
+            for (const mp of input.metodos_pago) {
+              if (mp.MONTO <= 0) continue;
+              await tx.request()
+                .input('movId', sql.Int, movId)
+                .input('mpId', sql.Int, mp.METODO_PAGO_ID)
+                .input('monto', sql.Decimal(18, 2), r2(mp.MONTO))
+                .query(`INSERT INTO MOVIMIENTOS_CAJA_METODOS_PAGO (MOVIMIENTO_ID, METODO_PAGO_ID, MONTO) VALUES (@movId, @mpId, @monto)`);
+            }
+          }
+        }
+      }
+
       await tx.commit();
     } catch (err) {
       await tx.rollback();
@@ -539,7 +706,16 @@ export const ctaCorrienteService = {
         .input('pagoId', sql.Int, pagoId)
         .query("DELETE FROM VENTAS_CTA_CORRIENTE WHERE COMPROBANTE_ID = @pagoId AND TIPO_COMPROBANTE = 'CO'");
 
-      // 3b) Remove payment method breakdown
+      // 3b) Remove ingreso records from Caja / Caja Central
+      await tx.request().input('origenId', sql.Int, pagoId)
+        .query(`DELETE FROM CAJA_ITEMS WHERE ORIGEN_ID = @origenId AND ORIGEN_TIPO = 'COBRANZA'`);
+      await ensureMovCajaMetodosPagoTable(tx);
+      await tx.request().input('origenId', sql.Int, pagoId)
+        .query(`DELETE FROM MOVIMIENTOS_CAJA_METODOS_PAGO WHERE MOVIMIENTO_ID IN (SELECT ID FROM MOVIMIENTOS_CAJA WHERE ID_ENTIDAD = @origenId AND TIPO_ENTIDAD = 'COBRANZA')`);
+      await tx.request().input('origenId', sql.Int, pagoId)
+        .query(`DELETE FROM MOVIMIENTOS_CAJA WHERE ID_ENTIDAD = @origenId AND TIPO_ENTIDAD = 'COBRANZA'`);
+
+      // 3c) Remove payment method breakdown
       await ensureCobranzasMetodosPagoTable(tx);
       await tx.request().input('pagoId', sql.Int, pagoId)
         .query(`DELETE FROM COBRANZAS_METODOS_PAGO WHERE PAGO_ID = @pagoId`);
@@ -721,5 +897,16 @@ export const ctaCorrienteService = {
       ORDER BY POR_DEFECTO DESC, CATEGORIA, NOMBRE
     `);
     return result.recordset;
+  },
+
+  // ── Internal: get user's open caja ─────────────
+  async _getCajaAbiertaTx(
+    tx: any,
+    usuarioId: number
+  ): Promise<{ CAJA_ID: number; PUNTO_VENTA_ID: number | null } | null> {
+    const result = await tx.request()
+      .input('uid', sql.Int, usuarioId)
+      .query(`SELECT CAJA_ID, PUNTO_VENTA_ID FROM CAJA WHERE USUARIO_ID = @uid AND ESTADO = 'ACTIVA'`);
+    return result.recordset.length > 0 ? result.recordset[0] : null;
   },
 };

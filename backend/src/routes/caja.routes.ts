@@ -83,6 +83,14 @@ router.post('/fondo-cambio/transferir', async (req: AuthRequest, res: Response, 
   }
 });
 
+// ── GET /api/caja/desglose-item/:origenTipo/:origenId — payment method breakdown for a caja item ──
+router.get('/desglose-item/:origenTipo/:origenId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const data = await cajaService.getDesgloseItem(req.params.origenTipo as string, Number(req.params.origenId));
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
 // ── GET /api/caja/:id — get caja detail with items ──
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

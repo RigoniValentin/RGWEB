@@ -738,6 +738,42 @@ export const cajaService = {
     `);
     return result.recordset[0]?.efectivo ?? 0;
   },
+
+  // ── Get payment method breakdown for a specific CAJA_ITEMS entry ──
+  async getDesgloseItem(origenTipo: string, origenId: number) {
+    const pool = await getPool();
+
+    // Map ORIGEN_TIPO to the appropriate breakdown table
+    let tableName: string | null = null;
+    let fkColumn = 'PAGO_ID';
+
+    switch (origenTipo) {
+      case 'COBRANZA':
+        tableName = 'COBRANZAS_METODOS_PAGO';
+        break;
+      case 'ORDEN_PAGO':
+        tableName = 'ORDENES_PAGO_METODOS_PAGO';
+        break;
+      default:
+        return [];
+    }
+
+    try {
+      const result = await pool.request()
+        .input('origenId', sql.Int, origenId)
+        .query(`
+          SELECT mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64,
+                 t.MONTO AS TOTAL
+          FROM ${tableName} t
+          JOIN METODOS_PAGO mp ON t.METODO_PAGO_ID = mp.METODO_PAGO_ID
+          WHERE t.${fkColumn} = @origenId
+          ORDER BY CASE WHEN mp.CATEGORIA = 'EFECTIVO' THEN 0 ELSE 1 END, mp.NOMBRE
+        `);
+      return result.recordset;
+    } catch {
+      return [];
+    }
+  },
 };
 
 // ── Error helper ─────────────────────────────────

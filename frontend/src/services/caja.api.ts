@@ -40,4 +40,7 @@ export const cajaApi = {
 
   getDesgloseMetodos: (cajaId: number) =>
     api.get<DesgloseMetodo[]>(`/caja/${cajaId}/desglose-metodos`).then(r => r.data),
+
+  getDesgloseItem: (origenTipo: string, origenId: number) =>
+    api.get<DesgloseMetodo[]>(`/caja/desglose-item/${origenTipo}/${origenId}`).then(r => r.data),
 };
