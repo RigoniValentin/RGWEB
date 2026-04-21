@@ -8,6 +8,9 @@ appdata.ini
 Thumbs.db
 nul
 
+# Uploads locales (imágenes de productos pendientes mobile)
+backend/uploads/
+
 # Build / Installer output
 Rio Gestion WEB/
 *.exe

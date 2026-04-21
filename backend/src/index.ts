@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import path from 'path';
+import fs from 'fs';
 import { config } from './config/index.js';
 import { frontendDir, isPkg } from './config/paths.js';
 import { getPool, closePool } from './database/connection.js';
@@ -65,6 +67,7 @@ function serverBanner() {
   console.log(`${S.gy}  ───────────────────────────────────────────────────${R}`);
   console.log('');
   console.log(`${S.dim}   Acceder  →  ${S.cy}http://localhost:${config.port}${R}`);
+  console.log(`${S.dim}   Red LAN  →  ${S.cy}http://0.0.0.0:${config.port}${R} ${S.gy}(visible para dispositivos en la misma red)${R}`);
   console.log(`${S.dim}   Cerrar   →  Ctrl+C o cerrar esta ventana${R}`);
   console.log('');
   console.log(`${S.gy}   Esperando conexiones...${R}`);
@@ -83,10 +86,14 @@ app.use(helmet({
   },
 }));
 app.use(cors({
-  origin: config.nodeEnv === 'development'
-    ? ['http://localhost:5173', 'http://localhost:3000']
-    : false,
+  // Origen abierto: necesario para que la app mobile (Expo / dispositivos en
+  // red local) y el frontend web puedan consumir la API sin fricción.
+  // Se devuelve el Origin solicitante cuando existe, para mantener
+  // compatibilidad con credentials=true.
+  origin: (origin, cb) => cb(null, origin || true),
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -94,13 +101,17 @@ app.use(express.urlencoded({ extended: true }));
 // ── API Routes ───────────────────────────────────────
 app.use('/api', apiRoutes);
 
+// ── Uploads estáticos (imágenes de productos pendientes mobile) ──
+const uploadsDir = path.resolve(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+app.use('/uploads', express.static(uploadsDir));
+
 // ── Health check ─────────────────────────────────────
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // ── Serve frontend in production / packaged mode ────
-import path from 'path';
 if (config.nodeEnv === 'production' || isPkg) {
   app.use(express.static(frontendDir));
   app.get('*', (_req, res) => {
@@ -117,7 +128,7 @@ async function start() {
     await getPool();
     await stockService.ensureHistorialTable();
 
-    app.listen(config.port, () => {
+    app.listen(config.port, '0.0.0.0', () => {
       if (isPkg) process.stdout.write('\x1bc');
       serverBanner();
     });

@@ -24,6 +24,7 @@ import paymentMethodRoutes from './paymentMethod.routes.js';
 import remitosRoutes from './remitos.routes.js';
 import stockRoutes from './stock.routes.js';
 import libroIvaVentasRoutes from './libroIvaVentas.routes.js';
+import mobileRoutes from './mobile.routes.js';
 
 const router = Router();
 
@@ -52,5 +53,6 @@ router.use('/payment-methods', paymentMethodRoutes);
 router.use('/remitos', remitosRoutes);
 router.use('/stock', stockRoutes);
 router.use('/libro-iva-ventas', libroIvaVentasRoutes);
+router.use('/mobile', mobileRoutes);
 
 export default router;
