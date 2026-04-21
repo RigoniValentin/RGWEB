@@ -3,6 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import { mobileController } from './mobile.controller.js';
 import { PENDING_UPLOADS_DIR, mobileService } from '../services/mobile.service.js';
+import { authService } from '../services/auth.service.js';
 
 // ═══════════════════════════════════════════════════
 //  Mobile Routes — sin authMiddleware JWT para que la
@@ -37,6 +38,31 @@ const upload = multer({
 });
 
 const router = Router();
+
+// POST /api/mobile/login — login dedicado para la app mobile.
+// Reutiliza authService.login (mismo esquema que /api/auth/login) pero
+// devuelve sólo los campos que la app necesita.
+router.post('/login', async (req, res) => {
+  try {
+    const { username, password } = req.body ?? {};
+    if (!username || !password) {
+      res.status(400).json({ error: 'Usuario y contraseña son requeridos' });
+      return;
+    }
+    const result = await authService.login({ username, password });
+    res.json({
+      token: result.token,
+      user: {
+        id: result.user.USUARIO_ID,
+        nombre: result.user.NOMBRE,
+      },
+      permisos: result.permisos,
+    });
+  } catch (err: any) {
+    const status = err?.name === 'ValidationError' ? 401 : 500;
+    res.status(status).json({ error: err?.message ?? 'Error de autenticación' });
+  }
+});
 
 // GET /api/mobile/products/:barcode
 router.get('/products/:barcode', mobileController.getByBarcode);
