@@ -11,6 +11,8 @@ import dayjs from 'dayjs';
 import { ctaCorrienteProvApi, type OrdenPagoInput } from '../../services/ctaCorrienteProv.api';
 import { cajaApi } from '../../services/caja.api';
 import { fmtMoney } from '../../utils/format';
+import { ordenesPagoApi } from '../../services/ordenesPago.api';
+import { printOrdenPago } from '../../utils/printOrdenPago';
 import type { MetodoPagoItem } from '../../types';
 
 const { Text } = Typography;
@@ -124,9 +126,23 @@ export function NuevaOrdenPagoModal({
   // ── Mutations ───────────────────────────────────
   const crearMut = useMutation({
     mutationFn: (data: OrdenPagoInput) => ctaCorrienteProvApi.crearOrdenPago(ctaCorrienteId, data),
-    onSuccess: () => {
+    onSuccess: (result) => {
       message.success('Orden de pago registrada exitosamente');
       onSuccess();
+      Modal.confirm({
+        title: '¿Desea imprimir la orden de pago?',
+        content: 'Se generará un comprobante para esta orden de pago.',
+        okText: 'Imprimir',
+        cancelText: 'No',
+        onOk: async () => {
+          try {
+            const data = await ordenesPagoApi.getReciboData(result.PAGO_ID);
+            await printOrdenPago(data);
+          } catch {
+            message.error('No se pudo generar la orden de pago');
+          }
+        },
+      });
     },
     onError: (err: any) => message.error(err.response?.data?.error || err.message),
   });

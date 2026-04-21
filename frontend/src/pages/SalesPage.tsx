@@ -112,10 +112,11 @@ export function SalesPage() {
   });
 
   // ── Detail query ───────────────────────────────
-  const { data: detail, isLoading: detailLoading } = useQuery({
+  const { data: detail, error: detailError } = useQuery({
     queryKey: ['sale', selectedId],
     queryFn: () => salesApi.getById(selectedId!) as Promise<VentaDetalle>,
     enabled: !!selectedId,
+    retry: 1,
   });
 
   // ── Empresa info (for receipts) ────────────────
@@ -618,9 +619,11 @@ export function SalesPage() {
           )
         }
       >
-        {detailLoading ? (
-          <div style={{ textAlign: 'center', padding: 40 }}><Spin size="large" /></div>
-        ) : detail && (
+        {detailError ? (
+          <div style={{ textAlign: 'center', padding: 40 }}>
+            <Text type="danger">Error al cargar la venta: {(detailError as any)?.response?.data?.error || (detailError as Error).message}</Text>
+          </div>
+        ) : detail ? (
           <>
             <Descriptions column={2} bordered size="middle" style={{ marginBottom: 24 }}>
               <Descriptions.Item label="Fecha">
@@ -801,6 +804,8 @@ export function SalesPage() {
               </div>
             )}
           </>
+        ) : (
+          <div style={{ textAlign: 'center', padding: 40 }}><Spin size="large" /></div>
         )}
       </Drawer>
 

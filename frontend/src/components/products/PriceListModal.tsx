@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Modal, InputNumber, Typography, Space, Tag, App, Segmented,
-  Button, Divider, Tooltip, Spin, Select,
+  Button, Divider, Tooltip, Spin, Select, Dropdown,
 } from 'antd';
 import {
   DollarOutlined, ReloadOutlined, UndoOutlined, PercentageOutlined,
+  VerticalAlignTopOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { catalogApi } from '../../services/catalog.api';
@@ -170,6 +171,25 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
     }
   }, [margenes]);
 
+  const handleRedondearPrecios = useCallback((step: number) => {
+    const newPrices: Record<string, number> = {};
+    const newMargenes = [...margenes];
+    for (let i = 0; i < 5; i++) {
+      const precio = prices[`LISTA_${i + 1}`] || 0;
+      if (precio > 0) {
+        const redondeado = Math.ceil(precio / step) * step;
+        newPrices[`LISTA_${i + 1}`] = redondeado;
+        if (costo > 0) {
+          newMargenes[i] = r2(((redondeado / costo) - 1) * 100);
+        }
+      } else {
+        newPrices[`LISTA_${i + 1}`] = precio;
+      }
+    }
+    setPrices(prev => ({ ...prev, ...newPrices }));
+    setMargenes(newMargenes);
+  }, [prices, margenes, costo]);
+
   const handleSave = async () => {
     if (!product || !isModified) {
       onClose();
@@ -261,10 +281,23 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
                 size="small"
               />
               <div style={{ flex: 1 }} />
-              <Tooltip title="Recalcular precios con los márgenes seleccionados">
-                <Button size="small" icon={<ReloadOutlined />} onClick={recalcFromMargins}>
-                  Recalcular
-                </Button>
+              <Dropdown
+                menu={{
+                  items: [
+                    { key: '50', label: 'Redondear a $ 50', onClick: () => handleRedondearPrecios(50) },
+                    { key: '100', label: 'Redondear a $ 100', onClick: () => handleRedondearPrecios(100) },
+                    { key: '500', label: 'Redondear a $ 500', onClick: () => handleRedondearPrecios(500) },
+                    { key: '1000', label: 'Redondear a $ 1000', onClick: () => handleRedondearPrecios(1000) },
+                  ],
+                }}
+                trigger={['click']}
+              >
+                <Tooltip title="Redondear precios">
+                  <Button size="small" icon={<VerticalAlignTopOutlined />} />
+                </Tooltip>
+              </Dropdown>
+              <Tooltip title="Recalcular precios">
+                <Button size="small" icon={<ReloadOutlined />} onClick={recalcFromMargins} />
               </Tooltip>
               <Tooltip title="Restaurar valores originales">
                 <Button size="small" icon={<UndoOutlined />} onClick={resetAll} disabled={!isModified} />

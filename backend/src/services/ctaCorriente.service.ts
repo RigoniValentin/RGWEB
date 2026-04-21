@@ -351,6 +351,93 @@ export const ctaCorrienteService = {
     return { ...result.recordset[0], metodos_pago: mpResult.recordset };
   },
 
+  // ── Get recibo data for printing ───────────────
+  async getReciboData(pagoId: number) {
+    const pool = await getPool();
+
+    // 1) Payment + customer + empresa data in a single query
+    const result = await pool.request()
+      .input('pagoId', sql.Int, pagoId)
+      .query(`
+        SELECT 
+          p.PAGO_ID, p.CTA_CORRIENTE_ID, p.FECHA, p.TOTAL, p.CONCEPTO,
+          ISNULL(p.EFECTIVO, 0) AS EFECTIVO,
+          ISNULL(p.DIGITAL, 0) AS DIGITAL,
+          ISNULL(p.CHEQUES, 0) AS CHEQUES,
+          ISNULL(u.NOMBRE, 'Sistema') AS USUARIO,
+          c.CLIENTE_ID, c.NOMBRE AS CLIENTE_NOMBRE,
+          c.CODIGOPARTICULAR AS CLIENTE_CODIGO,
+          c.DOMICILIO AS CLIENTE_DOMICILIO,
+          c.PROVINCIA AS CLIENTE_LOCALIDAD,
+          c.NUMERO_DOC AS CLIENTE_DOCUMENTO,
+          ISNULL((
+            SELECT SUM(DEBE - HABER) 
+            FROM VENTAS_CTA_CORRIENTE vc 
+            WHERE vc.CTA_CORRIENTE_ID = p.CTA_CORRIENTE_ID
+          ), 0) AS SALDO_ACTUAL
+        FROM PAGOS_CTA_CORRIENTE_C p
+        INNER JOIN CTA_CORRIENTE_C cta ON p.CTA_CORRIENTE_ID = cta.CTA_CORRIENTE_ID
+        INNER JOIN CLIENTES c ON cta.CLIENTE_ID = c.CLIENTE_ID
+        LEFT JOIN USUARIOS u ON p.USUARIO_ID = u.USUARIO_ID
+        WHERE p.PAGO_ID = @pagoId
+      `);
+
+    if (result.recordset.length === 0) {
+      throw Object.assign(new Error('Cobranza no encontrada'), { name: 'ValidationError' });
+    }
+
+    // 2) Payment method breakdown with names
+    await ensureCobranzasMetodosPagoTable(pool);
+    const mpResult = await pool.request()
+      .input('pagoId', sql.Int, pagoId)
+      .query(`
+        SELECT cm.METODO_PAGO_ID, cm.MONTO, mp.NOMBRE AS METODO_NOMBRE, mp.CATEGORIA
+        FROM COBRANZAS_METODOS_PAGO cm
+        INNER JOIN METODOS_PAGO mp ON cm.METODO_PAGO_ID = mp.METODO_PAGO_ID
+        WHERE cm.PAGO_ID = @pagoId
+      `);
+
+    // 3) Empresa info (try EMPRESA first, then override with EMPRESA_CLIENTE)
+    const empresa: any = {};
+    try {
+      const empResult = await pool.request().query(`
+        SELECT TOP 1 
+          ISNULL(NOMBRE_FANTASIA, '') AS NOMBRE_FANTASIA,
+          ISNULL(RAZON_SOCIAL, '') AS RAZON_SOCIAL,
+          ISNULL(DOMICILIO, '') AS DOMICILIO_FISCAL,
+          ISNULL(CUIT, '') AS CUIT,
+          ISNULL(CONDICION_IVA, '') AS CONDICION_IVA,
+          ISNULL(LOCALIDAD, '') AS LOCALIDAD
+        FROM EMPRESA
+      `);
+      Object.assign(empresa, empResult.recordset[0] || {});
+    } catch { /* EMPRESA table may not exist */ }
+
+    try {
+      const ecResult = await pool.request().query(`
+        SELECT TOP 1
+          ISNULL(RAZON_SOCIAL, '') AS EC_RAZON_SOCIAL,
+          ISNULL(DOMICILIO_FISCAL, '') AS EC_DOMICILIO,
+          ISNULL(CONDICION_IVA, '') AS EC_CONDICION_IVA,
+          ISNULL(CUIT, '') AS EC_CUIT
+        FROM EMPRESA_CLIENTE
+      `);
+      const ec = ecResult.recordset[0];
+      if (ec) {
+        if (ec.EC_RAZON_SOCIAL) empresa.RAZON_SOCIAL = ec.EC_RAZON_SOCIAL;
+        if (ec.EC_DOMICILIO) empresa.DOMICILIO_FISCAL = ec.EC_DOMICILIO;
+        if (ec.EC_CONDICION_IVA) empresa.CONDICION_IVA = ec.EC_CONDICION_IVA;
+        if (ec.EC_CUIT) empresa.CUIT = ec.EC_CUIT;
+      }
+    } catch { /* EMPRESA_CLIENTE table may not exist */ }
+
+    return {
+      ...result.recordset[0],
+      metodos_pago: mpResult.recordset,
+      empresa,
+    };
+  },
+
   // ── Create cobranza ────────────────────────────
   async crearCobranza(
     ctaCorrienteId: number,
@@ -885,6 +972,126 @@ export const ctaCorrienteService = {
           AND vc.TIPO_COMPROBANTE IN ('Fa.A', 'Fa.B', 'Fa.C', 'Nd.A', 'Nd.B', 'Nd.C')
       `);
     }
+  },
+
+  // ── Aggregated payment method totals for cobranzas ──
+  async getCobranzasMetodosTotales(
+    fechaDesde?: string,
+    fechaHasta?: string,
+    search?: string,
+  ) {
+    const pool = await getPool();
+    await ensureCobranzasMetodosPagoTable(pool);
+    const req = pool.request();
+
+    let dateFilter = '';
+    if (fechaDesde && fechaHasta) {
+      dateFilter = ' AND p.FECHA BETWEEN @fechaDesde AND @fechaHasta';
+      req.input('fechaDesde', sql.DateTime, new Date(fechaDesde));
+      req.input('fechaHasta', sql.DateTime, new Date(fechaHasta));
+    }
+
+    let searchFilter = '';
+    if (search) {
+      searchFilter = ' AND (c.NOMBRE LIKE @search OR c.CODIGOPARTICULAR LIKE @search OR c.NUMERO_DOC LIKE @search)';
+      req.input('search', sql.NVarChar, `%${search}%`);
+    }
+
+    const result = await req.query(`
+      SELECT 
+        mp.NOMBRE AS METODO_NOMBRE,
+        mp.CATEGORIA,
+        ISNULL(mp.IMAGEN_BASE64, '') AS IMAGEN_BASE64,
+        SUM(cm.MONTO) AS TOTAL
+      FROM COBRANZAS_METODOS_PAGO cm
+      INNER JOIN PAGOS_CTA_CORRIENTE_C p ON cm.PAGO_ID = p.PAGO_ID
+      INNER JOIN CTA_CORRIENTE_C cta ON p.CTA_CORRIENTE_ID = cta.CTA_CORRIENTE_ID
+      INNER JOIN CLIENTES c ON cta.CLIENTE_ID = c.CLIENTE_ID
+      INNER JOIN METODOS_PAGO mp ON cm.METODO_PAGO_ID = mp.METODO_PAGO_ID
+      WHERE cm.MONTO > 0 ${dateFilter} ${searchFilter}
+      GROUP BY mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64
+      ORDER BY mp.CATEGORIA, SUM(cm.MONTO) DESC
+    `);
+
+    return result.recordset as { METODO_NOMBRE: string; CATEGORIA: string; IMAGEN_BASE64: string; TOTAL: number }[];
+  },
+
+  // ── Get ALL cobranzas across all accounts ──────
+  async getAllCobranzas(
+    fechaDesde?: string,
+    fechaHasta?: string,
+    search?: string,
+  ): Promise<(CobranzaItem & { CLIENTE_ID: number; CLIENTE_NOMBRE: string; CTA_CORRIENTE_ID: number })[]> {
+    const pool = await getPool();
+    const req = pool.request();
+
+    let dateFilter = '';
+    if (fechaDesde && fechaHasta) {
+      dateFilter = ' AND p.FECHA BETWEEN @fechaDesde AND @fechaHasta';
+      req.input('fechaDesde', sql.DateTime, new Date(fechaDesde));
+      req.input('fechaHasta', sql.DateTime, new Date(fechaHasta));
+    }
+
+    let searchFilter = '';
+    if (search) {
+      searchFilter = ' AND (c.NOMBRE LIKE @search OR c.CODIGOPARTICULAR LIKE @search OR c.NUMERO_DOC LIKE @search)';
+      req.input('search', sql.NVarChar, `%${search}%`);
+    }
+
+    const result = await req.query(`
+      SELECT 
+        p.PAGO_ID,
+        p.CTA_CORRIENTE_ID,
+        p.FECHA,
+        p.TOTAL,
+        p.CONCEPTO,
+        ISNULL(p.EFECTIVO, 0) AS EFECTIVO,
+        ISNULL(p.DIGITAL, 0) AS DIGITAL,
+        ISNULL(p.CHEQUES, 0) AS CHEQUES,
+        ISNULL(u.NOMBRE, 'Sistema') AS USUARIO,
+        c.CLIENTE_ID,
+        c.NOMBRE AS CLIENTE_NOMBRE
+      FROM PAGOS_CTA_CORRIENTE_C p
+      INNER JOIN CTA_CORRIENTE_C cta ON p.CTA_CORRIENTE_ID = cta.CTA_CORRIENTE_ID
+      INNER JOIN CLIENTES c ON cta.CLIENTE_ID = c.CLIENTE_ID
+      LEFT JOIN USUARIOS u ON p.USUARIO_ID = u.USUARIO_ID
+      WHERE 1=1 ${dateFilter} ${searchFilter}
+      ORDER BY p.FECHA DESC, p.PAGO_ID DESC
+    `);
+
+    return result.recordset;
+  },
+
+  // ── Get customer list for cobranza selector ─────
+  async getClientesConCtaCorriente(search?: string): Promise<{ CLIENTE_ID: number; CTA_CORRIENTE_ID: number; NOMBRE: string; CODIGOPARTICULAR: string; NUMERO_DOC: string; SALDO_ACTUAL: number }[]> {
+    const pool = await getPool();
+    const req = pool.request();
+
+    let searchFilter = '';
+    if (search) {
+      searchFilter = ' AND (c.NOMBRE LIKE @search OR c.CODIGOPARTICULAR LIKE @search OR c.NUMERO_DOC LIKE @search)';
+      req.input('search', sql.NVarChar, `%${search}%`);
+    }
+
+    const result = await req.query(`
+      SELECT 
+        c.CLIENTE_ID,
+        cta.CTA_CORRIENTE_ID,
+        c.NOMBRE,
+        c.CODIGOPARTICULAR,
+        c.NUMERO_DOC,
+        ISNULL((
+          SELECT SUM(DEBE - HABER) 
+          FROM VENTAS_CTA_CORRIENTE vc 
+          WHERE vc.CTA_CORRIENTE_ID = cta.CTA_CORRIENTE_ID
+        ), 0) AS SALDO_ACTUAL
+      FROM CLIENTES c
+      INNER JOIN CTA_CORRIENTE_C cta ON c.CLIENTE_ID = cta.CLIENTE_ID
+      WHERE c.ACTIVO = 1 AND c.CTA_CORRIENTE = 1 ${searchFilter}
+      ORDER BY c.NOMBRE
+    `);
+
+    return result.recordset;
   },
 
   // ── Get active payment methods ─────────────────

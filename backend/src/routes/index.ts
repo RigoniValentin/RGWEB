@@ -13,6 +13,8 @@ import categoryRoutes from './category.routes.js';
 import brandRoutes from './brand.routes.js';
 import ctaCorrienteRoutes from './ctaCorriente.routes.js';
 import ctaCorrienteProvRoutes from './ctaCorrienteProv.routes.js';
+import cobranzasRoutes from './cobranzas.routes.js';
+import ordenesPagoRoutes from './ordenesPago.routes.js';
 import purchasesRoutes from './purchases.routes.js';
 import ncComprasRoutes from './ncCompras.routes.js';
 import ncVentasRoutes from './ncVentas.routes.js';
@@ -21,6 +23,7 @@ import mesasRoutes from './mesas.routes.js';
 import paymentMethodRoutes from './paymentMethod.routes.js';
 import remitosRoutes from './remitos.routes.js';
 import stockRoutes from './stock.routes.js';
+import libroIvaVentasRoutes from './libroIvaVentas.routes.js';
 
 const router = Router();
 
@@ -38,6 +41,8 @@ router.use('/categories', categoryRoutes);
 router.use('/brands', brandRoutes);
 router.use('/cta-corriente', ctaCorrienteRoutes);
 router.use('/cta-corriente-prov', ctaCorrienteProvRoutes);
+router.use('/cobranzas', cobranzasRoutes);
+router.use('/ordenes-pago', ordenesPagoRoutes);
 router.use('/purchases', purchasesRoutes);
 router.use('/nc-compras', ncComprasRoutes);
 router.use('/nc-ventas', ncVentasRoutes);
@@ -46,5 +51,6 @@ router.use('/mesas', mesasRoutes);
 router.use('/payment-methods', paymentMethodRoutes);
 router.use('/remitos', remitosRoutes);
 router.use('/stock', stockRoutes);
+router.use('/libro-iva-ventas', libroIvaVentasRoutes);
 
 export default router;

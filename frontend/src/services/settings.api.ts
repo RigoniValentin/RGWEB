@@ -49,6 +49,10 @@ export const settingsApi = {
   resetAll: () =>
     api.delete('/settings/user').then(r => r.data),
 
+  /** Reset user settings for a specific module */
+  resetModule: (modulo: string) =>
+    api.delete('/settings/user', { params: { modulo } }).then(r => r.data),
+
   /** Get company logo as blob URL */
   getLogo: async (): Promise<string | null> => {
     try {

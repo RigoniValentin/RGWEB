@@ -149,6 +149,20 @@ export const settingsService = {
       .query(`DELETE FROM CONFIG_USUARIO WHERE USUARIO_ID = @userId`);
   },
 
+  // ── Reset user settings for a specific module ────
+  async resetModuleForUser(userId: number, modulo: string): Promise<void> {
+    const pool = await getPool();
+    await pool.request()
+      .input('userId', sql.Int, userId)
+      .input('modulo', sql.VarChar(50), modulo)
+      .query(`
+        DELETE cu
+        FROM CONFIG_USUARIO cu
+        INNER JOIN CONFIG_PARAMETROS p ON p.PARAMETRO_ID = cu.PARAMETRO_ID
+        WHERE cu.USUARIO_ID = @userId AND p.MODULO = @modulo
+      `);
+  },
+
   // ── Get a single resolved value (for use in NewSaleModal, etc.) ──
   async getValue(userId: number, clave: string): Promise<string | null> {
     const pool = await getPool();

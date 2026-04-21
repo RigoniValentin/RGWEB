@@ -9,8 +9,10 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { ctaCorrienteApi, type CobranzaInput } from '../../services/ctaCorriente.api';
+import { cobranzasApi } from '../../services/cobranzas.api';
 import { cajaApi } from '../../services/caja.api';
 import { fmtMoney } from '../../utils/format';
+import { printReciboCobranza } from '../../utils/printReciboCobranza';
 import type { MetodoPagoItem } from '../../types';
 
 const { Text } = Typography;
@@ -122,9 +124,23 @@ export function NuevaCobranzaModal({
   // ── Mutations ───────────────────────────────────
   const crearMut = useMutation({
     mutationFn: (data: CobranzaInput) => ctaCorrienteApi.crearCobranza(ctaCorrienteId, data),
-    onSuccess: () => {
+    onSuccess: (result) => {
       message.success('Cobranza registrada exitosamente');
       onSuccess();
+      Modal.confirm({
+        title: '¿Desea imprimir el recibo?',
+        content: 'Se generará un recibo para esta cobranza.',
+        okText: 'Imprimir',
+        cancelText: 'No',
+        onOk: async () => {
+          try {
+            const data = await cobranzasApi.getReciboData(result.PAGO_ID);
+            await printReciboCobranza(data);
+          } catch {
+            message.error('No se pudo generar el recibo');
+          }
+        },
+      });
     },
     onError: (err: any) => message.error(err.response?.data?.error || err.message),
   });

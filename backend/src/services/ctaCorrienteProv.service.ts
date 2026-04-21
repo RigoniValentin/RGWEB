@@ -884,4 +884,211 @@ export const ctaCorrienteProvService = {
     `);
     return result.recordset;
   },
+
+  // ── Get ALL ordenes de pago across all accounts ─
+  async getAllOrdenesPago(
+    fechaDesde?: string,
+    fechaHasta?: string,
+    search?: string,
+  ): Promise<(OrdenPagoItem & { PROVEEDOR_ID: number; PROVEEDOR_NOMBRE: string; CTA_CORRIENTE_ID: number })[]> {
+    const pool = await getPool();
+    const req = pool.request();
+
+    let dateFilter = '';
+    if (fechaDesde && fechaHasta) {
+      dateFilter = ' AND p.FECHA BETWEEN @fechaDesde AND @fechaHasta';
+      req.input('fechaDesde', sql.DateTime, new Date(fechaDesde));
+      req.input('fechaHasta', sql.DateTime, new Date(fechaHasta));
+    }
+
+    let searchFilter = '';
+    if (search) {
+      searchFilter = ' AND (prov.NOMBRE LIKE @search OR prov.CODIGOPARTICULAR LIKE @search OR prov.NUMERO_DOC LIKE @search)';
+      req.input('search', sql.NVarChar, `%${search}%`);
+    }
+
+    const result = await req.query(`
+      SELECT 
+        p.PAGO_ID,
+        p.CTA_CORRIENTE_ID,
+        p.FECHA,
+        p.TOTAL,
+        p.CONCEPTO,
+        ISNULL(p.EFECTIVO, 0) AS EFECTIVO,
+        ISNULL(p.DIGITAL, 0) AS DIGITAL,
+        ISNULL(p.CHEQUES, 0) AS CHEQUES,
+        ISNULL(u.NOMBRE, 'Sistema') AS USUARIO,
+        prov.PROVEEDOR_ID,
+        prov.NOMBRE AS PROVEEDOR_NOMBRE
+      FROM PAGOS_CTA_CORRIENTE_P p
+      INNER JOIN CTA_CORRIENTE_P cta ON p.CTA_CORRIENTE_ID = cta.CTA_CORRIENTE_ID
+      INNER JOIN PROVEEDORES prov ON cta.PROVEEDOR_ID = prov.PROVEEDOR_ID
+      LEFT JOIN USUARIOS u ON p.USUARIO_ID = u.USUARIO_ID
+      WHERE 1=1 ${dateFilter} ${searchFilter}
+      ORDER BY p.FECHA DESC, p.PAGO_ID DESC
+    `);
+
+    return result.recordset;
+  },
+
+  // ── Get supplier list for orden de pago selector ─
+  async getProveedoresConCtaCorriente(search?: string): Promise<{ PROVEEDOR_ID: number; CTA_CORRIENTE_ID: number; NOMBRE: string; CODIGOPARTICULAR: string; NUMERO_DOC: string; SALDO_ACTUAL: number }[]> {
+    const pool = await getPool();
+    const req = pool.request();
+
+    let searchFilter = '';
+    if (search) {
+      searchFilter = ' AND (prov.NOMBRE LIKE @search OR prov.CODIGOPARTICULAR LIKE @search OR prov.NUMERO_DOC LIKE @search)';
+      req.input('search', sql.NVarChar, `%${search}%`);
+    }
+
+    const result = await req.query(`
+      SELECT 
+        prov.PROVEEDOR_ID,
+        cta.CTA_CORRIENTE_ID,
+        prov.NOMBRE,
+        prov.CODIGOPARTICULAR,
+        prov.NUMERO_DOC,
+        ISNULL((
+          SELECT SUM(DEBE - HABER) 
+          FROM COMPRAS_CTA_CORRIENTE cc 
+          WHERE cc.CTA_CORRIENTE_ID = cta.CTA_CORRIENTE_ID
+        ), 0) AS SALDO_ACTUAL
+      FROM PROVEEDORES prov
+      INNER JOIN CTA_CORRIENTE_P cta ON prov.PROVEEDOR_ID = cta.PROVEEDOR_ID
+      WHERE prov.ACTIVO = 1 AND prov.CTA_CORRIENTE = 1 ${searchFilter}
+      ORDER BY prov.NOMBRE
+    `);
+
+    return result.recordset;
+  },
+
+  // ── Get aggregated payment method totals for ordenes de pago ─
+  async getOrdenesPagoMetodosTotales(
+    fechaDesde?: string,
+    fechaHasta?: string,
+    search?: string,
+  ) {
+    const pool = await getPool();
+    await ensureOrdenesPagoMetodosPagoTable(pool);
+    const req = pool.request();
+
+    let dateFilter = '';
+    if (fechaDesde && fechaHasta) {
+      dateFilter = ' AND p.FECHA BETWEEN @fechaDesde AND @fechaHasta';
+      req.input('fechaDesde', sql.DateTime, new Date(fechaDesde));
+      req.input('fechaHasta', sql.DateTime, new Date(fechaHasta));
+    }
+
+    let searchFilter = '';
+    if (search) {
+      searchFilter = ' AND (prov.NOMBRE LIKE @search OR prov.CODIGOPARTICULAR LIKE @search OR prov.NUMERO_DOC LIKE @search)';
+      req.input('search', sql.NVarChar, `%${search}%`);
+    }
+
+    const result = await req.query(`
+      SELECT 
+        mp.NOMBRE AS METODO_NOMBRE,
+        mp.CATEGORIA,
+        ISNULL(mp.IMAGEN_BASE64, '') AS IMAGEN_BASE64,
+        SUM(opm.MONTO) AS TOTAL
+      FROM ORDENES_PAGO_METODOS_PAGO opm
+      INNER JOIN PAGOS_CTA_CORRIENTE_P p ON opm.PAGO_ID = p.PAGO_ID
+      INNER JOIN CTA_CORRIENTE_P cta ON p.CTA_CORRIENTE_ID = cta.CTA_CORRIENTE_ID
+      INNER JOIN PROVEEDORES prov ON cta.PROVEEDOR_ID = prov.PROVEEDOR_ID
+      INNER JOIN METODOS_PAGO mp ON opm.METODO_PAGO_ID = mp.METODO_PAGO_ID
+      WHERE opm.MONTO > 0 ${dateFilter} ${searchFilter}
+      GROUP BY mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64
+      ORDER BY mp.CATEGORIA, SUM(opm.MONTO) DESC
+    `);
+
+    return result.recordset as { METODO_NOMBRE: string; CATEGORIA: string; IMAGEN_BASE64: string; TOTAL: number }[];
+  },
+
+  // ── Get recibo data for printing (orden de pago) ─
+  async getOrdenPagoReciboData(pagoId: number) {
+    const pool = await getPool();
+
+    // 1) Payment + supplier + empresa data
+    const result = await pool.request()
+      .input('pagoId', sql.Int, pagoId)
+      .query(`
+        SELECT 
+          p.PAGO_ID, p.CTA_CORRIENTE_ID, p.FECHA, p.TOTAL, p.CONCEPTO,
+          ISNULL(p.EFECTIVO, 0) AS EFECTIVO,
+          ISNULL(p.DIGITAL, 0) AS DIGITAL,
+          ISNULL(p.CHEQUES, 0) AS CHEQUES,
+          ISNULL(u.NOMBRE, 'Sistema') AS USUARIO,
+          prov.PROVEEDOR_ID, prov.NOMBRE AS PROVEEDOR_NOMBRE,
+          prov.CODIGOPARTICULAR AS PROVEEDOR_CODIGO,
+          prov.DIRECCION AS PROVEEDOR_DOMICILIO,
+          prov.CIUDAD AS PROVEEDOR_LOCALIDAD,
+          prov.NUMERO_DOC AS PROVEEDOR_DOCUMENTO,
+          ISNULL((
+            SELECT SUM(DEBE - HABER) 
+            FROM COMPRAS_CTA_CORRIENTE cc 
+            WHERE cc.CTA_CORRIENTE_ID = p.CTA_CORRIENTE_ID
+          ), 0) AS SALDO_ACTUAL
+        FROM PAGOS_CTA_CORRIENTE_P p
+        INNER JOIN CTA_CORRIENTE_P cta ON p.CTA_CORRIENTE_ID = cta.CTA_CORRIENTE_ID
+        INNER JOIN PROVEEDORES prov ON cta.PROVEEDOR_ID = prov.PROVEEDOR_ID
+        LEFT JOIN USUARIOS u ON p.USUARIO_ID = u.USUARIO_ID
+        WHERE p.PAGO_ID = @pagoId
+      `);
+
+    if (result.recordset.length === 0) {
+      throw Object.assign(new Error('Orden de pago no encontrada'), { name: 'ValidationError' });
+    }
+
+    // 2) Payment method breakdown with names
+    await ensureOrdenesPagoMetodosPagoTable(pool);
+    const mpResult = await pool.request()
+      .input('pagoId', sql.Int, pagoId)
+      .query(`
+        SELECT opm.METODO_PAGO_ID, opm.MONTO, mp.NOMBRE AS METODO_NOMBRE, mp.CATEGORIA
+        FROM ORDENES_PAGO_METODOS_PAGO opm
+        INNER JOIN METODOS_PAGO mp ON opm.METODO_PAGO_ID = mp.METODO_PAGO_ID
+        WHERE opm.PAGO_ID = @pagoId
+      `);
+
+    // 3) Empresa info (try EMPRESA first, then override with EMPRESA_CLIENTE)
+    const empresa: any = {};
+    try {
+      const empResult = await pool.request().query(`
+        SELECT TOP 1 
+          ISNULL(NOMBRE_FANTASIA, '') AS NOMBRE_FANTASIA,
+          ISNULL(RAZON_SOCIAL, '') AS RAZON_SOCIAL,
+          ISNULL(DOMICILIO, '') AS DOMICILIO_FISCAL,
+          ISNULL(CUIT, '') AS CUIT,
+          ISNULL(CONDICION_IVA, '') AS CONDICION_IVA,
+          ISNULL(LOCALIDAD, '') AS LOCALIDAD
+        FROM EMPRESA
+      `);
+      Object.assign(empresa, empResult.recordset[0] || {});
+    } catch { /* EMPRESA table may not exist */ }
+
+    try {
+      const ecResult = await pool.request().query(`
+        SELECT TOP 1
+          ISNULL(RAZON_SOCIAL, '') AS EC_RAZON_SOCIAL,
+          ISNULL(DOMICILIO_FISCAL, '') AS EC_DOMICILIO,
+          ISNULL(CONDICION_IVA, '') AS EC_CONDICION_IVA,
+          ISNULL(CUIT, '') AS EC_CUIT
+        FROM EMPRESA_CLIENTE
+      `);
+      const ec = ecResult.recordset[0];
+      if (ec) {
+        if (ec.EC_RAZON_SOCIAL) empresa.RAZON_SOCIAL = ec.EC_RAZON_SOCIAL;
+        if (ec.EC_DOMICILIO) empresa.DOMICILIO_FISCAL = ec.EC_DOMICILIO;
+        if (ec.EC_CONDICION_IVA) empresa.CONDICION_IVA = ec.EC_CONDICION_IVA;
+        if (ec.EC_CUIT) empresa.CUIT = ec.EC_CUIT;
+      }
+    } catch { /* EMPRESA_CLIENTE table may not exist */ }
+
+    return {
+      ...result.recordset[0],
+      metodos_pago: mpResult.recordset,
+      empresa,
+    };
+  },
 };

@@ -563,20 +563,30 @@ export const salesService = {
       `);
 
     // ── Linked remitos ──
-    const remitosResult = await pool.request()
-      .input('ventaId', sql.Int, id)
-      .query<{
-        REMITO_ID: number;
-        PTO_VTA: string;
-        NRO_REMITO: string;
-        FECHA: string;
-        TOTAL: number;
-      }>(`
-        SELECT REMITO_ID, PTO_VTA, NRO_REMITO, FECHA, TOTAL
-        FROM REMITOS
-        WHERE VENTA_ID = @ventaId AND ANULADO = 0
-        ORDER BY FECHA
-      `);
+    let remitos_asociados: Array<{
+      REMITO_ID: number;
+      PTO_VTA: string;
+      NRO_REMITO: string;
+      FECHA: string;
+      TOTAL: number;
+    }> = [];
+    try {
+      const remitosResult = await pool.request()
+        .input('ventaId', sql.Int, id)
+        .query<{
+          REMITO_ID: number;
+          PTO_VTA: string;
+          NRO_REMITO: string;
+          FECHA: string;
+          TOTAL: number;
+        }>(`
+          SELECT REMITO_ID, PTO_VTA, NRO_REMITO, FECHA, TOTAL
+          FROM REMITOS
+          WHERE VENTA_ID = @ventaId AND ANULADO = 0
+          ORDER BY FECHA
+        `);
+      remitos_asociados = remitosResult.recordset;
+    } catch { /* table may not exist yet */ }
 
     // ── Payment method breakdown ──
     let metodos_pago: any[] = [];
@@ -612,7 +622,7 @@ export const salesService = {
     return {
       ...ventaResult.recordset[0],
       items: itemsResult.recordset,
-      remitos_asociados: remitosResult.recordset,
+      remitos_asociados,
       metodos_pago,
       nc_asociadas,
     };
@@ -2078,13 +2088,13 @@ export const salesService = {
                END AS TOTAL
         FROM VentasBruto vb
       ),
-      MovimientosManualesPorMetodo AS (
+      MovimientosConMetodosPago AS (
         SELECT mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64,
                ISNULL(SUM(mcmp.MONTO), 0) AS TOTAL
         FROM MOVIMIENTOS_CAJA mc
         JOIN MOVIMIENTOS_CAJA_METODOS_PAGO mcmp ON mc.ID = mcmp.MOVIMIENTO_ID
         JOIN METODOS_PAGO mp ON mcmp.METODO_PAGO_ID = mp.METODO_PAGO_ID
-        WHERE mc.ES_MANUAL = 1 ${commonWhere}
+        WHERE mc.TIPO_ENTIDAD NOT IN ('CIERRE_CAJA', 'TRANSFERENCIA_FC', 'REINTEGRO_FONDO', 'DEPOSITO_FONDO') ${commonWhere}
         GROUP BY mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64
       ),
       MetodoTotales AS (
@@ -2092,7 +2102,7 @@ export const salesService = {
         FROM (
           SELECT * FROM VentasPorMetodo
           UNION ALL
-          SELECT * FROM MovimientosManualesPorMetodo
+          SELECT * FROM MovimientosConMetodosPago
         ) t
         GROUP BY METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64
       ),
@@ -2100,7 +2110,7 @@ export const salesService = {
         SELECT ISNULL(SUM(mc.EFECTIVO), 0) AS NETO
         FROM MOVIMIENTOS_CAJA mc
         WHERE mc.TIPO_ENTIDAD NOT IN ('CIERRE_CAJA') ${commonWhere}
-          AND mc.ES_MANUAL = 0
+          AND (mc.ES_MANUAL = 0 OR mc.TIPO_ENTIDAD IN ('TRANSFERENCIA_FC', 'REINTEGRO_FONDO', 'DEPOSITO_FONDO'))
           AND NOT EXISTS (
             SELECT 1
             FROM MOVIMIENTOS_CAJA_METODOS_PAGO mcmp

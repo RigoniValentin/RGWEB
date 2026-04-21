@@ -35,6 +35,9 @@ interface SettingsState {
   /** Reset all settings to default and refresh */
   resetAll: () => Promise<void>;
 
+  /** Reset settings for a specific module and refresh */
+  resetModule: (modulo: string) => Promise<void>;
+
   /** Clear store (on logout) */
   clear: () => void;
 }
@@ -93,6 +96,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   resetAll: async () => {
     await settingsApi.resetAll();
+    await get().fetchSettings();
+  },
+
+  resetModule: async (modulo: string) => {
+    await settingsApi.resetModule(modulo);
     await get().fetchSettings();
   },
 

@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Modal, Form, Input, InputNumber, Select, Switch, Tabs, Space, Button,
-  Table, Tag, Typography, Row, Col, Divider, Badge, App, Tooltip,
+  Table, Tag, Typography, Row, Col, Divider, Badge, App, Tooltip, Dropdown,
 } from 'antd';
 import {
   PlusOutlined, DeleteOutlined, BarcodeOutlined, ShopOutlined,
   DollarOutlined, InboxOutlined, FileTextOutlined, UndoOutlined,
+  VerticalAlignTopOutlined,
 } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { catalogApi } from '../../services/catalog.api';
@@ -235,6 +236,24 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
     }
     message.success('Márgenes restaurados a los valores por defecto de las listas');
   }, [listas, form, recalcAllPricesFromMargins, message]);
+
+  const handleRedondearPrecios = useCallback((step: number) => {
+    const costo = form.getFieldValue('PRECIO_COMPRA') || 0;
+    const newMargenes = [...margenes];
+    const fields: Record<string, number> = {};
+    for (let i = 0; i < 5; i++) {
+      const precio = form.getFieldValue(`LISTA_${i + 1}`) || 0;
+      if (precio > 0) {
+        const redondeado = Math.ceil(precio / step) * step;
+        fields[`LISTA_${i + 1}`] = redondeado;
+        if (costo > 0) {
+          newMargenes[i] = Math.round(((redondeado / costo) - 1) * 10000) / 100;
+        }
+      }
+    }
+    form.setFieldsValue(fields);
+    setMargenes(newMargenes);
+  }, [form, margenes]);
 
   // ── Save ───────────────────────────────────────
   const handleSave = async () => {
@@ -471,6 +490,23 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                       </Tooltip>
                     </Space>
                   </Divider>
+                  <div style={{ marginBottom: 8 }}>
+                    <Dropdown
+                      menu={{
+                        items: [
+                          { key: '50', label: 'Redondear a $ 50', onClick: () => handleRedondearPrecios(50) },
+                          { key: '100', label: 'Redondear a $ 100', onClick: () => handleRedondearPrecios(100) },
+                          { key: '500', label: 'Redondear a $ 500', onClick: () => handleRedondearPrecios(500) },
+                          { key: '1000', label: 'Redondear a $ 1000', onClick: () => handleRedondearPrecios(1000) },
+                        ],
+                      }}
+                      trigger={['click']}
+                    >
+                      <Tooltip title="Redondear precios">
+                        <Button size="small" icon={<VerticalAlignTopOutlined />} />
+                      </Tooltip>
+                    </Dropdown>
+                  </div>
                   <Table
                     size="small"
                     pagination={false}

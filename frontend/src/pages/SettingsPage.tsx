@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Card, Typography, Switch, Select, Input, Button, Space, Tag, Row, Col,
-  message, Spin, Tooltip, Empty, Badge, Upload,
+  message, Spin, Tooltip, Empty, Badge, Upload, Modal,
 } from 'antd';
 import {
   SettingOutlined, SaveOutlined, UndoOutlined, KeyOutlined,
@@ -335,7 +335,7 @@ function SettingRow({
 //  SettingsPage — Main component
 // ═══════════════════════════════════════════════════
 export function SettingsPage() {
-  const { settings, loaded, loading, fetchSettings, saveUserSettings, resetAll } = useSettingsStore();
+  const { settings, loaded, loading, fetchSettings, saveUserSettings, resetAll, resetModule } = useSettingsStore();
   const [localValues, setLocalValues] = useState<Record<number, string>>({});
   const [saving, setSaving] = useState(false);
   const [activeModule, setActiveModule] = useState<string | null>(null);
@@ -389,16 +389,46 @@ export function SettingsPage() {
     }
   };
 
-  const handleResetAll = async () => {
-    setSaving(true);
-    try {
-      await resetAll();
-      msgApi.success('Configuración restaurada a valores por defecto');
-    } catch {
-      msgApi.error('Error al restaurar la configuración');
-    } finally {
-      setSaving(false);
-    }
+  const handleResetAll = () => {
+    Modal.confirm({
+      title: 'Restaurar toda la configuración',
+      content: '¿Estás seguro? Se restaurarán todos los módulos a sus valores por defecto. Esta acción no se puede deshacer.',
+      okText: 'Restaurar todo',
+      okType: 'danger',
+      cancelText: 'Cancelar',
+      onOk: async () => {
+        setSaving(true);
+        try {
+          await resetAll();
+          msgApi.success('Configuración restaurada a valores por defecto');
+        } catch {
+          msgApi.error('Error al restaurar la configuración');
+        } finally {
+          setSaving(false);
+        }
+      },
+    });
+  };
+
+  const handleResetModule = (modulo: string, label: string) => {
+    Modal.confirm({
+      title: `Restaurar ${label}`,
+      content: `¿Estás seguro? Se restaurarán las configuraciones de "${label}" a sus valores por defecto.`,
+      okText: 'Restaurar',
+      okType: 'danger',
+      cancelText: 'Cancelar',
+      onOk: async () => {
+        setSaving(true);
+        try {
+          await resetModule(modulo);
+          msgApi.success(`Configuración de ${label} restaurada`);
+        } catch {
+          msgApi.error('Error al restaurar la configuración');
+        } finally {
+          setSaving(false);
+        }
+      },
+    });
   };
 
   const grouped = useSettingsStore.getState().getGrouped();
@@ -480,7 +510,7 @@ export function SettingsPage() {
               color: 'rgba(255,255,255,0.7)',
             }}
           >
-            Restaurar
+            Restaurar todo
           </Button>
           <Badge count={changedCount} offset={[-4, 4]} color="#EABD23" style={{ color: '#1E1F22', fontWeight: 700 }}>
             <Button
@@ -581,12 +611,26 @@ export function SettingsPage() {
               }}>
                 {activeMeta.icon}
               </span>
-              <div>
+              <div style={{ flex: 1 }}>
                 <Text strong style={{ color: '#fff', fontSize: 14 }}>{activeMeta.label}</Text>
                 <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, display: 'block', lineHeight: 1.2 }}>
                   {activeMeta.description}
                 </Text>
               </div>
+              <Button
+                size="small"
+                icon={<UndoOutlined />}
+                onClick={() => handleResetModule(activeModule, activeMeta.label)}
+                disabled={saving}
+                style={{
+                  background: 'rgba(255,255,255,0.08)',
+                  borderColor: 'rgba(255,255,255,0.15)',
+                  color: 'rgba(255,255,255,0.7)',
+                  fontSize: 12,
+                }}
+              >
+                Restaurar {activeMeta.label}
+              </Button>
             </div>
           }
         >

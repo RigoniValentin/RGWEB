@@ -81,7 +81,12 @@ router.delete('/user/:parametroId', async (req: AuthRequest, res: Response) => {
 // ── DELETE /api/settings/user — Reset ALL user settings ───────────────────
 router.delete('/user', async (req: AuthRequest, res: Response) => {
   try {
-    await settingsService.resetAllForUser(req.user!.id);
+    const { modulo } = req.query;
+    if (typeof modulo === 'string' && modulo) {
+      await settingsService.resetModuleForUser(req.user!.id, modulo);
+    } else {
+      await settingsService.resetAllForUser(req.user!.id);
+    }
     res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

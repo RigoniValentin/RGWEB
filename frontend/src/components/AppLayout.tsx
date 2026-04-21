@@ -70,6 +70,9 @@ import { PaymentMethodsPage } from '../pages/PaymentMethodsPage';
 import { RemitosPage } from '../pages/RemitosPage';
 import { StockPage } from '../pages/StockPage';
 import { ListadoComandasPage } from '../pages/ListadoComandasPage';
+import { CobranzasPage } from '../pages/CobranzasPage';
+import { OrdenesPagoPage } from '../pages/OrdenesPagoPage';
+import { LibroIvaVentasPage } from '../pages/LibroIvaVentasPage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -94,6 +97,8 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/categories':     { label: 'Categorías',   icon: <TagsOutlined />,         component: CategoriesPage,   closable: true },
   '/brands':         { label: 'Marcas',        icon: <TagOutlined />,          component: BrandsPage,       closable: true },
   '/payment-methods': { label: 'Métodos de Pago', icon: <CreditCardOutlined />, component: PaymentMethodsPage, closable: true },
+  '/cobranzas':      { label: 'Cobranzas',       icon: <DollarOutlined />,       component: CobranzasPage,    closable: true },
+  '/ordenes-pago':   { label: 'Órdenes de Pago', icon: <WalletOutlined />,       component: OrdenesPagoPage,  closable: true },
   '/cta-corriente':  { label: 'Cta. Cte. Cli. ', icon: <WalletOutlined />,       component: CtaCorrientePage, closable: true },
   '/cta-corriente-prov': { label: 'Cta. Cte. Prov.', icon: <ShopOutlined />,     component: CtaCorrienteProvPage, closable: true },
   '/purchases':      { label: 'Compras',       icon: <ShoppingCartOutlined />, component: PurchasesPage,    closable: true },
@@ -105,6 +110,7 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/gastronomy/comandas': { label: 'Listado Comandas', icon: <UnorderedListOutlined />, component: ListadoComandasPage, closable: true },
   '/remitos':          { label: 'Remitos',         icon: <FileTextOutlined />,   component: RemitosPage,      closable: true },
   '/stock':            { label: 'Stock',           icon: <InboxOutlined />,      component: StockPage,        closable: true },
+  '/libro-iva-ventas': { label: 'Libro IVA Ventas', icon: <AuditOutlined />,      component: LibroIvaVentasPage, closable: true },
 };
 
 /** Icon map for TabBar */
@@ -147,7 +153,9 @@ const menuItems = [
         { key: '/cashregisters', icon: <BankOutlined />, label: 'Cajas' },
         { key: '/cashcentral', icon: <WalletOutlined />, label: 'Caja Central' },
         { key: 'ctas-corrientes', icon: <WalletOutlined />, label: 'Cuentas Corrientes', children: [
+          { key: '/cobranzas', icon: <DollarOutlined />, label: 'Cobranzas' },
           { key: '/cta-corriente', icon: <TeamOutlined />, label: 'Cta Cte Clientes' },
+          { key: '/ordenes-pago', icon: <WalletOutlined />, label: 'Órdenes de Pago' },
           { key: '/cta-corriente-prov', icon: <ShopOutlined />, label: 'Cta Cte Proveedores' },
         ]},
         { key: 'notas-credito', icon: <FileAddOutlined />, label: 'Notas de Crédito', children: [
@@ -194,6 +202,7 @@ const menuItems = [
       { type: 'group' as const, label: 'Reportes', className: 'rg-popup-group-title', children: [
         { key: '/reports/reports', icon: <FileTextOutlined />, label: 'Reportes' },
         { key: '/reports/listings', icon: <UnorderedListOutlined />, label: 'Listados' },
+        { key: '/libro-iva-ventas', icon: <AuditOutlined />, label: 'Libro IVA Ventas' },
       ]},
     ],
   },
@@ -410,7 +419,7 @@ export function AppLayout() {
     };
     const subGroups: Record<string, string[]> = {
       'productos-sub': ['/products', '/etiquetas'],
-      'ctas-corrientes': ['/cta-corriente', '/cta-corriente-prov'],
+      'ctas-corrientes': ['/cta-corriente', '/cta-corriente-prov', '/cobranzas', '/ordenes-pago'],
       'notas-credito': ['/nc-ventas', '/nc-compras'],
       'notas-debito': ['/nd-ventas', '/nd-compras'],
     };
