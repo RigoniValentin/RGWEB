@@ -83,8 +83,13 @@ export function SalesPage() {
   // ── Listen for global shortcut event ───────────
   useEffect(() => {
     const handler = () => setNewSaleOpen(true);
+    const nuevoHandler = () => { if (useTabStore.getState().activeKey === '/sales') setNewSaleOpen(true); };
     window.addEventListener('rg:open-new-sale', handler);
-    return () => window.removeEventListener('rg:open-new-sale', handler);
+    window.addEventListener('rg:nuevo', nuevoHandler);
+    return () => {
+      window.removeEventListener('rg:open-new-sale', handler);
+      window.removeEventListener('rg:nuevo', nuevoHandler);
+    };
   }, []);
 
   // ── Debounced search ───────────────────────────
@@ -849,6 +854,7 @@ export function SalesPage() {
         centered
         width={420}
         destroyOnClose
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 16 }}>
           <div>
@@ -898,6 +904,7 @@ export function SalesPage() {
         title={<><FileExclamationOutlined style={{ marginRight: 8 }} />Notas de Crédito asociadas</>}
         width={520}
         destroyOnClose
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {detail?.nc_asociadas && detail.nc_asociadas.length > 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
@@ -955,6 +962,7 @@ export function SalesPage() {
         title="Desglose por método de pago"
         width={480}
         destroyOnClose
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {!detail?.metodos_pago || detail.metodos_pago.length === 0 ? (
           <Text type="secondary">No hay métodos de pago registrados.</Text>

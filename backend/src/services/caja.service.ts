@@ -12,6 +12,8 @@ export interface CajaFilter {
   fechaHasta?: string;
   estado?: string;
   puntoVentaIds?: number[];
+  /** When set, restricts results to cajas owned by this user */
+  usuarioId?: number;
 }
 
 export interface AbrirCajaInput {
@@ -62,6 +64,10 @@ export const cajaService = {
       filter.puntoVentaIds.forEach((id, i) => {
         params.push({ name: `pv${i}`, type: sql.Int, value: id });
       });
+    }
+    if (filter.usuarioId) {
+      where += ' AND c.USUARIO_ID = @usuarioId';
+      params.push({ name: 'usuarioId', type: sql.Int, value: filter.usuarioId });
     }
 
     const bind = (req: any) => {

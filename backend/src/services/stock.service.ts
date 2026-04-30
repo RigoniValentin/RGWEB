@@ -9,6 +9,7 @@ export interface StockFilter {
   pageSize?: number;
   search?: string;
   depositoId?: number;
+  puntoVentaId?: number;
   soloConStock?: boolean;
   soloBajoMinimo?: boolean;
   orderBy?: string;
@@ -78,6 +79,13 @@ export const stockService = {
     if (filter.depositoId) {
       where += ' AND sd.DEPOSITO_ID = @depositoId';
       params.push({ name: 'depositoId', type: sql.Int, value: filter.depositoId });
+    }
+
+    if (filter.puntoVentaId) {
+      where += ` AND sd.DEPOSITO_ID IN (
+        SELECT DEPOSITO_ID FROM PUNTOS_VENTA_DEPOSITOS WHERE PUNTO_VENTA_ID = @puntoVentaId
+      )`;
+      params.push({ name: 'puntoVentaId', type: sql.Int, value: filter.puntoVentaId });
     }
 
     if (filter.soloConStock) {
@@ -329,5 +337,24 @@ export const stockService = {
     const pool = await getPool();
     const result = await pool.request().query(`SELECT DEPOSITO_ID, NOMBRE FROM DEPOSITOS ORDER BY NOMBRE`);
     return result.recordset;
+  },
+
+  // ── Get deposits filtered by punto de venta ──────
+  async getDepositosByPuntoVenta(puntoVentaId: number) {
+    const pool = await getPool();
+    try {
+      const result = await pool.request()
+        .input('id', sql.Int, puntoVentaId)
+        .query(`
+          SELECT d.DEPOSITO_ID, d.NOMBRE
+          FROM DEPOSITOS d
+          JOIN PUNTOS_VENTA_DEPOSITOS pvd ON pvd.DEPOSITO_ID = d.DEPOSITO_ID
+          WHERE pvd.PUNTO_VENTA_ID = @id
+          ORDER BY d.NOMBRE
+        `);
+      return result.recordset;
+    } catch {
+      return [];
+    }
   },
 };

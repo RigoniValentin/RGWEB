@@ -13,6 +13,7 @@ router.get('/', async (req: Request, res: Response) => {
       pageSize: parseInt(req.query.pageSize as string) || 25,
       search: req.query.search as string | undefined,
       depositoId: req.query.depositoId ? parseInt(req.query.depositoId as string) : undefined,
+      puntoVentaId: req.query.puntoVentaId ? parseInt(req.query.puntoVentaId as string) : undefined,
       soloConStock: req.query.soloConStock === 'true',
       soloBajoMinimo: req.query.soloBajoMinimo === 'true',
       orderBy: req.query.orderBy as string | undefined,
@@ -25,9 +26,12 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // GET /api/stock/depositos — list deposits
-router.get('/depositos', async (_req: Request, res: Response) => {
+router.get('/depositos', async (req: Request, res: Response) => {
   try {
-    const data = await stockService.getDepositos();
+    const puntoVentaId = req.query.puntoVentaId ? parseInt(req.query.puntoVentaId as string) : undefined;
+    const data = puntoVentaId
+      ? await stockService.getDepositosByPuntoVenta(puntoVentaId)
+      : await stockService.getDepositos();
     res.json(data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

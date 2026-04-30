@@ -97,6 +97,15 @@ body {
   0%, 100% { transform: scale(1); }
   50%      { transform: scale(1.08); }
 }
+@keyframes shake {
+  0%        { transform: translateX(0); }
+  15%       { transform: translateX(-7px); }
+  30%       { transform: translateX(6px); }
+  45%       { transform: translateX(-5px); }
+  60%       { transform: translateX(4px); }
+  75%       { transform: translateX(-2px); }
+  100%      { transform: translateX(0); }
+}
 
 .animate-fade-in     { animation: fadeIn 0.5s ease-out both; }
 .animate-fade-left   { animation: fadeInLeft 0.5s ease-out both; }
@@ -214,6 +223,13 @@ body {
 /* Alternating rows */
 .rg-table .ant-table-tbody > tr:nth-child(even) > td {
   background: rgba(245, 245, 245, 0.5);
+}
+/* Libro IVA — NC/ND rows tinted red */
+.rg-table .libro-iva-row-nc > td {
+  background: rgba(255, 77, 79, 0.04) !important;
+}
+.rg-table .libro-iva-row-nc:hover > td {
+  background: rgba(255, 77, 79, 0.09) !important;
 }
 
 /* ── Sidebar ──────────────────────
@@ -2028,3 +2044,502 @@ body {
   overflow: hidden;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   CAJERO INICIO — Professional, GPU-friendly animations
+   All animations run on transform / opacity (compositor-only) and respect
+   prefers-reduced-motion. No JS animation loops.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Hero gradient that slowly drifts ~30s */
+@keyframes rgHeroDrift {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+@keyframes rgHeroGlow {
+  0%, 100% { opacity: 0.5; transform: translate3d(-30%, -30%, 0) scale(1); }
+  50%      { opacity: 0.85; transform: translate3d(-25%, -35%, 0) scale(1.08); }
+}
+@keyframes rgFloat {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50%      { transform: translate3d(0, -6px, 0); }
+}
+@keyframes rgRise {
+  from { opacity: 0; transform: translate3d(0, 18px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes rgShine {
+  0%   { transform: translate3d(-120%, 0, 0) skewX(-18deg); }
+  100% { transform: translate3d(220%, 0, 0) skewX(-18deg); }
+}
+@keyframes rgPulseRing {
+  0%   { box-shadow: 0 0 0 0 rgba(234,189,35, 0.45); }
+  70%  { box-shadow: 0 0 0 14px rgba(234,189,35, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(234,189,35, 0); }
+}
+@keyframes rgIconSpinIn {
+  from { opacity: 0; transform: rotate(-25deg) scale(0.6); }
+  to   { opacity: 1; transform: rotate(0)     scale(1); }
+}
+
+/* ── Hero card ──────────────────────────────────────────────────────── */
+.rg-cajero-hero {
+  position: relative;
+  border-radius: 18px;
+  padding: 36px 36px 32px;
+  margin-bottom: 28px;
+  overflow: hidden;
+  isolation: isolate;
+  color: #fff;
+  background:
+    linear-gradient(120deg, #1A1B1E 0%, #232428 45%, #1A1B1E 100%);
+  background-size: 220% 220%;
+  animation: rgHeroDrift 22s ease-in-out infinite, rgRise 0.55s ease-out both;
+  border: 1px solid rgba(234,189,35, 0.25);
+  box-shadow: 0 18px 48px -20px rgba(0,0,0,0.55);
+}
+.rg-cajero-hero::before {
+  /* Soft gold radial that drifts subtly */
+  content: '';
+  position: absolute;
+  top: -40%; left: -20%;
+  width: 80%; height: 180%;
+  background: radial-gradient(ellipse at 30% 40%,
+              rgba(234,189,35, 0.22) 0%,
+              rgba(234,189,35, 0.08) 35%,
+              transparent 70%);
+  filter: blur(12px);
+  z-index: -1;
+  animation: rgHeroGlow 14s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+.rg-cajero-hero::after {
+  /* Animated gold underline */
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 3px;
+  background: linear-gradient(90deg,
+              transparent 0%,
+              #EABD23 25%,
+              #FCE58A 50%,
+              #EABD23 75%,
+              transparent 100%);
+  background-size: 200% 100%;
+  animation: rgHeroDrift 6s linear infinite;
+}
+
+/* Diagonal grid texture for the hero, very low opacity */
+.rg-cajero-hero-grid {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.06;
+  background-image:
+    linear-gradient(45deg,  rgba(234,189,35, 1) 1px, transparent 1px),
+    linear-gradient(-45deg, rgba(234,189,35, 1) 1px, transparent 1px);
+  background-size: 28px 28px;
+  pointer-events: none;
+}
+
+.rg-cajero-hero-logo {
+  animation: rgFloat 5s ease-in-out infinite;
+  will-change: transform;
+}
+
+.rg-cajero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: rgba(234,189,35, 0.12);
+  border: 1px solid rgba(234,189,35, 0.4);
+  color: #EABD23;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  animation: rgPulseRing 2.6s ease-out infinite;
+}
+
+/* ── Quick actions: Ventas + Caja ────────────────────────────────────── */
+.rg-quick-action {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 22px;
+  padding: 30px 28px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #1E1F22 0%, #2A2B2F 100%);
+  border: 1.5px solid var(--qa-color, #EABD23);
+  cursor: pointer;
+  overflow: hidden;
+  isolation: isolate;
+  transition: transform 0.28s cubic-bezier(.2,.8,.2,1),
+              box-shadow 0.28s cubic-bezier(.2,.8,.2,1);
+  animation: rgRise 0.55s ease-out both;
+  will-change: transform;
+}
+.rg-quick-action::before {
+  /* Glow corner */
+  content: '';
+  position: absolute;
+  top: -50%; left: -25%;
+  width: 75%; height: 200%;
+  background: radial-gradient(ellipse at center,
+              var(--qa-color, #EABD23) 0%,
+              transparent 60%);
+  opacity: 0.10;
+  z-index: -1;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+.rg-quick-action::after {
+  /* Shine sweep on hover */
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 60%; height: 100%;
+  background: linear-gradient(90deg,
+              transparent 0%,
+              rgba(255,255,255, 0.10) 50%,
+              transparent 100%);
+  transform: translate3d(-120%, 0, 0) skewX(-18deg);
+  pointer-events: none;
+  z-index: 0;
+}
+.rg-quick-action:hover {
+  transform: translate3d(0, -4px, 0);
+  box-shadow: 0 18px 40px -12px color-mix(in srgb, var(--qa-color, #EABD23) 40%, transparent);
+}
+.rg-quick-action:hover::before {
+  opacity: 0.22;
+}
+.rg-quick-action:hover::after {
+  animation: rgShine 0.9s ease-out;
+}
+.rg-quick-action:active {
+  transform: translate3d(0, -1px, 0) scale(0.995);
+  transition-duration: 0.08s;
+}
+
+.rg-quick-action-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--qa-color, #EABD23) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--qa-color, #EABD23) 35%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  color: var(--qa-color, #EABD23);
+  flex-shrink: 0;
+  position: relative;
+  animation: rgIconSpinIn 0.7s cubic-bezier(.2,.8,.2,1) both;
+}
+.rg-quick-action:hover .rg-quick-action-icon {
+  transform: rotate(-6deg) scale(1.05);
+  transition: transform 0.3s cubic-bezier(.2,.8,.2,1);
+}
+
+.rg-quick-action-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+}
+.rg-quick-action-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+}
+.rg-quick-action-sub {
+  font-size: 13px;
+  color: rgba(255,255,255, 0.55);
+  line-height: 1.35;
+}
+.rg-quick-action-kbd {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 2px 8px;
+  background: rgba(255,255,255, 0.08);
+  border: 1px solid rgba(255,255,255, 0.18);
+  border-radius: 5px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: rgba(255,255,255, 0.55);
+}
+.rg-quick-action-cta {
+  align-self: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--qa-color, #EABD23) 22%, transparent);
+  color: var(--qa-color, #EABD23);
+  font-size: 14px;
+  flex-shrink: 0;
+  transition: transform 0.28s cubic-bezier(.2,.8,.2,1), background 0.2s ease;
+}
+.rg-quick-action:hover .rg-quick-action-cta {
+  transform: translate3d(4px, 0, 0);
+  background: color-mix(in srgb, var(--qa-color, #EABD23) 35%, transparent);
+}
+
+/* ── Section title ───────────────────────────────────────────────────── */
+.rg-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 14px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: rgba(0,0,0, 0.45);
+}
+.rg-section-title::before {
+  content: '';
+  width: 18px; height: 2px;
+  background: var(--rg-gold, #EABD23);
+  border-radius: 2px;
+}
+
+/* Shortcuts collapse — keep header flush with section-title style */
+.rg-shortcuts-collapse > .ant-collapse-item > .ant-collapse-header {
+  padding: 0 !important;
+  align-items: center !important;
+}
+.rg-shortcuts-collapse > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box {
+  padding: 8px 0 0 !important;
+}
+
+/* Respect users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .rg-cajero-hero,
+  .rg-cajero-hero::before,
+  .rg-cajero-hero::after,
+  .rg-cajero-hero-logo,
+  .rg-cajero-badge,
+  .rg-quick-action,
+  .rg-quick-action-icon,
+  .rg-quick-action::after {
+    animation: none !important;
+  }
+  .rg-quick-action:hover { transform: none; }
+}
+
+
+/* ══════════════════════════════════════════════════
+   Dashboard — Charts & Filter Bar
+   ══════════════════════════════════════════════════ */
+
+.rg-dash-filterbar {
+  margin-top: 4px;
+  margin-bottom: 4px;
+  border: 1px solid #f0f0f0;
+  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+  border-radius: 12px;
+}
+
+/* ── Chart wrapper ──────────────────────────────────────────── */
+.rg-chart-wrap {
+  position: relative;
+  width: 100%;
+}
+.rg-chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 13px;
+  background: repeating-linear-gradient(45deg, #fafafa, #fafafa 10px, #f5f5f5 10px, #f5f5f5 20px);
+  border-radius: 8px;
+}
+.rg-chart-tooltip {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  background: rgba(30, 31, 34, 0.95);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  pointer-events: none;
+  box-shadow: 0 6px 18px -8px rgba(0,0,0,0.35);
+  border: 1px solid rgba(234,189,35,0.35);
+  min-width: 160px;
+  font-variant-numeric: tabular-nums;
+  z-index: 5;
+}
+.rg-chart-tooltip-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: #EABD23;
+  letter-spacing: 0.02em;
+}
+.rg-chart-tooltip > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.rg-chart-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+}
+.rg-chart-legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #666;
+}
+.rg-chart-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.rg-chart-legend i {
+  display: inline-block;
+  width: 12px; height: 12px;
+  border-radius: 3px;
+}
+
+/* ── Donut legend ───────────────────────────────────────────── */
+.rg-donut-wrap {
+  padding: 4px 0;
+}
+.rg-donut-legend {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+.rg-donut-legend-row {
+  display: grid;
+  grid-template-columns: 12px 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: default;
+  transition: background 0.15s;
+}
+.rg-donut-legend-row:hover {
+  background: rgba(234,189,35, 0.08);
+}
+.rg-donut-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.rg-donut-name {
+  font-weight: 600;
+  color: #1E1F22;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rg-donut-pct {
+  color: #999;
+  font-variant-numeric: tabular-nums;
+  min-width: 44px;
+  text-align: right;
+}
+.rg-donut-val {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  min-width: 80px;
+  text-align: right;
+}
+
+/* ── Heatmap ────────────────────────────────────────────────── */
+.rg-heatmap-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+/* ── Mini stat tile (caja central detail) ──────────────────── */
+.rg-mini-stat {
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  height: 100%;
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+.rg-mini-stat:hover {
+  box-shadow: 0 4px 12px -6px rgba(0,0,0,0.12);
+  transform: translateY(-1px);
+}
+
+/* Tighter KPI delta tag */
+.kpi-card .ant-tag {
+  vertical-align: middle;
+  font-size: 11px;
+  line-height: 18px;
+  padding: 0 6px;
+}
+
+/* ── Heatmap insights summary tiles ─────────────────────────── */
+.rg-heat-summary .ant-card-body {
+  padding: 12px 16px;
+}
+.rg-heat-tile {
+  background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
+  border: 1px solid #f0f0f0;
+  border-radius: 10px;
+  padding: 10px 14px;
+  height: 100%;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rg-heat-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.18);
+  border-color: rgba(234, 189, 35, 0.45);
+}
+.rg-heat-tile-label {
+  font-size: 11px;
+  color: #8c8c8c;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rg-heat-tile-value {
+  font-size: 17px;
+  font-weight: 700;
+  color: #1f1f1f;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+.rg-heat-tile-sub {
+  font-size: 12px;
+  color: #595959;
+  font-variant-numeric: tabular-nums;
+}
+.rg-heat-tile-accent {
+  background: linear-gradient(135deg, rgba(234, 189, 35, 0.12) 0%, rgba(234, 189, 35, 0.04) 100%);
+  border-color: rgba(234, 189, 35, 0.35);
+}
+.rg-heat-tile-accent .rg-heat-tile-label {
+  color: #b8860b;
+}

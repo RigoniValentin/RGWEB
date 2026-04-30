@@ -4,6 +4,8 @@ import type { Deposito, PaginatedResponse } from '../types';
 export interface DepositoInput {
   CODIGOPARTICULAR?: string;
   NOMBRE: string;
+  puntosVenta?: number[];
+  puntoVentaPreferido?: number | null;
 }
 
 export const depositApi = {

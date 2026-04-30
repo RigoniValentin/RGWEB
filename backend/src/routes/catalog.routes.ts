@@ -45,10 +45,17 @@ router.get('/listas-precios', async (_req: Request, res: Response) => {
   }
 });
 
-// GET /api/catalog/depositos
-router.get('/depositos', async (_req: Request, res: Response) => {
+// GET /api/catalog/depositos?puntoVentaIds=1,2,3
+router.get('/depositos', async (req: Request, res: Response) => {
   try {
-    const data = await catalogService.getDepositos();
+    const raw = req.query.puntoVentaIds;
+    let pvIds: number[] | undefined;
+    if (typeof raw === 'string' && raw.trim().length > 0) {
+      pvIds = raw.split(',')
+        .map(s => parseInt(s, 10))
+        .filter(n => Number.isFinite(n) && n > 0);
+    }
+    const data = await catalogService.getDepositos(pvIds);
     res.json(data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

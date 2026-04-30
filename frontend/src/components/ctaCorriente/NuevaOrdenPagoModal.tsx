@@ -220,6 +220,7 @@ export function NuevaOrdenPagoModal({
         confirmLoading={saving}
         width={520}
         destroyOnClose
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
           Proveedor: <Text strong>{proveedorNombre}</Text>
@@ -386,6 +387,7 @@ export function NuevaOrdenPagoModal({
         centered
         width={520}
         destroyOnClose
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
         title={
           <Space>
             <WalletOutlined style={{ color: '#EABD23', fontSize: 20 }} />

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Input, Typography, Button, App, Descriptions, Modal,
@@ -19,6 +19,7 @@ import { fmtMoney } from '../utils/format';
 import { printReciboCobranza } from '../utils/printReciboCobranza';
 import { NuevaCobranzaGeneralModal } from '../components/cobranzas/NuevaCobranzaGeneralModal';
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
+import { useTabStore } from '../store/tabStore';
 
 const { Title, Text } = Typography;
 
@@ -74,7 +75,11 @@ export function CobranzasPage() {
     setEditClienteNombre(undefined);
     setModalOpen(true);
   };
-
+  useEffect(() => {
+    const handler = () => { if (useTabStore.getState().activeKey === '/cobranzas') handleNew(); };
+    window.addEventListener('rg:nuevo', handler);
+    return () => window.removeEventListener('rg:nuevo', handler);
+  }, []);
   const handleEdit = (record: CobranzaGeneralItem) => {
     setEditPagoId(record.PAGO_ID);
     setEditClienteId(record.CLIENTE_ID);
@@ -280,6 +285,7 @@ export function CobranzasPage() {
         title={`Desglose por método de pago — ${desgloseFilter === 'EFECTIVO' ? 'Efectivo' : 'Digital'}`}
         width={480}
         destroyOnClose
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {(() => {
           const items = (metodosTotales || []).filter(m =>
@@ -375,6 +381,7 @@ function DetalleCobranzaModal({ detalleCobranza, onClose }: {
         ) : null
       }
       width={420}
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
     >
       {detalleCobranza && (
         <>

@@ -42,8 +42,22 @@ export const catalogService = {
   },
 
   // ── Depósitos ────────────────────────────────────
-  async getDepositos(): Promise<Deposito[]> {
+  async getDepositos(puntoVentaIds?: number[]): Promise<Deposito[]> {
     const pool = await getPool();
+    if (puntoVentaIds && puntoVentaIds.length > 0) {
+      // Sanitize: only positive integers
+      const ids = puntoVentaIds.filter(n => Number.isInteger(n) && n > 0);
+      if (ids.length === 0) return [];
+      const inList = ids.join(',');
+      const result = await pool.request().query<Deposito>(`
+        SELECT DISTINCT d.*
+        FROM DEPOSITOS d
+        INNER JOIN PUNTOS_VENTA_DEPOSITOS pvd ON pvd.DEPOSITO_ID = d.DEPOSITO_ID
+        WHERE pvd.PUNTO_VENTA_ID IN (${inList})
+        ORDER BY d.NOMBRE
+      `);
+      return result.recordset;
+    }
     const result = await pool.request().query<Deposito>(`
       SELECT * FROM DEPOSITOS ORDER BY NOMBRE
     `);

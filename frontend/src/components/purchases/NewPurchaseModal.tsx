@@ -1440,6 +1440,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       centered
       width={520}
       destroyOnClose
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       title={
         <Space>
           <WalletOutlined style={{ color: '#EABD23', fontSize: 20 }} />
@@ -1534,6 +1535,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       centered
       width={460}
       destroyOnClose
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <Button onClick={() => { setSaldoModalOpen(false); setSaldoInfo(null); }}>

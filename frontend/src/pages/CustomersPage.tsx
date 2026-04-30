@@ -2,14 +2,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Input, Typography, Tag, Select, Button, Modal, App,
-  Tooltip, Drawer, Spin, Form, Switch, Descriptions,
+  Tooltip, Drawer, Spin, Form, Switch, Descriptions, Divider, Row, Col,
 } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
-  EyeOutlined, FilterOutlined, ReloadOutlined, UserOutlined,
+  EyeOutlined, FilterOutlined, ReloadOutlined, UserOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import { customerApi, type ClienteInput } from '../services/customer.api';
+import { useTabStore } from '../store/tabStore';
+import { afipApi } from '../services/afip.api';
 import { fmtMoney } from '../utils/format';
 import type { Cliente } from '../types';
 
@@ -52,6 +54,9 @@ export function CustomersPage() {
   // Form instance
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [lookingUpCuit, setLookingUpCuit] = useState(false);
+  const [noAlcanzado, setNoAlcanzado] = useState(false);
+  const tipoDocWatch = Form.useWatch('TIPO_DOCUMENTO', form);
 
   // ── Data queries ─────────────────────────────────
   const { data, isLoading, refetch } = useQuery({
@@ -89,6 +94,34 @@ export function CustomersPage() {
     qc.invalidateQueries({ queryKey: ['customer-edit'] });
   }, [qc]);
 
+  // ── AFIP Padrón lookup ────────────────────────────
+  const handleBuscarCuit = async () => {
+    const cuit = (form.getFieldValue('NUMERO_DOC') as string || '').replace(/-/g, '');
+    if (!cuit) { message.warning('Ingresá el CUIT antes de buscar'); return; }
+    setLookingUpCuit(true);
+    setNoAlcanzado(false);
+    try {
+      const result = await afipApi.lookupCuit(cuit);
+      form.setFieldsValue({ NOMBRE: result.razonSocial });
+      if (result.noAlcanzado) {
+        setNoAlcanzado(true);
+      } else if (result.condicionIva) {
+        form.setFieldsValue({ CONDICION_IVA: result.condicionIva });
+      }
+      if (result.domicilio) form.setFieldsValue({ DOMICILIO: result.domicilio });
+      if (result.provincia) form.setFieldsValue({ PROVINCIA: result.provincia });
+      if (result.ciudad) form.setFieldsValue({ CIUDAD: result.ciudad });
+      if (result.codigoPostal) form.setFieldsValue({ CP: result.codigoPostal });
+      if (result.rubro) form.setFieldsValue({ RUBRO: result.rubro });
+      if (result.fechaNacimiento) form.setFieldsValue({ FECHA_NACIMIENTO: result.fechaNacimiento });
+      message.success('Datos importados desde AFIP');
+    } catch (err: any) {
+      message.error(err?.response?.data?.error || 'No se pudo consultar el padrón de AFIP');
+    } finally {
+      setLookingUpCuit(false);
+    }
+  };
+
   // ── Fill form when editing ───────────────────────
   useEffect(() => {
     if (editData && formOpen && editId) {
@@ -96,12 +129,18 @@ export function CustomersPage() {
         CODIGOPARTICULAR: editData.CODIGOPARTICULAR,
         NOMBRE: editData.NOMBRE,
         DOMICILIO: editData.DOMICILIO,
+        CIUDAD: editData.CIUDAD,
+        CP: editData.CP,
         PROVINCIA: editData.PROVINCIA,
         TELEFONO: editData.TELEFONO,
         EMAIL: editData.EMAIL,
         TIPO_DOCUMENTO: editData.TIPO_DOCUMENTO || 'DNI',
         NUMERO_DOC: editData.NUMERO_DOC,
         CONDICION_IVA: editData.CONDICION_IVA,
+        RUBRO: editData.RUBRO,
+        FECHA_NACIMIENTO: editData.FECHA_NACIMIENTO
+          ? String(editData.FECHA_NACIMIENTO).slice(0, 10)
+          : null,
         CTA_CORRIENTE: editData.CTA_CORRIENTE,
         ACTIVO: editData.ACTIVO,
       });
@@ -115,6 +154,12 @@ export function CustomersPage() {
     form.setFieldsValue({ TIPO_DOCUMENTO: 'DNI', ACTIVO: true, CTA_CORRIENTE: false });
     setFormOpen(true);
   };
+
+  useEffect(() => {
+    const handler = () => { if (useTabStore.getState().activeKey === '/customers') handleNew(); };
+    window.addEventListener('rg:nuevo', handler);
+    return () => window.removeEventListener('rg:nuevo', handler);
+  }, []);
 
   const handleEdit = (record: Cliente) => {
     setEditId(record.CLIENTE_ID);
@@ -163,12 +208,16 @@ export function CustomersPage() {
         CODIGOPARTICULAR: values.CODIGOPARTICULAR || undefined,
         NOMBRE: values.NOMBRE,
         DOMICILIO: values.DOMICILIO || null,
+        CIUDAD: values.CIUDAD || null,
+        CP: values.CP || null,
         PROVINCIA: values.PROVINCIA || null,
         TELEFONO: values.TELEFONO || null,
         EMAIL: values.EMAIL || null,
         TIPO_DOCUMENTO: values.TIPO_DOCUMENTO || 'DNI',
         NUMERO_DOC: values.NUMERO_DOC || '',
         CONDICION_IVA: values.CONDICION_IVA || null,
+        RUBRO: values.RUBRO || null,
+        FECHA_NACIMIENTO: values.FECHA_NACIMIENTO || null,
         CTA_CORRIENTE: values.CTA_CORRIENTE || false,
         ACTIVO: values.ACTIVO !== false,
       };
@@ -369,70 +418,147 @@ export function CustomersPage() {
       <Modal
         title={editId ? 'Editar Cliente' : 'Nuevo Cliente'}
         open={formOpen}
-        onCancel={() => { setFormOpen(false); setEditId(null); form.resetFields(); }}
+        onCancel={() => { setFormOpen(false); setEditId(null); setNoAlcanzado(false); form.resetFields(); }}
         onOk={handleSave}
         okText={editId ? 'Guardar Cambios' : 'Crear Cliente'}
         cancelText="Cancelar"
         confirmLoading={saving}
-        width={600}
+        width={720}
         destroyOnClose
         className="rg-modal"
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {editId && editLoading ? (
           <div style={{ textAlign: 'center', padding: 40 }}><Spin size="large" /></div>
         ) : (
           <Form form={form} layout="vertical" size="middle">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-              <Form.Item name="CODIGOPARTICULAR" label="Código"
-                tooltip={editId ? 'El código es obligatorio' : 'Si se deja vacío se asigna automáticamente'}
-                rules={editId ? [{ required: true, whitespace: true, message: 'El código es obligatorio' }] : []}>
-                <Input placeholder={editId ? '' : 'Auto'} />
-              </Form.Item>
-              <Form.Item name="NOMBRE" label="Nombre" rules={[{ required: true, message: 'Ingresá el nombre' }]}> 
-                <Input />
-              </Form.Item>
-              <Form.Item name="TIPO_DOCUMENTO" label="Tipo Documento">
-                <Select options={[
-                  { label: 'DNI', value: 'DNI' },
-                  { label: 'CUIT', value: 'CUIT' },
-                ]} />
-              </Form.Item>
-              <Form.Item name="NUMERO_DOC" label="Nro. Documento">
-                <Input />
-              </Form.Item>
-              <Form.Item name="CONDICION_IVA" label="Condición IVA">
-                <Select
-                  allowClear
-                  showSearch
-                  placeholder="Seleccionar"
-                  options={CONDICIONES_IVA.map(c => ({ label: c, value: c }))}
-                />
-              </Form.Item>
-              <Form.Item name="PROVINCIA" label="Provincia">
-                <Select
-                  allowClear
-                  showSearch
-                  optionFilterProp="label"
-                  placeholder="Seleccionar"
-                  options={PROVINCIAS.map(p => ({ label: p, value: p }))}
-                />
-              </Form.Item>
-              <Form.Item name="DOMICILIO" label="Domicilio" style={{ gridColumn: '1 / -1' }}>
-                <Input />
-              </Form.Item>
-              <Form.Item name="TELEFONO" label="Teléfono">
-                <Input />
-              </Form.Item>
-              <Form.Item name="EMAIL" label="Email">
-                <Input type="email" />
-              </Form.Item>
-              <Form.Item name="CTA_CORRIENTE" label="Habilitar Cta. Corriente" valuePropName="checked">
-                <Switch />
-              </Form.Item>
-              <Form.Item name="ACTIVO" label="Activo" valuePropName="checked">
-                <Switch />
-              </Form.Item>
-            </div>
+
+            {/* ── Identificación ──────────────── */}
+            <Divider orientation="left" orientationMargin={0} style={{ marginTop: 4, marginBottom: 12, fontSize: 12, color: '#888' }}>Identificación</Divider>
+            <Row gutter={12}>
+              <Col span={5}>
+                <Form.Item name="CODIGOPARTICULAR" label="Código"
+                  tooltip={editId ? 'Obligatorio' : 'Vacío = automático'}
+                  rules={editId ? [{ required: true, whitespace: true, message: 'Requerido' }] : []}>
+                  <Input placeholder={editId ? '' : 'Auto'} />
+                </Form.Item>
+              </Col>
+              <Col span={19}>
+                <Form.Item name="NOMBRE" label="Nombre" rules={[{ required: true, message: 'Ingresá el nombre' }]}>
+                  <Input />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={12}>
+              <Col span={6}>
+                <Form.Item name="TIPO_DOCUMENTO" label="Tipo Doc.">
+                  <Select
+                    options={[
+                      { label: 'DNI', value: 'DNI' },
+                      { label: 'CUIT', value: 'CUIT' },
+                    ]}
+                    onChange={() => setNoAlcanzado(false)}
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={10}>
+                <Form.Item name="NUMERO_DOC" label="Nro. Documento">
+                  <Input.Search
+                    enterButton={tipoDocWatch === 'CUIT' ? 'Buscar AFIP' : false}
+                    loading={lookingUpCuit}
+                    onSearch={tipoDocWatch === 'CUIT' ? handleBuscarCuit : undefined}
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item
+                  name="CONDICION_IVA"
+                  label={
+                    noAlcanzado
+                      ? <span><WarningOutlined style={{ color: '#faad14', marginRight: 4 }} />Cond. IVA <span style={{ fontWeight: 400, color: '#faad14', fontSize: 11 }}>(seleccioná manualmente)</span></span>
+                      : 'Condición IVA'
+                  }
+                >
+                  <Select
+                    allowClear
+                    showSearch
+                    placeholder="Seleccionar"
+                    options={CONDICIONES_IVA.map(c => ({ label: c, value: c }))}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            {/* ── Domicilio ───────────────────── */}
+            <Divider orientation="left" orientationMargin={0} style={{ marginBottom: 12, fontSize: 12, color: '#888' }}>Domicilio</Divider>
+            <Row gutter={12}>
+              <Col span={6}>
+                <Form.Item name="PROVINCIA" label="Provincia">
+                  <Select
+                    allowClear
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder="Seleccionar"
+                    options={PROVINCIAS.map(p => ({ label: p, value: p }))}
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="DOMICILIO" label="Dirección">
+                  <Input />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="CIUDAD" label="Ciudad">
+                  <Input />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={12}>
+              <Col span={5}>
+                <Form.Item name="CP" label="Cód. Postal">
+                  <Input maxLength={10} />
+                </Form.Item>
+              </Col>
+              <Col span={19}>
+                <Form.Item name="RUBRO" label="Rubro / Actividad">
+                  <Input placeholder="Actividad principal (AFIP)" />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            {/* ── Contacto & Config ───────────── */}
+            <Divider orientation="left" orientationMargin={0} style={{ marginBottom: 12, fontSize: 12, color: '#888' }}>Contacto y configuración</Divider>
+            <Row gutter={12}>
+              <Col span={8}>
+                <Form.Item name="TELEFONO" label="Teléfono">
+                  <Input />
+                </Form.Item>
+              </Col>
+              <Col span={10}>
+                <Form.Item name="EMAIL" label="Email">
+                  <Input type="email" />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="FECHA_NACIMIENTO" label="F. Nacimiento" tooltip="Sólo personas físicas — AAAA-MM-DD">
+                  <Input placeholder="AAAA-MM-DD" maxLength={10} />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={12}>
+              <Col span={8}>
+                <Form.Item name="CTA_CORRIENTE" label="Cta. Corriente" valuePropName="checked">
+                  <Switch />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="ACTIVO" label="Activo" valuePropName="checked">
+                  <Switch />
+                </Form.Item>
+              </Col>
+            </Row>
+
           </Form>
         )}
       </Modal>
@@ -464,7 +590,15 @@ export function CustomersPage() {
               <Descriptions.Item label="Nro. Doc.">{detail.NUMERO_DOC || '-'}</Descriptions.Item>
               <Descriptions.Item label="Cond. IVA">{detail.CONDICION_IVA || '-'}</Descriptions.Item>
               <Descriptions.Item label="Domicilio">{detail.DOMICILIO || '-'}</Descriptions.Item>
+              <Descriptions.Item label="Ciudad">{detail.CIUDAD || '-'}</Descriptions.Item>
+              <Descriptions.Item label="Cód. Postal">{detail.CP || '-'}</Descriptions.Item>
               <Descriptions.Item label="Provincia">{detail.PROVINCIA || '-'}</Descriptions.Item>
+              <Descriptions.Item label="Rubro">{detail.RUBRO || '-'}</Descriptions.Item>
+              {detail.FECHA_NACIMIENTO && (
+                <Descriptions.Item label="Fecha Nacimiento">
+                  {String(detail.FECHA_NACIMIENTO).slice(0, 10)}
+                </Descriptions.Item>
+              )}
               <Descriptions.Item label="Teléfono">{detail.TELEFONO || '-'}</Descriptions.Item>
               <Descriptions.Item label="Email">{detail.EMAIL || '-'}</Descriptions.Item>
               <Descriptions.Item label="Cta. Corriente">

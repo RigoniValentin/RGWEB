@@ -270,6 +270,7 @@ export function LabelPreview({ open, onClose, products, config, type }: LabelPre
       onCancel={onClose}
       width={currentType === 'a4' ? 850 : 500}
       centered
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Text type="secondary" style={{ fontSize: 12 }}>

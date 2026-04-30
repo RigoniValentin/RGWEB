@@ -76,17 +76,17 @@ export const salesApi = {
   unpay: (id: number) =>
     api.post(`/sales/${id}/unpay`).then(r => r.data),
 
-  searchProducts: (search: string, listaId?: number) =>
-    api.get<ProductoSearch[]>('/sales/search-products', { params: { search, listaId } }).then(r => r.data),
+  searchProducts: (search: string, listaId?: number, signal?: AbortSignal) =>
+    api.get<ProductoSearch[]>('/sales/search-products', { params: { search, listaId }, signal }).then(r => r.data),
 
   searchProductsAdvanced: (params: {
     search?: string; marca?: string; categoria?: string; codigo?: string;
     soloActivos?: boolean; soloConStock?: boolean; listaId?: number; limit?: number;
-  }) =>
-    api.get<ProductoSearch[]>('/sales/search-products-advanced', { params }).then(r => r.data),
+  }, signal?: AbortSignal) =>
+    api.get<ProductoSearch[]>('/sales/search-products-advanced', { params, signal }).then(r => r.data),
 
-  getBalanzaProduct: (code: string, listaId?: number) =>
-    api.get<{ product: ProductoSearch; cantidad: number }>(`/sales/balanza-product/${code}`, { params: { listaId } }).then(r => r.data),
+  getBalanzaProduct: (code: string, listaId?: number, signal?: AbortSignal) =>
+    api.get<{ product: ProductoSearch; cantidad: number }>(`/sales/balanza-product/${code}`, { params: { listaId }, signal }).then(r => r.data),
 
   getSaldoCtaCte: (clienteId: number) =>
     api.get<{ saldo: number; ctaCorrienteId: number | null }>(`/sales/saldo-cta-cte/${clienteId}`).then(r => r.data),

@@ -117,6 +117,10 @@ IF NOT EXISTS (SELECT 1 FROM CONFIG_PARAMETROS WHERE CLAVE = 'atajo_abrir_caja')
   INSERT INTO CONFIG_PARAMETROS (MODULO, SUBMODULO, CLAVE, DESCRIPCION, TIPO, VALOR_DEFECTO, ORDEN)
   VALUES ('caja', NULL, 'atajo_abrir_caja', 'Atajo de teclado para abrir caja', 'shortcut', 'F6', 10);
 
+IF NOT EXISTS (SELECT 1 FROM CONFIG_PARAMETROS WHERE CLAVE = 'atajo_busqueda_rapida_producto')
+  INSERT INTO CONFIG_PARAMETROS (MODULO, SUBMODULO, CLAVE, DESCRIPCION, TIPO, VALOR_DEFECTO, ORDEN)
+  VALUES ('caja', NULL, 'atajo_busqueda_rapida_producto', 'Atajo de teclado para búsqueda rápida de producto por código de barras', 'shortcut', 'F7', 20);
+
 -- ── General ──────────────────────────────────────────────────────────────────
 IF NOT EXISTS (SELECT 1 FROM CONFIG_PARAMETROS WHERE CLAVE = 'tema_oscuro')
   INSERT INTO CONFIG_PARAMETROS (MODULO, SUBMODULO, CLAVE, DESCRIPCION, TIPO, VALOR_DEFECTO, ORDEN)

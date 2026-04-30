@@ -1,9 +1,13 @@
-import { Router } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import multer from 'multer';
 import path from 'path';
 import { mobileController } from './mobile.controller.js';
 import { PENDING_UPLOADS_DIR, mobileService } from '../services/mobile.service.js';
 import { authService } from '../services/auth.service.js';
+import { authMiddleware, AuthRequest } from '../middleware/auth.js';
+import { cajaService } from '../services/caja.service.js';
+import { aiService, ChatMessage } from '../services/ai.service.js';
+import { config } from '../config/index.js';
 
 // ═══════════════════════════════════════════════════
 //  Mobile Routes — sin authMiddleware JWT para que la
@@ -81,6 +85,79 @@ router.get('/products/pending/list', (_req, res) => {
 // Health check específico de la API mobile
 router.get('/health', (_req, res) => {
   res.json({ status: 'ok', scope: 'mobile', timestamp: new Date().toISOString() });
+});
+
+// ── GET /api/mobile/caja/mi-caja — detalle completo de la caja abierta ──
+// Requiere JWT (el mismo token que el login mobile devuelve).
+router.get('/caja/mi-caja', authMiddleware as any, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const caja = await cajaService.getCajaAbierta(req.user!.id);
+    if (!caja) {
+      res.json(null);
+      return;
+    }
+
+    const detail = await cajaService.getById(caja.CAJA_ID);
+    if (!detail) {
+      res.json(null);
+      return;
+    }
+
+    // Mapear al formato PrintCajaData que usa el PDF
+    res.json({
+      cajaId: detail.CAJA_ID,
+      estado: detail.ESTADO,
+      usuarioNombre: detail.USUARIO_NOMBRE ?? '',
+      puntoVentaNombre: detail.PUNTO_VENTA_NOMBRE ?? '',
+      fechaApertura: detail.FECHA_APERTURA,
+      fechaCierre: detail.FECHA_CIERRE ?? null,
+      montoApertura: detail.MONTO_APERTURA ?? 0,
+      montoCierre: detail.MONTO_CIERRE ?? null,
+      observaciones: detail.OBSERVACIONES ?? null,
+      totales: detail.totales,
+      items: (detail.items as any[]).map((i: any) => ({
+        FECHA: i.FECHA,
+        ORIGEN_TIPO: i.ORIGEN_TIPO,
+        DESCRIPCION: i.DESCRIPCION ?? null,
+        MONTO_EFECTIVO: i.MONTO_EFECTIVO ?? 0,
+        MONTO_DIGITAL: i.MONTO_DIGITAL ?? 0,
+      })),
+    });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/mobile/ai/chat — chat con asistente IA con acceso a la DB ──
+router.post('/ai/chat', authMiddleware as any, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { messages } = req.body ?? {};
+    if (!Array.isArray(messages) || messages.length === 0) {
+      res.status(400).json({ error: 'Se requiere el campo "messages" con el historial' });
+      return;
+    }
+
+    const history: ChatMessage[] = [];
+    for (const m of messages) {
+      if (!m || typeof m.content !== 'string') continue;
+      if (m.role !== 'user' && m.role !== 'assistant') continue;
+      history.push({ role: m.role, content: m.content });
+    }
+    if (history.length === 0) {
+      res.status(400).json({ error: 'Historial de mensajes inválido' });
+      return;
+    }
+
+    const userName = (req.user as any)?.nombre || (req.user as any)?.username || 'usuario';
+    const businessName = (config as any)?.app?.nombreFantasia || 'Río Gestión';
+
+    const result = await aiService.chat({ userName, businessName, history });
+    res.json(result);
+  } catch (err: any) {
+    if (err?.message?.includes('OPENAI_API_KEY')) {
+      res.status(503).json({ error: 'El asistente IA no está configurado. Contactá al administrador.' });
+      return;
+    }
+    next(err);
+  }
 });
 
 export default router;

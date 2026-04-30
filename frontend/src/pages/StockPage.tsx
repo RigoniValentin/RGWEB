@@ -11,6 +11,8 @@ import {
   ArrowUpOutlined, ArrowDownOutlined,
 } from '@ant-design/icons';
 import { stockApi, type StockProducto, type StockDepositoItem } from '../services/stock.api';
+import { puntoVentaApi } from '../services/puntoVenta.api';
+import { useAuthStore } from '../store/authStore';
 import { fmtNum } from '../utils/format';
 import { StockHistoryModal } from '../components/stock/StockHistoryModal';
 
@@ -19,9 +21,21 @@ const { Title, Text } = Typography;
 export function StockPage() {
   const { message } = App.useApp();
   const qc = useQueryClient();
+
+  // Punto de venta del usuario logueado
+  const userPuntosVenta = useAuthStore(s => s.puntosVenta);
+  const userPuntoVentaActivo = useAuthStore(s => s.puntoVentaActivo);
+  const pvPreferidoId =
+    userPuntosVenta.find(pv => pv.ES_PREFERIDO)?.PUNTO_VENTA_ID
+    ?? userPuntoVentaActivo
+    ?? userPuntosVenta[0]?.PUNTO_VENTA_ID
+    ?? undefined;
+
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [search, setSearch] = useState('');
+  // Por defecto se filtra por el punto de venta preferido del usuario.
+  const [puntoVentaId, setPuntoVentaId] = useState<number | undefined>(pvPreferidoId);
   const [depositoId, setDepositoId] = useState<number | undefined>();
   const [soloConStock, setSoloConStock] = useState(false);
   const [soloBajoMinimo, setSoloBajoMinimo] = useState(false);
@@ -51,10 +65,11 @@ export function StockPage() {
 
   // ── Data queries ─────────────────────────────────
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['stock', page, pageSize, search, depositoId, soloConStock, soloBajoMinimo, orderBy, orderDir],
+    queryKey: ['stock', page, pageSize, search, puntoVentaId, depositoId, soloConStock, soloBajoMinimo, orderBy, orderDir],
     queryFn: () => stockApi.getAll({
       page, pageSize,
       search: search || undefined,
+      puntoVentaId,
       depositoId,
       soloConStock,
       soloBajoMinimo,
@@ -63,8 +78,13 @@ export function StockPage() {
   });
 
   const { data: depositos } = useQuery({
-    queryKey: ['stock-depositos'],
-    queryFn: () => stockApi.getDepositos(),
+    queryKey: ['stock-depositos', puntoVentaId],
+    queryFn: () => stockApi.getDepositos({ puntoVentaId }),
+  });
+
+  const { data: puntosVenta } = useQuery({
+    queryKey: ['puntos-venta-selector'],
+    queryFn: () => puntoVentaApi.getSelector(),
   });
 
   // Detail
@@ -280,6 +300,26 @@ export function StockPage() {
           allowClear
         />
         <Select
+          placeholder="Punto de Venta"
+          value={puntoVentaId}
+          onChange={(v) => {
+            setPuntoVentaId(v);
+            setDepositoId(undefined);
+            setPage(1);
+          }}
+          style={{ width: 200 }}
+          allowClear
+          options={(() => {
+            const assignedIds = userPuntosVenta.map(pv => pv.PUNTO_VENTA_ID);
+            const list = (puntosVenta ?? []).filter(pv => pv.ACTIVO);
+            // Si el usuario tiene PV asignados, sólo mostrar esos; si no, todos.
+            const filtered = assignedIds.length > 0
+              ? list.filter(pv => assignedIds.includes(pv.PUNTO_VENTA_ID))
+              : list;
+            return filtered.map(pv => ({ label: pv.NOMBRE, value: pv.PUNTO_VENTA_ID }));
+          })()}
+        />
+        <Select
           placeholder="Depósito"
           value={depositoId}
           onChange={(v) => { setDepositoId(v); setPage(1); }}
@@ -329,6 +369,7 @@ export function StockPage() {
         cancelText="Cancelar"
         width={420}
         destroyOnClose
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {editingStock && (
           <div style={{ marginTop: 8 }}>

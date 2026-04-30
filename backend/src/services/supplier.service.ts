@@ -22,6 +22,8 @@ export interface ProveedorInput {
   DIRECCION?: string | null;
   CIUDAD?: string | null;
   CP?: string | null;
+  CONDICION_IVA?: string | null;
+  RUBRO?: string | null;
   TIPO_DOCUMENTO?: string;
   NUMERO_DOC?: string;
   CTA_CORRIENTE?: boolean;
@@ -125,15 +127,17 @@ export const supplierService = {
         .input('direccion', sql.NVarChar, input.DIRECCION || null)
         .input('ciudad', sql.NVarChar, input.CIUDAD || null)
         .input('cp', sql.NVarChar, input.CP || null)
+        .input('condIva', sql.NVarChar, input.CONDICION_IVA || null)
+        .input('rubro', sql.NVarChar, input.RUBRO || null)
         .input('tipoDoc', sql.NVarChar, input.TIPO_DOCUMENTO || 'CUIT')
         .input('numDoc', sql.NVarChar, input.NUMERO_DOC || '')
         .input('ctaCte', sql.Bit, input.CTA_CORRIENTE ? 1 : 0)
         .input('activo', sql.Bit, input.ACTIVO !== false ? 1 : 0)
         .query(`
           INSERT INTO PROVEEDORES (PROVEEDOR_ID, CODIGOPARTICULAR, NOMBRE, TELEFONO, EMAIL,
-            DIRECCION, CIUDAD, CP, TIPO_DOCUMENTO, NUMERO_DOC, CTA_CORRIENTE, ACTIVO)
+            DIRECCION, CIUDAD, CP, CONDICION_IVA, RUBRO, TIPO_DOCUMENTO, NUMERO_DOC, CTA_CORRIENTE, ACTIVO)
           VALUES (@id, @codigo, @nombre, @telefono, @email,
-            @direccion, @ciudad, @cp, @tipoDoc, @numDoc, @ctaCte, @activo)
+            @direccion, @ciudad, @cp, @condIva, @rubro, @tipoDoc, @numDoc, @ctaCte, @activo)
         `);
 
       await tx.commit();
@@ -173,6 +177,8 @@ export const supplierService = {
       .input('direccion', sql.NVarChar, input.DIRECCION || null)
       .input('ciudad', sql.NVarChar, input.CIUDAD || null)
       .input('cp', sql.NVarChar, input.CP || null)
+      .input('condIva', sql.NVarChar, input.CONDICION_IVA || null)
+      .input('rubro', sql.NVarChar, input.RUBRO || null)
       .input('tipoDoc', sql.NVarChar, input.TIPO_DOCUMENTO || 'CUIT')
       .input('numDoc', sql.NVarChar, input.NUMERO_DOC || '')
       .input('ctaCte', sql.Bit, input.CTA_CORRIENTE ? 1 : 0)
@@ -181,6 +187,7 @@ export const supplierService = {
         UPDATE PROVEEDORES SET
           CODIGOPARTICULAR = @codigo, NOMBRE = @nombre, TELEFONO = @telefono,
           EMAIL = @email, DIRECCION = @direccion, CIUDAD = @ciudad, CP = @cp,
+          CONDICION_IVA = @condIva, RUBRO = @rubro,
           TIPO_DOCUMENTO = @tipoDoc, NUMERO_DOC = @numDoc,
           CTA_CORRIENTE = @ctaCte, ACTIVO = @activo
         WHERE PROVEEDOR_ID = @id

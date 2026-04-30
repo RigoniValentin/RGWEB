@@ -44,8 +44,13 @@ export function PurchasesPage() {
   // ── Listen for global shortcut event ───────────
   useEffect(() => {
     const handler = () => setNewPurchaseOpen(true);
+    const nuevoHandler = () => { if (useTabStore.getState().activeKey === '/purchases') setNewPurchaseOpen(true); };
     window.addEventListener('rg:open-new-purchase', handler);
-    return () => window.removeEventListener('rg:open-new-purchase', handler);
+    window.addEventListener('rg:nuevo', nuevoHandler);
+    return () => {
+      window.removeEventListener('rg:open-new-purchase', handler);
+      window.removeEventListener('rg:nuevo', nuevoHandler);
+    };
   }, []);
 
   // ── Debounced search ───────────────────────────

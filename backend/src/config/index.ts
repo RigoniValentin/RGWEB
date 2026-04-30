@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
+import path from 'path';
 import { loadAppData } from './appdata.js';
-import { isPkg, envPath } from './paths.js';
+import { isPkg, envPath, rootDir } from './paths.js';
 
 // ── In development, .env can optionally override some values ──
 // In production (pkg), everything comes from appdata.ini
@@ -55,8 +56,14 @@ export const config = {
   // ── ARCA (direct electronic invoicing) ─────────────
   arca: {
     cuit: appData.arcaCuit,
-    certPath: appData.arcaCertPath,
-    keyPath: appData.arcaKeyPath,
+    // Resolve relative paths from the project root so they work regardless
+    // of what directory Node is launched from (e.g. backend/ in dev)
+    certPath: appData.arcaCertPath
+      ? path.resolve(rootDir, appData.arcaCertPath)
+      : '',
+    keyPath: appData.arcaKeyPath
+      ? path.resolve(rootDir, appData.arcaKeyPath)
+      : '',
     environment: appData.arcaEnvironment,
   },
 };

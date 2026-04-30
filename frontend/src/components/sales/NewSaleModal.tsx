@@ -84,6 +84,9 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const wantFEPdf = activeDraft?.wantFEPdf ?? false;
   const wantFETicket = activeDraft?.wantFETicket ?? false;
   const selectedRemitoIds = activeDraft?.selectedRemitoIds ?? [];
+  const searchText = activeDraft?.searchText ?? '';
+  const productSearchOpen = activeDraft?.productSearchOpen ?? false;
+  const productSearchInitial = activeDraft?.productSearchInitial ?? '';
 
   // Helper: update a field on the active draft.
   // Reads activeDraftId from getState() at call-time to avoid stale closures.
@@ -151,8 +154,22 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   }, []);
 
   // ── Local-only state (ephemeral / UI) ──────────
-  const [searchText, setSearchText] = useState('');
   const searchRef = useRef<any>(null);
+
+  // Per-draft search state writers (driven through the draft store so multiple
+  // simultaneous sales each preserve their own search input / advanced search).
+  const setSearchText = useCallback((v: string) => {
+    const id = useSaleDraftsStore.getState().activeDraftId;
+    if (id) useSaleDraftsStore.getState().updateDraft(id, { searchText: v });
+  }, []);
+  const setProductSearchOpen = useCallback((v: boolean) => {
+    const id = useSaleDraftsStore.getState().activeDraftId;
+    if (id) useSaleDraftsStore.getState().updateDraft(id, { productSearchOpen: v });
+  }, []);
+  const setProductSearchInitial = useCallback((v: string) => {
+    const id = useSaleDraftsStore.getState().activeDraftId;
+    if (id) useSaleDraftsStore.getState().updateDraft(id, { productSearchInitial: v });
+  }, []);
 
   const efectivoRef = useRef<any>(null);
   const [metodoModalOpen, setMetodoModalOpen] = useState(false);
@@ -172,10 +189,27 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const [wspSending, setWspSending] = useState(false);
   const [pendingVentaId, setPendingVentaId] = useState<number | null>(null);
   const [facturando, setFacturando] = useState(false);
-  const [productSearchOpen, setProductSearchOpen] = useState(false);
-  const [productSearchInitial, setProductSearchInitial] = useState('');
   const refocusSearchAfterProductModalClose = useRef(true);
   const productSearchKey = useRef(0);
+
+  // ── Search request lifecycle ─────────────────────────────────────────────
+  // Single in-flight controller. A new search aborts the previous one so the
+  // input never freezes if the network/server is slow.
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  const cancelInFlightSearch = useCallback(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+      searchTimeoutRef.current = null;
+    }
+    if (searchAbortRef.current) {
+      searchAbortRef.current.abort();
+      searchAbortRef.current = null;
+    }
+    setSearchLoading(false);
+  }, []);
 
   // ── Remitos pendientes state ──
   const [remitosPendientes, setRemitosPendientes] = useState<RemitoPendiente[]>([]);
@@ -254,6 +288,26 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       setTimeout(() => searchRef.current?.focus(), 50);
     }
   }, [open, cajaCheckState]);
+
+  // When switching between draft tabs: abort any in-flight search request
+  // (results would be discarded anyway) and refocus the search field. The
+  // search text and advanced-search state are now per-draft, so we no longer
+  // clear them — each tab resumes exactly where the user left off.
+  useEffect(() => {
+    if (!activeDraftId) return;
+    cancelInFlightSearch();
+    if (open && cajaCheckState === 'open') {
+      setTimeout(() => searchRef.current?.focus(), 50);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDraftId]);
+
+  // Abort any pending search when the modal closes / unmounts.
+  useEffect(() => {
+    if (!open) cancelInFlightSearch();
+    return () => cancelInFlightSearch();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const handleGoToCaja = () => {
     handleClose();
@@ -645,13 +699,15 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     if (activeDraftId) {
       removeDraft(activeDraftId);
     }
-    setSearchText('');
+    // Note: search-related state is per-draft, so removing the draft above
+    // already cleans it up. Don't write to the next active draft.
+    cancelInFlightSearch();
     setMetodoModalOpen(false);
     setMetodoModalSelection([]);
     setLastAddedKey(null);
     setFacturando(false);
     setRemitosPendientes([]);
-  }, [activeDraftId, removeDraft]);
+  }, [activeDraftId, removeDraft, cancelInFlightSearch]);
 
   // Close modal — purge empty drafts and reset counter if none remain
   const handleClose = () => {
@@ -686,7 +742,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     }
   }, [drafts, removeDraft, onClose]);
 
-  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Search loading state lives above (driven by the AbortController lifecycle)
 
   // Add product to cart
   const addProduct = useCallback((
@@ -832,57 +888,107 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     if (!text) return;
     e.preventDefault();
     e.stopPropagation();
-    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+
+    // Capture the draft id at request-issue time. If the active draft changes
+    // before the response arrives, we drop the result instead of applying it
+    // to the wrong cart.
+    const issuingDraftId = useSaleDraftsStore.getState().activeDraftId;
+    if (!issuingDraftId) return;
+
+    // Abort any previous in-flight request and start fresh. This keeps the
+    // input responsive even if the previous request hangs (slow backend,
+    // dropped connection, etc.).
+    cancelInFlightSearch();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    setSearchLoading(true);
+
+    // Safety net: if the request takes longer than 15s, abort it and unlock
+    // the input so the user can keep working.
+    searchTimeoutRef.current = setTimeout(() => {
+      if (searchAbortRef.current === controller) {
+        controller.abort();
+        message.warning('La búsqueda demoró demasiado. Intente nuevamente.');
+      }
+    }, 15000);
+
+    const isStillActive = () =>
+      searchAbortRef.current === controller &&
+      useSaleDraftsStore.getState().activeDraftId === issuingDraftId;
+
+    const finishLifecycle = () => {
+      if (searchAbortRef.current === controller) {
+        searchAbortRef.current = null;
+        if (searchTimeoutRef.current) {
+          clearTimeout(searchTimeoutRef.current);
+          searchTimeoutRef.current = null;
+        }
+        setSearchLoading(false);
+      }
+    };
 
     // ── Barcode balanza detection ──
     if (isBalanzaBarcode(text)) {
-      salesApi.getBalanzaProduct(text).then(data => {
+      salesApi.getBalanzaProduct(text, undefined, controller.signal).then(data => {
+        if (!isStillActive()) return;
         if (data && data.product) {
           addBalanzaProduct(data.product, data.cantidad);
-          message.success(
-            `${data.product.NOMBRE} — ${data.cantidad.toFixed(3)} kg`
-          );
+          message.success(`${data.product.NOMBRE} — ${data.cantidad.toFixed(3)} kg`);
         } else {
           message.warning('Producto de balanza no encontrado');
         }
-      }).catch(() => {
+      }).catch((err: any) => {
+        if (controller.signal.aborted) return;
+        if (!isStillActive()) return;
+        const code = err?.code || err?.name;
+        if (code === 'ERR_CANCELED' || code === 'CanceledError' || code === 'AbortError') return;
         message.error('Error al buscar producto de balanza');
-      });
+      }).finally(finishLifecycle);
       return;
     }
 
     const isNormalBarcode = /^\d{6,}$/.test(text);
 
     // Quick search — if exactly 1 match or exact code, add directly; otherwise open modal
-    salesApi.searchProducts(text).then(products => {
-      if (products.length === 1) {
-        addProduct(products[0]!, {
-          focusPrice: !isNormalBarcode,
-          focusSearch: isNormalBarcode,
-        });
-      } else if (products.length > 1) {
-        const exact = products.find(
-          p => p.CODIGOPARTICULAR?.toUpperCase() === text.toUpperCase()
-        );
-        if (exact) {
-          addProduct(exact, {
+    salesApi.searchProducts(text, undefined, controller.signal)
+      .then(products => {
+        if (!isStillActive()) return;
+        if (products.length === 1) {
+          addProduct(products[0]!, {
             focusPrice: !isNormalBarcode,
             focusSearch: isNormalBarcode,
           });
+        } else if (products.length > 1) {
+          const exact = products.find(
+            p => p.CODIGOPARTICULAR?.toUpperCase() === text.toUpperCase()
+          );
+          if (exact) {
+            addProduct(exact, {
+              focusPrice: !isNormalBarcode,
+              focusSearch: isNormalBarcode,
+            });
+          } else {
+            setProductSearchInitial(text);
+            productSearchKey.current += 1;
+            setProductSearchOpen(true);
+            setSearchText('');
+          }
         } else {
           setProductSearchInitial(text);
           productSearchKey.current += 1;
           setProductSearchOpen(true);
           setSearchText('');
         }
-      } else {
-        setProductSearchInitial(text);
-        productSearchKey.current += 1;
-        setProductSearchOpen(true);
-        setSearchText('');
-      }
-    });
-  }, [searchText, addProduct, addBalanzaProduct]);
+      })
+      .catch((err: any) => {
+        if (controller.signal.aborted) return;
+        if (!isStillActive()) return;
+        const code = err?.code || err?.name;
+        if (code === 'ERR_CANCELED' || code === 'CanceledError' || code === 'AbortError') return;
+        message.error('No se pudo buscar el producto. Verifique la conexión.');
+      })
+      .finally(finishLifecycle);
+  }, [searchText, addProduct, addBalanzaProduct, cancelInFlightSearch, setProductSearchInitial, setProductSearchOpen, setSearchText]);
 
   const updateCartItem = (key: string, field: string, value: any) => {
     setCart(prev => prev.map(item =>
@@ -1621,7 +1727,9 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                 onChange={e => setSearchText(e.target.value)}
                 prefix={<SearchOutlined style={{ fontSize: 16, color: '#bbb' }} />}
                 suffix={
-                  <Tag color="default" style={{ margin: 0, fontSize: 11, opacity: 0.45 }}>Enter</Tag>
+                  searchLoading
+                    ? <Spin size="small" />
+                    : <Tag color="default" style={{ margin: 0, fontSize: 11, opacity: 0.45 }}>Enter</Tag>
                 }
                 placeholder="Buscar producto, código o escanear..."
                 size="large"
@@ -2172,6 +2280,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       centered
       width={520}
       destroyOnClose
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       title={
         <Space>
           <WalletOutlined style={{ color: '#EABD23', fontSize: 20 }} />
@@ -2273,6 +2382,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       centered
       width={460}
       destroyOnClose
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <Button onClick={() => { setSaldoModalOpen(false); setSaldoInfo(null); }}>
@@ -2359,6 +2469,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       centered
       width={420}
       destroyOnClose
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 16 }}>
         <div>

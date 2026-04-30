@@ -55,8 +55,8 @@ export const stockApi = {
   getAll: (params?: Record<string, any>) =>
     api.get<PaginatedResponse<StockProducto>>('/stock', { params }).then(r => r.data),
 
-  getDepositos: () =>
-    api.get<Deposito[]>('/stock/depositos').then(r => r.data),
+  getDepositos: (params?: { puntoVentaId?: number }) =>
+    api.get<Deposito[]>('/stock/depositos', { params }).then(r => r.data),
 
   getProductStock: (productoId: number) =>
     api.get<StockProductDetail>(`/stock/${productoId}`).then(r => r.data),

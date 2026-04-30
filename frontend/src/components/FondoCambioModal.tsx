@@ -175,6 +175,7 @@ export function FondoCambioModal({ open, onClose, onSuccess, preselectedCajaId }
       width={520}
       destroyOnClose
       className="rg-modal"
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
     >
       {/* ── Balance info ────────────────────────── */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>

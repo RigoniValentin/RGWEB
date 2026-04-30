@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import express from 'express';
 import { settingsService } from '../services/settings.service.js';
-import { authMiddleware, AuthRequest } from '../middleware/auth.js';
+import { authMiddleware, requirePermiso, AuthRequest } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -102,18 +102,19 @@ router.get('/logo', async (_req: AuthRequest, res: Response) => {
       return;
     }
     res.set('Content-Type', logo.contentType);
-    res.set('Cache-Control', 'public, max-age=86400');
+    res.set('Cache-Control', 'no-store');
     res.send(logo.data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ── PUT /api/settings/logo — Upload company logo ────────────────────────
+// ── PUT /api/settings/logo — Upload company logo (admin only) ──────────
 const MAX_LOGO_SIZE = 2 * 1024 * 1024; // 2 MB
 const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 
 router.put('/logo',
+  requirePermiso('configuracion.editar'),
   express.raw({ type: ALLOWED_TYPES, limit: MAX_LOGO_SIZE }),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -139,8 +140,8 @@ router.put('/logo',
   }
 );
 
-// ── DELETE /api/settings/logo — Remove company logo ─────────────────────
-router.delete('/logo', async (_req: AuthRequest, res: Response) => {
+// ── DELETE /api/settings/logo — Remove company logo (admin only) ────────
+router.delete('/logo', requirePermiso('configuracion.editar'), async (_req: AuthRequest, res: Response) => {
   try {
     await settingsService.deleteLogo();
     res.json({ ok: true });

@@ -18,12 +18,16 @@ export interface ClienteInput {
   CODIGOPARTICULAR?: string;
   NOMBRE: string;
   DOMICILIO?: string | null;
+  CIUDAD?: string | null;
+  CP?: string | null;
   PROVINCIA?: string | null;
   TELEFONO?: string | null;
   EMAIL?: string | null;
   TIPO_DOCUMENTO?: string;
   NUMERO_DOC?: string;
   CONDICION_IVA?: string | null;
+  RUBRO?: string | null;
+  FECHA_NACIMIENTO?: string | null;
   CTA_CORRIENTE?: boolean;
   ACTIVO?: boolean;
 }
@@ -122,19 +126,25 @@ export const customerService = {
         .input('codigo', sql.NVarChar, code)
         .input('nombre', sql.NVarChar, input.NOMBRE)
         .input('domicilio', sql.NVarChar, input.DOMICILIO || null)
+        .input('ciudad', sql.NVarChar, input.CIUDAD || null)
+        .input('cp', sql.NVarChar, input.CP || null)
         .input('provincia', sql.NVarChar, input.PROVINCIA || null)
         .input('telefono', sql.NVarChar, input.TELEFONO || null)
         .input('email', sql.NVarChar, input.EMAIL || null)
         .input('tipoDoc', sql.NVarChar, input.TIPO_DOCUMENTO || 'DNI')
         .input('numDoc', sql.NVarChar, input.NUMERO_DOC || '')
         .input('condIva', sql.NVarChar, input.CONDICION_IVA || null)
+        .input('rubro', sql.NVarChar, input.RUBRO || null)
+        .input('fechaNac', sql.Date, input.FECHA_NACIMIENTO || null)
         .input('ctaCte', sql.Bit, input.CTA_CORRIENTE ? 1 : 0)
         .input('activo', sql.Bit, input.ACTIVO !== false ? 1 : 0)
         .query(`
-          INSERT INTO CLIENTES (CLIENTE_ID, CODIGOPARTICULAR, NOMBRE, DOMICILIO, PROVINCIA,
-            TELEFONO, EMAIL, TIPO_DOCUMENTO, NUMERO_DOC, CONDICION_IVA, CTA_CORRIENTE, ACTIVO)
-          VALUES (@id, @codigo, @nombre, @domicilio, @provincia,
-            @telefono, @email, @tipoDoc, @numDoc, @condIva, @ctaCte, @activo)
+          INSERT INTO CLIENTES (CLIENTE_ID, CODIGOPARTICULAR, NOMBRE, DOMICILIO, CIUDAD, CP,
+            PROVINCIA, TELEFONO, EMAIL, TIPO_DOCUMENTO, NUMERO_DOC, CONDICION_IVA,
+            RUBRO, FECHA_NACIMIENTO, CTA_CORRIENTE, ACTIVO)
+          VALUES (@id, @codigo, @nombre, @domicilio, @ciudad, @cp,
+            @provincia, @telefono, @email, @tipoDoc, @numDoc, @condIva,
+            @rubro, @fechaNac, @ctaCte, @activo)
         `);
 
       await tx.commit();
@@ -175,19 +185,25 @@ export const customerService = {
       .input('codigo', sql.NVarChar, input.CODIGOPARTICULAR || '')
       .input('nombre', sql.NVarChar, input.NOMBRE)
       .input('domicilio', sql.NVarChar, input.DOMICILIO || null)
+      .input('ciudad', sql.NVarChar, input.CIUDAD || null)
+      .input('cp', sql.NVarChar, input.CP || null)
       .input('provincia', sql.NVarChar, input.PROVINCIA || null)
       .input('telefono', sql.NVarChar, input.TELEFONO || null)
       .input('email', sql.NVarChar, input.EMAIL || null)
       .input('tipoDoc', sql.NVarChar, input.TIPO_DOCUMENTO || 'DNI')
       .input('numDoc', sql.NVarChar, input.NUMERO_DOC || '')
       .input('condIva', sql.NVarChar, input.CONDICION_IVA || null)
+      .input('rubro', sql.NVarChar, input.RUBRO || null)
+      .input('fechaNac', sql.Date, input.FECHA_NACIMIENTO || null)
       .input('ctaCte', sql.Bit, input.CTA_CORRIENTE ? 1 : 0)
       .input('activo', sql.Bit, input.ACTIVO !== false ? 1 : 0)
       .query(`
         UPDATE CLIENTES SET
           CODIGOPARTICULAR = @codigo, NOMBRE = @nombre, DOMICILIO = @domicilio,
-          PROVINCIA = @provincia, TELEFONO = @telefono, EMAIL = @email,
+          CIUDAD = @ciudad, CP = @cp, PROVINCIA = @provincia,
+          TELEFONO = @telefono, EMAIL = @email,
           TIPO_DOCUMENTO = @tipoDoc, NUMERO_DOC = @numDoc, CONDICION_IVA = @condIva,
+          RUBRO = @rubro, FECHA_NACIMIENTO = @fechaNac,
           CTA_CORRIENTE = @ctaCte, ACTIVO = @activo
         WHERE CLIENTE_ID = @id
       `);

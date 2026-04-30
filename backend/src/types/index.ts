@@ -7,18 +7,109 @@ export interface Usuario {
   USUARIO_ID: number;
   NOMBRE: string;
   CLAVE: string;
+  CLAVE_HASH?: string | null;
+  CLAVE_ALGO?: string | null;
+  EMAIL?: string | null;
+  NOMBRE_COMPLETO?: string | null;
+  TELEFONO?: string | null;
+  ACTIVO?: boolean;
+  BLOQUEADO?: boolean;
+  BLOQUEADO_HASTA?: Date | null;
+  INTENTOS_FALLIDOS?: number;
+  DEBE_CAMBIAR_CLAVE?: boolean;
+  ULTIMO_LOGIN?: Date | null;
+  MFA_ACTIVO?: boolean;
+  FECHA_ALTA?: Date;
+  FECHA_BAJA?: Date | null;
 }
 
-export interface PermisoAccion {
-  USUARIO_ID: number;
-  ACCION_ID: number;
+export interface UsuarioConRoles extends Omit<Usuario, 'CLAVE' | 'CLAVE_HASH'> {
+  roles: { ROL_ID: number; NOMBRE: string }[];
+  puntosVenta: { PUNTO_VENTA_ID: number; NOMBRE: string; ES_PREFERIDO: boolean }[];
+}
+
+export interface Rol {
+  ROL_ID: number;
+  NOMBRE: string;
+  DESCRIPCION: string | null;
+  ES_SISTEMA: boolean;
+  PRIORIDAD: number;
   ACTIVO: boolean;
+  FECHA_ALTA: Date;
 }
 
-export interface AccionAcceso {
-  ACCION_ID: number;
-  DESCRIPCION: string;
+export interface RolConPermisos extends Rol {
+  permisos: PermisoWeb[];
+}
+
+// PermisoAccion legacy removed — web uses USUARIOS_PERMISOS_OVERRIDE instead
+
+export interface PermisoWeb {
+  PERMISO_ID: number;
   LLAVE: string;
+  DESCRIPCION: string;
+  MODULO: string;
+  CATEGORIA: string;
+  RIESGO: string;
+  ORDEN: number;
+  ACTIVO?: boolean;
+}
+
+export interface PermisoEfectivo {
+  USUARIO_ID: number;
+  PERMISO_ID: number;
+  LLAVE: string;
+  DESCRIPCION: string;
+  MODULO: string;
+  CATEGORIA: string;
+  RIESGO: string;
+  OVERRIDE?: boolean | null; // null=via rol, true=grant explícito, false=deny explícito
+}
+
+export interface AuditoriaEvento {
+  AUDIT_ID: number;
+  FECHA: Date;
+  USUARIO_ID: number | null;
+  ACTOR_NOMBRE: string | null;
+  EVENTO: string;
+  RESULTADO: string;
+  IP: string | null;
+  USER_AGENT: string | null;
+  DETALLE: string | null;
+  ENTIDAD_TIPO: string | null;
+  ENTIDAD_ID: number | null;
+}
+
+export interface PoliticaSeguridad {
+  POLITICA_ID: number;
+  CLAVE_LONGITUD_MIN: number;
+  CLAVE_REQUIERE_MAYUS: boolean;
+  CLAVE_REQUIERE_MINUS: boolean;
+  CLAVE_REQUIERE_NUMERO: boolean;
+  CLAVE_REQUIERE_SIMBOLO: boolean;
+  CLAVE_EXPIRA_DIAS: number;
+  CLAVE_HISTORIAL: number;
+  LOCKOUT_INTENTOS: number;
+  LOCKOUT_MINUTOS: number;
+  SESION_DURACION_MINUTOS: number;
+  REFRESH_DURACION_DIAS: number;
+  SESION_INACTIVIDAD_MIN: number;
+  MFA_OBLIGATORIO_ADMIN: boolean;
+  MFA_OBLIGATORIO_TODOS: boolean;
+  FECHA_MODIFICACION: Date;
+  MODIFICADO_POR: number | null;
+}
+
+export interface SesionActiva {
+  SESION_ID: string;
+  USUARIO_ID: number;
+  USER_AGENT: string | null;
+  IP: string | null;
+  DISPOSITIVO: string | null;
+  FECHA_CREACION: Date;
+  FECHA_EXPIRACION: Date;
+  FECHA_ULTIMO_USO: Date | null;
+  REVOCADA: boolean;
 }
 
 // ── Productos ────────────────────────────────────
@@ -95,6 +186,8 @@ export interface Cliente {
   CODIGOPARTICULAR: string;
   NOMBRE: string | null;
   DOMICILIO: string | null;
+  CIUDAD: string | null;
+  CP: string | null;
   PROVINCIA: string | null;
   TELEFONO: string | null;
   EMAIL: string | null;
@@ -103,6 +196,8 @@ export interface Cliente {
   TIPO_DOCUMENTO: string;
   NUMERO_DOC: string;
   CONDICION_IVA: string | null;
+  RUBRO: string | null;
+  FECHA_NACIMIENTO: string | null;
 }
 
 // ── Proveedores ──────────────────────────────────
@@ -115,6 +210,8 @@ export interface Proveedor {
   DIRECCION: string | null;
   CIUDAD: string | null;
   CP: string | null;
+  CONDICION_IVA: string | null;
+  RUBRO: string | null;
   ACTIVO: boolean;
   CTA_CORRIENTE: boolean;
   TIPO_DOCUMENTO: string | null;

@@ -12,12 +12,23 @@ router.post('/login', async (req: Request, res: Response) => {
       res.status(400).json({ error: 'Usuario y contraseña son requeridos' });
       return;
     }
-    const result = await authService.login({ username, password });
+    const ip        = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.socket?.remoteAddress;
+    const userAgent = req.headers['user-agent'] ?? undefined;
+    const result    = await authService.login({ username, password, ip, userAgent });
     res.json(result);
   } catch (err: any) {
-    const status = err.name === 'ValidationError' ? 401 : 500;
+    const status = err.name === 'LockoutError' ? 423 : err.name === 'ValidationError' ? 401 : 500;
     res.status(status).json({ error: err.message });
   }
+});
+
+// POST /api/auth/logout
+router.post('/logout', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.socket?.remoteAddress;
+    await authService.logout(req.user!.id, ip);
+    res.json({ ok: true });
+  } catch { res.json({ ok: true }); }
 });
 
 // GET /api/auth/profile
@@ -41,3 +52,4 @@ router.get('/users', authMiddleware, async (_req: Request, res: Response) => {
 });
 
 export default router;
+

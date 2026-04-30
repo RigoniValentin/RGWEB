@@ -46,7 +46,7 @@ export function PuntoVentaFilter({
   }
 
   const options = [
-    ...(allowAll ? [{ label: 'Todos los PV', value: 0 as number }] : []),
+    ...(allowAll && puntosVenta.length > 1 ? [{ label: 'Todos los PV', value: 0 as number }] : []),
     ...puntosVenta.map(pv => ({
       label: pv.NOMBRE,
       value: pv.PUNTO_VENTA_ID,

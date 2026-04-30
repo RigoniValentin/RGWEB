@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Button, Card, Row, Col, Statistic, Select,
-  Switch, Tag, Tooltip, App,
+  Switch, Tag, Tooltip, App, Divider, Badge,
 } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
@@ -139,62 +139,129 @@ export function LibroIvaVentasPage() {
   // ── Table columns ───────────────────────────────
   const columns: TableColumnType<LibroIvaComprobante>[] = [
     {
-      title: 'Fecha', dataIndex: 'FECHA', width: 100, align: 'center',
-      render: (v: string) => dayjs(v).format('DD/MM/YYYY'),
+      title: 'Fecha',
+      dataIndex: 'FECHA',
+      width: 95,
+      align: 'center',
+      render: (v: string) => (
+        <Text style={{ fontSize: 12 }}>{dayjs(v).format('DD/MM/YYYY')}</Text>
+      ),
       sorter: (a, b) => dayjs(a.FECHA).unix() - dayjs(b.FECHA).unix(),
       defaultSortOrder: 'ascend',
     },
     {
-      title: 'Tipo', dataIndex: 'TIPO_COMPROBANTE_DESCRIPCION', width: 170, align: 'center',
+      title: 'Comprobante',
+      dataIndex: 'TIPO_COMPROBANTE_DESCRIPCION',
+      width: 155,
+      align: 'center',
       render: (v: string, record) => {
         const isNC = record.TIPO_COMPROBANTE.startsWith('NC');
-        return <Tag color={isNC ? 'red' : 'blue'} style={{ margin: 0 }}>{v}</Tag>;
+        const isND = record.TIPO_COMPROBANTE.startsWith('ND');
+        const color = isNC ? 'red' : isND ? 'orange' : 'blue';
+        return <Tag color={color} style={{ margin: 0, fontWeight: 600 }}>{v}</Tag>;
       },
     },
     {
-      title: 'PV', dataIndex: 'PUNTO_VENTA_ID', width: 60, align: 'center',
+      title: 'PV',
+      dataIndex: 'PUNTO_VENTA_ID',
+      width: 52,
+      align: 'center',
+      render: (v: number) => (
+        <Text type="secondary" style={{ fontSize: 12 }}>{String(v).padStart(4, '0')}</Text>
+      ),
     },
     {
-      title: 'Número', dataIndex: 'NUMERO_FISCAL', width: 120, align: 'center',
-      render: (v: string) => <Text copyable style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}</Text>,
+      title: 'Número',
+      dataIndex: 'NUMERO_FISCAL',
+      width: 115,
+      align: 'center',
+      render: (v: string) => (
+        <Text copyable style={{ fontFamily: 'monospace', fontSize: 11.5 }}>{v}</Text>
+      ),
     },
     {
-      title: 'CAE', dataIndex: 'CAE', width: 140, align: 'center',
-      render: (v: string) => v
-        ? <Text copyable style={{ fontFamily: 'monospace', fontSize: 11 }}>{v}</Text>
-        : <Text type="secondary">-</Text>,
+      title: 'CAE',
+      dataIndex: 'CAE',
+      width: 148,
+      align: 'center',
+      render: (v: string) =>
+        v ? (
+          <Text copyable style={{ fontFamily: 'monospace', fontSize: 11 }}>{v}</Text>
+        ) : (
+          <Tag color="warning" style={{ margin: 0, fontSize: 11 }}>Sin CAE</Tag>
+        ),
     },
     {
-      title: 'Cliente', dataIndex: 'CLIENTE_NOMBRE', ellipsis: true, width: 200,
+      title: 'Cliente',
+      dataIndex: 'CLIENTE_NOMBRE',
+      ellipsis: true,
+      render: (v: string) => <Text style={{ fontWeight: 500 }}>{v}</Text>,
     },
     {
-      title: 'CUIT/DNI', dataIndex: 'CLIENTE_CUIT', width: 120, align: 'center',
-      render: (v: string) => <Text style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}</Text>,
+      title: 'CUIT / DNI',
+      dataIndex: 'CLIENTE_CUIT',
+      width: 122,
+      align: 'center',
+      render: (v: string) => (
+        <Text style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}</Text>
+      ),
     },
     {
-      title: 'No Gravado', dataIndex: 'NETO_NO_GRAVADO', width: 120, align: 'right',
-      render: (v: number) => fmtMoney(v),
+      title: 'No Gravado',
+      dataIndex: 'NETO_NO_GRAVADO',
+      width: 115,
+      align: 'right',
+      render: (v: number) => (
+        <Text type={v === 0 ? 'secondary' : undefined} style={{ fontSize: 12.5 }}>
+          {v === 0 ? '—' : fmtMoney(v)}
+        </Text>
+      ),
       sorter: (a, b) => a.NETO_NO_GRAVADO - b.NETO_NO_GRAVADO,
     },
     {
-      title: 'Gravado', dataIndex: 'NETO_GRAVADO', width: 120, align: 'right',
-      render: (v: number) => <Text strong>{fmtMoney(v)}</Text>,
+      title: 'Neto Gravado',
+      dataIndex: 'NETO_GRAVADO',
+      width: 120,
+      align: 'right',
+      render: (v: number) => (
+        <Text strong style={{ fontSize: 12.5 }}>{fmtMoney(v)}</Text>
+      ),
       sorter: (a, b) => a.NETO_GRAVADO - b.NETO_GRAVADO,
     },
     {
-      title: 'IVA', dataIndex: 'IVA_TOTAL', width: 110, align: 'right',
-      render: (v: number) => fmtMoney(v),
+      title: 'IVA',
+      dataIndex: 'IVA_TOTAL',
+      width: 108,
+      align: 'right',
+      render: (v: number) => (
+        <Text style={{ color: '#1890ff', fontSize: 12.5 }}>{fmtMoney(v)}</Text>
+      ),
       sorter: (a, b) => a.IVA_TOTAL - b.IVA_TOTAL,
     },
     {
-      title: 'Imp. Int.', dataIndex: 'IMPUESTO_INTERNO', width: 110, align: 'right',
-      render: (v: number) => fmtMoney(v),
+      title: 'Imp. Int.',
+      dataIndex: 'IMPUESTO_INTERNO',
+      width: 98,
+      align: 'right',
+      render: (v: number) => (
+        <Text type={v === 0 ? 'secondary' : undefined} style={{ fontSize: 12.5 }}>
+          {v === 0 ? '—' : fmtMoney(v)}
+        </Text>
+      ),
     },
     {
-      title: 'Total', dataIndex: 'TOTAL', width: 130, align: 'right',
+      title: 'Total',
+      dataIndex: 'TOTAL',
+      width: 125,
+      align: 'right',
+      fixed: 'right',
       render: (v: number, record) => {
         const isNC = record.TIPO_COMPROBANTE.startsWith('NC');
-        return <Text strong style={{ color: isNC ? '#ff4d4f' : '#3f8600' }}>{fmtMoney(v)}</Text>;
+        return (
+          <Text strong style={{ color: isNC ? '#ff4d4f' : '#3f8600', fontSize: 13 }}>
+            {fmtMoney(v)}
+          </Text>
+        );
       },
       sorter: (a, b) => a.TOTAL - b.TOTAL,
     },
@@ -203,257 +270,262 @@ export function LibroIvaVentasPage() {
   // ── Alícuotas columns ───────────────────────────
   const alicuotaColumns: TableColumnType<LibroIvaAlicuota>[] = [
     {
-      title: 'Alícuota', dataIndex: 'ALICUOTA_DESCRIPCION', ellipsis: true,
+      title: 'Alícuota',
+      dataIndex: 'ALICUOTA_DESCRIPCION',
+      ellipsis: true,
     },
     {
-      title: 'Cant.', dataIndex: 'CANTIDAD_COMPROBANTES', width: 70, align: 'center',
+      title: 'Comp.',
+      dataIndex: 'CANTIDAD_COMPROBANTES',
+      width: 70,
+      align: 'center',
+      render: (v: number) => (
+        <Badge count={v} color="#1890ff" overflowCount={9999} />
+      ),
     },
     {
-      title: 'Base Imponible', dataIndex: 'BASE_IMPONIBLE', width: 140, align: 'right',
+      title: 'Base Imponible',
+      dataIndex: 'BASE_IMPONIBLE',
+      width: 140,
+      align: 'right',
       render: (v: number) => fmtMoney(v),
     },
     {
-      title: 'Débito Fiscal', dataIndex: 'DEBITO_FISCAL', width: 140, align: 'right',
-      render: (v: number) => <Text strong>{fmtMoney(v)}</Text>,
+      title: 'Débito Fiscal',
+      dataIndex: 'DEBITO_FISCAL',
+      width: 130,
+      align: 'right',
+      render: (v: number) => (
+        <Text strong style={{ color: '#1890ff' }}>{fmtMoney(v)}</Text>
+      ),
     },
   ];
 
   // ── Render ──────────────────────────────────────
   return (
     <div className="page-enter">
-      {/* ── Banner Header ─────────────────────── */}
-      <div
-        className="animate-fade-in"
-        style={{
-          background: 'linear-gradient(135deg, #1E1F22 0%, #2A2B2F 100%)',
-          borderRadius: 14,
-          padding: '24px 28px',
-          marginBottom: 20,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          position: 'relative',
-          overflow: 'hidden',
-        }}
-      >
+
+      {/* ── Page Header (guión dorado) ─────────── */}
+      <div className="page-header">
         <div>
-          <Title level={3} style={{ color: '#EABD23', margin: 0, fontWeight: 700 }}>
-            <AuditOutlined style={{ marginRight: 10 }} />
+          <Title level={3}>
+            <AuditOutlined style={{ marginRight: 10, color: 'var(--rg-gold)' }} />
             Libro IVA Ventas
           </Title>
-          <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, marginTop: 4, display: 'block' }}>
-            Conforme a normativa AFIP Argentina — RG 3685/2014
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            RG 3685/2014 · AFIP Argentina
+            {periodoLabel && (
+              <>
+                {' — '}
+                <Text strong style={{ fontSize: 12, color: 'var(--rg-text)' }}>{periodoLabel}</Text>
+              </>
+            )}
           </Text>
-          {periodoLabel && (
-            <Text style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12, marginTop: 2, display: 'block' }}>
-              Período: {periodoLabel}
-            </Text>
-          )}
         </div>
         <Space>
-          <Tooltip title="Exportar CSV (Excel)">
+          <Button icon={<ReloadOutlined />} onClick={() => refetch()} size="small">
+            Actualizar
+          </Button>
+          <Tooltip title="Exportar planilla CSV compatible con Excel">
             <Button
               icon={<FileExcelOutlined />}
               onClick={handleExportExcel}
               disabled={!comprobantes?.length}
-              style={{
-                background: 'rgba(82,196,26,0.15)',
-                borderColor: 'rgba(82,196,26,0.4)',
-                color: '#52c41a',
-              }}
             >
-              Excel
+              Exportar Excel
             </Button>
           </Tooltip>
-          <Tooltip title="Exportar CITI Ventas para AFIP (TXT)">
+          <Tooltip title="Generar archivos TXT para importar en AFIP CITI Ventas">
             <Button
               icon={<DownloadOutlined />}
               onClick={handleExportCiti}
               disabled={!comprobantes?.length}
-              style={{
-                background: 'rgba(234,189,35,0.15)',
-                borderColor: 'rgba(234,189,35,0.4)',
-                color: '#EABD23',
-              }}
+              className="btn-gold"
             >
-              AFIP (CITI)
+              AFIP CITI
             </Button>
           </Tooltip>
         </Space>
-        <div style={{
-          position: 'absolute', bottom: 0, left: 0, right: 0,
-          height: 3,
-          background: 'linear-gradient(90deg, #EABD23, transparent)',
-        }} />
       </div>
 
-      {/* ── KPI Stats ─────────────────────────── */}
-      <Row gutter={[12, 12]} style={{ marginBottom: 16 }} className="stagger">
+      {/* ── KPI Cards ─────────────────────────── */}
+      <Row gutter={[12, 12]} className="stagger" style={{ marginBottom: 16 }}>
         <Col xs={12} sm={8} lg={4}>
-          <Card size="small" className="rg-card">
+          <Card size="small" className="rg-card animate-fade-up">
             <Statistic
               title="Comprobantes"
               value={totales?.CANTIDAD_COMPROBANTES ?? 0}
               prefix={<FileTextOutlined />}
-              suffix={
-                <Text type="secondary" style={{ fontSize: 11 }}>
-                  {totales?.CANTIDAD_FACTURAS ?? 0} fact. · {totales?.CANTIDAD_NC ?? 0} NC
-                </Text>
-              }
             />
+            <div style={{ marginTop: 6, display: 'flex', gap: 6, alignItems: 'center' }}>
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                {totales?.CANTIDAD_FACTURAS ?? 0} fact.
+              </Text>
+              <Divider type="vertical" style={{ margin: 0 }} />
+              <Text style={{ fontSize: 11, color: '#ff4d4f' }}>
+                {totales?.CANTIDAD_NC ?? 0} NC
+              </Text>
+            </div>
           </Card>
         </Col>
         <Col xs={12} sm={8} lg={4}>
-          <Card size="small" className="rg-card">
+          <Card size="small" className="rg-card animate-fade-up">
             <Statistic
               title="Neto Gravado"
               value={totales?.TOTAL_NETO_GRAVADO ?? 0}
-              precision={2} prefix="$"
+              precision={2}
+              prefix="$"
               valueStyle={{ fontSize: 18 }}
             />
           </Card>
         </Col>
         <Col xs={12} sm={8} lg={4}>
-          <Card size="small" className="rg-card">
-            <Statistic
-              title="No Gravado"
-              value={totales?.TOTAL_NETO_NO_GRAVADO ?? 0}
-              precision={2} prefix="$"
-              valueStyle={{ fontSize: 18 }}
-            />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} lg={4}>
-          <Card size="small" className="rg-card">
-            <Statistic
-              title="Imp. Internos"
-              value={totales?.TOTAL_IMPUESTO_INTERNO ?? 0}
-              precision={2} prefix="$"
-              valueStyle={{ fontSize: 18 }}
-            />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} lg={4}>
-          <Card size="small" className="rg-card">
+          <Card size="small" className="rg-card animate-fade-up">
             <Statistic
               title="IVA Débito Fiscal"
               value={totales?.TOTAL_IVA ?? 0}
-              precision={2} prefix="$"
+              precision={2}
+              prefix={<PercentageOutlined style={{ marginRight: 2 }} />}
               valueStyle={{ color: '#1890ff', fontSize: 18 }}
             />
           </Card>
         </Col>
         <Col xs={12} sm={8} lg={4}>
-          <Card size="small" className="rg-card" style={{ borderColor: '#EABD23' }}>
+          <Card size="small" className="rg-card animate-fade-up">
             <Statistic
-              title={<Text strong style={{ color: '#EABD23' }}>TOTAL GENERAL</Text>}
+              title="Neto No Gravado"
+              value={totales?.TOTAL_NETO_NO_GRAVADO ?? 0}
+              precision={2}
+              prefix="$"
+              valueStyle={{ fontSize: 18 }}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} sm={8} lg={4}>
+          <Card size="small" className="rg-card animate-fade-up">
+            <Statistic
+              title="Imp. Internos"
+              value={totales?.TOTAL_IMPUESTO_INTERNO ?? 0}
+              precision={2}
+              prefix="$"
+              valueStyle={{ fontSize: 18 }}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} sm={8} lg={4}>
+          <Card
+            size="small"
+            className="rg-card animate-fade-up"
+            style={{ borderColor: 'var(--rg-gold)', borderWidth: 2 }}
+          >
+            <Statistic
+              title={<Text strong style={{ color: 'var(--rg-gold)' }}>Total General</Text>}
               value={totales?.TOTAL_GENERAL ?? 0}
-              precision={2} prefix="$"
+              precision={2}
+              prefix="$"
               valueStyle={{
                 color: (totales?.TOTAL_GENERAL ?? 0) >= 0 ? '#3f8600' : '#ff4d4f',
-                fontSize: 20, fontWeight: 700,
+                fontSize: 20,
+                fontWeight: 700,
               }}
             />
           </Card>
         </Col>
       </Row>
 
-      {/* ── Filters ───────────────────────────── */}
-      <div style={{
-        display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10,
-        marginBottom: 14, padding: '10px 14px',
-        background: 'rgba(0,0,0,0.02)', borderRadius: 10,
-        border: '1px solid rgba(0,0,0,0.04)',
-      }}>
-        <DateFilterPopover
-          preset={datePreset}
-          fechaDesde={fechaDesde}
-          fechaHasta={fechaHasta}
-          onPresetChange={(p, d, h) => {
-            setDatePreset(p);
-            if (d) setFechaDesde(d);
-            if (h) setFechaHasta(h);
-          }}
-          onRangeChange={(d, h) => {
-            setDatePreset(undefined);
-            if (d) setFechaDesde(d);
-            if (h) setFechaHasta(h);
-          }}
-        />
-        <Select
-          placeholder="Punto de Venta"
-          allowClear
-          value={puntoVentaId}
-          onChange={v => setPuntoVentaId(v)}
-          style={{ width: 170 }}
-          options={[
-            ...(puntosVenta?.map(pv => ({ value: pv.PUNTO_VENTA_ID, label: pv.NOMBRE })) ?? []),
-          ]}
-        />
-        <Select
-          placeholder="Tipo Comprobante"
-          value={tipoComprobante}
-          onChange={v => setTipoComprobante(v)}
-          style={{ width: 160 }}
-          options={TIPO_COMPROBANTE_OPTIONS}
-        />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Switch
-            size="small"
-            checked={incluirNoCobradas}
-            onChange={setIncluirNoCobradas}
-          />
-          <Text type="secondary" style={{ fontSize: 12 }}>Incluir no cobradas</Text>
-        </div>
-        <div style={{ flex: 1 }} />
-        <Button icon={<ReloadOutlined />} onClick={() => refetch()} size="small">
-          Actualizar
-        </Button>
-      </div>
-
-      {/* ── Main & Alícuotas layout ───────────── */}
-      <Row gutter={[16, 16]}>
-        {/* ── Comprobantes table ─────────────── */}
-        <Col xs={24} xl={17}>
-          <Table<LibroIvaComprobante>
-            className="rg-table"
-            rowKey="VENTA_ID"
-            columns={columns}
-            dataSource={comprobantes}
-            loading={isLoading}
-            size="small"
-            scroll={{ x: 1500 }}
-            pagination={{
-              pageSize: 50,
-              showSizeChanger: true,
-              pageSizeOptions: ['25', '50', '100'],
-              showTotal: t => `${t} comprobantes`,
+      {/* ── Filtros ───────────────────────────── */}
+      <Card
+        size="small"
+        className="rg-card"
+        style={{ marginBottom: 14 }}
+        styles={{ body: { padding: '10px 14px' } }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+          <DateFilterPopover
+            preset={datePreset}
+            fechaDesde={fechaDesde}
+            fechaHasta={fechaHasta}
+            onPresetChange={(p, d, h) => {
+              setDatePreset(p);
+              if (d) setFechaDesde(d);
+              if (h) setFechaHasta(h);
             }}
-            rowClassName={record =>
-              record.TIPO_COMPROBANTE.startsWith('NC') ? 'libro-iva-row-nc' : ''
-            }
+            onRangeChange={(d, h) => {
+              setDatePreset(undefined);
+              if (d) setFechaDesde(d);
+              if (h) setFechaHasta(h);
+            }}
           />
-        </Col>
+          <Select
+            placeholder="Punto de Venta"
+            allowClear
+            value={puntoVentaId}
+            onChange={v => setPuntoVentaId(v)}
+            style={{ width: 170 }}
+            options={puntosVenta?.map(pv => ({ value: pv.PUNTO_VENTA_ID, label: pv.NOMBRE })) ?? []}
+          />
+          <Select
+            placeholder="Tipo de Comprobante"
+            value={tipoComprobante}
+            onChange={v => setTipoComprobante(v)}
+            style={{ width: 185 }}
+            options={TIPO_COMPROBANTE_OPTIONS}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Switch
+              size="small"
+              checked={incluirNoCobradas}
+              onChange={setIncluirNoCobradas}
+            />
+            <Text type="secondary" style={{ fontSize: 12 }}>Incluir no cobradas</Text>
+          </div>
+          <div style={{ flex: 1 }} />
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {comprobantes?.length ?? 0} registros
+          </Text>
+        </div>
+      </Card>
 
-        {/* ── Alícuotas side card ───────────── */}
-        <Col xs={24} xl={7}>
+      {/* ── Tabla de comprobantes (ancho completo) ── */}
+      <Card
+        className="rg-card animate-fade-up"
+        size="small"
+        style={{ marginBottom: 16 }}
+        styles={{ body: { padding: 0 } }}
+      >
+        <Table<LibroIvaComprobante>
+          className="rg-table"
+          rowKey="VENTA_ID"
+          columns={columns}
+          dataSource={comprobantes}
+          loading={isLoading}
+          size="small"
+          scroll={{ x: 'max-content' }}
+          pagination={{
+            pageSize: 50,
+            showSizeChanger: true,
+            pageSizeOptions: ['25', '50', '100', '200'],
+            showTotal: (t, range) => `${range[0]}–${range[1]} de ${t} comprobantes`,
+            style: { padding: '8px 16px' },
+          }}
+          rowClassName={record =>
+            record.TIPO_COMPROBANTE.startsWith('NC') ? 'libro-iva-row-nc' : ''
+          }
+        />
+      </Card>
+
+      {/* ── Analítica inferior ────────────────── */}
+      <Row gutter={[16, 16]}>
+        {/* ── Totales por alícuota ───────────── */}
+        <Col xs={24} lg={14}>
           <Card
             className="rg-card animate-fade-up"
             size="small"
-            style={{ borderRadius: 14, overflow: 'hidden' }}
-            styles={{
-              header: {
-                background: 'linear-gradient(135deg, #1E1F22 0%, #2A2B2F 100%)',
-                borderBottom: '2px solid #1890ff',
-                padding: '12px 16px',
-              },
-              body: { padding: '8px 0' },
-            }}
             title={
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <PercentageOutlined style={{ color: '#1890ff', fontSize: 16 }} />
-                <Text strong style={{ color: '#fff', fontSize: 13 }}>Totales por Alícuota IVA</Text>
-              </div>
+              <Space>
+                <PercentageOutlined style={{ color: '#1890ff' }} />
+                <span>Totales por Alícuota IVA</span>
+              </Space>
             }
           >
             <Table<LibroIvaAlicuota>
@@ -465,43 +537,37 @@ export function LibroIvaVentasPage() {
               loading={isLoading}
             />
           </Card>
+        </Col>
 
-          {/* ── Resumen card ────────────────── */}
+        {/* ── Resumen del período ────────────── */}
+        <Col xs={24} lg={10}>
           <Card
             className="rg-card animate-fade-up"
             size="small"
-            style={{ borderRadius: 14, marginTop: 16, overflow: 'hidden' }}
-            styles={{
-              header: {
-                background: 'linear-gradient(135deg, #1E1F22 0%, #2A2B2F 100%)',
-                borderBottom: '2px solid #EABD23',
-                padding: '12px 16px',
-              },
-              body: { padding: 16 },
-            }}
+            style={{ borderColor: 'var(--rg-gold)', borderWidth: 2 }}
             title={
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <BankOutlined style={{ color: '#EABD23', fontSize: 16 }} />
-                <Text strong style={{ color: '#fff', fontSize: 13 }}>Resumen del Período</Text>
-              </div>
+              <Space>
+                <BankOutlined style={{ color: 'var(--rg-gold)' }} />
+                <span>Resumen del Período</span>
+              </Space>
             }
           >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' }}>
               <SummaryRow label="Neto Gravado" value={totales?.TOTAL_NETO_GRAVADO ?? 0} />
               <SummaryRow label="Neto No Gravado" value={totales?.TOTAL_NETO_NO_GRAVADO ?? 0} />
               <SummaryRow label="IVA Débito Fiscal" value={totales?.TOTAL_IVA ?? 0} color="#1890ff" />
               <SummaryRow label="Imp. Internos" value={totales?.TOTAL_IMPUESTO_INTERNO ?? 0} />
+              <Divider style={{ margin: '8px 0', borderColor: 'var(--rg-gold)' }} />
               <div style={{
-                borderTop: '2px solid #EABD23',
-                paddingTop: 10, marginTop: 4,
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '6px 10px',
               }}>
                 <Text strong style={{ fontSize: 14 }}>
                   <DollarOutlined style={{ marginRight: 6 }} />
                   TOTAL GENERAL
                 </Text>
                 <Text strong style={{
-                  fontSize: 18,
+                  fontSize: 20,
                   color: (totales?.TOTAL_GENERAL ?? 0) >= 0 ? '#3f8600' : '#ff4d4f',
                 }}>
                   {fmtMoney(totales?.TOTAL_GENERAL ?? 0)}

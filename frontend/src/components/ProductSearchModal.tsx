@@ -278,6 +278,7 @@ export function ProductSearchModal({
       centered
       destroyOnClose
       focusTriggerAfterClose={false}
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       footer={
         <Space>
           <Button onClick={onClose}>Cerrar</Button>

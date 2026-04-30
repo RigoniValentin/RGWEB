@@ -140,6 +140,7 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
       footer={null}
       destroyOnClose
       className="rg-drawer"
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
     >
       {venta && (
         <div>

@@ -670,6 +670,7 @@ function DetalleOrdenPagoModal({ detalleOrdenPago, onClose }: {
       onCancel={onClose}
       footer={null}
       width={420}
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
     >
       {detalleOrdenPago && (
         <>

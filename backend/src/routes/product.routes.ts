@@ -63,7 +63,8 @@ router.get('/:id', async (req: Request, res: Response) => {
 // GET /api/products/:id/stock
 router.get('/:id/stock', async (req: Request, res: Response) => {
   try {
-    const stock = await productService.getStockByProduct(parseInt(req.params.id as string));
+    const puntoVentaId = req.query.puntoVentaId ? parseInt(req.query.puntoVentaId as string) : undefined;
+    const stock = await productService.getStockByProduct(parseInt(req.params.id as string), puntoVentaId);
     res.json(stock);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

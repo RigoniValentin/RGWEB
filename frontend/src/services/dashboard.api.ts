@@ -1,5 +1,8 @@
 import api from './api';
-import type { DashboardStats, VentaDiaria, DesgloseMetodo } from '../types';
+import type {
+  DashboardStats, VentaDiaria, DesgloseMetodo,
+  DashboardAnalytics, DashboardGranularity,
+} from '../types';
 
 export const dashboardApi = {
   getStats: (puntoVentaId?: number) =>
@@ -10,6 +13,14 @@ export const dashboardApi = {
 
   getDesgloseHoy: (puntoVentaId?: number) =>
     api.get<DesgloseMetodo[]>('/dashboard/desglose-hoy', { params: { puntoVentaId } }).then(r => r.data),
+
+  getAnalytics: (params: {
+    from: string;
+    to: string;
+    granularity: DashboardGranularity;
+    puntoVentaId?: number;
+  }) =>
+    api.get<DashboardAnalytics>('/dashboard/analytics', { params }).then(r => r.data),
 
   getLogo: async (): Promise<string | null> => {
     try {

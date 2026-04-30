@@ -29,7 +29,11 @@ export function CajaPage() {
   const queryClient = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, puntoVentaActivo, puntosVenta } = useAuthStore();
+  const { user, puntoVentaActivo, puntosVenta, hasPermiso } = useAuthStore();
+  const canAbrir   = hasPermiso('caja.abrir')   || hasPermiso('caja.operar');
+  const canCerrar  = hasPermiso('caja.cerrar')  || hasPermiso('caja.operar');
+  const canIngreso = hasPermiso('caja.ingreso') || hasPermiso('caja.operar');
+  const canEgreso  = hasPermiso('caja.egreso')  || hasPermiso('caja.operar');
   const { openTab } = useTabStore();
 
   // ── State ──────────────────────────────────────
@@ -260,7 +264,7 @@ export function CajaPage() {
     const items: any[] = [
       { key: 'detail', label: 'Ver detalle', icon: <EyeOutlined />, onClick: () => openDetail(record) },
     ];
-    if (record.ESTADO === 'ACTIVA' && record.USUARIO_ID === user?.USUARIO_ID) {
+    if (record.ESTADO === 'ACTIVA' && record.USUARIO_ID === user?.USUARIO_ID && canCerrar) {
       items.push(
         { key: 'cerrar', label: 'Cerrar caja', icon: <LockOutlined />, danger: true, onClick: () => handleCerrar(record.CAJA_ID) },
       );
@@ -468,6 +472,7 @@ export function CajaPage() {
             />
             <Space style={{ marginTop: 8 }}>
               {!miCaja ? (
+                canAbrir && (
                 <Button
                   type="primary"
                   className="btn-gold"
@@ -478,8 +483,10 @@ export function CajaPage() {
                 >
                   Abrir Caja
                 </Button>
+                )
               ) : (
                 <>
+                  {canIngreso && (
                   <Button
                     size="small"
                     icon={<ArrowUpOutlined />}
@@ -487,6 +494,8 @@ export function CajaPage() {
                   >
                     Ingreso
                   </Button>
+                  )}
+                  {canEgreso && (
                   <Button
                     size="small"
                     icon={<ArrowDownOutlined />}
@@ -495,6 +504,8 @@ export function CajaPage() {
                   >
                     Egreso
                   </Button>
+                  )}
+                  {canCerrar && (
                   <Button
                     size="small"
                     icon={<LockOutlined />}
@@ -503,6 +514,7 @@ export function CajaPage() {
                   >
                     Cerrar
                   </Button>
+                  )}
                   <Button
                     size="small"
                     icon={<EyeOutlined />}
@@ -604,15 +616,21 @@ export function CajaPage() {
               </Button>
               {detail.ESTADO === 'ACTIVA' && detail.USUARIO_ID === user?.USUARIO_ID && (
                 <>
+                  {canIngreso && (
                   <Button size="small" icon={<ArrowUpOutlined />} onClick={() => { openIeModal('INGRESO'); }}>
                     Ingreso
                   </Button>
+                  )}
+                  {canEgreso && (
                   <Button size="small" icon={<ArrowDownOutlined />} danger onClick={() => { openIeModal('EGRESO'); }}>
                     Egreso
                   </Button>
+                  )}
+                  {canCerrar && (
                   <Button size="small" icon={<LockOutlined />} danger onClick={() => handleCerrar(detail.CAJA_ID)}>
                     Cerrar
                   </Button>
+                  )}
                 </>
               )}
             </Space>
@@ -724,6 +742,7 @@ export function CajaPage() {
         okText="Abrir Caja"
         okButtonProps={{ className: 'btn-gold', disabled: montoExcedeFondo }}
         className="rg-modal"
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
         afterOpenChange={(open) => {
           if (open) {
             setTimeout(() => {
@@ -772,6 +791,7 @@ export function CajaPage() {
         okButtonProps={{ danger: true, disabled: cerrarDetailLoading || !cerrarBreakdown }}
         width={480}
         className="rg-modal"
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {cerrarDetailLoading ? (
           <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>
@@ -867,6 +887,7 @@ export function CajaPage() {
         okText="Registrar"
         okButtonProps={{ className: ieType === 'INGRESO' ? 'btn-gold' : undefined, danger: ieType === 'EGRESO', disabled: !ieMonto || !ieDescripcion.trim() }}
         className="rg-modal"
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         <Form layout="vertical">
           <Form.Item label="Descripción / Motivo" required>
@@ -910,6 +931,7 @@ export function CajaPage() {
         title={`Desglose — ${desgloseCategoria === 'EFECTIVO' ? 'Efectivo' : desgloseCategoria === 'DIGITAL' ? 'Digital' : 'Todos los métodos'}`}
         width={480}
         destroyOnClose
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {(() => {
           const filtered = desgloseCategoria ? desgloseData.filter(d => d.CATEGORIA === desgloseCategoria) : desgloseData;

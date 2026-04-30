@@ -14,8 +14,12 @@ export const catalogApi = {
   getListasPrecios: () =>
     api.get<ListaPrecio[]>('/catalog/listas-precios').then(r => r.data),
 
-  getDepositos: () =>
-    api.get<Deposito[]>('/catalog/depositos').then(r => r.data),
+  getDepositos: (puntoVentaIds?: number[]) => {
+    const params = puntoVentaIds && puntoVentaIds.length > 0
+      ? { puntoVentaIds: puntoVentaIds.join(',') }
+      : undefined;
+    return api.get<Deposito[]>('/catalog/depositos', { params }).then(r => r.data);
+  },
 
   getPuntosVenta: () =>
     api.get<PuntoVenta[]>('/catalog/puntos-venta').then(r => r.data),

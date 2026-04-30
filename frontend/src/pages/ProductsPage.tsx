@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Input, Typography, Tag, Select, Button, Dropdown, Modal, App,
@@ -11,7 +11,10 @@ import {
   DollarOutlined, BarcodeOutlined, FilterOutlined, ReloadOutlined,
 } from '@ant-design/icons';
 import { productApi, type ProductDetail } from '../services/product.api';
+import { useTabStore } from '../store/tabStore';
 import { catalogApi } from '../services/catalog.api';
+import { puntoVentaApi } from '../services/puntoVenta.api';
+import { useAuthStore } from '../store/authStore';
 import type { Producto } from '../types';
 import { fmtMoney, fmtUsd } from '../utils/format';
 import { ProductFormModal } from '../components/products/ProductFormModal';
@@ -46,6 +49,7 @@ export function ProductsPage() {
   // Detail drawer
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailId, setDetailId] = useState<number | null>(null);
+  const [stockPvId, setStockPvId] = useState<number | undefined>();
 
   // Price list modal
   const [priceListOpen, setPriceListOpen] = useState(false);
@@ -78,9 +82,17 @@ export function ProductsPage() {
     enabled: !!detailId && detailOpen,
   });
 
+  const canVerTodosPV = useAuthStore(s => s.hasPermiso('configuracion.ver'));
+
+  const { data: pvSelector } = useQuery({
+    queryKey: ['puntos-venta-selector'],
+    queryFn: () => puntoVentaApi.getSelector(),
+    enabled: canVerTodosPV && detailOpen,
+  });
+
   const { data: stockData } = useQuery({
-    queryKey: ['product-stock', detailId],
-    queryFn: () => productApi.getStock(detailId!),
+    queryKey: ['product-stock', detailId, stockPvId],
+    queryFn: () => productApi.getStock(detailId!, stockPvId ? { puntoVentaId: stockPvId } : undefined),
     enabled: !!detailId && detailOpen,
   });
 
@@ -117,6 +129,12 @@ export function ProductsPage() {
 
   // ── Actions ──────────────────────────────────────
   const handleNew = () => { setEditId(null); setCopyFrom(null); setFormOpen(true); };
+
+  useEffect(() => {
+    const handler = () => { if (useTabStore.getState().activeKey === '/products') handleNew(); };
+    window.addEventListener('rg:nuevo', handler);
+    return () => window.removeEventListener('rg:nuevo', handler);
+  }, []);
   const handleEdit = (record: Producto) => { setEditId(record.PRODUCTO_ID); setCopyFrom(null); setFormOpen(true); };
   const handleCopy = (record: Producto) => { setEditId(null); setCopyFrom(record); setFormOpen(true); };
 
@@ -135,7 +153,7 @@ export function ProductsPage() {
     });
   };
 
-  const handleDetail = (record: Producto) => { setDetailId(record.PRODUCTO_ID); setDetailOpen(true); };
+  const handleDetail = (record: Producto) => { setDetailId(record.PRODUCTO_ID); setStockPvId(undefined); setDetailOpen(true); };
 
   // ── Bulk actions ─────────────────────────────────
   const handleBulkDelete = () => {
@@ -411,9 +429,22 @@ export function ProductsPage() {
             ))}
           </tbody>
         </table>
-        {stockData && stockData.length > 0 && (
-          <div style={{ marginTop: 16 }}>
-            <Text strong style={{ marginBottom: 8, display: 'block' }}>Stock por Depósito</Text>
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <Text strong>Stock por Depósito</Text>
+            {canVerTodosPV && pvSelector && pvSelector.length > 1 && (
+              <Select
+                placeholder="Todos los puntos de venta"
+                allowClear
+                style={{ flex: 1, maxWidth: 220 }}
+                value={stockPvId}
+                onChange={(v) => setStockPvId(v)}
+                options={pvSelector.filter(pv => pv.ACTIVO).map(pv => ({ value: pv.PUNTO_VENTA_ID, label: pv.NOMBRE }))}
+                size="small"
+              />
+            )}
+          </div>
+          {stockData && stockData.length > 0 ? (
             <Table
               size="small"
               dataSource={stockData}
@@ -424,8 +455,10 @@ export function ProductsPage() {
                 { title: 'Cantidad', dataIndex: 'CANTIDAD', align: 'right' as const },
               ]}
             />
-          </div>
-        )}
+          ) : (
+            <Text type="secondary" style={{ fontSize: 12 }}>Sin stock en depósitos{stockPvId ? ' para este punto de venta' : ''}.</Text>
+          )}
+        </div>
       </div>
     );
   };

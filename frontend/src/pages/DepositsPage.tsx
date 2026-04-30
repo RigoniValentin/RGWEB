@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Input, Typography, Button, Modal, App,
-  Tooltip, Spin, Form,
+  Tooltip, Spin, Form, Tag, Select,
 } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
-  ReloadOutlined,
+  ReloadOutlined, EnvironmentOutlined,
 } from '@ant-design/icons';
 import { depositApi, type DepositoInput } from '../services/deposit.api';
+import { puntoVentaApi } from '../services/puntoVenta.api';
+import { useTabStore } from '../store/tabStore';
 import type { Deposito } from '../types';
 
 const { Title } = Typography;
@@ -30,6 +32,8 @@ export function DepositsPage() {
   // Form
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [pvIds, setPvIds] = useState<number[]>([]);
+  const [pvPreferido, setPvPreferido] = useState<number | null>(null);
 
   // ── Data queries ─────────────────────────────────
   const { data, isLoading, refetch } = useQuery({
@@ -48,10 +52,23 @@ export function DepositsPage() {
     enabled: !!editId && formOpen,
   });
 
+  // Selector list of all puntos de venta for the assignment widget
+  const { data: pvSelector } = useQuery({
+    queryKey: ['puntos-venta-selector'],
+    queryFn: () => puntoVentaApi.getSelector(),
+    enabled: formOpen,
+  });
+
+  const pvOptions = useMemo(
+    () => (pvSelector || []).map(pv => ({ value: pv.PUNTO_VENTA_ID, label: pv.NOMBRE + (pv.ACTIVO ? '' : ' (inactivo)') })),
+    [pvSelector],
+  );
+
   // ── Helpers ──────────────────────────────────────
   const invalidate = useCallback(() => {
     qc.invalidateQueries({ queryKey: ['deposits'] });
     qc.invalidateQueries({ queryKey: ['deposit-edit'] });
+    qc.invalidateQueries({ queryKey: ['puntos-venta'] });
   }, [qc]);
 
   // ── Fill form when editing ───────────────────────
@@ -61,19 +78,31 @@ export function DepositsPage() {
         CODIGOPARTICULAR: editData.CODIGOPARTICULAR,
         NOMBRE: editData.NOMBRE,
       });
+      const pvs = editData.puntosVenta || [];
+      setPvIds(pvs.map(p => p.PUNTO_VENTA_ID));
+      const pref = pvs.find(p => p.ES_PREFERIDO);
+      setPvPreferido(pref ? pref.PUNTO_VENTA_ID : null);
     }
   }, [editData, formOpen, editId, form]);
 
   // ── Actions ──────────────────────────────────────
   const handleNew = () => {
     setEditId(null);
-    form.resetFields();
-    setFormOpen(true);
+    form.resetFields();    setPvIds([]);
+    setPvPreferido(null);    setFormOpen(true);
   };
+
+  useEffect(() => {
+    const handler = () => { if (useTabStore.getState().activeKey === '/deposits') handleNew(); };
+    window.addEventListener('rg:nuevo', handler);
+    return () => window.removeEventListener('rg:nuevo', handler);
+  }, []);
 
   const handleEdit = (record: Deposito) => {
     setEditId(record.DEPOSITO_ID);
     form.resetFields();
+    setPvIds([]);
+    setPvPreferido(null);
     setFormOpen(true);
   };
 
@@ -108,6 +137,8 @@ export function DepositsPage() {
       const payload: DepositoInput = {
         CODIGOPARTICULAR: values.CODIGOPARTICULAR || undefined,
         NOMBRE: values.NOMBRE,
+        puntosVenta: pvIds,
+        puntoVentaPreferido: pvPreferido,
       };
 
       if (editId) {
@@ -161,6 +192,30 @@ export function DepositsPage() {
       key: 'NOMBRE',
       ellipsis: true,
       sorter: true,
+    },
+    {
+      title: 'Puntos de Venta',
+      key: 'puntosVenta',
+      width: 280,
+      render: (_: unknown, record: Deposito) => {
+        const pvs = record.puntosVenta || [];
+        if (pvs.length === 0) {
+          return <Tag>Sin asignar</Tag>;
+        }
+        return (
+          <Space size={[4, 4]} wrap>
+            {pvs.map(pv => (
+              <Tag
+                key={pv.PUNTO_VENTA_ID}
+                color={pv.ES_PREFERIDO ? 'gold' : 'blue'}
+                icon={<EnvironmentOutlined />}
+              >
+                {pv.NOMBRE}
+              </Tag>
+            ))}
+          </Space>
+        );
+      },
     },
     {
       title: '',
@@ -227,7 +282,7 @@ export function DepositsPage() {
           onChange: (p, ps) => { setPage(p); setPageSize(ps); },
         }}
         size="middle"
-        scroll={{ x: 500 }}
+        scroll={{ x: 800 }}
       />
 
       {/* ── Form Modal (New / Edit) ───────────── */}
@@ -242,6 +297,7 @@ export function DepositsPage() {
         width={450}
         destroyOnClose
         className="rg-modal"
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {editId && editLoading ? (
           <div style={{ textAlign: 'center', padding: 40 }}><Spin size="large" /></div>
@@ -256,6 +312,37 @@ export function DepositsPage() {
               rules={[{ required: true, message: 'Ingresá el nombre del depósito' }]}>
               <Input />
             </Form.Item>
+
+            <Form.Item label="Puntos de Venta asociados"
+              tooltip="El stock de este depósito se verá desde los puntos de venta seleccionados.">
+              <Select
+                mode="multiple"
+                allowClear
+                placeholder="Seleccioná puntos de venta"
+                value={pvIds}
+                onChange={(ids: number[]) => {
+                  setPvIds(ids);
+                  if (pvPreferido != null && !ids.includes(pvPreferido)) {
+                    setPvPreferido(null);
+                  }
+                }}
+                options={pvOptions}
+                optionFilterProp="label"
+              />
+            </Form.Item>
+
+            {pvIds.length > 0 && (
+              <Form.Item label="Punto de Venta preferido"
+                tooltip="Se usará como predeterminado al imputar movimientos sobre este depósito.">
+                <Select
+                  allowClear
+                  placeholder="Ninguno"
+                  value={pvPreferido ?? undefined}
+                  onChange={(v: number | undefined) => setPvPreferido(v ?? null)}
+                  options={pvOptions.filter(o => pvIds.includes(o.value))}
+                />
+              </Form.Item>
+            )}
           </Form>
         )}
       </Modal>

@@ -11,6 +11,7 @@ import {
 } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSettingsStore } from '../store/settingsStore';
+import { useAuthStore } from '../store/authStore';
 import type { ConfigResuelto, SaveSettingInput } from '../services/settings.api';
 import { settingsApi } from '../services/settings.api';
 import { RGLogo } from '../components/RGLogo';
@@ -37,8 +38,7 @@ const SUBMODULE_LABELS: Record<string, string> = {
 function LogoSection() {
   const [msgApi, contextHolder] = message.useMessage();
   const [uploading, setUploading] = useState(false);
-  const queryClient = useQueryClient();
-
+  const queryClient = useQueryClient();  const canEdit = useAuthStore(s => s.hasPermiso('configuracion.editar'));
   const { data: logoUrl, isLoading } = useQuery({
     queryKey: ['empresa-logo'],
     queryFn: () => settingsApi.getLogo(),
@@ -101,7 +101,7 @@ function LogoSection() {
           <div>
             <Text strong style={{ color: '#fff', fontSize: 14 }}>Logo de Empresa</Text>
             <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, display: 'block', lineHeight: 1.2 }}>
-              Se muestra en el dashboard y documentos
+              Se muestra en el dashboard y documentos — aplica para todos los usuarios
             </Text>
           </div>
         </div>
@@ -130,32 +130,38 @@ function LogoSection() {
           <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
             Formato: PNG, JPG, GIF o WebP. Tamaño máximo: 2 MB.
           </Text>
-          <Space>
-            <Upload
-              accept="image/png,image/jpeg,image/gif,image/webp"
-              showUploadList={false}
-              beforeUpload={(file) => { handleUpload(file); return false; }}
-            >
-              <Button
-                type="primary"
-                className="btn-gold"
-                icon={<CameraOutlined />}
-                loading={uploading}
+          {canEdit ? (
+            <Space>
+              <Upload
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                showUploadList={false}
+                beforeUpload={(file) => { handleUpload(file); return false; }}
               >
-                {logoUrl ? 'Cambiar Logo' : 'Subir Logo'}
-              </Button>
-            </Upload>
-            {logoUrl && (
-              <Button
-                danger
-                icon={<DeleteOutlined />}
-                onClick={handleDelete}
-                loading={uploading}
-              >
-                Eliminar
-              </Button>
-            )}
-          </Space>
+                <Button
+                  type="primary"
+                  className="btn-gold"
+                  icon={<CameraOutlined />}
+                  loading={uploading}
+                >
+                  {logoUrl ? 'Cambiar Logo' : 'Subir Logo'}
+                </Button>
+              </Upload>
+              {logoUrl && (
+                <Button
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={handleDelete}
+                  loading={uploading}
+                >
+                  Eliminar
+                </Button>
+              )}
+            </Space>
+          ) : (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Solo los administradores pueden modificar el logo.
+            </Text>
+          )}
         </div>
       </div>
     </Card>

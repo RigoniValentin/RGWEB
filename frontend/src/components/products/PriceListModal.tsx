@@ -230,6 +230,7 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
       destroyOnHidden
       width={540}
       className="rg-modal"
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
     >
       {product && (
         loading ? (

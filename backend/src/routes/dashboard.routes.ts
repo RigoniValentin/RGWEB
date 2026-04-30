@@ -48,8 +48,28 @@ router.get('/logo', async (_req: Request, res: Response) => {
       return;
     }
     res.set('Content-Type', logo.contentType);
-    res.set('Cache-Control', 'public, max-age=86400');
+    res.set('Cache-Control', 'no-store');
     res.send(logo.data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/dashboard/analytics — unified data for redesigned dashboard
+router.get('/analytics', async (req: Request, res: Response) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const from = (req.query.from as string) || today;
+    const to = (req.query.to as string) || today;
+    const granularityRaw = (req.query.granularity as string) || 'day';
+    const granularity = (['hour', 'day', 'week', 'month'].includes(granularityRaw)
+      ? granularityRaw
+      : 'day') as 'hour' | 'day' | 'week' | 'month';
+    const puntoVentaId = req.query.puntoVentaId
+      ? parseInt(req.query.puntoVentaId as string)
+      : undefined;
+    const data = await dashboardService.getAnalytics({ from, to, granularity, puntoVentaId });
+    res.json(data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

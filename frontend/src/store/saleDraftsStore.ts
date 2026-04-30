@@ -62,6 +62,11 @@ export interface SaleDraft {
 
   // Remitos
   selectedRemitoIds: number[];
+
+  // ── Search state (per-draft, ephemeral but persisted to survive refresh) ──
+  searchText: string;
+  productSearchOpen: boolean;
+  productSearchInitial: string;
 }
 
 const MAX_DRAFTS = 10;
@@ -93,6 +98,9 @@ function createEmptyDraft(): SaleDraft {
     wantFEPdf: false,
     wantFETicket: false,
     selectedRemitoIds: [],
+    searchText: '',
+    productSearchOpen: false,
+    productSearchInitial: '',
   };
 }
 
@@ -214,7 +222,19 @@ export const useSaleDraftsStore = create<SaleDraftsState>()(
     }),
     {
       name: 'rg-sale-drafts',
-      version: 1,
+      version: 2,
+      migrate: (persistedState: any, version) => {
+        // v1 → v2: add per-draft search state fields
+        if (persistedState && Array.isArray(persistedState.drafts) && version < 2) {
+          persistedState.drafts = persistedState.drafts.map((d: any) => ({
+            searchText: '',
+            productSearchOpen: false,
+            productSearchInitial: '',
+            ...d,
+          }));
+        }
+        return persistedState;
+      },
       partialize: (state) => ({
         drafts: state.drafts,
         activeDraftId: state.activeDraftId,
@@ -223,6 +243,11 @@ export const useSaleDraftsStore = create<SaleDraftsState>()(
         // After rehydration, restore the counter to avoid label collisions
         return (state: SaleDraftsState | undefined) => {
           if (state?.drafts?.length) {
+            // Reset transient UI flags so a refresh doesn't leave the
+            // advanced search modal open.
+            for (const d of state.drafts) {
+              d.productSearchOpen = false;
+            }
             const maxNum = state.drafts.reduce((max: number, d: SaleDraft) => {
               const match = d.label.match(/^Venta (\d+)$/);
               return match ? Math.max(max, parseInt(match[1]!, 10)) : max;

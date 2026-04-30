@@ -580,7 +580,8 @@ function SectorModal({ open, sector, puntoVentaId, onClose, onSuccess }: {
   return (
     <Modal open={open} title={sector ? 'Editar Sector' : 'Nuevo Sector'}
       onCancel={() => { onClose(); form.resetFields(); }} onOk={handleOk} confirmLoading={loading}
-      destroyOnHidden width={360}>
+      destroyOnHidden width={360}
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}>
       <Form form={form} layout="vertical" initialValues={{ nombre: sector?.NOMBRE || '' }}>
         <Form.Item name="nombre" label="Nombre del Sector" rules={[{ required: true, message: 'Ingrese el nombre' }]}>
           <Input autoFocus placeholder="Ej: Salón Principal" maxLength={100} />
@@ -634,7 +635,8 @@ function MesaModal({ open, mesa, sectorId, puntoVentaId, onClose, onSuccess }: {
   return (
     <Modal open={open} title={mesa ? 'Editar Mesa' : 'Nueva Mesa'}
       onCancel={() => { onClose(); form.resetFields(); }} onOk={handleOk} confirmLoading={loading}
-      destroyOnHidden width={380}>
+      destroyOnHidden width={380}
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}>
       <Form form={form} layout="vertical"
         initialValues={{ numero: mesa?.NUMERO_MESA || '', capacidad: mesa?.CAPACIDAD || 4 }}>
         <Form.Item name="numero" label="Número / Nombre de Mesa"
@@ -667,7 +669,8 @@ function EstadoModal({ mesa, onClose, onCambiar }: {
 
   return (
     <Modal open={!!mesa} title={`Cambiar Estado — Mesa ${mesa?.NUMERO_MESA}`}
-      onCancel={onClose} footer={null} width={340} destroyOnHidden>
+      onCancel={onClose} footer={null} width={340} destroyOnHidden
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}>
         {estados.map(e => (
           <Button
@@ -1201,6 +1204,7 @@ function PrintPedidoModal({ open, pedidoId, puntoVentaId, mesaNumero, onClose }:
       footer={null}
       width={380}
       destroyOnHidden
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}>
         <Button
@@ -1441,6 +1445,7 @@ function TiposServicioComandaDrawer({ open, puntoVentaId, onClose }: {
         confirmLoading={createMut.isPending || updateMut.isPending}
         destroyOnHidden
         width={360}
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         <Form form={form} layout="vertical">
           <Form.Item name="nombre" label="Nombre" rules={[{ required: true, message: 'Ingrese el nombre' }]}>

@@ -6,6 +6,109 @@
 export interface Usuario {
   USUARIO_ID: number;
   NOMBRE: string;
+  NOMBRE_COMPLETO?: string | null;
+  EMAIL?: string | null;
+  DEBE_CAMBIAR_CLAVE?: boolean;
+}
+
+export interface PuntoVentaAsignado {
+  PUNTO_VENTA_ID: number;
+  NOMBRE: string;
+  ES_PREFERIDO: boolean;
+}
+
+export interface UsuarioDetalle extends Usuario {
+  TELEFONO?: string | null;
+  ACTIVO: boolean;
+  BLOQUEADO: boolean;
+  BLOQUEADO_HASTA?: string | null;
+  INTENTOS_FALLIDOS: number;
+  MFA_ACTIVO: boolean;
+  ULTIMO_LOGIN?: string | null;
+  FECHA_ALTA?: string;
+  roles: RolBasico[];
+  puntosVenta: PuntoVentaAsignado[];
+}
+
+export interface RolBasico {
+  ROL_ID: number;
+  NOMBRE: string;
+}
+
+export interface Rol {
+  ROL_ID: number;
+  NOMBRE: string;
+  DESCRIPCION: string | null;
+  ES_SISTEMA: boolean;
+  PRIORIDAD: number;
+  ACTIVO: boolean;
+  FECHA_ALTA: string;
+}
+
+export interface RolConPermisos extends Rol {
+  permisos: PermisoWeb[];
+}
+
+export interface PermisoWeb {
+  PERMISO_ID: number;
+  LLAVE: string;
+  DESCRIPCION: string;
+  MODULO: string;
+  CATEGORIA: string;
+  RIESGO: string;
+  ORDEN: number;
+  ACTIVO?: boolean;
+}
+
+export interface PermisoConEstado extends PermisoWeb {
+  GRANTED: boolean;
+  OVERRIDE: boolean | null; // null=via rol, true/false=override explícito
+}
+
+export interface AuditoriaEvento {
+  AUDIT_ID: number;
+  FECHA: string;
+  USUARIO_ID: number | null;
+  ACTOR_NOMBRE: string | null;
+  EVENTO: string;
+  RESULTADO: string;
+  IP: string | null;
+  USER_AGENT: string | null;
+  DETALLE: string | null;
+  ENTIDAD_TIPO: string | null;
+  ENTIDAD_ID: number | null;
+}
+
+export interface PoliticaSeguridad {
+  POLITICA_ID: number;
+  CLAVE_LONGITUD_MIN: number;
+  CLAVE_REQUIERE_MAYUS: boolean;
+  CLAVE_REQUIERE_MINUS: boolean;
+  CLAVE_REQUIERE_NUMERO: boolean;
+  CLAVE_REQUIERE_SIMBOLO: boolean;
+  CLAVE_EXPIRA_DIAS: number;
+  CLAVE_HISTORIAL: number;
+  LOCKOUT_INTENTOS: number;
+  LOCKOUT_MINUTOS: number;
+  SESION_DURACION_MINUTOS: number;
+  REFRESH_DURACION_DIAS: number;
+  SESION_INACTIVIDAD_MIN: number;
+  MFA_OBLIGATORIO_ADMIN: boolean;
+  MFA_OBLIGATORIO_TODOS: boolean;
+  FECHA_MODIFICACION: string;
+  MODIFICADO_POR: number | null;
+}
+
+export interface SesionActiva {
+  SESION_ID: string;
+  USUARIO_ID: number;
+  USER_AGENT: string | null;
+  IP: string | null;
+  DISPOSITIVO: string | null;
+  FECHA_CREACION: string;
+  FECHA_EXPIRACION: string;
+  FECHA_ULTIMO_USO: string | null;
+  REVOCADA: boolean;
 }
 
 export interface LoginRequest {
@@ -16,14 +119,9 @@ export interface LoginRequest {
 export interface LoginResponse {
   user: Usuario;
   permisos: string[];
+  roles: RolBasico[];
   puntosVenta: PuntoVentaAsignado[];
   token: string;
-}
-
-export interface PuntoVentaAsignado {
-  PUNTO_VENTA_ID: number;
-  NOMBRE: string;
-  ES_PREFERIDO: boolean;
 }
 
 // ── Productos ────────────────────────────────────
@@ -95,6 +193,8 @@ export interface Cliente {
   CODIGOPARTICULAR: string;
   NOMBRE: string | null;
   DOMICILIO: string | null;
+  CIUDAD: string | null;
+  CP: string | null;
   PROVINCIA: string | null;
   TELEFONO: string | null;
   EMAIL: string | null;
@@ -103,6 +203,8 @@ export interface Cliente {
   TIPO_DOCUMENTO: string;
   NUMERO_DOC: string;
   CONDICION_IVA: string | null;
+  RUBRO: string | null;
+  FECHA_NACIMIENTO: string | null;
 }
 
 // ── Proveedores ──────────────────────────────────
@@ -115,6 +217,8 @@ export interface Proveedor {
   DIRECCION: string | null;
   CIUDAD: string | null;
   CP: string | null;
+  CONDICION_IVA: string | null;
+  RUBRO: string | null;
   ACTIVO: boolean;
   CTA_CORRIENTE: boolean;
   TIPO_DOCUMENTO: string | null;
@@ -324,6 +428,8 @@ export interface Deposito {
   DEPOSITO_ID: number;
   CODIGOPARTICULAR: string;
   NOMBRE: string;
+  /** Puntos de Venta a los que pertenece este depósito (lista poblada por el backend). */
+  puntosVenta?: Array<{ PUNTO_VENTA_ID: number; NOMBRE: string; ES_PREFERIDO: boolean }>;
 }
 
 export interface UnidadMedida {
@@ -335,7 +441,17 @@ export interface UnidadMedida {
 export interface PuntoVenta {
   PUNTO_VENTA_ID: number;
   NOMBRE: string;
+  DIRECCION?: string | null;
+  COMENTARIOS?: string | null;
   ACTIVO: boolean;
+  /** Aggregate counts returned by getAll(). */
+  CANT_DEPOSITOS?: number;
+  CANT_USUARIOS?: number;
+}
+
+export interface PuntoVentaDetalle extends PuntoVenta {
+  depositos: Array<{ DEPOSITO_ID: number; NOMBRE: string; ES_PREFERIDO: boolean }>;
+  usuarios: Array<{ USUARIO_ID: number; NOMBRE: string; ES_PREFERIDO: boolean }>;
 }
 
 export interface StockDeposito {
@@ -477,6 +593,83 @@ export interface VentaDiaria {
   cantidad: number;
   total: number;
   ganancia: number;
+}
+
+// ── Analytics Dashboard ──────────────────────────
+export type DashboardGranularity = 'hour' | 'day' | 'week' | 'month';
+
+export interface DashboardKpis {
+  ventas: number;
+  total: number;
+  ganancia: number;
+  ticketPromedio: number;
+  margenPct: number;
+}
+
+export interface DashboardSeriesPoint {
+  bucket: string;          // ISO date/datetime depending on granularity
+  ventas: number;
+  total: number;
+  ganancia: number;
+}
+
+export interface DashboardTopProducto {
+  PRODUCTO_ID: number;
+  CODIGOPARTICULAR: string;
+  NOMBRE: string;
+  cantidad: number;
+  total: number;
+}
+
+export interface DashboardTopCliente {
+  CLIENTE_ID: number | null;
+  NOMBRE: string | null;
+  ventas: number;
+  total: number;
+}
+
+export interface DashboardTopCategoria {
+  NOMBRE: string;
+  total: number;
+}
+
+export interface DashboardHeatPoint {
+  dow: number;    // 1 = Sunday in SQL Server default DATEFIRST=7
+  hour: number;
+  ventas: number;
+  total: number;
+}
+
+export interface DashboardCajaCentral {
+  totalIngresos: number;
+  totalEgresos: number;
+  balance: number;
+  efectivo: number;
+  digital: number;
+  cheques: number;
+  ctaCte: number;
+}
+
+export interface DashboardAnalytics {
+  range: {
+    from: string;
+    to: string;
+    prevFrom: string;
+    prevTo: string;
+    granularity: DashboardGranularity;
+    days: number;
+  };
+  kpis: DashboardKpis;
+  prev: DashboardKpis;
+  series: DashboardSeriesPoint[];
+  metodosPago: DesgloseMetodo[];
+  topProductos: DashboardTopProducto[];
+  topClientes: DashboardTopCliente[];
+  topCategorias: DashboardTopCategoria[];
+  heatmap: DashboardHeatPoint[];
+  cajaCentral: DashboardCajaCentral;
+  productosStockBajo: DashboardStats['productosStockBajo'];
+  cajasAbiertas: DashboardStats['cajasAbiertas'];
 }
 
 // ── Compras ──────────────────────────────────────

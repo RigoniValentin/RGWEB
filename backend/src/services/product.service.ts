@@ -212,11 +212,21 @@ export const productService = {
   },
 
   // ── Get stock by product ───────────────────────
-  async getStockByProduct(productoId: number) {
+  async getStockByProduct(productoId: number, puntoVentaId?: number) {
     const pool = await getPool();
-    const result = await pool.request().input('id', sql.Int, productoId)
-      .query(`SELECT sd.*, d.NOMBRE AS DEPOSITO_NOMBRE FROM STOCK_DEPOSITOS sd
-              JOIN DEPOSITOS d ON sd.DEPOSITO_ID = d.DEPOSITO_ID WHERE sd.PRODUCTO_ID = @id`);
+    const result = await pool.request()
+      .input('id', sql.Int, productoId)
+      .input('pvId', sql.Int, puntoVentaId ?? null)
+      .query(`
+        SELECT sd.*, d.NOMBRE AS DEPOSITO_NOMBRE
+        FROM STOCK_DEPOSITOS sd
+        JOIN DEPOSITOS d ON sd.DEPOSITO_ID = d.DEPOSITO_ID
+        WHERE sd.PRODUCTO_ID = @id
+          AND (@pvId IS NULL OR EXISTS (
+            SELECT 1 FROM PUNTOS_VENTA_DEPOSITOS pvd
+            WHERE pvd.DEPOSITO_ID = d.DEPOSITO_ID AND pvd.PUNTO_VENTA_ID = @pvId
+          ))
+      `);
     return result.recordset;
   },
 
@@ -664,8 +674,23 @@ export const productService = {
     if (src.recordset.length === 0) throw new Error('Producto origen no encontrado');
     const s = src.recordset[0];
 
+    // Generate a unique CODIGOPARTICULAR: try "(copia)", then "(copia 2)", "(copia 3)", ...
+    const MAX_LEN = 50;
+    const BASE_SUFFIX = ' (copia)';
+    const baseCode = (s.CODIGOPARTICULAR as string).substring(0, MAX_LEN - BASE_SUFFIX.length);
+    let newCodigo = baseCode + BASE_SUFFIX;
+    let counter = 2;
+    while (true) {
+      const dup = await pool.request()
+        .input('code', sql.NVarChar, newCodigo)
+        .query(`SELECT 1 FROM PRODUCTOS WHERE CODIGOPARTICULAR = @code`);
+      if (dup.recordset.length === 0) break;
+      const suffix = ` (copia ${counter++})`;
+      newCodigo = (s.CODIGOPARTICULAR as string).substring(0, MAX_LEN - suffix.length) + suffix;
+    }
+
     const result = await pool.request()
-      .input('codigo', sql.NVarChar, s.CODIGOPARTICULAR + ' (copia)')
+      .input('codigo', sql.NVarChar, newCodigo)
       .input('nombre', sql.NVarChar, s.NOMBRE + ' (copia)')
       .input('descripcion', sql.VarChar, s.DESCRIPCION)
       .input('categoriaId', sql.Int, s.CATEGORIA_ID)

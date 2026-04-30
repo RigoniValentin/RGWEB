@@ -16,6 +16,10 @@ export interface DepositoFilter {
 export interface DepositoInput {
   CODIGOPARTICULAR?: string;
   NOMBRE: string;
+  /** Optional list of PUNTO_VENTA_IDs to assign on save. */
+  puntosVenta?: number[];
+  /** Optional PUNTO_VENTA_ID flagged as preferido for this deposit. */
+  puntoVentaPreferido?: number | null;
 }
 
 export const depositService = {
@@ -58,11 +62,40 @@ export const depositService = {
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
     `);
 
-    return { data: dataResult.recordset, total, page, pageSize };
+    // Attach puntos de venta per deposit (best-effort: junction table is optional)
+    const ids = dataResult.recordset.map(d => d.DEPOSITO_ID);
+    let pvByDep: Record<number, Array<{ PUNTO_VENTA_ID: number; NOMBRE: string; ES_PREFERIDO: boolean }>> = {};
+    if (ids.length > 0) {
+      try {
+        const pvResult = await pool.request().query(`
+          SELECT pvd.DEPOSITO_ID, pvd.PUNTO_VENTA_ID, pv.NOMBRE,
+                 ISNULL(pvd.ES_PREFERIDO, 0) AS ES_PREFERIDO
+          FROM PUNTOS_VENTA_DEPOSITOS pvd
+          JOIN PUNTO_VENTAS pv ON pv.PUNTO_VENTA_ID = pvd.PUNTO_VENTA_ID
+          WHERE pvd.DEPOSITO_ID IN (${ids.join(',')})
+          ORDER BY pv.NOMBRE
+        `);
+        for (const row of pvResult.recordset) {
+          if (!pvByDep[row.DEPOSITO_ID]) pvByDep[row.DEPOSITO_ID] = [];
+          pvByDep[row.DEPOSITO_ID].push({
+            PUNTO_VENTA_ID: row.PUNTO_VENTA_ID,
+            NOMBRE: row.NOMBRE,
+            ES_PREFERIDO: !!row.ES_PREFERIDO,
+          });
+        }
+      } catch { /* tables may not exist yet */ }
+    }
+
+    const data = dataResult.recordset.map(d => ({
+      ...d,
+      puntosVenta: pvByDep[d.DEPOSITO_ID] || [],
+    }));
+
+    return { data, total, page, pageSize };
   },
 
   // ── Get by ID ──────────────────────────────────
-  async getById(id: number): Promise<Deposito> {
+  async getById(id: number): Promise<Deposito & { puntosVenta?: Array<{ PUNTO_VENTA_ID: number; NOMBRE: string; ES_PREFERIDO: boolean }> }> {
     const pool = await getPool();
     const result = await pool
       .request()
@@ -72,7 +105,24 @@ export const depositService = {
     if (result.recordset.length === 0) {
       throw Object.assign(new Error('Depósito no encontrado'), { name: 'ValidationError' });
     }
-    return result.recordset[0];
+
+    let puntosVenta: Array<{ PUNTO_VENTA_ID: number; NOMBRE: string; ES_PREFERIDO: boolean }> = [];
+    try {
+      const pvResult = await pool.request().input('id', sql.Int, id).query(`
+        SELECT pvd.PUNTO_VENTA_ID, pv.NOMBRE, ISNULL(pvd.ES_PREFERIDO, 0) AS ES_PREFERIDO
+        FROM PUNTOS_VENTA_DEPOSITOS pvd
+        JOIN PUNTO_VENTAS pv ON pv.PUNTO_VENTA_ID = pvd.PUNTO_VENTA_ID
+        WHERE pvd.DEPOSITO_ID = @id
+        ORDER BY pv.NOMBRE
+      `);
+      puntosVenta = pvResult.recordset.map((r: any) => ({
+        PUNTO_VENTA_ID: r.PUNTO_VENTA_ID,
+        NOMBRE: r.NOMBRE,
+        ES_PREFERIDO: !!r.ES_PREFERIDO,
+      }));
+    } catch { /* junction may not exist yet */ }
+
+    return { ...result.recordset[0], puntosVenta };
   },
 
   // ── Create ─────────────────────────────────────
@@ -109,6 +159,10 @@ export const depositService = {
           VALUES (@id, @codigo, @nombre)
         `);
 
+      if (input.puntosVenta !== undefined) {
+        await syncPuntosVentaForDeposito(tx, nextId, input.puntosVenta, input.puntoVentaPreferido ?? null);
+      }
+
       await tx.commit();
       return { DEPOSITO_ID: nextId };
     } catch (err) {
@@ -140,15 +194,28 @@ export const depositService = {
       }
     }
 
-    await pool.request()
-      .input('id', sql.Int, id)
-      .input('codigo', sql.NVarChar, input.CODIGOPARTICULAR || '')
-      .input('nombre', sql.NVarChar, input.NOMBRE)
-      .query(`
-        UPDATE DEPOSITOS SET
-          CODIGOPARTICULAR = @codigo, NOMBRE = @nombre
-        WHERE DEPOSITO_ID = @id
-      `);
+    const tx = pool.transaction();
+    await tx.begin();
+    try {
+      await tx.request()
+        .input('id', sql.Int, id)
+        .input('codigo', sql.NVarChar, input.CODIGOPARTICULAR || '')
+        .input('nombre', sql.NVarChar, input.NOMBRE)
+        .query(`
+          UPDATE DEPOSITOS SET
+            CODIGOPARTICULAR = @codigo, NOMBRE = @nombre
+          WHERE DEPOSITO_ID = @id
+        `);
+
+      if (input.puntosVenta !== undefined) {
+        await syncPuntosVentaForDeposito(tx, id, input.puntosVenta, input.puntoVentaPreferido ?? null);
+      }
+
+      await tx.commit();
+    } catch (err) {
+      await tx.rollback();
+      throw err;
+    }
   },
 
   // ── Delete (check references first) ────────────
@@ -170,6 +237,12 @@ export const depositService = {
       throw Object.assign(new Error('No se puede eliminar el depósito porque tiene stock asociado. Mueva el stock a otro depósito primero.'), { name: 'ValidationError' });
     }
 
+    // Remove punto-venta links (junction table) before deleting the deposit.
+    try {
+      await pool.request().input('id', sql.Int, id)
+        .query(`DELETE FROM PUNTOS_VENTA_DEPOSITOS WHERE DEPOSITO_ID = @id`);
+    } catch { /* table may not exist */ }
+
     await pool.request().input('id', sql.Int, id)
       .query(`DELETE FROM DEPOSITOS WHERE DEPOSITO_ID = @id`);
 
@@ -183,3 +256,23 @@ export const depositService = {
     return String(result.recordset[0].nextId);
   },
 };
+// ── Internal helper for PV ↔ DEPOSITO sync ───────────────────────────
+async function syncPuntosVentaForDeposito(tx: any, depositoId: number, pvIds: number[], preferido: number | null) {
+  try {
+    await tx.request().input('id', sql.Int, depositoId)
+      .query(`DELETE FROM PUNTOS_VENTA_DEPOSITOS WHERE DEPOSITO_ID = @id`);
+
+    for (const pv of pvIds) {
+      await tx.request()
+        .input('pv', sql.Int, pv)
+        .input('dep', sql.Int, depositoId)
+        .input('pref', sql.Bit, preferido != null && pv === preferido ? 1 : 0)
+        .query(`
+          INSERT INTO PUNTOS_VENTA_DEPOSITOS (PUNTO_VENTA_ID, DEPOSITO_ID, ES_PREFERIDO)
+          VALUES (@pv, @dep, @pref)
+        `);
+    }
+  } catch {
+    // Junction table missing — ignore (legacy installs).
+  }
+}

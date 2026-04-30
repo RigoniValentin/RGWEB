@@ -149,6 +149,7 @@ export function StockHistoryModal({ open, onClose, productoId, productoNombre }:
       width={1000}
       centered
       destroyOnClose
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
     >
       {/* Filter by deposit */}
       <Space style={{ marginBottom: 12 }}>

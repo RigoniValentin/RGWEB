@@ -10,6 +10,7 @@ import {
   FilterOutlined, ReloadOutlined, TagOutlined,
 } from '@ant-design/icons';
 import { brandApi, type MarcaInput } from '../services/brand.api';
+import { useTabStore } from '../store/tabStore';
 import type { Marca } from '../types';
 
 const { Title } = Typography;
@@ -75,6 +76,12 @@ export function BrandsPage() {
     form.setFieldsValue({ ACTIVA: true });
     setFormOpen(true);
   };
+
+  useEffect(() => {
+    const handler = () => { if (useTabStore.getState().activeKey === '/brands') handleNew(); };
+    window.addEventListener('rg:nuevo', handler);
+    return () => window.removeEventListener('rg:nuevo', handler);
+  }, []);
 
   const handleEdit = (record: Marca) => {
     setEditId(record.MARCA_ID);
@@ -268,6 +275,7 @@ export function BrandsPage() {
         width={450}
         destroyOnClose
         className="rg-modal"
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {editId && editLoading ? (
           <div style={{ textAlign: 'center', padding: 40 }}><Spin size="large" /></div>

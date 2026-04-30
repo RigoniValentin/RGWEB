@@ -2,17 +2,27 @@ import { useCallback, useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Input, Typography, Tag, Select, Button, Modal, App,
-  Tooltip, Drawer, Spin, Form, Switch, Descriptions,
+  Tooltip, Drawer, Spin, Form, Switch, Descriptions, Divider, Row, Col,
 } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
-  EyeOutlined, FilterOutlined, ReloadOutlined, ShopOutlined,
+  EyeOutlined, FilterOutlined, ReloadOutlined, ShopOutlined, WarningOutlined,
 } from '@ant-design/icons';
+import { useTabStore } from '../store/tabStore';
 import { supplierApi, type ProveedorInput } from '../services/supplier.api';
+import { afipApi } from '../services/afip.api';
 import type { Proveedor } from '../types';
 
 const { Title } = Typography;
+
+const CONDICIONES_IVA = [
+  'Consumidor Final',
+  'Responsable Inscripto',
+  'Monotributista',
+  'Exento',
+  'No Responsable',
+];
 
 export function SuppliersPage() {
   const { message } = App.useApp();
@@ -35,6 +45,9 @@ export function SuppliersPage() {
   // Form instance
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [lookingUpCuit, setLookingUpCuit] = useState(false);
+  const [noAlcanzado, setNoAlcanzado] = useState(false);
+  const tipoDocWatch = Form.useWatch('TIPO_DOCUMENTO', form);
 
   // ── Data queries ─────────────────────────────────
   const { data, isLoading, refetch } = useQuery({
@@ -66,6 +79,32 @@ export function SuppliersPage() {
     qc.invalidateQueries({ queryKey: ['supplier-edit'] });
   }, [qc]);
 
+  // ── AFIP Padrón lookup ────────────────────────────
+  const handleBuscarCuit = async () => {
+    const cuit = (form.getFieldValue('NUMERO_DOC') as string || '').replace(/-/g, '');
+    if (!cuit) { message.warning('Ingresá el CUIT antes de buscar'); return; }
+    setLookingUpCuit(true);
+    setNoAlcanzado(false);
+    try {
+      const result = await afipApi.lookupCuit(cuit);
+      form.setFieldsValue({ NOMBRE: result.razonSocial });
+      if (result.domicilio) form.setFieldsValue({ DIRECCION: result.domicilio });
+      if (result.ciudad) form.setFieldsValue({ CIUDAD: result.ciudad });
+      if (result.codigoPostal) form.setFieldsValue({ CP: result.codigoPostal });
+      if (result.rubro) form.setFieldsValue({ RUBRO: result.rubro });
+      if (result.noAlcanzado) {
+        setNoAlcanzado(true);
+      } else if (result.condicionIva) {
+        form.setFieldsValue({ CONDICION_IVA: result.condicionIva });
+      }
+      message.success('Datos importados desde AFIP');
+    } catch (err: any) {
+      message.error(err?.response?.data?.error || 'No se pudo consultar el padrón de AFIP');
+    } finally {
+      setLookingUpCuit(false);
+    }
+  };
+
   // ── Fill form when editing ───────────────────────
   useEffect(() => {
     if (editData && formOpen && editId) {
@@ -79,6 +118,8 @@ export function SuppliersPage() {
         DIRECCION: editData.DIRECCION,
         CIUDAD: editData.CIUDAD,
         CP: editData.CP,
+        CONDICION_IVA: editData.CONDICION_IVA,
+        RUBRO: editData.RUBRO,
         CTA_CORRIENTE: editData.CTA_CORRIENTE,
         ACTIVO: editData.ACTIVO,
       });
@@ -90,8 +131,15 @@ export function SuppliersPage() {
     setEditId(null);
     form.resetFields();
     form.setFieldsValue({ TIPO_DOCUMENTO: 'CUIT', ACTIVO: true, CTA_CORRIENTE: false });
+    setNoAlcanzado(false);
     setFormOpen(true);
   };
+
+  useEffect(() => {
+    const handler = () => { if (useTabStore.getState().activeKey === '/suppliers') handleNew(); };
+    window.addEventListener('rg:nuevo', handler);
+    return () => window.removeEventListener('rg:nuevo', handler);
+  }, []);
 
   const handleEdit = (record: Proveedor) => {
     setEditId(record.PROVEEDOR_ID);
@@ -140,6 +188,8 @@ export function SuppliersPage() {
         DIRECCION: values.DIRECCION || null,
         CIUDAD: values.CIUDAD || null,
         CP: values.CP || null,
+        CONDICION_IVA: values.CONDICION_IVA || null,
+        RUBRO: values.RUBRO || null,
         TIPO_DOCUMENTO: values.TIPO_DOCUMENTO || 'CUIT',
         NUMERO_DOC: values.NUMERO_DOC || '',
         CTA_CORRIENTE: values.CTA_CORRIENTE || false,
@@ -334,59 +384,131 @@ export function SuppliersPage() {
       <Modal
         title={editId ? 'Editar Proveedor' : 'Nuevo Proveedor'}
         open={formOpen}
-        onCancel={() => { setFormOpen(false); setEditId(null); form.resetFields(); }}
+        onCancel={() => { setFormOpen(false); setEditId(null); setNoAlcanzado(false); form.resetFields(); }}
         onOk={handleSave}
         okText={editId ? 'Guardar Cambios' : 'Crear Proveedor'}
         cancelText="Cancelar"
         confirmLoading={saving}
-        width={600}
+        width={720}
         destroyOnClose
         className="rg-modal"
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {editId && editLoading ? (
           <div style={{ textAlign: 'center', padding: 40 }}><Spin size="large" /></div>
         ) : (
           <Form form={form} layout="vertical" size="middle">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-              <Form.Item name="CODIGOPARTICULAR" label="Código"
-                tooltip={editId ? 'El código es obligatorio' : 'Si se deja vacío se asigna automáticamente'}
-                rules={editId ? [{ required: true, whitespace: true, message: 'El código es obligatorio' }] : []}>
-                <Input placeholder={editId ? '' : 'Auto'} />
-              </Form.Item>
-              <Form.Item name="NOMBRE" label="Nombre" rules={[{ required: true, message: 'Ingresá el nombre' }]}>
-                <Input />
-              </Form.Item>
-              <Form.Item name="TIPO_DOCUMENTO" label="Tipo Documento">
-                <Select options={[
-                  { label: 'CUIT', value: 'CUIT' },
-                  { label: 'DNI', value: 'DNI' },
-                ]} />
-              </Form.Item>
-              <Form.Item name="NUMERO_DOC" label="Nro. Documento">
-                <Input />
-              </Form.Item>
-              <Form.Item name="TELEFONO" label="Teléfono">
-                <Input />
-              </Form.Item>
-              <Form.Item name="EMAIL" label="Email">
-                <Input type="email" />
-              </Form.Item>
-              <Form.Item name="DIRECCION" label="Dirección" style={{ gridColumn: '1 / -1' }}>
-                <Input />
-              </Form.Item>
-              <Form.Item name="CIUDAD" label="Ciudad">
-                <Input />
-              </Form.Item>
-              <Form.Item name="CP" label="Código Postal">
-                <Input />
-              </Form.Item>
-              <Form.Item name="CTA_CORRIENTE" label="Habilitar Cta. Corriente" valuePropName="checked">
-                <Switch />
-              </Form.Item>
-              <Form.Item name="ACTIVO" label="Activo" valuePropName="checked">
-                <Switch />
-              </Form.Item>
-            </div>
+
+            {/* ── Identificación ──────────────── */}
+            <Divider orientation="left" orientationMargin={0} style={{ marginTop: 4, marginBottom: 12, fontSize: 12, color: '#888' }}>Identificación</Divider>
+            <Row gutter={12}>
+              <Col span={5}>
+                <Form.Item name="CODIGOPARTICULAR" label="Código"
+                  tooltip={editId ? 'Obligatorio' : 'Vacío = automático'}
+                  rules={editId ? [{ required: true, whitespace: true, message: 'Requerido' }] : []}>
+                  <Input placeholder={editId ? '' : 'Auto'} />
+                </Form.Item>
+              </Col>
+              <Col span={19}>
+                <Form.Item name="NOMBRE" label="Nombre" rules={[{ required: true, message: 'Ingresá el nombre' }]}>
+                  <Input />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={12}>
+              <Col span={6}>
+                <Form.Item name="TIPO_DOCUMENTO" label="Tipo Doc.">
+                  <Select
+                    options={[
+                      { label: 'CUIT', value: 'CUIT' },
+                      { label: 'DNI', value: 'DNI' },
+                    ]}
+                    onChange={() => setNoAlcanzado(false)}
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={10}>
+                <Form.Item name="NUMERO_DOC" label="Nro. Documento">
+                  <Input.Search
+                    enterButton={tipoDocWatch === 'CUIT' ? 'Buscar AFIP' : false}
+                    loading={lookingUpCuit}
+                    onSearch={tipoDocWatch === 'CUIT' ? handleBuscarCuit : undefined}
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item
+                  name="CONDICION_IVA"
+                  label={
+                    noAlcanzado
+                      ? <span><WarningOutlined style={{ color: '#faad14', marginRight: 4 }} />Cond. IVA <span style={{ fontWeight: 400, color: '#faad14', fontSize: 11 }}>(seleccioná manualmente)</span></span>
+                      : 'Condición IVA'
+                  }
+                >
+                  <Select
+                    allowClear
+                    showSearch
+                    placeholder="Seleccionar"
+                    options={CONDICIONES_IVA.map(c => ({ label: c, value: c }))}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            {/* ── Domicilio ───────────────────── */}
+            <Divider orientation="left" orientationMargin={0} style={{ marginBottom: 12, fontSize: 12, color: '#888' }}>Domicilio</Divider>
+            <Row gutter={12}>
+              <Col span={12}>
+                <Form.Item name="DIRECCION" label="Dirección">
+                  <Input />
+                </Form.Item>
+              </Col>
+              <Col span={7}>
+                <Form.Item name="CIUDAD" label="Ciudad">
+                  <Input />
+                </Form.Item>
+              </Col>
+              <Col span={5}>
+                <Form.Item name="CP" label="Cód. Postal">
+                  <Input />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={12}>
+              <Col span={24}>
+                <Form.Item name="RUBRO" label="Rubro / Actividad">
+                  <Input placeholder="Actividad principal (AFIP)" />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            {/* ── Contacto & Config ───────────── */}
+            <Divider orientation="left" orientationMargin={0} style={{ marginBottom: 12, fontSize: 12, color: '#888' }}>Contacto y configuración</Divider>
+            <Row gutter={12}>
+              <Col span={8}>
+                <Form.Item name="TELEFONO" label="Teléfono">
+                  <Input />
+                </Form.Item>
+              </Col>
+              <Col span={16}>
+                <Form.Item name="EMAIL" label="Email">
+                  <Input type="email" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={12}>
+              <Col span={8}>
+                <Form.Item name="CTA_CORRIENTE" label="Cta. Corriente" valuePropName="checked">
+                  <Switch />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="ACTIVO" label="Activo" valuePropName="checked">
+                  <Switch />
+                </Form.Item>
+              </Col>
+            </Row>
+
           </Form>
         )}
       </Modal>
@@ -415,6 +537,8 @@ export function SuppliersPage() {
             <Descriptions.Item label="Nombre">{detail.NOMBRE || '-'}</Descriptions.Item>
             <Descriptions.Item label="Tipo Doc.">{detail.TIPO_DOCUMENTO || '-'}</Descriptions.Item>
             <Descriptions.Item label="Nro. Doc.">{detail.NUMERO_DOC || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Cond. IVA">{detail.CONDICION_IVA || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Rubro">{detail.RUBRO || '-'}</Descriptions.Item>
             <Descriptions.Item label="Dirección">{detail.DIRECCION || '-'}</Descriptions.Item>
             <Descriptions.Item label="Ciudad">{detail.CIUDAD || '-'}</Descriptions.Item>
             <Descriptions.Item label="CP">{detail.CP || '-'}</Descriptions.Item>

@@ -228,7 +228,7 @@ export function PriceCheckModal({ open, compraId, onClose }: Props) {
         }
         width={820}
         centered
-        styles={{ body: { padding: '12px 16px', maxHeight: 'calc(100vh - 200px)', overflow: 'auto' } }}
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
         footer={
           <Space style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
             <Space>

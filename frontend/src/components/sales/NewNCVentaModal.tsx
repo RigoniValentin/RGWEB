@@ -870,7 +870,7 @@ export function NewNCVentaModal({ open, onClose, onSuccess, preselectedVentaId, 
       footer={footerButtons()}
       destroyOnClose
       styles={{
-        body: { paddingTop: 12, maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' },
+        body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 },
       }}
     >
       <Steps
@@ -904,6 +904,7 @@ export function NewNCVentaModal({ open, onClose, onSuccess, preselectedVentaId, 
       centered
       width={520}
       destroyOnClose
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       title={
         <Space>
           <WalletOutlined style={{ color: '#EABD23', fontSize: 20 }} />

@@ -91,6 +91,13 @@ export function NCVentasPage() {
     if (activeKey === '/nc-ventas') refetch();
   }, [activeKey]);
 
+  // '+' key shortcut → Nueva NC
+  useEffect(() => {
+    const handler = () => { if (useTabStore.getState().activeKey === '/nc-ventas') setNewNCOpen(true); };
+    window.addEventListener('rg:nuevo', handler);
+    return () => window.removeEventListener('rg:nuevo', handler);
+  }, []);
+
   // ── Open NC from navigation state (cross-nav from CajaCentral) ──
   useEffect(() => {
     const st = location.state as { openNCId?: number } | null;
@@ -634,6 +641,7 @@ export function NCVentasPage() {
         title="Desglose por método de pago"
         width={480}
         destroyOnClose
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {detail?.metodos_pago && detail.metodos_pago.length > 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>

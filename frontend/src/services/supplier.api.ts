@@ -9,6 +9,8 @@ export interface ProveedorInput {
   DIRECCION?: string | null;
   CIUDAD?: string | null;
   CP?: string | null;
+  CONDICION_IVA?: string | null;
+  RUBRO?: string | null;
   TIPO_DOCUMENTO?: string;
   NUMERO_DOC?: string;
   CTA_CORRIENTE?: boolean;

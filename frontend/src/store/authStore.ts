@@ -1,18 +1,20 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Usuario, PuntoVentaAsignado } from '../types';
+import type { Usuario, PuntoVentaAsignado, RolBasico } from '../types';
 
 interface AuthState {
   user: Usuario | null;
   token: string | null;
   permisos: string[];
+  roles: RolBasico[];
   puntosVenta: PuntoVentaAsignado[];
   puntoVentaActivo: number | null;
   isAuthenticated: boolean;
-  setAuth: (user: Usuario, token: string, permisos: string[], puntosVenta: PuntoVentaAsignado[]) => void;
+  setAuth: (user: Usuario, token: string, permisos: string[], puntosVenta: PuntoVentaAsignado[], roles?: RolBasico[]) => void;
   setPuntoVentaActivo: (id: number) => void;
   logout: () => void;
   hasPermiso: (llave: string) => boolean;
+  isCajero: () => boolean;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -21,16 +23,18 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       token: null,
       permisos: [],
+      roles: [],
       puntosVenta: [],
       puntoVentaActivo: null,
       isAuthenticated: false,
 
-      setAuth: (user, token, permisos, puntosVenta) => {
+      setAuth: (user, token, permisos, puntosVenta, roles = []) => {
         const preferido = puntosVenta.find(pv => pv.ES_PREFERIDO);
         set({
           user,
           token,
           permisos,
+          roles,
           puntosVenta,
           puntoVentaActivo: preferido?.PUNTO_VENTA_ID || puntosVenta[0]?.PUNTO_VENTA_ID || null,
           isAuthenticated: true,
@@ -44,12 +48,14 @@ export const useAuthStore = create<AuthState>()(
           user: null,
           token: null,
           permisos: [],
+          roles: [],
           puntosVenta: [],
           puntoVentaActivo: null,
           isAuthenticated: false,
         }),
 
       hasPermiso: (llave) => get().permisos.includes(llave),
+      isCajero: () => (get().roles ?? []).some(r => r.NOMBRE.toUpperCase() === 'CAJERO'),
     }),
     {
       name: 'rg-erp-auth',

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -37,6 +37,13 @@ export function CajaCentralPage() {
   const [balanceHistorico, setBalanceHistorico] = useState(false);
   const [activeTab, setActiveTab] = useState('ingresos');
   const [nuevoModalOpen, setNuevoModalOpen] = useState(false);
+
+  // '+' key shortcut → Nuevo Movimiento
+  useEffect(() => {
+    const handler = () => { if (useTabStore.getState().activeKey === '/cashcentral') setNuevoModalOpen(true); };
+    window.addEventListener('rg:nuevo', handler);
+    return () => window.removeEventListener('rg:nuevo', handler);
+  }, []);
   const [fondoModalOpen, setFondoModalOpen] = useState(false);
   const [nuevoTipo, setNuevoTipo] = useState<'INGRESO' | 'EGRESO'>('INGRESO');
   const [nuevoDesc, setNuevoDesc] = useState('');
@@ -196,7 +203,7 @@ export function CajaCentralPage() {
     {
       title: 'Total', dataIndex: 'TOTAL', key: 'total', width: 160, align: 'center' as const,
       render: (v: number, record: MovimientoCaja) => {
-        const showDesglose = record.CAJA_ID || record.ES_MANUAL || record.TIPO_ENTIDAD === 'COMPRA' || record.TIPO_ENTIDAD === 'ORDEN_PAGO' || record.TIPO_ENTIDAD === 'COBRANZA' || record.TIPO_ENTIDAD === 'NC_VENTA' || record.TIPO_ENTIDAD === 'NC_COMPRA';
+        const showDesglose = record.CAJA_ID || record.ES_MANUAL || record.TIPO_ENTIDAD === 'COMPRA' || record.TIPO_ENTIDAD === 'ORDEN_PAGO' || record.TIPO_ENTIDAD === 'COBRANZA' || record.TIPO_ENTIDAD === 'NC_VENTA' || record.TIPO_ENTIDAD === 'NC_COMPRA' || record.TIPO_ENTIDAD === 'GASTO';
         if (showDesglose) {
           return (
             <Text
@@ -259,6 +266,28 @@ export function CajaCentralPage() {
                   onClick={() => {
                     openTab({ key: '/nc-compras', label: 'NC Compras', closable: true });
                     navigate('/nc-compras', { state: { openNCId: ncId } });
+                  }}
+                />
+              </Tooltip>
+            )}
+            {record.TIPO_ENTIDAD === 'GASTO' && record.ID_ENTIDAD && (
+              <Tooltip title="Ver detalle del Gasto">
+                <EyeOutlined
+                  style={{ cursor: 'pointer', color: '#EABD23', fontSize: 16 }}
+                  onClick={() => {
+                    openTab({ key: '/expenses', label: 'Gastos y Servicios', closable: true });
+                    navigate('/expenses', { state: { openGastoId: record.ID_ENTIDAD } });
+                  }}
+                />
+              </Tooltip>
+            )}
+            {record.TIPO_ENTIDAD === 'ORDEN_PAGO' && record.ID_ENTIDAD && (
+              <Tooltip title="Ver Orden de Pago">
+                <EyeOutlined
+                  style={{ cursor: 'pointer', color: '#EABD23', fontSize: 16 }}
+                  onClick={() => {
+                    openTab({ key: '/ordenes-pago', label: 'Órdenes de Pago', closable: true });
+                    navigate('/ordenes-pago', { state: { openOPId: record.ID_ENTIDAD } });
                   }}
                 />
               </Tooltip>
@@ -454,6 +483,7 @@ export function CajaCentralPage() {
         okButtonProps={{ className: nuevoTipo === 'INGRESO' ? 'btn-gold' : undefined, danger: nuevoTipo === 'EGRESO', disabled: !nuevoDesc.trim() || nuevoTotal <= 0 || !nuevoPvId }}
         width={500}
         className="rg-modal"
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         <Form layout="vertical">
           <Row gutter={12}>
@@ -573,6 +603,7 @@ export function CajaCentralPage() {
         title="Desglose por método de pago"
         width={480}
         destroyOnClose
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {desgloseData.length === 0 ? (
           <Text type="secondary">No hay métodos de pago registrados para este período.</Text>

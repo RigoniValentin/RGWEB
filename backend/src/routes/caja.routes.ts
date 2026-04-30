@@ -1,18 +1,27 @@
 import { Router, Response, NextFunction } from 'express';
 import { cajaService } from '../services/caja.service.js';
 import { salesService } from '../services/sales.service.js';
-import { AuthRequest, authMiddleware } from '../middleware/auth.js';
+import { AuthRequest, authMiddleware, requirePermiso, loadUserPermisos } from '../middleware/auth.js';
 
 const router = Router();
 router.use(authMiddleware as any);
 
 // ── GET /api/caja — list cajas ───────────────────
+// Users without 'caja.central.ver' (i.e. non-admin) are automatically scoped
+// to their own cajas so they cannot access other users' cash register data.
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { page, pageSize, fechaDesde, fechaHasta, estado, puntoVentaIds } = req.query;
     const pvIds = puntoVentaIds
       ? String(puntoVentaIds).split(',').map(Number).filter(n => !isNaN(n))
       : undefined;
+
+    // Auto-scope: non-admin users (without caja.central.ver) only see their own cajas
+    let usuarioId: number | undefined;
+    const perms = await loadUserPermisos(req);
+    if (perms && !perms.includes('caja.central.ver')) {
+      usuarioId = req.user!.id;
+    }
 
     const result = await cajaService.getAll({
       page: page ? Number(page) : undefined,
@@ -21,6 +30,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       fechaHasta: fechaHasta as string | undefined,
       estado: estado as string | undefined,
       puntoVentaIds: pvIds,
+      usuarioId,
     });
     res.json(result);
   } catch (err) { next(err); }
@@ -92,10 +102,19 @@ router.get('/desglose-item/:origenTipo/:origenId', async (req: AuthRequest, res:
 });
 
 // ── GET /api/caja/:id — get caja detail with items ──
+// Non-admin users (no caja.central.ver) can only view their own caja.
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const caja = await cajaService.getById(Number(req.params.id));
     if (!caja) { res.status(404).json({ error: 'Caja no encontrada' }); return; }
+
+    // Ownership check for non-admin users
+    const perms = await loadUserPermisos(req);
+    if (perms && !perms.includes('caja.central.ver') && caja.USUARIO_ID !== req.user!.id) {
+      res.status(403).json({ error: 'No tiene permiso para ver esta caja' });
+      return;
+    }
+
     res.json(caja);
   } catch (err) { next(err); }
 });
@@ -109,7 +128,7 @@ router.get('/:id/desglose-metodos', async (req: AuthRequest, res: Response, next
 });
 
 // ── POST /api/caja/abrir — open a new caja ──────
-router.post('/abrir', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/abrir', requirePermiso('caja.abrir'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const result = await cajaService.abrir(req.body, req.user!.id);
     res.status(201).json(result);
@@ -120,7 +139,7 @@ router.post('/abrir', async (req: AuthRequest, res: Response, next: NextFunction
 });
 
 // ── POST /api/caja/:id/cerrar — close a caja ────
-router.post('/:id/cerrar', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/:id/cerrar', requirePermiso('caja.cerrar'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const result = await cajaService.cerrar(Number(req.params.id), req.body, req.user!.id);
     res.json(result);
@@ -131,18 +150,24 @@ router.post('/:id/cerrar', async (req: AuthRequest, res: Response, next: NextFun
 });
 
 // ── POST /api/caja/:id/ingreso-egreso — add income/expense ──
+// Permission is checked inside based on the requested TIPO
 router.post('/:id/ingreso-egreso', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const result = await cajaService.addIngresoEgreso(Number(req.params.id), req.body, req.user!.id);
-    res.status(201).json(result);
-  } catch (err: any) {
-    if (err.name === 'ValidationError') { res.status(err.status || 400).json({ error: err.message }); return; }
-    next(err);
-  }
+  const tipo: string = (req.body.TIPO || req.body.tipo || '').toUpperCase();
+  const llave = tipo === 'EGRESO' ? 'caja.egreso' : 'caja.ingreso';
+  return requirePermiso(llave)(req, res, async () => {
+    try {
+      const result = await cajaService.addIngresoEgreso(Number(req.params.id), req.body, req.user!.id);
+      res.status(201).json(result);
+    } catch (err: any) {
+      if (err.name === 'ValidationError') { res.status(err.status || 400).json({ error: err.message }); return; }
+      next(err);
+    }
+  });
 });
 
 // ── DELETE /api/caja/:cajaId/items/:itemId — delete manual item ──
-router.delete('/:cajaId/items/:itemId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+// Requires ability to create both ingreso and egreso (delete is a combined operation)
+router.delete('/:cajaId/items/:itemId', requirePermiso('caja.ingreso', 'caja.egreso'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const result = await cajaService.deleteItem(Number(req.params.cajaId), Number(req.params.itemId));
     res.json(result);

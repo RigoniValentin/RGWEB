@@ -10,6 +10,7 @@ import {
   FilterOutlined, ReloadOutlined, TagsOutlined,
 } from '@ant-design/icons';
 import { categoryApi, type CategoriaInput } from '../services/category.api';
+import { useTabStore } from '../store/tabStore';
 import type { Categoria } from '../types';
 
 const { Title } = Typography;
@@ -75,6 +76,12 @@ export function CategoriesPage() {
       form.setFieldsValue({ ACTIVA: true });
     setFormOpen(true);
   };
+
+  useEffect(() => {
+    const handler = () => { if (useTabStore.getState().activeKey === '/categories') handleNew(); };
+    window.addEventListener('rg:nuevo', handler);
+    return () => window.removeEventListener('rg:nuevo', handler);
+  }, []);
 
   const handleEdit = (record: Categoria) => {
     setEditId(record.CATEGORIA_ID);
@@ -269,6 +276,7 @@ export function CategoriesPage() {
         width={450}
         destroyOnClose
         className="rg-modal"
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {editId && editLoading ? (
           <div style={{ textAlign: 'center', padding: 40 }}><Spin size="large" /></div>

@@ -56,8 +56,8 @@ export const productApi = {
   getById: (id: number) =>
     api.get<ProductDetail>(`/products/${id}`).then(r => r.data),
 
-  getStock: (id: number) =>
-    api.get<StockDeposito[]>(`/products/${id}/stock`).then(r => r.data),
+  getStock: (id: number, params?: { puntoVentaId?: number }) =>
+    api.get<StockDeposito[]>(`/products/${id}/stock`, { params }).then(r => r.data),
 
   getTasasImpuestos: () =>
     api.get<TasaImpuesto[]>('/products/tasas-impuestos').then(r => r.data),

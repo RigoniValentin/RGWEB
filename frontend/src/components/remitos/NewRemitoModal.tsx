@@ -314,6 +314,7 @@ export function NewRemitoModal({ open, tipo, onClose, onSuccess }: Props) {
       open={open}
       onCancel={onClose}
       width={900}
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <Text strong style={{ fontSize: 16 }}>Total: {fmtMoney(subtotal)}</Text>

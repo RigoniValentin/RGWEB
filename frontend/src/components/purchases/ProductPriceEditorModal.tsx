@@ -150,6 +150,7 @@ export function ProductPriceEditorModal({
       width={480}
       centered
       destroyOnClose
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       footer={
         <Space style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
           <Button onClick={onClose}>Cancelar</Button>

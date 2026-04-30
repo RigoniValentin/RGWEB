@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo, useRef, type ComponentType } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, type ComponentType } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Layout, Menu, Button, Typography, Avatar, Dropdown, Select, Tag } from 'antd';
+import { Layout, Menu, Button, Typography, Avatar, Dropdown, Select, Tag, Tooltip, message } from 'antd';
 import {
   DoubleLeftOutlined,
   DoubleRightOutlined,
@@ -46,6 +46,7 @@ import { useSettingsStore } from '../store/settingsStore';
 import { useQueryClient } from '@tanstack/react-query';
 import { RGLogo } from './RGLogo';
 import { TabBar } from './TabBar';
+import { QuickProductLookupModal } from './products/QuickProductLookupModal';
 
 // ── Lazy-loaded page components ──────────────────
 import { DashboardPage } from '../pages/DashboardPage';
@@ -72,7 +73,11 @@ import { StockPage } from '../pages/StockPage';
 import { ListadoComandasPage } from '../pages/ListadoComandasPage';
 import { CobranzasPage } from '../pages/CobranzasPage';
 import { OrdenesPagoPage } from '../pages/OrdenesPagoPage';
+import { ExpensesPage } from '../pages/ExpensesPage';
 import { LibroIvaVentasPage } from '../pages/LibroIvaVentasPage';
+import { LibroIvaComprasPage } from '../pages/LibroIvaComprasPage';
+import { UsuariosPage } from '../pages/UsuariosPage';
+import { PuntosVentaPage } from '../pages/PuntosVentaPage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -93,6 +98,7 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/suppliers':      { label: 'Proveedores',  icon: <ShopOutlined />,         component: SuppliersPage,    closable: true },
   '/cashregisters':  { label: 'Cajas',        icon: <BankOutlined />,         component: CajaPage,         closable: true },
   '/cashcentral':    { label: 'Caja Central', icon: <WalletOutlined />,       component: CajaCentralPage,  closable: true },
+  '/expenses':       { label: 'Gastos y Servicios', icon: <CreditCardOutlined />, component: ExpensesPage,    closable: true },
   '/deposits':       { label: 'Depósitos',    icon: <InboxOutlined />,        component: DepositsPage,     closable: true },
   '/categories':     { label: 'Categorías',   icon: <TagsOutlined />,         component: CategoriesPage,   closable: true },
   '/brands':         { label: 'Marcas',        icon: <TagOutlined />,          component: BrandsPage,       closable: true },
@@ -110,13 +116,76 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/gastronomy/comandas': { label: 'Listado Comandas', icon: <UnorderedListOutlined />, component: ListadoComandasPage, closable: true },
   '/remitos':          { label: 'Remitos',         icon: <FileTextOutlined />,   component: RemitosPage,      closable: true },
   '/stock':            { label: 'Stock',           icon: <InboxOutlined />,      component: StockPage,        closable: true },
-  '/libro-iva-ventas': { label: 'Libro IVA Ventas', icon: <AuditOutlined />,      component: LibroIvaVentasPage, closable: true },
+  '/libro-iva-ventas':   { label: 'Libro IVA Ventas',   icon: <AuditOutlined />,        component: LibroIvaVentasPage,  closable: true },
+  '/libro-iva-compras':  { label: 'Libro IVA Compras',  icon: <ShoppingCartOutlined />, component: LibroIvaComprasPage, closable: true },
+  '/users/users':      { label: 'Usuarios',         icon: <SafetyOutlined />,     component: UsuariosPage,      closable: true },
+  '/settings/pos':     { label: 'Puntos de Venta',  icon: <EnvironmentOutlined />, component: PuntosVentaPage,   closable: true },
 };
 
 /** Icon map for TabBar */
 const ICON_MAP: Record<string, React.ReactNode> = Object.fromEntries(
   Object.entries(TAB_ROUTES).map(([key, r]) => [key, r.icon])
 );
+
+/* ── Permission map: route key → required permiso LLAVE ─ */
+const ROUTE_PERMISSIONS: Record<string, string> = {
+  // '/dashboard' is intentionally omitted — every authenticated user sees their role-appropriate view
+  '/customers':           'clientes.ver',
+  '/products':            'productos.ver',
+  '/etiquetas':           'productos.ver',
+  '/stock':               'stock.ver',
+  '/sales':               'ventas.ver',
+  '/purchases':           'compras.ver',
+  '/nc-ventas':           'ventas.ver',
+  '/nc-compras':          'compras.ver',
+  '/suppliers':           'proveedores.ver',
+  '/cashregisters':       'caja.ver',
+  '/cashcentral':         'caja.central.ver',
+  '/deposits':            'caja.depositos.ver',
+  '/categories':          'catalogo.ver',
+  '/brands':              'catalogo.ver',
+  '/payment-methods':     'configuracion.ver',
+  '/cobranzas':           'cobranzas.ver',
+  '/ordenes-pago':        'ordenes_pago.ver',
+  '/cta-corriente':       'cta_corriente.ver',
+  '/cta-corriente-prov':  'cta_corriente_prov.ver',
+  '/remitos':             'remitos.ver',
+  '/gastronomy/tables':   'gastronomy.mesas.ver',
+  '/gastronomy/comandas': 'gastronomy.mesas.ver',
+  '/libro-iva-ventas':    'reportes.iva.ver',
+  '/libro-iva-compras':   'reportes.iva.compras.ver',
+  '/users/users':         'usuarios.ver',
+  '/settings/general':    'configuracion.ver',
+  '/settings/pos':        'configuracion.ver',
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function filterMenuItems(items: any[], canAccess: (key: string) => boolean): any[] {
+  return items
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .map((item: any) => {
+      if (item?.children) {
+        const filtered = filterMenuItems(item.children, canAccess);
+        if (filtered.length === 0) return null;
+        return { ...item, children: filtered };
+      }
+      if (typeof item?.key === 'string' && item.key.startsWith('/')) {
+        if (!canAccess(item.key)) return null;
+      }
+      return item;
+    })
+    .filter(Boolean);
+}
+
+function AccessDenied() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 300, gap: 12 }}>
+      <LockOutlined style={{ fontSize: 48, color: '#d9d9d9' }} />
+      <Typography.Title level={4} style={{ color: '#999', margin: 0 }}>Sin acceso</Typography.Title>
+      <Typography.Text type="secondary">No tenés permisos para acceder a esta sección.</Typography.Text>
+    </div>
+  );
+}
 
 /* ── Menu sections matching Río Gestión desktop ─ */
 const menuItems = [
@@ -202,7 +271,8 @@ const menuItems = [
       { type: 'group' as const, label: 'Reportes', className: 'rg-popup-group-title', children: [
         { key: '/reports/reports', icon: <FileTextOutlined />, label: 'Reportes' },
         { key: '/reports/listings', icon: <UnorderedListOutlined />, label: 'Listados' },
-        { key: '/libro-iva-ventas', icon: <AuditOutlined />, label: 'Libro IVA Ventas' },
+        { key: '/libro-iva-ventas',  icon: <AuditOutlined />,        label: 'Libro IVA Ventas' },
+        { key: '/libro-iva-compras', icon: <ShoppingCartOutlined />, label: 'Libro IVA Compras' },
       ]},
     ],
   },
@@ -236,10 +306,51 @@ export function AppLayout() {
   const [collapsed, setCollapsed] = useState(true);
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, puntosVenta, puntoVentaActivo, setPuntoVentaActivo, logout } = useAuthStore();
+  const { user, puntosVenta, puntoVentaActivo, setPuntoVentaActivo, logout, permisos, isCajero } = useAuthStore();
+  const cajero = isCajero();
   const { tabs, activeKey, openTab } = useTabStore();
   const { fetchSettings, loaded: settingsLoaded } = useSettingsStore();
   const queryClient = useQueryClient();
+
+  // Dashboard tab is rebranded as "Inicio" for cajero users
+  const dashboardLabel = cajero ? 'Inicio' : 'Dashboard';
+  const dashboardIcon  = cajero ? <HomeOutlined /> : <DashboardOutlined />;
+
+  const iconMap = useMemo<Record<string, React.ReactNode>>(
+    () => ({ ...ICON_MAP, '/dashboard': dashboardIcon }),
+    [dashboardIcon],
+  );
+
+  const getRouteLabel = useCallback(
+    (key: string) => (key === '/dashboard' ? dashboardLabel : TAB_ROUTES[key]?.label ?? ''),
+    [dashboardLabel],
+  );
+
+  // When cajero state changes, sync the existing /dashboard tab label
+  useEffect(() => {
+    const state = useTabStore.getState();
+    const idx = state.tabs.findIndex(t => t.key === '/dashboard');
+    const existing = state.tabs[idx];
+    if (idx >= 0 && existing && existing.label !== dashboardLabel) {
+      const next = [...state.tabs];
+      next[idx] = { ...existing, label: dashboardLabel };
+      useTabStore.setState({ tabs: next });
+    }
+  }, [dashboardLabel]);
+
+  const canAccessRoute = useCallback(
+    (key: string) => {
+      const perm = ROUTE_PERMISSIONS[key];
+      if (!perm) return true;
+      return permisos.includes(perm);
+    },
+    [permisos],
+  );
+
+  const filteredMenuItems = useMemo(
+    () => filterMenuItems(menuItems, canAccessRoute),
+    [canAccessRoute],
+  );
 
   // Load user settings on mount
   useEffect(() => {
@@ -271,6 +382,13 @@ export function AppLayout() {
       parts.push(mapped);
       const combo = parts.join('+');
 
+      // '+' key → "Nuevo" en la página activa
+      if (e.key === '+' && !isInput && !isContentEditable) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('rg:nuevo'));
+        return;
+      }
+
       // Check against configured shortcuts
       const settings = useSettingsStore.getState().settings;
       const shortcuts = settings.filter(s => s.TIPO === 'shortcut');
@@ -289,19 +407,28 @@ export function AppLayout() {
           // Dispatch based on clave
           switch (sc.CLAVE) {
             case 'atajo_nueva_venta':
-              openTab({ key: '/sales', label: 'Ventas', closable: true });
-              navigate('/sales');
-              // Delay so SalesPage has time to mount & register the listener
-              setTimeout(() => window.dispatchEvent(new CustomEvent('rg:open-new-sale')), 150);
+              if (canAccessRoute('/sales')) {
+                openTab({ key: '/sales', label: 'Ventas', closable: true });
+                navigate('/sales');
+                // Delay so SalesPage has time to mount & register the listener
+                setTimeout(() => window.dispatchEvent(new CustomEvent('rg:open-new-sale')), 150);
+              }
               break;
             case 'atajo_nueva_compra':
-              openTab({ key: '/purchases', label: 'Compras', closable: true });
-              navigate('/purchases');
-              window.dispatchEvent(new CustomEvent('rg:open-new-purchase'));
+              if (canAccessRoute('/purchases')) {
+                openTab({ key: '/purchases', label: 'Compras', closable: true });
+                navigate('/purchases');
+                window.dispatchEvent(new CustomEvent('rg:open-new-purchase'));
+              }
               break;
             case 'atajo_abrir_caja':
-              openTab({ key: '/cashregisters', label: 'Cajas', closable: true });
-              navigate('/cashregisters');
+              if (canAccessRoute('/cashregisters')) {
+                openTab({ key: '/cashregisters', label: 'Cajas', closable: true });
+                navigate('/cashregisters');
+              }
+              break;
+            case 'atajo_busqueda_rapida_producto':
+              setQuickLookupOpen(true);
               break;
           }
           return;
@@ -311,7 +438,7 @@ export function AppLayout() {
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [navigate, openTab]);
+  }, [navigate, openTab, canAccessRoute]);
 
   // Auto-refresh data when switching tabs (only the active tab's queries)
   const prevActiveKey = useRef(activeKey);
@@ -347,7 +474,11 @@ export function AppLayout() {
     const path = location.pathname;
     const route = TAB_ROUTES[path];
     if (route) {
-      openTab({ key: path, label: route.label, closable: route.closable });
+      if (canAccessRoute(path)) {
+        openTab({ key: path, label: getRouteLabel(path), closable: route.closable });
+      } else {
+        navigate('/dashboard', { replace: true });
+      }
     }
   }, [location.pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -355,7 +486,11 @@ export function AppLayout() {
   const handleMenuClick = (key: string) => {
     const route = TAB_ROUTES[key];
     if (route) {
-      openTab({ key, label: route.label, closable: route.closable });
+      if (!canAccessRoute(key)) {
+        void message.warning('No tenés permisos para acceder a esta sección');
+        return;
+      }
+      openTab({ key, label: getRouteLabel(key), closable: route.closable });
       navigate(key);
     } else {
       navigate(key);
@@ -374,17 +509,26 @@ export function AppLayout() {
             className="rg-tab-panel"
             style={{ display: tab.key === activeKey ? 'block' : 'none' }}
           >
-            <Comp />
+            {canAccessRoute(tab.key) ? <Comp /> : <AccessDenied />}
           </div>
         );
       });
-  }, [tabs, activeKey]);
+  }, [tabs, activeKey, canAccessRoute]);
 
   const handleLogout = () => {
     useSettingsStore.getState().clear();
     logout();
     navigate('/login');
   };
+
+  const [quickLookupOpen, setQuickLookupOpen] = useState(false);
+
+  // Global event for other sources (e.g. cajero dashboard button)
+  useEffect(() => {
+    const handler = () => setQuickLookupOpen(true);
+    window.addEventListener('rg:open-quick-product-lookup', handler);
+    return () => window.removeEventListener('rg:open-quick-product-lookup', handler);
+  }, []);
 
   const pvNombre = puntosVenta.find(pv => pv.PUNTO_VENTA_ID === puntoVentaActivo)?.NOMBRE;
 
@@ -538,7 +682,7 @@ export function AppLayout() {
             mode="inline"
             selectedKeys={getSelectedKeys()}
             {...(collapsed ? {} : { openKeys, onOpenChange: setOpenKeys })}
-            items={menuItems}
+            items={filteredMenuItems}
             onClick={({ key }) => {
               if (key.startsWith('/')) handleMenuClick(key);
             }}
@@ -604,10 +748,12 @@ export function AppLayout() {
                 <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>
                   Pto. Venta:
                 </Text>
-                {puntosVenta.length === 1 ? (
-                  <Tag color="#EABD23" style={{ color: '#1E1F22', fontWeight: 600, margin: 0 }}>
-                    {pvNombre}
-                  </Tag>
+                {puntosVenta.length === 1 || cajero ? (
+                  <Tooltip title={cajero ? 'Tu punto de venta es asignado por el administrador' : undefined}>
+                    <Tag color="#EABD23" style={{ color: '#1E1F22', fontWeight: 600, margin: 0 }}>
+                      {pvNombre}
+                    </Tag>
+                  </Tooltip>
                 ) : (
                   <Select
                     size="small"
@@ -668,8 +814,11 @@ export function AppLayout() {
         </Content>
 
         {/* ── Tab Bar (bottom) ─────────────────── */}
-        <TabBar iconMap={ICON_MAP} />
+        <TabBar iconMap={iconMap} />
       </Layout>
+
+      {/* ── Global: Quick product lookup modal ── */}
+      <QuickProductLookupModal open={quickLookupOpen} onClose={() => setQuickLookupOpen(false)} />
     </Layout>
   );
 }

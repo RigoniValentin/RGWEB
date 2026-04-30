@@ -9,6 +9,7 @@ import {
   PlusOutlined, ReloadOutlined, SearchOutlined, UploadOutlined,
 } from '@ant-design/icons';
 import { paymentMethodApi, type MetodoPagoInput } from '../services/paymentMethod.api';
+import { useTabStore } from '../store/tabStore';
 import type { MetodoPago } from '../types';
 
 const { Title, Text } = Typography;
@@ -85,6 +86,12 @@ export function PaymentMethodsPage() {
     form.setFieldsValue({ CATEGORIA: 'DIGITAL', ACTIVA: true });
     setFormOpen(true);
   };
+
+  useEffect(() => {
+    const handler = () => { if (useTabStore.getState().activeKey === '/payment-methods') handleNew(); };
+    window.addEventListener('rg:nuevo', handler);
+    return () => window.removeEventListener('rg:nuevo', handler);
+  }, []);
 
   const handleEdit = (r: MetodoPago) => {
     setEditId(r.METODO_PAGO_ID); form.resetFields(); setFormOpen(true);
@@ -242,6 +249,7 @@ export function PaymentMethodsPage() {
         open={formOpen} onCancel={resetModal} onOk={handleSave}
         okText={editId ? 'Guardar Cambios' : 'Crear Método'} cancelText="Cancelar"
         confirmLoading={saving} width={500} destroyOnClose className="rg-modal"
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {editId && editLoading ? (
           <div style={{ textAlign: 'center', padding: 40 }}><Spin size="large" /></div>

@@ -5,12 +5,16 @@ export interface ClienteInput {
   CODIGOPARTICULAR?: string;
   NOMBRE: string;
   DOMICILIO?: string | null;
+  CIUDAD?: string | null;
+  CP?: string | null;
   PROVINCIA?: string | null;
   TELEFONO?: string | null;
   EMAIL?: string | null;
   TIPO_DOCUMENTO?: string;
   NUMERO_DOC?: string;
   CONDICION_IVA?: string | null;
+  RUBRO?: string | null;
+  FECHA_NACIMIENTO?: string | null;
   CTA_CORRIENTE?: boolean;
   ACTIVO?: boolean;
 }

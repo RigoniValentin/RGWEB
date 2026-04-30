@@ -6,11 +6,12 @@ import {
 import {
   PlusOutlined, DeleteOutlined, BarcodeOutlined, ShopOutlined,
   DollarOutlined, InboxOutlined, FileTextOutlined, UndoOutlined,
-  VerticalAlignTopOutlined,
+  VerticalAlignTopOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { catalogApi } from '../../services/catalog.api';
 import { productApi, type TasaImpuesto } from '../../services/product.api';
+import { useAuthStore } from '../../store/authStore';
 import type { Producto } from '../../types';
 
 const { Text } = Typography;
@@ -24,7 +25,7 @@ interface Props {
 }
 
 export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: Props) {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const queryClient = useQueryClient();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
@@ -37,11 +38,55 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
   const [margenes, setMargenes] = useState<number[]>([0, 0, 0, 0, 0]);
   const [esServicio, setEsServicio] = useState(false);
 
+  // ── Puntos de venta del usuario ────────────────
+  // El usuario sólo ve depósitos de su PV preferido por defecto. Si tiene
+  // otros PV asignados, puede activar un toggle para ver también esos
+  // depósitos y gestionar el stock de múltiples puntos de venta.
+  const puntosVentaUsuario = useAuthStore(s => s.puntosVenta);
+  const puntoVentaActivo = useAuthStore(s => s.puntoVentaActivo);
+  const pvPreferidoId =
+    puntosVentaUsuario.find(pv => pv.ES_PREFERIDO)?.PUNTO_VENTA_ID
+    ?? puntoVentaActivo
+    ?? puntosVentaUsuario[0]?.PUNTO_VENTA_ID
+    ?? null;
+  const otrosPVIds = puntosVentaUsuario
+    .map(pv => pv.PUNTO_VENTA_ID)
+    .filter(id => id !== pvPreferidoId);
+  const tieneOtrosPV = otrosPVIds.length > 0;
+  const [incluirOtrosPV, setIncluirOtrosPV] = useState(false);
+
+  // PV IDs a usar para filtrar la lista de depósitos.
+  // Si el usuario no tiene PV asignados, no se filtra (comportamiento clásico).
+  const pvIdsParaDepositos: number[] | undefined = pvPreferidoId == null
+    ? undefined
+    : incluirOtrosPV
+      ? [pvPreferidoId, ...otrosPVIds]
+      : [pvPreferidoId];
+
   // ── Catalog data ───────────────────────────────
   const { data: categorias } = useQuery({ queryKey: ['categorias'], queryFn: () => catalogApi.getCategorias() });
   const { data: marcas } = useQuery({ queryKey: ['marcas'], queryFn: () => catalogApi.getMarcas() });
   const { data: unidades } = useQuery({ queryKey: ['unidades'], queryFn: () => catalogApi.getUnidades() });
-  const { data: depositosList } = useQuery({ queryKey: ['depositos'], queryFn: () => catalogApi.getDepositos() });
+  const { data: depositosList } = useQuery({
+    queryKey: ['depositos', pvIdsParaDepositos ? [...pvIdsParaDepositos].sort((a, b) => a - b) : 'all'],
+    queryFn: () => catalogApi.getDepositos(pvIdsParaDepositos),
+  });
+
+  // IDs de depósitos visibles para el usuario (según los PV permitidos).
+  // Cuando no hay filtro (admin sin PV asignado) se permite todo.
+  const allowedDepositoIds = depositosList
+    ? new Set(depositosList.map(d => d.DEPOSITO_ID))
+    : null;
+  const isDepositoAllowed = (id: number) =>
+    allowedDepositoIds == null ? true : allowedDepositoIds.has(id);
+
+  // Filas visibles en la tabla, conservando el índice original en `_idx`
+  // para que los callbacks sigan operando sobre el array completo (las
+  // filas ocultas se preservan en estado y se envían al guardar).
+  const visibleDepositos = depositos
+    .map((d, i) => ({ ...d, _idx: i }))
+    .filter(d => isDepositoAllowed(d.DEPOSITO_ID));
+  const hiddenDepositosCount = depositos.length - visibleDepositos.length;
   const { data: tasas } = useQuery({ queryKey: ['tasas'], queryFn: () => productApi.getTasasImpuestos() });
   const { data: listas } = useQuery({ queryKey: ['listas-precios'], queryFn: () => catalogApi.getListasPrecios() });
   const { data: proveedoresList } = useQuery({
@@ -165,7 +210,44 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
   };
 
   const removeDeposit = (idx: number) => {
-    setDepositos(depositos.filter((_, i) => i !== idx));
+    const dep = depositos[idx];
+    if (dep && dep.CANTIDAD > 0) {
+      modal.confirm({
+        title: (
+          <span style={{ color: '#1E1F22', fontWeight: 700, fontSize: 15 }}>
+            Quitar depósito con stock
+          </span>
+        ),
+        icon: <WarningOutlined style={{ color: '#EABD23', fontSize: 22 }} />,
+        content: (
+          <div style={{ paddingTop: 4 }}>
+            <div style={{
+              background: 'rgba(234,189,35,0.08)',
+              border: '1px solid rgba(234,189,35,0.3)',
+              borderRadius: 8,
+              padding: '10px 14px',
+              marginBottom: 10,
+            }}>
+              <span style={{ fontWeight: 600 }}>
+                {dep.DEPOSITO_NOMBRE ?? `#${dep.DEPOSITO_ID}`}
+              </span>{' '}tiene{' '}
+              <span style={{ color: '#EABD23', fontWeight: 700 }}>
+                {dep.CANTIDAD} unidad{dep.CANTIDAD !== 1 ? 'es' : ''}
+              </span>{' '}en stock.
+            </div>
+            <span style={{ color: '#666', fontSize: 13 }}>
+              ¿Estás seguro de que querés quitarlo del producto?
+            </span>
+          </div>
+        ),
+        okText: 'Sí, quitar',
+        okType: 'danger',
+        cancelText: 'Cancelar',
+        onOk: () => setDepositos(depositos.filter((_, i) => i !== idx)),
+      });
+    } else {
+      setDepositos(depositos.filter((_, i) => i !== idx));
+    }
   };
 
   const updateDepositQty = (idx: number, cant: number) => {
@@ -176,6 +258,8 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
   };
 
   const updateDepositId = (idx: number, depId: number) => {
+    // Prevent assigning a deposit that is already used by another row
+    if (depositos.some((d, i) => i !== idx && d.DEPOSITO_ID === depId)) return;
     const next = [...depositos];
     const dep = depositosList?.find(d => d.DEPOSITO_ID === depId);
     const cur = next[idx]!;
@@ -322,6 +406,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
       destroyOnHidden
       maskClosable={false}
       className="rg-drawer"
+      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       footer={
         <Space>
           <Button onClick={onClose}>Cancelar</Button>
@@ -574,36 +659,63 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                     </Col>
                   </Row>
                   <Divider style={{ margin: '12px 0' }}>Depósitos</Divider>
+                  {tieneOtrosPV && (
+                    <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Switch
+                        size="small"
+                        checked={incluirOtrosPV}
+                        onChange={setIncluirOtrosPV}
+                      />
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        Mostrar también depósitos de mis otros puntos de venta
+                      </Text>
+                    </div>
+                  )}
+                  {hiddenDepositosCount > 0 && (
+                    <div style={{ marginBottom: 8 }}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        El producto tiene stock en {hiddenDepositosCount} depósito{hiddenDepositosCount !== 1 ? 's' : ''} de otros puntos de venta. Esos valores se conservarán al guardar.
+                      </Text>
+                    </div>
+                  )}
                   <Table
                     size="small"
-                    dataSource={depositos}
+                    dataSource={visibleDepositos}
                     rowKey={(r) => String(r.DEPOSITO_ID)}
                     pagination={false}
                     columns={[
                       {
                         title: 'Depósito', dataIndex: 'DEPOSITO_ID', width: 200,
-                        render: (val: number, _: any, idx: number) => (
-                          <Select
-                            size="small"
-                            style={{ width: '100%' }}
-                            value={val}
-                            onChange={(v) => updateDepositId(idx, v)}
-                            options={depositosList?.map(d => ({ label: d.NOMBRE, value: d.DEPOSITO_ID }))}
-                          />
-                        ),
+                        render: (val: number, row: any) => {
+                          const idx = row._idx as number;
+                          const opts = (depositosList ?? []).map(d => ({
+                            label: d.NOMBRE,
+                            value: d.DEPOSITO_ID,
+                            disabled: d.DEPOSITO_ID !== val && depositos.some((ed, i) => i !== idx && ed.DEPOSITO_ID === d.DEPOSITO_ID),
+                          }));
+                          return (
+                            <Select
+                              size="small"
+                              style={{ width: '100%' }}
+                              value={val}
+                              onChange={(v) => updateDepositId(idx, v)}
+                              options={opts}
+                            />
+                          );
+                        },
                       },
                       {
                         title: 'Cantidad', dataIndex: 'CANTIDAD', width: 130,
-                        render: (val: number, _: any, idx: number) => (
+                        render: (val: number, row: any) => (
                           <InputNumber size="small" min={0} precision={2} value={val}
-                            onChange={(v) => updateDepositQty(idx, v || 0)} style={{ width: '100%' }} />
+                            onChange={(v) => updateDepositQty(row._idx, v || 0)} style={{ width: '100%' }} />
                         ),
                       },
                       {
                         title: '', width: 50,
-                        render: (_: any, __: any, idx: number) => (
+                        render: (_: any, row: any) => (
                           <Button type="text" danger size="small" icon={<DeleteOutlined />}
-                            onClick={() => removeDeposit(idx)} />
+                            onClick={() => removeDeposit(row._idx)} />
                         ),
                       },
                     ]}
@@ -613,7 +725,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                     Agregar depósito
                   </Button>
                   <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-                    Total: <b>{depositos.reduce((s, d) => s + (d.CANTIDAD || 0), 0).toFixed(2)}</b>
+                    Total: <b>{visibleDepositos.reduce((s, d) => s + (d.CANTIDAD || 0), 0).toFixed(2)}</b>
                   </Text>
                 </>
               ),
