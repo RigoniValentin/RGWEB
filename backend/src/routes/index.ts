@@ -30,6 +30,7 @@ import libroIvaComprasRoutes from './libroIvaCompras.routes.js';
 import mobileRoutes from './mobile.routes.js';
 import afipRoutes from './afip.routes.js';
 import expensesRoutes from './expenses.routes.js';
+import backupsRoutes from './backups.routes.js';
 
 const router = Router();
 
@@ -64,5 +65,6 @@ router.use('/libro-iva-compras', libroIvaComprasRoutes);
 router.use('/mobile', mobileRoutes);
 router.use('/afip', afipRoutes);
 router.use('/expenses', expensesRoutes);
+router.use('/backups', backupsRoutes);
 
 export default router;

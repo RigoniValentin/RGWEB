@@ -39,6 +39,7 @@ import {
   WalletOutlined,
   FileDoneOutlined,
   FileAddOutlined,
+  DatabaseOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../store/authStore';
 import { useTabStore } from '../store/tabStore';
@@ -78,6 +79,7 @@ import { LibroIvaVentasPage } from '../pages/LibroIvaVentasPage';
 import { LibroIvaComprasPage } from '../pages/LibroIvaComprasPage';
 import { UsuariosPage } from '../pages/UsuariosPage';
 import { PuntosVentaPage } from '../pages/PuntosVentaPage';
+import { BackupsPage } from '../pages/BackupsPage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -120,6 +122,7 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/libro-iva-compras':  { label: 'Libro IVA Compras',  icon: <ShoppingCartOutlined />, component: LibroIvaComprasPage, closable: true },
   '/users/users':      { label: 'Usuarios',         icon: <SafetyOutlined />,     component: UsuariosPage,      closable: true },
   '/settings/pos':     { label: 'Puntos de Venta',  icon: <EnvironmentOutlined />, component: PuntosVentaPage,   closable: true },
+  '/settings/backups': { label: 'Backups',          icon: <DatabaseOutlined />,    component: BackupsPage,       closable: true },
 };
 
 /** Icon map for TabBar */
@@ -157,6 +160,7 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
   '/users/users':         'usuarios.ver',
   '/settings/general':    'configuracion.ver',
   '/settings/pos':        'configuracion.ver',
+  '/settings/backups':    'backups.administrar',
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -297,6 +301,7 @@ const menuItems = [
         { key: '/settings/general', icon: <SettingOutlined />, label: 'Generales' },
         { key: '/settings/company', icon: <HomeOutlined />, label: 'Mi Empresa' },
         { key: '/settings/pos', icon: <EnvironmentOutlined />, label: 'Puntos de Venta' },
+        { key: '/settings/backups', icon: <DatabaseOutlined />, label: 'Backups' },
       ]},
     ],
   },

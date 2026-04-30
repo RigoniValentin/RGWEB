@@ -450,7 +450,9 @@ WITH nuevos AS (
     ('reportes.iva.compras.ver',  'Ver libro IVA compras',           'reportes',      'reporte',   'MEDIO',   11),
     -- Configuración
     ('configuracion.ver',         'Ver configuración del sistema',   'configuracion', 'lectura',   'BAJO',    10),
-    ('configuracion.editar',      'Editar configuración del sistema','configuracion', 'admin',     'ALTO',    20)
+    ('configuracion.editar',      'Editar configuración del sistema','configuracion', 'admin',     'ALTO',    20),
+    -- Backups
+    ('backups.administrar',       'Administrar copias de seguridad', 'configuracion', 'admin',     'ALTO',    30)
   ) AS v(LLAVE, DESCRIPCION, MODULO, CATEGORIA, RIESGO, ORDEN)
   WHERE NOT EXISTS (SELECT 1 FROM PERMISOS_WEB WHERE LLAVE = v.LLAVE)
 )

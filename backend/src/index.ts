@@ -10,6 +10,7 @@ import { getPool, closePool } from './database/connection.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import apiRoutes from './routes/index.js';
 import { stockService } from './services/stock.service.js';
+import { backupScheduler } from './services/backupScheduler.service.js';
 
 // ── Console styling ──────────────────────────────────
 const S = {
@@ -153,6 +154,7 @@ async function start() {
   try {
     await getPool();
     await stockService.ensureHistorialTable();
+    await backupScheduler.init();
 
     app.listen(config.port, '0.0.0.0', () => {
       if (isPkg) process.stdout.write('\x1bc');
