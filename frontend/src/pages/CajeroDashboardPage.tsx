@@ -35,8 +35,21 @@ function getGreeting(): string {
 function LiveClock() {
   const [time, setTime] = useState(new Date());
   useEffect(() => {
-    const id = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(id);
+    let id: number | null = null;
+    const start = () => {
+      if (id !== null) return;
+      id = window.setInterval(() => setTime(new Date()), 1000);
+    };
+    const stop = () => {
+      if (id !== null) { clearInterval(id); id = null; }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') { setTime(new Date()); start(); }
+      else stop();
+    };
+    onVisibility();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => { stop(); document.removeEventListener('visibilitychange', onVisibility); };
   }, []);
   return (
     <span style={{

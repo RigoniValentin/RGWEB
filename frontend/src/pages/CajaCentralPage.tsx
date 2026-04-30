@@ -48,8 +48,6 @@ export function CajaCentralPage() {
   const [nuevoTipo, setNuevoTipo] = useState<'INGRESO' | 'EGRESO'>('INGRESO');
   const [nuevoDesc, setNuevoDesc] = useState('');
   const [nuevoMontosPorMetodo, setNuevoMontosPorMetodo] = useState<Record<number, number>>({});
-  const [nuevoCheques, setNuevoCheques] = useState<number>(0);
-  const [nuevoCtaCte, setNuevoCtaCte] = useState<number>(0);
   const [nuevoPvId, setNuevoPvId] = useState<number | undefined>(() => puntosVenta.length === 1 ? puntosVenta[0]?.PUNTO_VENTA_ID : puntoVentaActivo ?? undefined);
   const [cajaIdFilter, setCajaIdFilter] = useState<string>('');
   const [pvFilter, setPvFilter] = useState<number | undefined>(() => puntoVentaActivo ?? undefined);
@@ -96,8 +94,8 @@ export function CajaCentralPage() {
   });
 
   const displayTotales: CajaCentralTotales = balanceHistorico
-    ? (totalesHistoricos || { totalIngresos: 0, totalEgresos: 0, balance: 0, efectivo: 0, digital: 0, cheques: 0, ctaCte: 0 })
-    : (totales || { totalIngresos: 0, totalEgresos: 0, balance: 0, efectivo: 0, digital: 0, cheques: 0, ctaCte: 0 });
+    ? (totalesHistoricos || { totalIngresos: 0, totalEgresos: 0, balance: 0, efectivo: 0, digital: 0 })
+    : (totales || { totalIngresos: 0, totalEgresos: 0, balance: 0, efectivo: 0, digital: 0 });
 
   // ── Mutations ──────────────────────────────────
   const invalidateAll = () => {
@@ -116,8 +114,6 @@ export function CajaCentralPage() {
       return cajaCentralApi.crearMovimiento({
         tipo: nuevoTipo,
         descripcion: nuevoDesc,
-        cheques: nuevoCheques,
-        ctaCte: nuevoCtaCte,
         puntoVentaId: nuevoPvId,
         metodos_pago: metodos_pago.length > 0 ? metodos_pago : undefined,
       });
@@ -143,8 +139,6 @@ export function CajaCentralPage() {
   const resetNuevoForm = () => {
     setNuevoDesc('');
     setNuevoMontosPorMetodo({});
-    setNuevoCheques(0);
-    setNuevoCtaCte(0);
     setNuevoPvId(puntosVenta.length === 1 ? puntosVenta[0]?.PUNTO_VENTA_ID : puntoVentaActivo ?? undefined);
   };
 
@@ -168,7 +162,7 @@ export function CajaCentralPage() {
   });
 
   const nuevoMetodosTotal = Object.values(nuevoMontosPorMetodo).reduce((s, v) => s + (v || 0), 0);
-  const nuevoTotal = nuevoMetodosTotal + nuevoCheques + nuevoCtaCte;
+  const nuevoTotal = nuevoMetodosTotal;
 
   // ── Movement columns ───────────────────────────
   const movColumns = [
@@ -192,14 +186,6 @@ export function CajaCentralPage() {
     },
     { title: 'Movimiento', dataIndex: 'MOVIMIENTO', key: 'mov', ellipsis: true },
     { title: 'Usuario', dataIndex: 'USUARIO_NOMBRE', key: 'user', width: 120, ellipsis: true, align: 'center' as const },
-    {
-      title: 'Cheques', dataIndex: 'CHEQUES', key: 'cheques', width: 100, align: 'right' as const,
-      render: (v: number) => v !== 0 ? fmtMoneyAbs(v) : '-',
-    },
-    {
-      title: 'Cta. Cte', dataIndex: 'CTA_CTE', key: 'ctaCte', width: 100, align: 'right' as const,
-      render: (v: number) => v !== 0 ? fmtMoneyAbs(v) : '-',
-    },
     {
       title: 'Total', dataIndex: 'TOTAL', key: 'total', width: 160, align: 'center' as const,
       render: (v: number, record: MovimientoCaja) => {
@@ -351,7 +337,7 @@ export function CajaCentralPage() {
 
       {/* ── Totals cards ───────────────────────── */}
       <Row gutter={12} style={{ marginBottom: 16 }}>
-        <Col xs={12} sm={6} md={4}>
+        <Col xs={12} sm={6} md={5}>
           <Card size="small" className="rg-card">
             <Statistic
               title="Ingresos"
@@ -361,7 +347,7 @@ export function CajaCentralPage() {
             />
           </Card>
         </Col>
-        <Col xs={12} sm={6} md={4}>
+        <Col xs={12} sm={6} md={5}>
           <Card size="small" className="rg-card">
             <Statistic
               title="Egresos"
@@ -371,7 +357,7 @@ export function CajaCentralPage() {
             />
           </Card>
         </Col>
-        <Col xs={12} sm={6} md={4}>
+        <Col xs={12} sm={6} md={5}>
           <Card size="small" className="rg-card">
             <Statistic
               title={balanceHistorico ? 'Balance Histórico' : 'Balance'}
@@ -381,9 +367,8 @@ export function CajaCentralPage() {
             />
           </Card>
         </Col>
-        <Col xs={12} sm={6} md={3}>
-          <Card size="small" className="rg-card"
-            style={{ cursor: 'pointer' }}
+        <Col xs={12} sm={6} md={4}>
+          <Card size="small" className="rg-card" hoverable
             onClick={() => {
               cajaCentralApi.getDesgloseMetodos({
                 fechaDesde, fechaHasta,
@@ -397,12 +382,7 @@ export function CajaCentralPage() {
             <Statistic title="Total ▸" value={(displayTotales.efectivo || 0) + (displayTotales.digital || 0)} formatter={statFormatter} prefix="$" valueStyle={{ fontSize: 14, color: '#1677ff' }} />
           </Card>
         </Col>
-        <Col xs={12} sm={6} md={3}>
-          <Card size="small" className="rg-card">
-            <Statistic title="Cheques" value={displayTotales.cheques} formatter={statFormatter} prefix="$" valueStyle={{ fontSize: 14 }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={6} md={3}>
+        <Col xs={12} sm={6} md={5}>
           <Card size="small" className="rg-card">
             <Statistic
               title="Fondo Cambio"
@@ -563,20 +543,6 @@ export function CajaCentralPage() {
             </>
           )}
 
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item label="Cheques">
-                <InputNumber style={{ width: '100%' }} min={0} precision={2} prefix="$"
-                  value={nuevoCheques} onChange={v => setNuevoCheques(v ?? 0)} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item label="Cta. Corriente">
-                <InputNumber style={{ width: '100%' }} min={0} precision={2} prefix="$"
-                  value={nuevoCtaCte} onChange={v => setNuevoCtaCte(v ?? 0)} />
-              </Form.Item>
-            </Col>
-          </Row>
           <div style={{ textAlign: 'right', borderTop: '2px solid #EABD23', paddingTop: 8 }}>
             <Text strong style={{ fontSize: 18 }}>
               Total: <span style={{ color: nuevoTipo === 'EGRESO' ? '#ff4d4f' : '#52c41a' }}>{fmtMoney(nuevoTotal)}</span>

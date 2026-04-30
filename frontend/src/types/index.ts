@@ -544,15 +544,11 @@ export interface CajaCentralTotales {
   balance: number;
   efectivo: number;
   digital: number;
-  cheques: number;
-  ctaCte: number;
 }
 
 export interface NuevoMovimientoInput {
   tipo: 'INGRESO' | 'EGRESO';
   descripcion: string;
-  cheques?: number;
-  ctaCte?: number;
   puntoVentaId?: number;
   metodos_pago?: MetodoPagoItem[];
 }
@@ -646,8 +642,6 @@ export interface DashboardCajaCentral {
   balance: number;
   efectivo: number;
   digital: number;
-  cheques: number;
-  ctaCte: number;
 }
 
 export interface DashboardAnalytics {

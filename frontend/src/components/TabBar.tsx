@@ -116,6 +116,7 @@ export function TabBar({ iconMap }: TabBarProps) {
 
   return (
     <div className="rg-tabbar" ref={barRef}>
+      <div className="rg-tabbar-deco" aria-hidden="true" />
       {tabs.map((tab, index) => {
         const isActive = tab.key === activeKey;
         const isDragging = dragIndex === index;

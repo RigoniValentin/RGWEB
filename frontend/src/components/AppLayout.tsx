@@ -709,7 +709,7 @@ export function AppLayout() {
 
       <Layout>
         {/* ── Header ──────────────────────────── */}
-        <Header style={{
+        <Header className="rg-header" style={{
           padding: '0 24px',
           background: collapsed
             ? 'linear-gradient(90deg, #1A1B1E 50%, #1A1B1E 100%)'

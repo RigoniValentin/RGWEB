@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import path from 'path';
 import fs from 'fs';
 import { config } from './config/index.js';
@@ -98,6 +99,16 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Gzip every response above ~1KB. Massive bandwidth/perceived-latency win
+// for JSON payloads (sales, products, dashboard) and the bundled JS.
+app.use(compression({
+  threshold: 1024,
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  },
+}));
+
 // ── API Routes ───────────────────────────────────────
 app.use('/api', apiRoutes);
 
@@ -113,8 +124,23 @@ app.get('/api/health', (_req, res) => {
 
 // ── Serve frontend in production / packaged mode ────
 if (config.nodeEnv === 'production' || isPkg) {
-  app.use(express.static(frontendDir));
+  // Hashed assets (Vite emits them under /assets/) are immutable and
+  // can be cached aggressively. The HTML entry must always be revalidated
+  // so deploys take effect immediately.
+  app.use('/assets', express.static(path.join(frontendDir, 'assets'), {
+    immutable: true,
+    maxAge: '1y',
+    fallthrough: true,
+  }));
+  app.use(express.static(frontendDir, {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  }));
   app.get('*', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache');
     res.sendFile(path.join(frontendDir, 'index.html'));
   });
 }

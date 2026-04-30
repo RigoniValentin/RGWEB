@@ -349,9 +349,9 @@ export function LibroIvaVentasPage() {
       </div>
 
       {/* ── KPI Cards ─────────────────────────── */}
-      <Row gutter={[12, 12]} className="stagger" style={{ marginBottom: 16 }}>
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={12} sm={8} lg={4}>
-          <Card size="small" className="rg-card animate-fade-up">
+          <Card size="small" className="rg-card-flat">
             <Statistic
               title="Comprobantes"
               value={totales?.CANTIDAD_COMPROBANTES ?? 0}
@@ -369,7 +369,7 @@ export function LibroIvaVentasPage() {
           </Card>
         </Col>
         <Col xs={12} sm={8} lg={4}>
-          <Card size="small" className="rg-card animate-fade-up">
+          <Card size="small" className="rg-card-flat">
             <Statistic
               title="Neto Gravado"
               value={totales?.TOTAL_NETO_GRAVADO ?? 0}
@@ -380,7 +380,7 @@ export function LibroIvaVentasPage() {
           </Card>
         </Col>
         <Col xs={12} sm={8} lg={4}>
-          <Card size="small" className="rg-card animate-fade-up">
+          <Card size="small" className="rg-card-flat">
             <Statistic
               title="IVA Débito Fiscal"
               value={totales?.TOTAL_IVA ?? 0}
@@ -391,7 +391,7 @@ export function LibroIvaVentasPage() {
           </Card>
         </Col>
         <Col xs={12} sm={8} lg={4}>
-          <Card size="small" className="rg-card animate-fade-up">
+          <Card size="small" className="rg-card-flat">
             <Statistic
               title="Neto No Gravado"
               value={totales?.TOTAL_NETO_NO_GRAVADO ?? 0}
@@ -402,7 +402,7 @@ export function LibroIvaVentasPage() {
           </Card>
         </Col>
         <Col xs={12} sm={8} lg={4}>
-          <Card size="small" className="rg-card animate-fade-up">
+          <Card size="small" className="rg-card-flat">
             <Statistic
               title="Imp. Internos"
               value={totales?.TOTAL_IMPUESTO_INTERNO ?? 0}
@@ -415,7 +415,7 @@ export function LibroIvaVentasPage() {
         <Col xs={12} sm={8} lg={4}>
           <Card
             size="small"
-            className="rg-card animate-fade-up"
+            className="rg-card-flat"
             style={{ borderColor: 'var(--rg-gold)', borderWidth: 2 }}
           >
             <Statistic
@@ -436,7 +436,7 @@ export function LibroIvaVentasPage() {
       {/* ── Filtros ───────────────────────────── */}
       <Card
         size="small"
-        className="rg-card"
+        className="rg-card-flat"
         style={{ marginBottom: 14 }}
         styles={{ body: { padding: '10px 14px' } }}
       >
@@ -488,7 +488,7 @@ export function LibroIvaVentasPage() {
 
       {/* ── Tabla de comprobantes (ancho completo) ── */}
       <Card
-        className="rg-card animate-fade-up"
+        className="rg-card-flat"
         size="small"
         style={{ marginBottom: 16 }}
         styles={{ body: { padding: 0 } }}
@@ -519,7 +519,7 @@ export function LibroIvaVentasPage() {
         {/* ── Totales por alícuota ───────────── */}
         <Col xs={24} lg={14}>
           <Card
-            className="rg-card animate-fade-up"
+            className="rg-card-flat"
             size="small"
             title={
               <Space>
@@ -542,7 +542,7 @@ export function LibroIvaVentasPage() {
         {/* ── Resumen del período ────────────── */}
         <Col xs={24} lg={10}>
           <Card
-            className="rg-card animate-fade-up"
+            className="rg-card-flat"
             size="small"
             style={{ borderColor: 'var(--rg-gold)', borderWidth: 2 }}
             title={

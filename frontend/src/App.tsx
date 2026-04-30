@@ -10,9 +10,22 @@ import { LoginPage } from './pages/LoginPage';
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
+      // Avoid surprise refetches when the user just alt-tabs away
       refetchOnWindowFocus: false,
+      // The browser already retries failed requests; one extra try is enough
       retry: 1,
-      staleTime: 30_000,
+      // Treat data as fresh for a minute → fewer round-trips when user
+      // navigates between tabs that share queries
+      staleTime: 60_000,
+      // Keep cached data around for 5 min so re-opening a tab is instant
+      gcTime: 5 * 60_000,
+      // Don't fire fresh requests just because the network blipped
+      refetchOnReconnect: false,
+      // If we have fresh data in cache, don't refetch on mount
+      refetchOnMount: false,
+    },
+    mutations: {
+      retry: 0,
     },
   },
 });

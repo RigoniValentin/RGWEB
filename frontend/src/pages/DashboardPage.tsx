@@ -9,10 +9,12 @@ import {
   BankOutlined, TrophyOutlined,
   CalendarOutlined, ClockCircleOutlined, UserOutlined,
   BarChartOutlined, FundOutlined, PercentageOutlined, StarOutlined,
-  ArrowDownOutlined, ArrowUpOutlined,
+  ArrowDownOutlined, ArrowUpOutlined,  CreditCardOutlined, WalletOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { dashboardApi } from '../services/dashboard.api';
+import { cajaCentralApi } from '../services/cajaCentral.api';
 import { useAuthStore } from '../store/authStore';
 import { fmtMoney, statFormatter } from '../utils/format';
 import type { DesgloseMetodo, DashboardGranularity, DashboardSeriesPoint } from '../types';
@@ -35,8 +37,21 @@ function getGreeting(): string {
 function LiveClock() {
   const [time, setTime] = useState(new Date());
   useEffect(() => {
-    const id = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(id);
+    let id: number | null = null;
+    const start = () => {
+      if (id !== null) return;
+      id = window.setInterval(() => setTime(new Date()), 1000);
+    };
+    const stop = () => {
+      if (id !== null) { clearInterval(id); id = null; }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') { setTime(new Date()); start(); }
+      else stop();
+    };
+    onVisibility();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => { stop(); document.removeEventListener('visibilitychange', onVisibility); };
   }, []);
   return (
     <span style={{
@@ -117,10 +132,11 @@ function DeltaTag({ curr, prev }: { curr: number; prev: number }) {
 // ── Page ─────────────────────────────────────────────────────────────
 export function DashboardPage() {
   const puntoVentaActivo = useAuthStore((s) => s.puntoVentaActivo);
-  const { user, puntosVenta } = useAuthStore();
+  const { user } = useAuthStore();
   const isCajero = useAuthStore((s) => s.isCajero);
   const cajero = isCajero();
   const openTab = useTabStore((s) => s.openTab);
+  const isDashboardActive = useTabStore((s) => s.activeKey === '/dashboard');
 
   const [pvFilter, setPvFilter] = useState<number | undefined>(() => puntoVentaActivo ?? undefined);
   const [period, setPeriod] = useState<PeriodPreset>('today');
@@ -128,6 +144,7 @@ export function DashboardPage() {
   const [desgloseModalOpen, setDesgloseModalOpen] = useState(false);
   const [desgloseData, setDesgloseData] = useState<DesgloseMetodo[]>([]);
   const [heatmapModalOpen, setHeatmapModalOpen] = useState(false);
+  const [ccDesgloseOpen, setCcDesgloseOpen] = useState<null | 'EFECTIVO' | 'DIGITAL'>(null);
 
   const periodRng = useMemo(() => periodRange(period), [period]);
   const effGranularity: DashboardGranularity = granularity === 'auto' ? periodRng.granularity : granularity;
@@ -147,7 +164,21 @@ export function DashboardPage() {
       granularity: effGranularity,
       puntoVentaId: pvFilter,
     }),
-    enabled: !cajero,
+    enabled: !cajero && isDashboardActive,
+    staleTime: 2 * 60 * 1000, // 2 min — don't refetch on every window focus
+    refetchOnWindowFocus: false,
+  });
+
+  // Lazy: only fetch when modal opens
+  const { data: ccDesglose, isLoading: ccDesgloseLoading } = useQuery({
+    queryKey: ['cc-desglose', periodRng.from, periodRng.to, pvFilter],
+    queryFn: () => cajaCentralApi.getDesgloseMetodos({
+      fechaDesde: periodRng.from,
+      fechaHasta: periodRng.to,
+      puntoVentaIds: pvFilter ? String(pvFilter) : undefined,
+    }),
+    enabled: ccDesgloseOpen !== null,
+    staleTime: 60_000,
   });
 
   if (cajero) return <CajeroDashboardPage />;
@@ -302,22 +333,6 @@ export function DashboardPage() {
               />
             </Space>
           </Col>
-          <Col>
-            <Space size={6} wrap>
-              <Text strong>Granularidad:</Text>
-              <Segmented
-                value={granularity}
-                onChange={(v) => setGranularity(v as DashboardGranularity | 'auto')}
-                options={[
-                  { label: 'Auto', value: 'auto' },
-                  { label: 'Hora', value: 'hour' },
-                  { label: 'Día', value: 'day' },
-                  { label: 'Semana', value: 'week' },
-                  { label: 'Mes', value: 'month' },
-                ]}
-              />
-            </Space>
-          </Col>
         </Row>
       </Card>
 
@@ -420,7 +435,25 @@ export function DashboardPage() {
               <Card
                 className="animate-fade-in"
                 title={<><BarChartOutlined /> Ventas por {granLabel} <Text type="secondary" style={{ fontWeight: 400, fontSize: 13, marginLeft: 8 }}>· {periodLabel}</Text></>}
-                extra={<Text type="secondary" style={{ fontSize: 12 }}>{periodRng.from} → {periodRng.to}</Text>}
+                extra={
+                  <Space size={6} wrap>
+                    <Tooltip title="Agrupar barras por intervalo de tiempo">
+                      <Text type="secondary" style={{ fontSize: 12 }}>Granularidad:</Text>
+                    </Tooltip>
+                    <Segmented
+                      size="small"
+                      value={granularity}
+                      onChange={(v) => setGranularity(v as DashboardGranularity | 'auto')}
+                      options={[
+                        { label: 'Auto', value: 'auto' },
+                        { label: 'Hora', value: 'hour' },
+                        { label: 'Día', value: 'day' },
+                        { label: 'Sem', value: 'week' },
+                        { label: 'Mes', value: 'month' },
+                      ]}
+                    />
+                  </Space>
+                }
               >
                 <BarChart data={barData} height={300} showSecondary />
               </Card>
@@ -448,36 +481,102 @@ export function DashboardPage() {
           {/* ── Caja Central detail + Top categorías ──────── */}
           <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
             <Col xs={24} lg={12}>
-              <Card title={<><BankOutlined /> Balance de Caja Central</>} className="animate-fade-in"
+              <Card title={<><BankOutlined /> Balance de Caja Central</>} className="animate-fade-in rg-cc-card"
                 extra={<Text type="secondary" style={{ fontSize: 12 }}>{periodLabel}</Text>}>
-                <Row gutter={[12, 12]}>
-                  <Col xs={12}>
-                    <div className="rg-mini-stat" style={{ borderColor: '#b7eb8f' }}>
-                      <Text type="secondary" style={{ fontSize: 12 }}>Ingresos</Text>
-                      <div style={{ fontSize: 20, fontWeight: 700, color: '#52c41a' }}>
-                        {fmtMoney(analytics.cajaCentral.totalIngresos)}
+                {(() => {
+                  const cc = analytics.cajaCentral;
+                  const totalFlow = (cc.totalIngresos || 0) + (cc.totalEgresos || 0);
+                  const ingPct = totalFlow > 0 ? (cc.totalIngresos / totalFlow) * 100 : 0;
+                  const egrPct = totalFlow > 0 ? (cc.totalEgresos / totalFlow) * 100 : 0;
+                  const positive = cc.balance >= 0;
+                  return (
+                    <>
+                      {/* Hero balance */}
+                      <div className="rg-cc-hero">
+                        <div>
+                          <Text type="secondary" style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                            Balance neto
+                          </Text>
+                          <div className="rg-cc-hero-value" style={{ color: positive ? '#52c41a' : '#ff4d4f' }}>
+                            {positive ? <RiseOutlined /> : <FallOutlined />} {fmtMoney(cc.balance)}
+                          </div>
+                        </div>
+                        <Tooltip title="Distribución entre ingresos y egresos del período">
+                          <Tag color={positive ? 'success' : 'error'} style={{ fontWeight: 600 }}>
+                            {positive ? 'Saldo a favor' : 'Saldo negativo'}
+                          </Tag>
+                        </Tooltip>
                       </div>
-                    </div>
-                  </Col>
-                  <Col xs={12}>
-                    <div className="rg-mini-stat" style={{ borderColor: '#ffccc7' }}>
-                      <Text type="secondary" style={{ fontSize: 12 }}>Egresos</Text>
-                      <div style={{ fontSize: 20, fontWeight: 700, color: '#ff4d4f' }}>
-                        {fmtMoney(analytics.cajaCentral.totalEgresos)}
-                      </div>
-                    </div>
-                  </Col>
-                  <Col xs={24} style={{ marginTop: 4 }}>
-                    <Button
-                      type="primary"
-                      icon={<BankOutlined />}
-                      className="btn-gold"
-                      onClick={() => openTab({ key: '/cashcentral', label: 'Caja Central', closable: true })}
-                    >
-                      Ir a Caja Central
-                    </Button>
-                  </Col>
-                </Row>
+
+                      {/* Ingresos vs Egresos visual ratio */}
+                      {totalFlow > 0 && (
+                        <div className="rg-cc-ratio">
+                          <div className="rg-cc-ratio-bar">
+                            <div className="rg-cc-ratio-in" style={{ width: `${ingPct}%` }} />
+                            <div className="rg-cc-ratio-out" style={{ width: `${egrPct}%` }} />
+                          </div>
+                          <div className="rg-cc-ratio-legend">
+                            <span><span className="rg-cc-dot rg-cc-dot-in" /> Ingresos {ingPct.toFixed(0)}%</span>
+                            <span><span className="rg-cc-dot rg-cc-dot-out" /> Egresos {egrPct.toFixed(0)}%</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 4 tiles grid */}
+                      <Row gutter={[10, 10]} style={{ marginTop: 12 }}>
+                        <Col xs={12}>
+                          <Tooltip title="Total de ingresos del período (excl. transferencias internas)">
+                            <div className="rg-cc-tile rg-cc-tile-in">
+                              <div className="rg-cc-tile-label"><RiseOutlined /> Ingresos</div>
+                              <div className="rg-cc-tile-value">{fmtMoney(cc.totalIngresos)}</div>
+                            </div>
+                          </Tooltip>
+                        </Col>
+                        <Col xs={12}>
+                          <Tooltip title="Total de egresos del período (excl. transferencias internas)">
+                            <div className="rg-cc-tile rg-cc-tile-out">
+                              <div className="rg-cc-tile-label"><FallOutlined /> Egresos</div>
+                              <div className="rg-cc-tile-value">{fmtMoney(cc.totalEgresos)}</div>
+                            </div>
+                          </Tooltip>
+                        </Col>
+                        <Col xs={12}>
+                          <Tooltip title="Saldo neto en efectivo (incluye transferencias FC). Click en el ícono para ver desglose por método.">
+                            <div className="rg-cc-tile rg-cc-tile-cash rg-cc-tile-clickable" onClick={() => setCcDesgloseOpen('EFECTIVO')}>
+                              <div className="rg-cc-tile-label">
+                                <WalletOutlined /> Efectivo
+                                <UnorderedListOutlined className="rg-cc-tile-action" />
+                              </div>
+                              <div className="rg-cc-tile-value">{fmtMoney(cc.efectivo)}</div>
+                            </div>
+                          </Tooltip>
+                        </Col>
+                        <Col xs={12}>
+                          <Tooltip title="Saldo neto en métodos digitales. Click en el ícono para ver desglose por método.">
+                            <div className="rg-cc-tile rg-cc-tile-digital rg-cc-tile-clickable" onClick={() => setCcDesgloseOpen('DIGITAL')}>
+                              <div className="rg-cc-tile-label">
+                                <CreditCardOutlined /> Digital
+                                <UnorderedListOutlined className="rg-cc-tile-action" />
+                              </div>
+                              <div className="rg-cc-tile-value">{fmtMoney(cc.digital)}</div>
+                            </div>
+                          </Tooltip>
+                        </Col>
+                      </Row>
+
+                      <Button
+                        type="primary"
+                        icon={<BankOutlined />}
+                        className="btn-gold"
+                        block
+                        style={{ marginTop: 14 }}
+                        onClick={() => openTab({ key: '/cashcentral', label: 'Caja Central', closable: true })}
+                      >
+                        Ir a Caja Central
+                      </Button>
+                    </>
+                  );
+                })()}
               </Card>
             </Col>
 
@@ -546,8 +645,8 @@ export function DashboardPage() {
                     { title: '#', width: 50, render: (_v, _r, i) => <Tag style={{ fontWeight: 700 }}>{i + 1}</Tag> },
                     { title: 'Cliente', dataIndex: 'NOMBRE', ellipsis: true,
                       render: (v: string | null) => v || <Text type="secondary">Consumidor final</Text> },
-                    { title: 'Ventas', dataIndex: 'ventas', align: 'right' as const, width: 70 },
-                    { title: 'Total', dataIndex: 'total', align: 'right' as const, width: 120,
+                    { title: 'Ventas', dataIndex: 'ventas', align: 'right' as const, width: 100 },
+                    { title: 'Total', dataIndex: 'total', align: 'center' as const, width: 160,
                       render: (v: number) => <Text strong>{fmtMoney(v)}</Text> },
                   ]}
                 />
@@ -716,6 +815,73 @@ export function DashboardPage() {
         {heatData.length === 0
           ? <Empty description="Sin datos" image={Empty.PRESENTED_IMAGE_SIMPLE} />
           : <Heatmap data={heatData} hourFrom={7} hourTo={23} />}
+      </Modal>
+
+      {/* ── Caja Central desglose por método (lazy) ─────────── */}
+      <Modal
+        open={ccDesgloseOpen !== null}
+        onCancel={() => setCcDesgloseOpen(null)}
+        footer={<Button onClick={() => setCcDesgloseOpen(null)}>Cerrar</Button>}
+        title={`Desglose ${ccDesgloseOpen === 'EFECTIVO' ? 'Efectivo' : 'Digital'} — ${periodLabel}`}
+        width={520}
+        destroyOnClose
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
+      >
+        {ccDesgloseLoading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: 32 }}>
+            <Spin />
+          </div>
+        ) : (() => {
+          const items = (ccDesglose || []).filter(d =>
+            ccDesgloseOpen === 'EFECTIVO' ? d.CATEGORIA === 'EFECTIVO' : d.CATEGORIA !== 'EFECTIVO'
+          );
+          if (items.length === 0) {
+            return <Empty description="Sin movimientos en el período" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
+          }
+          const total = items.reduce((s, d) => s + Number(d.TOTAL || 0), 0);
+          return (
+            <>
+              <div style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '10px 14px', borderRadius: 8, marginBottom: 12,
+                background: ccDesgloseOpen === 'EFECTIVO' ? 'rgba(82,196,26,0.08)' : 'rgba(22,119,255,0.08)',
+                border: `1px solid ${ccDesgloseOpen === 'EFECTIVO' ? '#b7eb8f' : '#91caff'}`,
+              }}>
+                <Text strong>Total {ccDesgloseOpen === 'EFECTIVO' ? 'Efectivo' : 'Digital'}</Text>
+                <Text strong style={{ fontSize: 18 }}>{fmtMoney(total)}</Text>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {items.map(d => {
+                  const pct = total > 0 ? (Number(d.TOTAL) / total) * 100 : 0;
+                  return (
+                    <div key={d.METODO_PAGO_ID} style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '10px 14px', borderRadius: 8,
+                      background: '#fafafa', border: '1px solid #f0f0f0',
+                    }}>
+                      <Space>
+                        {d.IMAGEN_BASE64 ? (
+                          <img src={d.IMAGEN_BASE64} alt={d.NOMBRE}
+                            style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 4 }} />
+                        ) : (
+                          ccDesgloseOpen === 'EFECTIVO'
+                            ? <WalletOutlined style={{ fontSize: 20, color: '#52c41a' }} />
+                            : <CreditCardOutlined style={{ fontSize: 20, color: '#1677ff' }} />
+                        )}
+                        <div>
+                          <Text strong>{d.NOMBRE}</Text>
+                          <br />
+                          <Text type="secondary" style={{ fontSize: 11 }}>{pct.toFixed(1)}% del total</Text>
+                        </div>
+                      </Space>
+                      <Text strong style={{ fontSize: 15 }}>{fmtMoney(Number(d.TOTAL))}</Text>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          );
+        })()}
       </Modal>
     </div>
   );

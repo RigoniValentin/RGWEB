@@ -15,8 +15,6 @@ export interface CajaCentralFilter {
 export interface NuevoMovimientoInput {
   tipo: 'INGRESO' | 'EGRESO';
   descripcion: string;
-  cheques?: number;
-  ctaCte?: number;
   metodos_pago?: { METODO_PAGO_ID: number; MONTO: number }[];
 }
 
@@ -102,7 +100,7 @@ export const cajaCentralService = {
       return req;
     };
 
-    // Query 1: Ingresos / Egresos / Balance / Digital / Cheques / CtaCte
+    // Query 1: Ingresos / Egresos / Balance / Digital
     // Exclude internal FC transfers (like desktop app)
     const whereTotales = where + ` AND m.TIPO_ENTIDAD NOT IN ('TRANSFERENCIA_FC', 'REINTEGRO_FONDO', 'DEPOSITO_FONDO')`;
 
@@ -111,9 +109,7 @@ export const cajaCentralService = {
         ISNULL(SUM(CASE WHEN TOTAL >= 0 THEN TOTAL ELSE 0 END), 0) AS totalIngresos,
         ISNULL(SUM(CASE WHEN TOTAL < 0 THEN ABS(TOTAL) ELSE 0 END), 0) AS totalEgresos,
         ISNULL(SUM(TOTAL), 0) AS balance,
-        ISNULL(SUM(DIGITAL), 0) AS digital,
-        ISNULL(SUM(CHEQUES), 0) AS cheques,
-        ISNULL(SUM(CTA_CTE), 0) AS ctaCte
+        ISNULL(SUM(DIGITAL), 0) AS digital
       FROM MOVIMIENTOS_CAJA m
       ${whereTotales}
     `);
@@ -155,9 +151,7 @@ export const cajaCentralService = {
         ISNULL(SUM(CASE WHEN TOTAL >= 0 THEN TOTAL ELSE 0 END), 0) AS totalIngresos,
         ISNULL(SUM(CASE WHEN TOTAL < 0 THEN ABS(TOTAL) ELSE 0 END), 0) AS totalEgresos,
         ISNULL(SUM(TOTAL), 0) AS balance,
-        ISNULL(SUM(DIGITAL), 0) AS digital,
-        ISNULL(SUM(CHEQUES), 0) AS cheques,
-        ISNULL(SUM(CTA_CTE), 0) AS ctaCte
+        ISNULL(SUM(DIGITAL), 0) AS digital
       FROM MOVIMIENTOS_CAJA
       ${excludeFC}
     `);
@@ -240,9 +234,7 @@ export const cajaCentralService = {
       }
     }
 
-    const cheques = input.cheques || 0;
-    const ctaCte = input.ctaCte || 0;
-    const total = efectivo + digital + cheques + ctaCte;
+    const total = efectivo + digital;
     const sign = input.tipo === 'EGRESO' ? -1 : 1;
 
     const result = await pool.request()
@@ -251,8 +243,8 @@ export const cajaCentralService = {
       .input('uid', sql.Int, usuarioId)
       .input('efectivo', sql.Decimal(18, 2), sign * efectivo)
       .input('digital', sql.Decimal(18, 2), sign * digital)
-      .input('cheques', sql.Decimal(18, 2), sign * cheques)
-      .input('ctaCte', sql.Decimal(18, 2), sign * ctaCte)
+      .input('cheques', sql.Decimal(18, 2), 0)
+      .input('ctaCte', sql.Decimal(18, 2), 0)
       .input('total', sql.Decimal(18, 2), sign * total)
       .input('pvId', sql.Int, puntoVentaId || null)
       .query(`
