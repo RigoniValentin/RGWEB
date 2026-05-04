@@ -1,10 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Modal, InputNumber, Space, Typography, Divider, Button, Tag, message } from 'antd';
-import { DollarOutlined, CreditCardOutlined, WalletOutlined, CheckCircleOutlined } from '@ant-design/icons';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { Modal, InputNumber, Space, Typography, Divider, Button, Tag, Input, DatePicker, message } from 'antd';
+import { DollarOutlined, CreditCardOutlined, WalletOutlined, CheckCircleOutlined, BankOutlined } from '@ant-design/icons';
+import dayjs, { type Dayjs } from 'dayjs';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { salesApi } from '../../services/sales.api';
+import { bancosApi } from '../../services/bancos.api';
+import BancoSelect from '../cheques/BancoSelect';
 import { fmtMoney } from '../../utils/format';
-import type { Venta } from '../../types';
+import type { Venta, ChequePayload } from '../../types';
 
 const { Title, Text } = Typography;
 
@@ -17,14 +20,23 @@ interface Props {
 }
 
 export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
+  const queryClient = useQueryClient();
   const [selectedMetodos, setSelectedMetodos] = useState<number[]>([]);
   const [montosPorMetodo, setMontosPorMetodo] = useState<Record<number, number>>({});
+  const [chequesPorMetodo, setChequesPorMetodo] = useState<Record<number, ChequePayload>>({});
 
   const { data: metodosPago = [] } = useQuery({
     queryKey: ['sales-active-payment-methods'],
     queryFn: () => salesApi.getActivePaymentMethods(),
     enabled: open,
     staleTime: 60000,
+  });
+
+  const { data: bancosCache } = useQuery({
+    queryKey: ['bancos', 'activos'],
+    queryFn: () => bancosApi.getAll({ activo: true }),
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
   });
 
   const metodosPagoOrdenados = useMemo(() => {
@@ -54,6 +66,7 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
     if (open && venta) {
       setSelectedMetodos(defaultMetodoEfectivoId ? [defaultMetodoEfectivoId] : []);
       setMontosPorMetodo({});
+      setChequesPorMetodo({});
     }
   }, [open, venta, defaultMetodoEfectivoId]);
 
@@ -79,6 +92,18 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
     return m?.CATEGORIA === 'EFECTIVO';
   });
 
+  const metodosCheque = useMemo(() =>
+    selectedMetodos
+      .map(id => metodosPago.find(mp => mp.METODO_PAGO_ID === id))
+      .filter((m): m is NonNullable<typeof m> => !!m && m.CATEGORIA === 'CHEQUES'),
+    [selectedMetodos, metodosPago]);
+
+  const chequesIncompletos = metodosCheque.some(m => {
+    if ((montosPorMetodo[m.METODO_PAGO_ID] || 0) <= 0) return false;
+    const c = chequesPorMetodo[m.METODO_PAGO_ID];
+    return !c || !c.BANCO?.trim() || !c.LIBRADOR?.trim() || !c.NUMERO?.trim();
+  });
+
   const vuelto = useMemo(() => {
     if (selectedMetodos.length === 0) return 0;
     if (soloEfectivo || hayEfectivo) return Math.max(0, totalRecibido - montoASaldar);
@@ -100,8 +125,14 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
             monto = monto - vuelto;
           }
           if (m?.CATEGORIA === 'EFECTIVO') efectivoTotal += monto;
+          else if (m?.CATEGORIA === 'CHEQUES') { /* cheques: flujo separado, no cuentan en efectivo/digital */ }
           else digitalTotal += monto;
-          return { METODO_PAGO_ID: id, MONTO: monto };
+          const item: { METODO_PAGO_ID: number; MONTO: number; cheque?: ChequePayload } = { METODO_PAGO_ID: id, MONTO: monto };
+          if (m?.CATEGORIA === 'CHEQUES') {
+            const c = chequesPorMetodo[id];
+            if (c) item.cheque = c;
+          }
+          return item;
         })
         .filter(mp => mp.MONTO > 0);
 
@@ -115,6 +146,12 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
     },
     onSuccess: (result) => {
       message.success(result.cobrada ? 'Venta cobrada completamente' : 'Cobro parcial registrado');
+      // Si la venta usó cheques (método CHEQUES), invalidar caché de cheques.
+      if (metodosCheque.length > 0) {
+        queryClient.invalidateQueries({ queryKey: ['cheques'] });
+        queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
+        queryClient.invalidateQueries({ queryKey: ['cheques-cartera'] });
+      }
       onSuccess();
     },
     onError: (err: any) => {
@@ -122,9 +159,9 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
     },
   });
 
-  const esValido = mode === 'parcial'
+  const esValido = (mode === 'parcial'
     ? totalRecibido > 0
-    : totalRecibido >= montoASaldar;
+    : totalRecibido >= montoASaldar) && !chequesIncompletos;
 
   return (
     <Modal
@@ -196,11 +233,11 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
                       <img src={m.IMAGEN_BASE64} alt={m.NOMBRE} style={{ width: 32, height: 32, objectFit: 'contain', borderRadius: 4 }} />
                     ) : (
                       <div style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: isSelected ? '#EABD23' : '#999' }}>
-                        {m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined /> : <CreditCardOutlined />}
+                        {m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined /> : m.CATEGORIA === 'CHEQUES' ? <BankOutlined /> : <CreditCardOutlined />}
                       </div>
                     )}
                     <Text strong style={{ fontSize: 12, lineHeight: 1.2 }}>{m.NOMBRE}</Text>
-                    <Tag color={m.CATEGORIA === 'EFECTIVO' ? 'green' : 'blue'} style={{ fontSize: 10, margin: 0 }}>{m.CATEGORIA}</Tag>
+                    <Tag color={m.CATEGORIA === 'EFECTIVO' ? 'green' : m.CATEGORIA === 'CHEQUES' ? 'gold' : 'blue'} style={{ fontSize: 10, margin: 0 }}>{m.CATEGORIA}</Tag>
                     {isSelected && (
                       <CheckCircleOutlined style={{ color: '#EABD23', fontSize: 14, position: 'absolute', top: 4, right: 4 }} />
                     )}
@@ -250,6 +287,82 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
               </div>
             );
           })}
+
+          {/* ── Datos del cheque (uno por método CHEQUES seleccionado) ── */}
+          {metodosCheque.map(m => {
+            const id = m.METODO_PAGO_ID;
+            const c = chequesPorMetodo[id] || { BANCO: '', LIBRADOR: '', NUMERO: '' };
+            const fpres: Dayjs | null = c.FECHA_PRESENTACION ? dayjs(c.FECHA_PRESENTACION) : null;
+            const setField = (patch: Partial<ChequePayload>) =>
+              setChequesPorMetodo(prev => ({ ...prev, [id]: { ...c, ...patch } as ChequePayload }));
+            return (
+              <div
+                key={`chq-${id}`}
+                style={{
+                  marginBottom: 12,
+                  padding: 12,
+                  border: '1px dashed #d9d9d9',
+                  borderRadius: 8,
+                  background: 'rgba(234, 189, 35, 0.04)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                  <BankOutlined style={{ color: '#EABD23' }} />
+                  <Text strong style={{ fontSize: 13 }}>Datos del cheque — {m.NOMBRE}</Text>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <BancoSelect
+                    value={c.BANCO_ID ?? null}
+                    onChange={(_id, banco) => setField({ BANCO_ID: _id, BANCO: banco?.NOMBRE ?? '' })}
+                    placeholder="Banco *"
+                  />
+                  <Input
+                    placeholder="N° Cheque *"
+                    value={c.NUMERO}
+                    inputMode="numeric"
+                    maxLength={20}
+                    onChange={e => {
+                      const numero = e.target.value.replace(/\D/g, '');
+                      const patch: Partial<ChequePayload> = { NUMERO: numero };
+                      // Auto-detección por prefijo BCRA
+                      if (numero.length >= 11 && bancosCache) {
+                        const prefijo = numero.slice(0, 3);
+                        const detectado = bancosCache.find(b => b.CODIGO_BCRA === prefijo);
+                        if (detectado && detectado.BANCO_ID !== c.BANCO_ID) {
+                          patch.BANCO_ID = detectado.BANCO_ID;
+                          patch.BANCO = detectado.NOMBRE;
+                        }
+                      }
+                      setField(patch);
+                    }}
+                  />
+                  <Input
+                    placeholder="Librador *"
+                    value={c.LIBRADOR}
+                    onChange={e => setField({ LIBRADOR: e.target.value })}
+                  />
+                  <Input
+                    placeholder="Portador"
+                    value={c.PORTADOR || ''}
+                    onChange={e => setField({ PORTADOR: e.target.value })}
+                  />
+                  <DatePicker
+                    placeholder="Fecha de presentación"
+                    value={fpres}
+                    style={{ width: '100%', gridColumn: 'span 2' }}
+                    format="DD/MM/YYYY"
+                    onChange={(d) => setField({ FECHA_PRESENTACION: d ? d.format('YYYY-MM-DD') : null })}
+                  />
+                </div>
+              </div>
+            );
+          })}
+
+          {chequesIncompletos && (
+            <Text type="danger" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+              Completá los datos obligatorios del cheque (banco, librador y número).
+            </Text>
+          )}
 
           {vuelto > 0 && (
             <div style={{

@@ -22,6 +22,7 @@ export interface GastoServicioItem {
 
 export interface GastoServicioDetail extends GastoServicioItem {
   metodos_pago: MetodoPagoItem[];
+  cheques_ids: number[];
 }
 
 export interface GastoServicioInput {
@@ -30,6 +31,8 @@ export interface GastoServicioInput {
   CATEGORIA?: string;
   FECHA: string;
   metodos_pago: MetodoPagoItem[];
+  /** IDs de cheques EN_CARTERA a egresar (categoría CHEQUES). */
+  cheques_ids?: number[];
   puntoVentaId?: number;
 }
 

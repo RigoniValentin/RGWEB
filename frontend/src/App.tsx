@@ -5,6 +5,7 @@ import esES from 'antd/locale/es_ES';
 
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AppLayout } from './components/AppLayout';
+import { ModalShakeGuard } from './components/ModalShakeGuard';
 import { LoginPage } from './pages/LoginPage';
 
 const queryClient = new QueryClient({
@@ -91,6 +92,7 @@ function App() {
         }}
       >
         <AntApp>
+          <ModalShakeGuard />
           <BrowserRouter>
             <Routes>
               {/* Public routes */}

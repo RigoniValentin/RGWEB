@@ -2,6 +2,7 @@ import { getPool, sql } from '../database/connection.js';
 import { config } from '../config/index.js';
 import type { Venta, VentaItem, VentaMetodoPago, PaginatedResult } from '../types/index.js';
 import { registrarHistorialStock, getCurrentStock } from './stockHistorial.helper.js';
+import { crearChequeEnCartera } from './cheques.service.js';
 
 // ═══════════════════════════════════════════════════
 //  Sales Service — Full CRUD + Payment Management
@@ -44,6 +45,16 @@ export interface VentaItemInput {
 export interface MetodoPagoItem {
   METODO_PAGO_ID: number;
   MONTO: number;
+  /** Datos del cheque cuando el método seleccionado es de categoría CHEQUES.
+   *  Si está presente, el backend crea automáticamente un registro en la
+   *  tabla CHEQUES en estado EN_CARTERA. */
+  cheque?: {
+    BANCO: string;
+    LIBRADOR: string;
+    NUMERO: string;
+    PORTADOR?: string | null;
+    FECHA_PRESENTACION?: string | null;
+  };
 }
 
 export interface VentaInput {
@@ -106,12 +117,24 @@ async function decrementarStock(
     for (const child of children.recordset) {
       const childQty = cantidad * child.CANTIDAD;
       const prevStock = await getCurrentStock(tx, child.PRODUCTO_ID_HIJO, child.DEPOSITO_ID);
-      await tx.request()
+      const childExists = await tx.request()
         .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
         .input('depId', sql.Int, child.DEPOSITO_ID)
-        .input('cant', sql.Decimal(18, 4), childQty)
-        .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant
-                WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+        .query('SELECT 1 AS E FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId');
+      if (childExists.recordset.length > 0) {
+        await tx.request()
+          .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
+          .input('depId', sql.Int, child.DEPOSITO_ID)
+          .input('cant', sql.Decimal(18, 4), childQty)
+          .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant
+                  WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+      } else {
+        await tx.request()
+          .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
+          .input('depId', sql.Int, child.DEPOSITO_ID)
+          .input('cant', sql.Decimal(18, 4), childQty)
+          .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@prodId, @depId, -@cant)');
+      }
       await tx.request()
         .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
         .input('cant', sql.Decimal(18, 4), childQty)
@@ -127,12 +150,24 @@ async function decrementarStock(
     if (descuentaStock) {
       if (depositoId) {
         const prevStock = await getCurrentStock(tx, productoId, depositoId);
-        await tx.request()
+        const parentExists = await tx.request()
           .input('prodId', sql.Int, productoId)
           .input('depId', sql.Int, depositoId)
-          .input('cant', sql.Decimal(18, 4), cantidad)
-          .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant
-                  WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+          .query('SELECT 1 AS E FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId');
+        if (parentExists.recordset.length > 0) {
+          await tx.request()
+            .input('prodId', sql.Int, productoId)
+            .input('depId', sql.Int, depositoId)
+            .input('cant', sql.Decimal(18, 4), cantidad)
+            .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant
+                    WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+        } else {
+          await tx.request()
+            .input('prodId', sql.Int, productoId)
+            .input('depId', sql.Int, depositoId)
+            .input('cant', sql.Decimal(18, 4), cantidad)
+            .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@prodId, @depId, -@cant)');
+        }
         await registrarHistorialStock(tx, {
           productoId, depositoId,
           cantidadAnterior: prevStock, cantidadNueva: prevStock - cantidad,
@@ -147,12 +182,24 @@ async function decrementarStock(
   } else if (descuentaStock) {
     if (depositoId) {
       const prevStock = await getCurrentStock(tx, productoId, depositoId);
-      await tx.request()
+      const depExists = await tx.request()
         .input('prodId', sql.Int, productoId)
         .input('depId', sql.Int, depositoId)
-        .input('cant', sql.Decimal(18, 4), cantidad)
-        .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant
-                WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+        .query('SELECT 1 AS E FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId');
+      if (depExists.recordset.length > 0) {
+        await tx.request()
+          .input('prodId', sql.Int, productoId)
+          .input('depId', sql.Int, depositoId)
+          .input('cant', sql.Decimal(18, 4), cantidad)
+          .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant
+                  WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+      } else {
+        await tx.request()
+          .input('prodId', sql.Int, productoId)
+          .input('depId', sql.Int, depositoId)
+          .input('cant', sql.Decimal(18, 4), cantidad)
+          .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@prodId, @depId, -@cant)');
+      }
       await registrarHistorialStock(tx, {
         productoId, depositoId,
         cantidadAnterior: prevStock, cantidadNueva: prevStock - cantidad,
@@ -194,12 +241,24 @@ async function restaurarStock(
     for (const child of children.recordset) {
       const childQty = cantidad * child.CANTIDAD;
       const prevStock = await getCurrentStock(tx, child.PRODUCTO_ID_HIJO, child.DEPOSITO_ID);
-      await tx.request()
+      const childExistsR = await tx.request()
         .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
         .input('depId', sql.Int, child.DEPOSITO_ID)
-        .input('cant', sql.Decimal(18, 4), childQty)
-        .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant
-                WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+        .query('SELECT 1 AS E FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId');
+      if (childExistsR.recordset.length > 0) {
+        await tx.request()
+          .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
+          .input('depId', sql.Int, child.DEPOSITO_ID)
+          .input('cant', sql.Decimal(18, 4), childQty)
+          .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant
+                  WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+      } else {
+        await tx.request()
+          .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
+          .input('depId', sql.Int, child.DEPOSITO_ID)
+          .input('cant', sql.Decimal(18, 4), childQty)
+          .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@prodId, @depId, @cant)');
+      }
       await tx.request()
         .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
         .input('cant', sql.Decimal(18, 4), childQty)
@@ -214,12 +273,24 @@ async function restaurarStock(
     if (descuentaStock) {
       if (depositoId) {
         const prevStock = await getCurrentStock(tx, productoId, depositoId);
-        await tx.request()
+        const parentExistsR = await tx.request()
           .input('prodId', sql.Int, productoId)
           .input('depId', sql.Int, depositoId)
-          .input('cant', sql.Decimal(18, 4), cantidad)
-          .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant
-                  WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+          .query('SELECT 1 AS E FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId');
+        if (parentExistsR.recordset.length > 0) {
+          await tx.request()
+            .input('prodId', sql.Int, productoId)
+            .input('depId', sql.Int, depositoId)
+            .input('cant', sql.Decimal(18, 4), cantidad)
+            .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant
+                    WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+        } else {
+          await tx.request()
+            .input('prodId', sql.Int, productoId)
+            .input('depId', sql.Int, depositoId)
+            .input('cant', sql.Decimal(18, 4), cantidad)
+            .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@prodId, @depId, @cant)');
+        }
         await registrarHistorialStock(tx, {
           productoId, depositoId,
           cantidadAnterior: prevStock, cantidadNueva: prevStock + cantidad,
@@ -234,12 +305,24 @@ async function restaurarStock(
   } else if (descuentaStock) {
     if (depositoId) {
       const prevStock = await getCurrentStock(tx, productoId, depositoId);
-      await tx.request()
+      const depExistsR = await tx.request()
         .input('prodId', sql.Int, productoId)
         .input('depId', sql.Int, depositoId)
-        .input('cant', sql.Decimal(18, 4), cantidad)
-        .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant
-                WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+        .query('SELECT 1 AS E FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId');
+      if (depExistsR.recordset.length > 0) {
+        await tx.request()
+          .input('prodId', sql.Int, productoId)
+          .input('depId', sql.Int, depositoId)
+          .input('cant', sql.Decimal(18, 4), cantidad)
+          .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant
+                  WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
+      } else {
+        await tx.request()
+          .input('prodId', sql.Int, productoId)
+          .input('depId', sql.Int, depositoId)
+          .input('cant', sql.Decimal(18, 4), cantidad)
+          .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@prodId, @depId, @cant)');
+      }
       await registrarHistorialStock(tx, {
         productoId, depositoId,
         cantidadAnterior: prevStock, cantidadNueva: prevStock + cantidad,
@@ -336,6 +419,19 @@ async function ensureNetoExentoColumn(pool: any): Promise<void> {
   _netoExentoColumnReady = true;
 }
 
+// ── DESDE_REMITO column helper ───────────────────
+
+let _desdeRemitoColumnReady = false;
+
+async function ensureDesdeRemitoColumn(pool: any): Promise<void> {
+  if (_desdeRemitoColumnReady) return;
+  await pool.request().query(`
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('VENTAS_ITEMS') AND name = 'DESDE_REMITO')
+      ALTER TABLE VENTAS_ITEMS ADD DESDE_REMITO BIT NOT NULL DEFAULT 0
+  `);
+  _desdeRemitoColumnReady = true;
+}
+
 // ── VENTAS_METODOS_PAGO table helper ─────────────
 
 let _metodosPagoTableReady = false;
@@ -375,13 +471,43 @@ async function insertMetodosPago(
   }
 }
 
-/** Derive MONTO_EFECTIVO/MONTO_DIGITAL from payment methods */
+/** Crea registros en CHEQUES (estado EN_CARTERA) para cada método de pago
+ *  cuyo método sea categoría CHEQUES y traiga payload `cheque`. */
+async function crearChequesIngreso(
+  tx: any,
+  origenTipo: 'VENTA' | 'COBRANZA',
+  origenId: number,
+  metodosPago: MetodoPagoItem[],
+  usuarioId: number,
+  usuarioNombre: string | null,
+): Promise<void> {
+  for (const mp of metodosPago) {
+    if (!mp.cheque || mp.MONTO <= 0) continue;
+    const cat = await tx.request()
+      .input('mid', sql.Int, mp.METODO_PAGO_ID)
+      .query(`SELECT CATEGORIA FROM METODOS_PAGO WHERE METODO_PAGO_ID = @mid`);
+    if (cat.recordset[0]?.CATEGORIA !== 'CHEQUES') continue;
+    await crearChequeEnCartera(
+      tx,
+      mp.cheque,
+      mp.MONTO,
+      origenTipo,
+      origenId,
+      usuarioId,
+      usuarioNombre,
+    );
+  }
+}
+
+/** Derive MONTO_EFECTIVO/MONTO_DIGITAL/MONTO_CHEQUES from payment methods.
+ *  Los cheques NO suman a efectivo ni digital (van en flujo separado). */
 async function derivarCategorias(
   tx: any,
   metodosPago: MetodoPagoItem[]
-): Promise<{ montoEfectivo: number; montoDigital: number }> {
+): Promise<{ montoEfectivo: number; montoDigital: number; montoCheques: number }> {
   let montoEfectivo = 0;
   let montoDigital = 0;
+  let montoCheques = 0;
   for (const mp of metodosPago) {
     if (mp.MONTO <= 0) continue;
     const cat = await tx.request()
@@ -390,11 +516,17 @@ async function derivarCategorias(
     const categoria = cat.recordset[0]?.CATEGORIA || 'EFECTIVO';
     if (categoria === 'DIGITAL') {
       montoDigital += mp.MONTO;
+    } else if (categoria === 'CHEQUES') {
+      montoCheques += mp.MONTO;
     } else {
       montoEfectivo += mp.MONTO;
     }
   }
-  return { montoEfectivo: r2(montoEfectivo), montoDigital: r2(montoDigital) };
+  return {
+    montoEfectivo: r2(montoEfectivo),
+    montoDigital: r2(montoDigital),
+    montoCheques: r2(montoCheques),
+  };
 }
 
 // ═══════════════════════════════════════════════════
@@ -632,6 +764,7 @@ export const salesService = {
   async create(input: VentaInput, usuarioId: number) {
     const pool = await getPool();
     await ensureNetoExentoColumn(pool);
+    await ensureDesdeRemitoColumn(pool);
     const tx = pool.transaction();
     await tx.begin();
 
@@ -713,12 +846,14 @@ export const salesService = {
       let montoDigital = input.MONTO_DIGITAL || 0;
       const vuelto = input.VUELTO || 0;
       let montoAnticipo = 0;
+      let montoChequesAporte = 0;
 
       // If metodos_pago provided, derive category totals from methods
       if (input.metodos_pago && input.metodos_pago.length > 0) {
         const derived = await derivarCategorias(tx, input.metodos_pago);
         montoEfectivo = derived.montoEfectivo;
         montoDigital = derived.montoDigital;
+        montoChequesAporte = derived.montoCheques;
       }
 
       // ── 2. CTA CTE: Check saldo and apply anticipo if available ──
@@ -819,19 +954,20 @@ export const salesService = {
           .input('ivaAlicuota', sql.Decimal(18, 4), item.IVA_ALICUOTA || 0)
           .input('ivaMonto', sql.Decimal(18, 4), item.IVA_MONTO || 0)
           .input('cantidadProductosPromo', sql.Decimal(18, 2), item.CANTIDAD_PRODUCTOS_PROMO || 0)
+          .input('desdeRemito', sql.Bit, item.DESDE_REMITO ? 1 : 0)
           .query(`
             INSERT INTO VENTAS_ITEMS (
               VENTA_ID, PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, PRECIO_UNITARIO_DTO,
               DESCUENTO, PROMOCION_ID, CANTIDAD_PROMO, PRECIO_PROMOCION,
               PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID,
               IMPUESTO_INTERNO_PORCENTAJE, IMPUESTO_INTERNO_MONTO, IMPUESTO_INTERNO_TIPO,
-              IVA_ALICUOTA, IVA_MONTO, CANTIDAD_PRODUCTOS_PROMO
+              IVA_ALICUOTA, IVA_MONTO, CANTIDAD_PRODUCTOS_PROMO, DESDE_REMITO
             ) VALUES (
               @ventaId, @productoId, @precioUnitario, @cantidad, @precioUnitarioDto,
               @descuento, @promocionId, @cantidadPromo, @precioPromocion,
               @precioCompra, @depositoId, @listaId,
               @impIntPorcentaje, @impIntMonto, @impIntTipo,
-              @ivaAlicuota, @ivaMonto, @cantidadProductosPromo
+              @ivaAlicuota, @ivaMonto, @cantidadProductosPromo, @desdeRemito
             )
           `);
 
@@ -867,6 +1003,24 @@ export const salesService = {
       if (input.metodos_pago && input.metodos_pago.length > 0) {
         await ensureVentasMetodosPagoTable(pool);
         await insertMetodosPago(tx, ventaId, input.metodos_pago);
+        // Crear cheques EN_CARTERA para los métodos de categoría CHEQUES
+        await crearChequesIngreso(tx, 'VENTA', ventaId, input.metodos_pago, usuarioId, null);
+        // ── 5c. MOVIMIENTOS_CAJA: registrar el ingreso de cheques en Caja Central ──
+        // (los cheques son un instrumento de caja central, visibles inmediatamente)
+        if (montoChequesAporte > 0) {
+          await tx.request()
+            .input('idEntidad', sql.Int, ventaId)
+            .input('tipoEntidad', sql.VarChar(20), 'VENTA')
+            .input('movimiento', sql.NVarChar(500), `Ingreso cheque(s) Venta #${ventaId}`)
+            .input('uid', sql.Int, usuarioId)
+            .input('cheques', sql.Decimal(18, 2), montoChequesAporte)
+            .input('total', sql.Decimal(18, 2), montoChequesAporte)
+            .input('pvId', sql.Int, input.PUNTO_VENTA_ID)
+            .query(`
+              INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+              VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 0)
+            `);
+        }
       }
 
       // ── 6. CTA_CORRIENTE (if cuenta corriente sale) ──
@@ -1008,6 +1162,7 @@ export const salesService = {
   async update(id: number, input: VentaInput, usuarioId: number) {
     const pool = await getPool();
     await ensureNetoExentoColumn(pool);
+    await ensureDesdeRemitoColumn(pool);
     const tx = pool.transaction();
     await tx.begin();
 
@@ -1028,12 +1183,29 @@ export const salesService = {
 
       const oldVenta = existing.recordset[0];
 
-      // ── 1. Restore stock from old items ──
+      // Block update if active NCs exist (stock was already adjusted by the NC)
+      try {
+        const ncCheckUpd = await tx.request()
+          .input('ventaId', sql.Int, id)
+          .query(`SELECT COUNT(*) AS CNT FROM NC_VENTAS WHERE VENTA_ID = @ventaId AND ANULADA = 0`);
+        if (ncCheckUpd.recordset[0].CNT > 0) {
+          throw Object.assign(
+            new Error('No se puede modificar la venta porque tiene notas de crédito activas. Anule las NC primero.'),
+            { name: 'ValidationError' }
+          );
+        }
+      } catch (ncErrUpd: any) {
+        if (ncErrUpd.name === 'ValidationError') throw ncErrUpd;
+        // If NC_VENTAS table doesn't exist yet, ignore
+      }
+
+      // ── 1. Restore stock from old items (skip items that came from remitos) ──
       const oldItems = await tx.request()
         .input('ventaId', sql.Int, id)
-        .query(`SELECT PRODUCTO_ID, CANTIDAD, DEPOSITO_ID FROM VENTAS_ITEMS WHERE VENTA_ID = @ventaId`);
+        .query(`SELECT PRODUCTO_ID, CANTIDAD, DEPOSITO_ID, ISNULL(DESDE_REMITO, 0) AS DESDE_REMITO FROM VENTAS_ITEMS WHERE VENTA_ID = @ventaId`);
 
       for (const oldItem of oldItems.recordset) {
+        if (oldItem.DESDE_REMITO) continue; // stock was never taken — don't restore
         await restaurarStock(tx, oldItem.PRODUCTO_ID, oldItem.CANTIDAD, oldItem.DEPOSITO_ID, id, usuarioId);
       }
 
@@ -1186,23 +1358,26 @@ export const salesService = {
           .input('ivaAlicuota', sql.Decimal(18, 4), item.IVA_ALICUOTA || 0)
           .input('ivaMonto', sql.Decimal(18, 4), item.IVA_MONTO || 0)
           .input('cantidadProductosPromo', sql.Decimal(18, 2), item.CANTIDAD_PRODUCTOS_PROMO || 0)
+          .input('desdeRemito', sql.Bit, item.DESDE_REMITO ? 1 : 0)
           .query(`
             INSERT INTO VENTAS_ITEMS (
               VENTA_ID, PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, PRECIO_UNITARIO_DTO,
               DESCUENTO, PROMOCION_ID, CANTIDAD_PROMO, PRECIO_PROMOCION,
               PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID,
               IMPUESTO_INTERNO_PORCENTAJE, IMPUESTO_INTERNO_MONTO, IMPUESTO_INTERNO_TIPO,
-              IVA_ALICUOTA, IVA_MONTO, CANTIDAD_PRODUCTOS_PROMO
+              IVA_ALICUOTA, IVA_MONTO, CANTIDAD_PRODUCTOS_PROMO, DESDE_REMITO
             ) VALUES (
               @ventaId, @productoId, @precioUnitario, @cantidad, @precioUnitarioDto,
               @descuento, @promocionId, @cantidadPromo, @precioPromocion,
               @precioCompra, @depositoId, @listaId,
               @impIntPorcentaje, @impIntMonto, @impIntTipo,
-              @ivaAlicuota, @ivaMonto, @cantidadProductosPromo
+              @ivaAlicuota, @ivaMonto, @cantidadProductosPromo, @desdeRemito
             )
           `);
 
-        await decrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID || null, id, usuarioId);
+        if (!item.DESDE_REMITO) {
+          await decrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID || null, id, usuarioId);
+        }
       }
 
       // ── 8. Re-create CAJA_ITEMS if applicable ──
@@ -1290,12 +1465,29 @@ export const salesService = {
         );
       }
 
-      // ── 1. Restore stock from items ──
+      // Block delete if active NCs exist (stock was already adjusted by the NC)
+      try {
+        const ncCheck = await tx.request()
+          .input('ventaId', sql.Int, id)
+          .query(`SELECT COUNT(*) AS CNT FROM NC_VENTAS WHERE VENTA_ID = @ventaId AND ANULADA = 0`);
+        if (ncCheck.recordset[0].CNT > 0) {
+          throw Object.assign(
+            new Error('No se puede eliminar la venta porque tiene notas de crédito activas. Anule las NC primero.'),
+            { name: 'ValidationError' }
+          );
+        }
+      } catch (ncErr: any) {
+        if (ncErr.name === 'ValidationError') throw ncErr;
+        // If NC_VENTAS table doesn't exist yet, ignore
+      }
+
+      // ── 1. Restore stock from items (skip items that came from remitos) ──
       const items = await tx.request()
         .input('ventaId', sql.Int, id)
-        .query(`SELECT PRODUCTO_ID, CANTIDAD, DEPOSITO_ID FROM VENTAS_ITEMS WHERE VENTA_ID = @ventaId`);
+        .query(`SELECT PRODUCTO_ID, CANTIDAD, DEPOSITO_ID, ISNULL(DESDE_REMITO, 0) AS DESDE_REMITO FROM VENTAS_ITEMS WHERE VENTA_ID = @ventaId`);
 
       for (const item of items.recordset) {
+        if (item.DESDE_REMITO) continue; // stock was never taken — don't restore
         await restaurarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID, id, usuarioId);
       }
 
@@ -1354,6 +1546,32 @@ export const salesService = {
       await ensureVentasMetodosPagoTable(pool);
       await tx.request().input('ventaId', sql.Int, id)
         .query(`DELETE FROM VENTAS_METODOS_PAGO WHERE VENTA_ID = @ventaId`);
+      // Limpiar MOVIMIENTOS_CAJA generados por cheques de esta venta
+      await tx.request().input('ventaId', sql.Int, id)
+        .query(`DELETE FROM MOVIMIENTOS_CAJA WHERE ID_ENTIDAD = @ventaId AND TIPO_ENTIDAD = 'VENTA'`);
+      // Cheques: block if any cheque is not EN_CARTERA (already cashed/deposited)
+      try {
+        const chequesNoCartera = await tx.request()
+          .input('ventaId', sql.Int, id)
+          .query(`SELECT COUNT(*) AS CNT FROM CHEQUES
+                  WHERE ORIGEN_TIPO = 'VENTA' AND ORIGEN_ID = @ventaId AND ESTADO <> 'EN_CARTERA'`);
+        if (chequesNoCartera.recordset[0].CNT > 0) {
+          throw Object.assign(
+            new Error('No se puede eliminar la venta porque tiene cheques ya procesados (depositados o egresados). Anule los cheques primero.'),
+            { name: 'ValidationError' }
+          );
+        }
+        // Delete EN_CARTERA cheques linked to this sale
+        await tx.request().input('ventaId', sql.Int, id)
+          .query(`DELETE ch FROM CHEQUES_HISTORIAL ch
+                  INNER JOIN CHEQUES c ON ch.CHEQUE_ID = c.CHEQUE_ID
+                  WHERE c.ORIGEN_TIPO = 'VENTA' AND c.ORIGEN_ID = @ventaId AND c.ESTADO = 'EN_CARTERA'`);
+        await tx.request().input('ventaId', sql.Int, id)
+          .query(`DELETE FROM CHEQUES WHERE ORIGEN_TIPO = 'VENTA' AND ORIGEN_ID = @ventaId AND ESTADO = 'EN_CARTERA'`);
+      } catch (chqErr: any) {
+        if (chqErr.name === 'ValidationError') throw chqErr;
+        // If CHEQUES table doesn't exist yet, ignore
+      }
       await tx.request().input('ventaId', sql.Int, id)
         .query(`DELETE FROM VENTAS_ITEMS WHERE VENTA_ID = @ventaId`);
       await tx.request().input('id', sql.Int, id)
@@ -1399,10 +1617,12 @@ export const salesService = {
       // Derive category amounts from metodos_pago if provided
       let payEfectivo = payment.MONTO_EFECTIVO;
       let payDigital = payment.MONTO_DIGITAL;
+      let payCheques = 0;
       if (payment.metodos_pago && payment.metodos_pago.length > 0) {
         const derived = await derivarCategorias(tx, payment.metodos_pago);
         payEfectivo = derived.montoEfectivo;
         payDigital = derived.montoDigital;
+        payCheques = derived.montoCheques;
       }
 
       const newEfectivo = prevEfectivo + payEfectivo;
@@ -1450,6 +1670,22 @@ export const salesService = {
       if (payment.metodos_pago && payment.metodos_pago.length > 0) {
         await ensureVentasMetodosPagoTable(pool);
         await insertMetodosPago(tx, id, payment.metodos_pago);
+        await crearChequesIngreso(tx, 'VENTA', id, payment.metodos_pago, usuarioId, null);
+        // Registrar el ingreso de cheques en MOVIMIENTOS_CAJA (caja central)
+        if (payCheques > 0) {
+          await tx.request()
+            .input('idEntidad', sql.Int, id)
+            .input('tipoEntidad', sql.VarChar(20), 'VENTA')
+            .input('movimiento', sql.NVarChar(500), `Cobro cheque(s) Venta #${id}`)
+            .input('uid', sql.Int, usuarioId)
+            .input('cheques', sql.Decimal(18, 2), payCheques)
+            .input('total', sql.Decimal(18, 2), payCheques)
+            .input('pvId', sql.Int, venta.PUNTO_VENTA_ID)
+            .query(`
+              INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+              VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 0)
+            `);
+        }
       }
 
       // ── 3. CTA_CORRIENTE: record payment as HABER ──
@@ -1526,6 +1762,32 @@ export const salesService = {
       await ensureVentasMetodosPagoTable(pool);
       await tx.request().input('ventaId', sql.Int, id)
         .query(`DELETE FROM VENTAS_METODOS_PAGO WHERE VENTA_ID = @ventaId`);
+
+      // ── 2c. Clean up EN_CARTERA cheques from this sale's payment ──
+      try {
+        const chequesNoCartera2 = await tx.request()
+          .input('ventaId', sql.Int, id)
+          .query(`SELECT COUNT(*) AS CNT FROM CHEQUES
+                  WHERE ORIGEN_TIPO = 'VENTA' AND ORIGEN_ID = @ventaId AND ESTADO <> 'EN_CARTERA'`);
+        if (chequesNoCartera2.recordset[0].CNT > 0) {
+          throw Object.assign(
+            new Error('No se puede quitar el cobro porque hay cheques ya procesados (depositados o egresados). Anule los cheques primero.'),
+            { name: 'ValidationError' }
+          );
+        }
+        await tx.request().input('ventaId', sql.Int, id)
+          .query(`DELETE ch FROM CHEQUES_HISTORIAL ch
+                  INNER JOIN CHEQUES c ON ch.CHEQUE_ID = c.CHEQUE_ID
+                  WHERE c.ORIGEN_TIPO = 'VENTA' AND c.ORIGEN_ID = @ventaId AND c.ESTADO = 'EN_CARTERA'`);
+        await tx.request().input('ventaId', sql.Int, id)
+          .query(`DELETE FROM CHEQUES WHERE ORIGEN_TIPO = 'VENTA' AND ORIGEN_ID = @ventaId AND ESTADO = 'EN_CARTERA'`);
+        // Remove cheque MOVIMIENTOS_CAJA entries
+        await tx.request().input('ventaId', sql.Int, id)
+          .query(`DELETE FROM MOVIMIENTOS_CAJA WHERE ID_ENTIDAD = @ventaId AND TIPO_ENTIDAD = 'VENTA'`);
+      } catch (chqErr2: any) {
+        if (chqErr2.name === 'ValidationError') throw chqErr2;
+        // If CHEQUES table doesn't exist yet, ignore
+      }
 
       // ── 3. Remove CTA_CORRIENTE payment records ──
       if (venta.ES_CTA_CORRIENTE) {

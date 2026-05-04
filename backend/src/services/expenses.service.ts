@@ -1,4 +1,5 @@
 import { getPool, sql } from '../database/connection.js';
+import { marcarChequesEgresados, revertirEgresoCheques } from './cheques.service.js';
 
 // ═══════════════════════════════════════════════════
 //  Gastos y Servicios — Service
@@ -124,6 +125,9 @@ export interface GastoServicioInput {
   CATEGORIA?: string;
   FECHA: string;
   metodos_pago?: MetodoPagoItem[];
+  /** IDs de cheques EN_CARTERA a egresar como pago. La suma debe coincidir
+   *  con el MONTO de los métodos de categoría CHEQUES en metodos_pago. */
+  cheques_ids?: number[];
   puntoVentaId?: number;
 }
 
@@ -139,9 +143,10 @@ export interface GastoServicioFilter {
 async function derivarCategorias(
   tx: any,
   metodosPago: MetodoPagoItem[],
-): Promise<{ efectivo: number; digital: number }> {
+): Promise<{ efectivo: number; digital: number; cheques: number }> {
   let efectivo = 0;
   let digital = 0;
+  let cheques = 0;
   for (const mp of metodosPago) {
     if (mp.MONTO <= 0) continue;
     const cat = await tx.request()
@@ -149,9 +154,10 @@ async function derivarCategorias(
       .query(`SELECT CATEGORIA FROM METODOS_PAGO WHERE METODO_PAGO_ID = @mid`);
     const categoria = cat.recordset[0]?.CATEGORIA || 'EFECTIVO';
     if (categoria === 'DIGITAL') digital += mp.MONTO;
+    else if (categoria === 'CHEQUES') cheques += mp.MONTO;
     else efectivo += mp.MONTO;
   }
-  return { efectivo: r2(efectivo), digital: r2(digital) };
+  return { efectivo: r2(efectivo), digital: r2(digital), cheques: r2(cheques) };
 }
 
 async function getCajaAbiertaTx(tx: any, usuarioId: number): Promise<{ CAJA_ID: number; PUNTO_VENTA_ID: number | null } | null> {
@@ -268,7 +274,7 @@ export const expensesService = {
   },
 
   // ── Get single gasto ───────────────────────────
-  async getById(gastoId: number): Promise<GastoServicioItem & { metodos_pago: MetodoPagoItem[] }> {
+  async getById(gastoId: number): Promise<GastoServicioItem & { metodos_pago: MetodoPagoItem[]; cheques_ids: number[] }> {
     const pool = await getPool();
     await ensureGastosTable(pool);
 
@@ -299,7 +305,13 @@ export const expensesService = {
       .input('id', sql.Int, gastoId)
       .query(`SELECT METODO_PAGO_ID, MONTO FROM GASTOS_SERVICIOS_METODOS_PAGO WHERE GASTO_ID = @id`);
 
-    return { ...result.recordset[0], metodos_pago: mpResult.recordset };
+    // Cheques egresados a este gasto (sirve para mostrar en edición)
+    const chq = await pool.request()
+      .input('id', sql.Int, gastoId)
+      .query(`SELECT CHEQUE_ID FROM CHEQUES WHERE DESTINO_TIPO = 'GASTO' AND DESTINO_ID = @id`);
+    const cheques_ids = chq.recordset.map((r: any) => r.CHEQUE_ID as number);
+
+    return { ...result.recordset[0], metodos_pago: mpResult.recordset, cheques_ids };
   },
 
   // ── Active payment methods ─────────────────────
@@ -392,11 +404,14 @@ export const expensesService = {
         throw new ValidationError('Los montos deben ser mayores a cero');
       }
 
-      const { efectivo, digital } = await derivarCategorias(tx, metodosValidos);
-      const cheques = 0;
+      const { efectivo, digital, cheques: chequesAporte } = await derivarCategorias(tx, metodosValidos);
+      const cheques = chequesAporte;
       const total = r2(efectivo + digital + cheques);
       if (total <= 0) {
         throw new ValidationError('El total debe ser mayor a cero');
+      }
+      if (chequesAporte > 0 && (!input.cheques_ids || input.cheques_ids.length === 0)) {
+        throw new ValidationError('Debe seleccionar cheques de cartera para el método CHEQUES');
       }
 
       // Resolve PV from caja (if any)
@@ -429,7 +444,26 @@ export const expensesService = {
 
       const gastoId = insertResult.recordset[0].GASTO_ID;
 
-      // 2) Insert payment method breakdown
+      // 2) Marcar cheques EGRESADOS si los hay (con consistencia vs aporte declarado)
+      if (input.cheques_ids && input.cheques_ids.length > 0) {
+        const chequesEgresadosResult = await marcarChequesEgresados(
+          tx,
+          input.cheques_ids,
+          'GASTO',
+          gastoId,
+          `Pago Gasto #${gastoId}: ${input.ENTIDAD.trim()}`,
+          usuarioId,
+          null,
+        );
+        const chequesEgresados = chequesEgresadosResult.total;
+        if (Math.abs(chequesEgresados - chequesAporte) > 0.01) {
+          throw new ValidationError(
+            `El total de cheques seleccionados ($${chequesEgresados.toFixed(2)}) no coincide con el monto del método CHEQUES ($${chequesAporte.toFixed(2)}).`,
+          );
+        }
+      }
+
+      // 3) Insert payment method breakdown
       for (const mp of metodosValidos) {
         await tx.request()
           .input('gastoId', sql.Int, gastoId)
@@ -487,8 +521,32 @@ export const expensesService = {
         throw new ValidationError('Los montos deben ser mayores a cero');
       }
 
-      const { efectivo, digital } = await derivarCategorias(tx, metodosValidos);
-      const cheques = 0;
+      const { efectivo, digital, cheques: chequesAporte } = await derivarCategorias(tx, metodosValidos);
+      // Validar/marcar cheques si vinieron cheques_ids; en update revertimos primero los anteriores.
+      if (chequesAporte > 0 && (!input.cheques_ids || input.cheques_ids.length === 0)) {
+        throw new ValidationError('Debe seleccionar cheques de cartera para el método CHEQUES');
+      }
+      // Revertir cheques previamente egresados a este gasto (si los hubiera)
+      await revertirEgresoCheques(tx, 'GASTO', gastoId, usuarioId, null);
+      let chequesEgresados = 0;
+      if (input.cheques_ids && input.cheques_ids.length > 0) {
+        const chequesEgresadosResult = await marcarChequesEgresados(
+          tx,
+          input.cheques_ids,
+          'GASTO',
+          gastoId,
+          `Pago Gasto: ${input.ENTIDAD.trim()}`,
+          usuarioId,
+          null,
+        );
+        chequesEgresados = chequesEgresadosResult.total;
+        if (Math.abs(chequesEgresados - chequesAporte) > 0.01) {
+          throw new ValidationError(
+            `El total de cheques seleccionados ($${chequesEgresados.toFixed(2)}) no coincide con el monto del método CHEQUES ($${chequesAporte.toFixed(2)}).`,
+          );
+        }
+      }
+      const cheques = chequesAporte;
       const total = r2(efectivo + digital + cheques);
       if (total <= 0) {
         throw new ValidationError('El total debe ser mayor a cero');
@@ -561,14 +619,17 @@ export const expensesService = {
     await tx.begin();
 
     try {
-      // 1) Remove caja central egreso
+      // 1) Revertir cheques egresados a este gasto (vuelven a EN_CARTERA)
+      await revertirEgresoCheques(tx, 'GASTO', gastoId, 0, null);
+
+      // 2) Remove caja central egreso
       await eliminarEgresoCajaCentral(tx, gastoId);
 
-      // 2) Remove method breakdown
+      // 3) Remove method breakdown
       await tx.request().input('id', sql.Int, gastoId)
         .query(`DELETE FROM GASTOS_SERVICIOS_METODOS_PAGO WHERE GASTO_ID = @id`);
 
-      // 3) Remove gasto
+      // 4) Remove gasto
       const del = await tx.request().input('id', sql.Int, gastoId)
         .query(`DELETE FROM GASTOS_SERVICIOS WHERE GASTO_ID = @id`);
 

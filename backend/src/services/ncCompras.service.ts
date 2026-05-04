@@ -116,34 +116,100 @@ async function decrementarStockTx(
 ) {
   const prod = await tx.request()
     .input('pid', sql.Int, productoId)
-    .query('SELECT DESCUENTA_STOCK FROM PRODUCTOS WHERE PRODUCTO_ID = @pid');
-  if (!prod.recordset.length || !prod.recordset[0].DESCUENTA_STOCK) return;
+    .query('SELECT ES_CONJUNTO, DESCUENTA_STOCK FROM PRODUCTOS WHERE PRODUCTO_ID = @pid');
+  if (!prod.recordset.length) return;
 
-  // Main stock
-  await tx.request()
-    .input('pid', sql.Int, productoId)
-    .input('cant', sql.Decimal(18, 2), cantidad)
-    .query('UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @pid');
+  const esConjunto = prod.recordset[0].ES_CONJUNTO;
+  const descuentaStock = prod.recordset[0].DESCUENTA_STOCK;
 
-  // Deposit stock
-  if (depositoId) {
-    const prevStock = await getCurrentStock(tx, productoId, depositoId);
-    const dep = await tx.request()
+  if (esConjunto) {
+    const children = await tx.request()
       .input('pid', sql.Int, productoId)
-      .input('did', sql.Int, depositoId)
-      .query('SELECT CANTIDAD FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @pid AND DEPOSITO_ID = @did');
-    if (dep.recordset.length > 0) {
+      .query(`SELECT PRODUCTO_ID_HIJO, DEPOSITO_ID, CANTIDAD
+              FROM PRODUCTO_CONJUNTO_DEPOSITO WHERE PRODUCTO_ID = @pid`);
+    for (const child of children.recordset) {
+      const childQty = cantidad * child.CANTIDAD;
+      const prevStock = await getCurrentStock(tx, child.PRODUCTO_ID_HIJO, child.DEPOSITO_ID);
+      const existsC = await tx.request()
+        .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
+        .input('depId', sql.Int, child.DEPOSITO_ID)
+        .query('SELECT 1 AS E FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId');
+      if (existsC.recordset.length > 0) {
+        await tx.request()
+          .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
+          .input('depId', sql.Int, child.DEPOSITO_ID)
+          .input('cant', sql.Decimal(18, 2), childQty)
+          .query('UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId');
+      } else {
+        await tx.request()
+          .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
+          .input('depId', sql.Int, child.DEPOSITO_ID)
+          .input('cant', sql.Decimal(18, 2), childQty)
+          .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@prodId, @depId, -@cant)');
+      }
       await tx.request()
+        .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
+        .input('cant', sql.Decimal(18, 2), childQty)
+        .query('UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @prodId');
+      await registrarHistorialStock(tx, {
+        productoId: child.PRODUCTO_ID_HIJO, depositoId: child.DEPOSITO_ID,
+        cantidadAnterior: prevStock, cantidadNueva: prevStock - childQty,
+        tipoOperacion: 'NC_COMPRA', referenciaId, referenciaDetalle: `NC Compra #${referenciaId || ''}`, usuarioId,
+      });
+    }
+    if (descuentaStock && depositoId) {
+      const prevStock = await getCurrentStock(tx, productoId, depositoId);
+      const existsP = await tx.request()
+        .input('prodId', sql.Int, productoId).input('depId', sql.Int, depositoId)
+        .query('SELECT 1 AS E FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId');
+      if (existsP.recordset.length > 0) {
+        await tx.request().input('prodId', sql.Int, productoId).input('depId', sql.Int, depositoId)
+          .input('cant', sql.Decimal(18, 2), cantidad)
+          .query('UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId');
+      } else {
+        await tx.request().input('prodId', sql.Int, productoId).input('depId', sql.Int, depositoId)
+          .input('cant', sql.Decimal(18, 2), cantidad)
+          .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@prodId, @depId, -@cant)');
+      }
+      await tx.request().input('prodId', sql.Int, productoId).input('cant', sql.Decimal(18, 2), cantidad)
+        .query('UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @prodId');
+      await registrarHistorialStock(tx, {
+        productoId, depositoId, cantidadAnterior: prevStock, cantidadNueva: prevStock - cantidad,
+        tipoOperacion: 'NC_COMPRA', referenciaId, referenciaDetalle: `NC Compra #${referenciaId || ''}`, usuarioId,
+      });
+    }
+  } else if (descuentaStock) {
+    // Main stock
+    await tx.request()
+      .input('pid', sql.Int, productoId)
+      .input('cant', sql.Decimal(18, 2), cantidad)
+      .query('UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @pid');
+    // Deposit stock
+    if (depositoId) {
+      const prevStock = await getCurrentStock(tx, productoId, depositoId);
+      const dep = await tx.request()
         .input('pid', sql.Int, productoId)
         .input('did', sql.Int, depositoId)
-        .input('cant', sql.Decimal(18, 2), cantidad)
-        .query('UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @pid AND DEPOSITO_ID = @did');
+        .query('SELECT 1 AS E FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @pid AND DEPOSITO_ID = @did');
+      if (dep.recordset.length > 0) {
+        await tx.request()
+          .input('pid', sql.Int, productoId)
+          .input('did', sql.Int, depositoId)
+          .input('cant', sql.Decimal(18, 2), cantidad)
+          .query('UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @pid AND DEPOSITO_ID = @did');
+      } else {
+        await tx.request()
+          .input('pid', sql.Int, productoId)
+          .input('did', sql.Int, depositoId)
+          .input('cant', sql.Decimal(18, 2), cantidad)
+          .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@pid, @did, -@cant)');
+      }
+      await registrarHistorialStock(tx, {
+        productoId, depositoId,
+        cantidadAnterior: prevStock, cantidadNueva: prevStock - cantidad,
+        tipoOperacion: 'NC_COMPRA', referenciaId, referenciaDetalle: `NC Compra #${referenciaId || ''}`, usuarioId,
+      });
     }
-    await registrarHistorialStock(tx, {
-      productoId, depositoId,
-      cantidadAnterior: prevStock, cantidadNueva: prevStock - cantidad,
-      tipoOperacion: 'NC_COMPRA', referenciaId, referenciaDetalle: `NC Compra #${referenciaId || ''}`, usuarioId,
-    });
   }
 }
 
@@ -157,38 +223,98 @@ async function incrementarStockTx(
 ) {
   const prod = await tx.request()
     .input('pid', sql.Int, productoId)
-    .query('SELECT DESCUENTA_STOCK FROM PRODUCTOS WHERE PRODUCTO_ID = @pid');
-  if (!prod.recordset.length || !prod.recordset[0].DESCUENTA_STOCK) return;
+    .query('SELECT ES_CONJUNTO, DESCUENTA_STOCK FROM PRODUCTOS WHERE PRODUCTO_ID = @pid');
+  if (!prod.recordset.length) return;
 
-  await tx.request()
-    .input('pid', sql.Int, productoId)
-    .input('cant', sql.Decimal(18, 2), cantidad)
-    .query('UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @pid');
+  const esConjunto = prod.recordset[0].ES_CONJUNTO;
+  const descuentaStock = prod.recordset[0].DESCUENTA_STOCK;
 
-  if (depositoId) {
-    const prevStock = await getCurrentStock(tx, productoId, depositoId);
-    const dep = await tx.request()
+  if (esConjunto) {
+    const children = await tx.request()
       .input('pid', sql.Int, productoId)
-      .input('did', sql.Int, depositoId)
-      .query('SELECT CANTIDAD FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @pid AND DEPOSITO_ID = @did');
-    if (dep.recordset.length > 0) {
+      .query(`SELECT PRODUCTO_ID_HIJO, DEPOSITO_ID, CANTIDAD
+              FROM PRODUCTO_CONJUNTO_DEPOSITO WHERE PRODUCTO_ID = @pid`);
+    for (const child of children.recordset) {
+      const childQty = cantidad * child.CANTIDAD;
+      const prevStock = await getCurrentStock(tx, child.PRODUCTO_ID_HIJO, child.DEPOSITO_ID);
+      const existsC = await tx.request()
+        .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
+        .input('depId', sql.Int, child.DEPOSITO_ID)
+        .query('SELECT 1 AS E FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId');
+      if (existsC.recordset.length > 0) {
+        await tx.request()
+          .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
+          .input('depId', sql.Int, child.DEPOSITO_ID)
+          .input('cant', sql.Decimal(18, 2), childQty)
+          .query('UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId');
+      } else {
+        await tx.request()
+          .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
+          .input('depId', sql.Int, child.DEPOSITO_ID)
+          .input('cant', sql.Decimal(18, 2), childQty)
+          .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@prodId, @depId, @cant)');
+      }
       await tx.request()
-        .input('pid', sql.Int, productoId)
-        .input('did', sql.Int, depositoId)
-        .input('cant', sql.Decimal(18, 2), cantidad)
-        .query('UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @pid AND DEPOSITO_ID = @did');
-    } else {
-      await tx.request()
-        .input('pid', sql.Int, productoId)
-        .input('did', sql.Int, depositoId)
-        .input('cant', sql.Decimal(18, 2), cantidad)
-        .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@pid, @did, @cant)');
+        .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
+        .input('cant', sql.Decimal(18, 2), childQty)
+        .query('UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @prodId');
+      await registrarHistorialStock(tx, {
+        productoId: child.PRODUCTO_ID_HIJO, depositoId: child.DEPOSITO_ID,
+        cantidadAnterior: prevStock, cantidadNueva: prevStock + childQty,
+        tipoOperacion: 'NC_COMPRA', referenciaId, referenciaDetalle: `Anulación NC Compra #${referenciaId || ''}`, usuarioId,
+      });
     }
-    await registrarHistorialStock(tx, {
-      productoId, depositoId,
-      cantidadAnterior: prevStock, cantidadNueva: prevStock + cantidad,
-      tipoOperacion: 'NC_COMPRA', referenciaId, referenciaDetalle: `Anulación NC Compra #${referenciaId || ''}`, usuarioId,
-    });
+    if (descuentaStock && depositoId) {
+      const prevStock = await getCurrentStock(tx, productoId, depositoId);
+      const existsP = await tx.request()
+        .input('prodId', sql.Int, productoId).input('depId', sql.Int, depositoId)
+        .query('SELECT 1 AS E FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId');
+      if (existsP.recordset.length > 0) {
+        await tx.request().input('prodId', sql.Int, productoId).input('depId', sql.Int, depositoId)
+          .input('cant', sql.Decimal(18, 2), cantidad)
+          .query('UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId');
+      } else {
+        await tx.request().input('prodId', sql.Int, productoId).input('depId', sql.Int, depositoId)
+          .input('cant', sql.Decimal(18, 2), cantidad)
+          .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@prodId, @depId, @cant)');
+      }
+      await tx.request().input('prodId', sql.Int, productoId).input('cant', sql.Decimal(18, 2), cantidad)
+        .query('UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @prodId');
+      await registrarHistorialStock(tx, {
+        productoId, depositoId, cantidadAnterior: prevStock, cantidadNueva: prevStock + cantidad,
+        tipoOperacion: 'NC_COMPRA', referenciaId, referenciaDetalle: `Anulación NC Compra #${referenciaId || ''}`, usuarioId,
+      });
+    }
+  } else if (descuentaStock) {
+    await tx.request()
+      .input('pid', sql.Int, productoId)
+      .input('cant', sql.Decimal(18, 2), cantidad)
+      .query('UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @pid');
+    if (depositoId) {
+      const prevStock = await getCurrentStock(tx, productoId, depositoId);
+      const dep = await tx.request()
+        .input('pid', sql.Int, productoId)
+        .input('did', sql.Int, depositoId)
+        .query('SELECT 1 AS E FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @pid AND DEPOSITO_ID = @did');
+      if (dep.recordset.length > 0) {
+        await tx.request()
+          .input('pid', sql.Int, productoId)
+          .input('did', sql.Int, depositoId)
+          .input('cant', sql.Decimal(18, 2), cantidad)
+          .query('UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @pid AND DEPOSITO_ID = @did');
+      } else {
+        await tx.request()
+          .input('pid', sql.Int, productoId)
+          .input('did', sql.Int, depositoId)
+          .input('cant', sql.Decimal(18, 2), cantidad)
+          .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@pid, @did, @cant)');
+      }
+      await registrarHistorialStock(tx, {
+        productoId, depositoId,
+        cantidadAnterior: prevStock, cantidadNueva: prevStock + cantidad,
+        tipoOperacion: 'NC_COMPRA', referenciaId, referenciaDetalle: `Anulación NC Compra #${referenciaId || ''}`, usuarioId,
+      });
+    }
   }
 }
 

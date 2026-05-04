@@ -10,12 +10,13 @@ import {
   DollarOutlined, CreditCardOutlined, WalletOutlined,
   BankOutlined, InboxOutlined,
 } from '@ant-design/icons';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { purchasesApi } from '../../services/purchases.api';
 import { cajaApi } from '../../services/caja.api';
 import { fmtMoney } from '../../utils/format';
 import type { CompraItemInput, CompraInput, ProductoSearchCompra, ProductoSearch, MetodoPagoItem } from '../../types';
 import { ProductSearchModal } from '../ProductSearchModal';
+import { ChequePicker } from '../cheques/ChequePicker';
 import { usePurchaseDraftStore } from '../../store/purchaseDraftStore';
 import type { PurchaseCartItem } from '../../store/purchaseDraftStore';
 
@@ -44,6 +45,7 @@ interface Props {
 }
 
 export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
+  const queryClient = useQueryClient();
   // ── Draft persistence ──────────────────────────
   const draftInitialized = useRef(false);
 
@@ -80,6 +82,11 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const [metodoModalSelection, setMetodoModalSelection] = useState<number[]>([]);
   const [destinoPago, setDestinoPago] = useState<'CAJA_CENTRAL' | 'CAJA'>('CAJA_CENTRAL');
   const efectivoRef = useRef<any>(null);
+
+  // Cheques de cartera a egresar como pago
+  const [chequesIds, setChequesIds] = useState<number[]>([]);
+  const [chequesTotal, setChequesTotal] = useState(0);
+  const [chequePickerOpen, setChequePickerOpen] = useState(false);
 
   // Saldo CTA CTE state
   const [saldoModalOpen, setSaldoModalOpen] = useState(false);
@@ -137,10 +144,10 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     return metodosPago[0]?.METODO_PAGO_ID;
   }, [metodosPago]);
 
-  // Derived payment values from selectedMetodos + montosPorMetodo
+  // Derived payment values from selectedMetodos + montosPorMetodo + cheques
   const totalRecibido = useMemo(
-    () => selectedMetodos.reduce((sum, id) => sum + (montosPorMetodo[id] || 0), 0),
-    [selectedMetodos, montosPorMetodo]
+    () => selectedMetodos.reduce((sum, id) => sum + (montosPorMetodo[id] || 0), 0) + chequesTotal,
+    [selectedMetodos, montosPorMetodo, chequesTotal]
   );
 
   const hayEfectivo = selectedMetodos.some(id => {
@@ -500,20 +507,63 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   }, [selectedMetodos, totalRecibido, total, soloEfectivo, hayEfectivo, esCtaCorriente]);
 
   const pagoValido = useMemo(() => {
-    if (selectedMetodos.length === 0 || totalRecibido <= 0) return false;
+    if (totalRecibido <= 0) return false;
+    if (selectedMetodos.length === 0 && chequesTotal <= 0) return false;
     if (soloEfectivo) return totalRecibido >= total;
     if (soloDigital) return Math.abs(totalRecibido - total) < 0.01;
     if (hayEfectivo) return totalRecibido >= total;
     return Math.abs(totalRecibido - total) < 0.01;
-  }, [selectedMetodos, totalRecibido, total, soloEfectivo, soloDigital, hayEfectivo]);
+  }, [selectedMetodos, totalRecibido, total, soloEfectivo, soloDigital, hayEfectivo, chequesTotal]);
 
-  // When a single method is selected, auto-fill total to it
+  // When a single method is selected, auto-fill remaining (descontando cheques de cartera)
   useEffect(() => {
     if (step !== 'pago') return;
     if (selectedMetodos.length === 1) {
-      setMontosPorMetodo({ [selectedMetodos[0]!]: total });
+      const id = selectedMetodos[0]!;
+      const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+      if (m?.CATEGORIA === 'CHEQUES') {
+        // Para método CHEQUES, el monto lo determina el ChequePicker (chequesTotal)
+        setMontosPorMetodo({ [id]: 0 });
+      } else {
+        const remaining = Math.max(0, r2(total - chequesTotal));
+        setMontosPorMetodo({ [id]: remaining });
+      }
     }
-  }, [selectedMetodos, step, total]);
+  }, [selectedMetodos, step, total, chequesTotal, metodosPago]);
+
+  // Si los cheques de cartera cubren el total, limpiar métodos seleccionados
+  // (evita que el usuario tenga que ingresar un monto en efectivo/digital).
+  useEffect(() => {
+    if (step !== 'pago') return;
+    if (chequesTotal > 0 && chequesTotal >= total - 0.01 && selectedMetodos.length > 0) {
+      // Solo limpiamos métodos no-CHEQUES; el método CHEQUES se mantiene si está seleccionado
+      const restantes = selectedMetodos.filter(id => {
+        const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+        return m?.CATEGORIA === 'CHEQUES';
+      });
+      if (restantes.length !== selectedMetodos.length) {
+        setSelectedMetodos(restantes);
+        setMontosPorMetodo(prev => {
+          const next: Record<number, number> = {};
+          for (const id of restantes) next[id] = prev[id] || 0;
+          return next;
+        });
+      }
+    }
+  }, [chequesTotal, total, step, selectedMetodos, metodosPago]);
+
+  // Si se deselecciona el método CHEQUES, limpiar los cheques elegidos del picker.
+  useEffect(() => {
+    if (metodosPago.length === 0) return;
+    const tieneChequesMetodo = selectedMetodos.some(id => {
+      const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+      return m?.CATEGORIA === 'CHEQUES';
+    });
+    if (!tieneChequesMetodo && (chequesIds.length > 0 || chequesTotal > 0)) {
+      setChequesIds([]);
+      setChequesTotal(0);
+    }
+  }, [selectedMetodos, metodosPago, chequesIds.length, chequesTotal]);
 
   // Reset all local state to defaults
   const resetForm = () => {
@@ -541,6 +591,9 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     setDestinoPago('CAJA_CENTRAL');
     setSaldoModalOpen(false);
     setSaldoInfo(null);
+    setChequesIds([]);
+    setChequesTotal(0);
+    setChequePickerOpen(false);
   };
 
   // Close modal — purge draft if cart is empty, otherwise keep for next open
@@ -553,6 +606,12 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const createMutation = useMutation({
     mutationFn: (data: CompraInput) => purchasesApi.create(data),
     onSuccess: (result) => {
+      // Invalidar caché de cheques (cartera/resumen) si se egresaron cheques
+      if (chequesIds.length > 0) {
+        queryClient.invalidateQueries({ queryKey: ['cheques'] });
+        queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
+        queryClient.invalidateQueries({ queryKey: ['cheques-cartera'] });
+      }
       // Show appropriate message based on anticipo usage
       if (result.MONTO_ANTICIPO && result.MONTO_ANTICIPO > 0) {
         if (result.COBRADA) {
@@ -597,23 +656,29 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
 
     // Build metodos_pago array — adjust efectivo amounts to subtract change
     const metodosPagoInput: MetodoPagoItem[] = esCtaCorriente ? [] : selectedMetodos
-      .filter(id => (montosPorMetodo[id] || 0) > 0)
       .map(id => {
         const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
-        let monto = montosPorMetodo[id] || 0;
-        if (m?.CATEGORIA === 'EFECTIVO' && vueltoFinal > 0 && soloEfectivo) {
-          monto = monto - vueltoFinal;
+        let monto: number;
+        if (m?.CATEGORIA === 'CHEQUES') {
+          // El monto del método CHEQUES viene del picker (chequesTotal)
+          monto = r2(chequesTotal);
+        } else {
+          monto = montosPorMetodo[id] || 0;
+          if (m?.CATEGORIA === 'EFECTIVO' && vueltoFinal > 0 && soloEfectivo) {
+            monto = monto - vueltoFinal;
+          }
         }
         return { METODO_PAGO_ID: id, MONTO: monto };
       })
       .filter(mp => mp.MONTO > 0);
 
-    // Derive category totals
+    // Derive category totals (cheques no suman a efectivo ni digital)
     let efectivoFinal = 0;
     let digitalFinal = 0;
     for (const mp of metodosPagoInput) {
       const m = metodosPago.find(x => x.METODO_PAGO_ID === mp.METODO_PAGO_ID);
       if (m?.CATEGORIA === 'EFECTIVO') efectivoFinal += mp.MONTO;
+      else if (m?.CATEGORIA === 'CHEQUES') { /* flujo separado: cheques_ids */ }
       else digitalFinal += mp.MONTO;
     }
 
@@ -636,6 +701,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       ACTUALIZAR_PRECIOS: actualizarPrecios,
       DESTINO_PAGO: esCtaCorriente ? undefined : destinoPago,
       metodos_pago: metodosPagoInput.length > 0 ? metodosPagoInput : undefined,
+      cheques_ids: !esCtaCorriente && chequesIds.length > 0 ? chequesIds : undefined,
       items: cart.map(item => ({
         PRODUCTO_ID: item.PRODUCTO_ID,
         PRECIO_COMPRA: item.PRECIO_COMPRA,
@@ -1279,6 +1345,39 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
               {selectedMetodos.length > 1 && selectedMetodos.map(id => {
                 const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
                 if (!m) return null;
+                if (m.CATEGORIA === 'CHEQUES') {
+                  return (
+                    <div className="nsm-field-group" key={id}>
+                      <label className="nsm-label">
+                        <BankOutlined style={{ marginRight: 6 }} />
+                        {m.NOMBRE} — Cheques de cartera
+                      </label>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <Button
+                          icon={<BankOutlined />}
+                          onClick={() => setChequePickerOpen(true)}
+                          style={{ flex: 1 }}
+                        >
+                          {chequesIds.length > 0
+                            ? `${chequesIds.length} cheque${chequesIds.length === 1 ? '' : 's'} — ${fmtMoney(chequesTotal)}`
+                            : 'Seleccionar cheques de cartera'}
+                        </Button>
+                        {chequesIds.length > 0 && (
+                          <Button
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={() => { setChequesIds([]); setChequesTotal(0); }}
+                          />
+                        )}
+                      </div>
+                      {chequesTotal > 0 && (
+                        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+                          Los cheques saldrán de cartera al confirmar la compra.
+                        </Text>
+                      )}
+                    </div>
+                  );
+                }
                 return (
                   <div className="nsm-field-group" key={id}>
                     <label className="nsm-label">
@@ -1298,11 +1397,44 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                 );
               })}
 
-              {/* Single method selected: one editable input */}
+              {/* Single method selected: one editable input (or picker if CHEQUES) */}
               {selectedMetodos.length === 1 && (() => {
                 const id = selectedMetodos[0]!;
                 const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
                 if (!m) return null;
+                if (m.CATEGORIA === 'CHEQUES') {
+                  return (
+                    <div className="nsm-field-group">
+                      <label className="nsm-label">
+                        <BankOutlined style={{ marginRight: 6 }} />
+                        Cheques de cartera
+                      </label>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <Button
+                          icon={<BankOutlined />}
+                          onClick={() => setChequePickerOpen(true)}
+                          style={{ flex: 1 }}
+                          size="large"
+                        >
+                          {chequesIds.length > 0
+                            ? `${chequesIds.length} cheque${chequesIds.length === 1 ? '' : 's'} — ${fmtMoney(chequesTotal)}`
+                            : 'Seleccionar cheques de cartera'}
+                        </Button>
+                        {chequesIds.length > 0 && (
+                          <Button
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={() => { setChequesIds([]); setChequesTotal(0); }}
+                            size="large"
+                          />
+                        )}
+                      </div>
+                      <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
+                        Los cheques saldrán de cartera al confirmar la compra.
+                      </Text>
+                    </div>
+                  );
+                }
                 return (
                   <div className="nsm-field-group">
                     <label className="nsm-label">
@@ -1620,6 +1752,18 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       }}
       initialSearch={productSearchInitial}
       searchFn={purchasesApi.searchProductsAdvanced}
+    />
+
+    <ChequePicker
+      open={chequePickerOpen}
+      onClose={() => setChequePickerOpen(false)}
+      initialSelectedIds={chequesIds}
+      onConfirm={(ids, totalSel) => {
+        setChequesIds(ids);
+        setChequesTotal(totalSel);
+        setChequePickerOpen(false);
+      }}
+      title="Cheques de cartera para egreso"
     />
     </>
   );

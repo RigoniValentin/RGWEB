@@ -15,7 +15,7 @@ router.get('/', async (req: Request, res: Response) => {
       page: parseInt(req.query.page as string) || 1,
       pageSize: parseInt(req.query.pageSize as string) || 50,
       search: req.query.search as string | undefined,
-      categoria: categoria === 'DIGITAL' || categoria === 'EFECTIVO' ? categoria : undefined,
+      categoria: (categoria === 'DIGITAL' || categoria === 'EFECTIVO' || categoria === 'CHEQUES') ? categoria : undefined,
       activa: req.query.activa !== undefined ? req.query.activa === 'true' : undefined,
       orderBy: req.query.orderBy as string | undefined,
       orderDir: (req.query.orderDir as 'ASC' | 'DESC') || undefined,

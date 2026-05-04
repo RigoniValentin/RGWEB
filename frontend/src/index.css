@@ -2974,3 +2974,37 @@ body {
   opacity: 1;
   transform: scale(1.15);
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Modal "head-shake" feedback
+   ─────────────────────────────────────────────────────────────
+   Applied by `ModalShakeGuard` when the user clicks the mask of
+   a modal that should not close on outside-click. Mimics a
+   subtle "uh-uh, not that way" gesture and gently scales the
+   dialog to draw attention without being aggressive.
+   ───────────────────────────────────────────────────────────── */
+@keyframes rg-modal-shake {
+  0%   { transform: translate3d(0, 0, 0)    scale(1); }
+  15%  { transform: translate3d(-10px, 0, 0) scale(1.01); }
+  30%  { transform: translate3d(10px, 0, 0)  scale(1.01); }
+  45%  { transform: translate3d(-7px, 0, 0)  scale(1.008); }
+  60%  { transform: translate3d(7px, 0, 0)   scale(1.008); }
+  75%  { transform: translate3d(-3px, 0, 0)  scale(1.004); }
+  100% { transform: translate3d(0, 0, 0)    scale(1); }
+}
+
+.ant-modal.rg-modal-shake .ant-modal-content {
+  animation: rg-modal-shake 0.52s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  transform-origin: center center;
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.18),
+    0 0 0 2px rgba(234, 189, 35, 0.55);
+  transition: box-shadow 0.25s ease;
+}
+
+/* Briefly tint the mask to reinforce the "blocked" feedback. */
+.ant-modal-wrap:has(> .ant-modal.rg-modal-shake) ~ .ant-modal-mask,
+.ant-modal-mask.rg-modal-shake-mask {
+  background-color: rgba(0, 0, 0, 0.55);
+}
+

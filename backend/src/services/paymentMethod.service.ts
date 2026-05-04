@@ -6,11 +6,13 @@ import { EFECTIVO_DEFAULT_IMAGE } from './paymentMethodImages.js';
 //  Payment Method Service — Full CRUD
 // ═══════════════════════════════════════════════════
 
+export type MetodoPagoCategoria = 'EFECTIVO' | 'DIGITAL' | 'CHEQUES';
+
 export interface MetodoPagoFilter {
   page?: number;
   pageSize?: number;
   search?: string;
-  categoria?: 'EFECTIVO' | 'DIGITAL';
+  categoria?: MetodoPagoCategoria;
   activa?: boolean;
   orderBy?: string;
   orderDir?: 'ASC' | 'DESC';
@@ -18,16 +20,16 @@ export interface MetodoPagoFilter {
 
 export interface MetodoPagoInput {
   NOMBRE: string;
-  CATEGORIA: 'EFECTIVO' | 'DIGITAL';
+  CATEGORIA: MetodoPagoCategoria;
   IMAGEN_BASE64?: string | null;
   ACTIVA?: boolean;
 }
 
-const VALID_CATEGORIAS = ['EFECTIVO', 'DIGITAL'] as const;
+const VALID_CATEGORIAS = ['EFECTIVO', 'DIGITAL', 'CHEQUES'] as const;
 
 interface DefaultMethod {
   nombre: string;
-  categoria: 'EFECTIVO' | 'DIGITAL';
+  categoria: MetodoPagoCategoria;
   imagen?: string;
 }
 
@@ -35,16 +37,17 @@ const DEFAULT_METHODS: DefaultMethod[] = [
   { nombre: 'Efectivo', categoria: 'EFECTIVO', imagen: EFECTIVO_DEFAULT_IMAGE },
   { nombre: 'MercadoPago', categoria: 'DIGITAL' },
   { nombre: 'Transferencia', categoria: 'DIGITAL' },
+  { nombre: 'Cheque', categoria: 'CHEQUES' },
 ];
 
 // ── Helpers ──────────────────────────────────────
 
-function validateCategoria(cat: string | undefined): 'EFECTIVO' | 'DIGITAL' {
+function validateCategoria(cat: string | undefined): MetodoPagoCategoria {
   const upper = (cat || '').trim().toUpperCase();
   if (!VALID_CATEGORIAS.includes(upper as any)) {
-    throw Object.assign(new Error('La categoría debe ser EFECTIVO o DIGITAL'), { name: 'ValidationError' });
+    throw Object.assign(new Error('La categoría debe ser EFECTIVO, DIGITAL o CHEQUES'), { name: 'ValidationError' });
   }
-  return upper as 'EFECTIVO' | 'DIGITAL';
+  return upper as MetodoPagoCategoria;
 }
 
 function validateImage(img: string | null | undefined): string | null {
@@ -76,8 +79,23 @@ export const paymentMethodService = {
           IMAGEN_BASE64    NVARCHAR(MAX) NULL,
           ACTIVA           BIT           NOT NULL DEFAULT 1,
           POR_DEFECTO      BIT           NOT NULL DEFAULT 0,
-          CONSTRAINT CK_METODOS_PAGO_CATEGORIA CHECK (CATEGORIA IN ('EFECTIVO','DIGITAL'))
+          CONSTRAINT CK_METODOS_PAGO_CATEGORIA CHECK (CATEGORIA IN ('EFECTIVO','DIGITAL','CHEQUES'))
         )
+      END
+    `);
+
+    // Migrate existing CK constraint to allow CHEQUES (idempotent)
+    await pool.request().query(`
+      IF EXISTS (
+        SELECT 1 FROM sys.check_constraints cc
+        JOIN sys.tables t ON cc.parent_object_id = t.object_id
+        WHERE t.name = 'METODOS_PAGO' AND cc.name = 'CK_METODOS_PAGO_CATEGORIA'
+          AND cc.definition NOT LIKE '%CHEQUES%'
+      )
+      BEGIN
+        ALTER TABLE METODOS_PAGO DROP CONSTRAINT CK_METODOS_PAGO_CATEGORIA;
+        ALTER TABLE METODOS_PAGO ADD CONSTRAINT CK_METODOS_PAGO_CATEGORIA
+          CHECK (CATEGORIA IN ('EFECTIVO','DIGITAL','CHEQUES'));
       END
     `);
 

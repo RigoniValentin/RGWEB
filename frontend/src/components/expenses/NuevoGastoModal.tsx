@@ -6,11 +6,13 @@ import {
 import {
   WalletOutlined, CheckCircleOutlined,
   DollarOutlined, CreditCardOutlined, EnvironmentOutlined,
+  BankOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { expensesApi, type GastoServicioInput } from '../../services/expenses.api';
 import { fmtMoney } from '../../utils/format';
 import { useAuthStore } from '../../store/authStore';
+import { ChequePicker } from '../cheques/ChequePicker';
 import type { MetodoPagoItem } from '../../types';
 
 const { Text } = Typography;
@@ -36,7 +38,10 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
   const [montosPorMetodo, setMontosPorMetodo] = useState<Record<number, number>>({});
   const [metodoModalOpen, setMetodoModalOpen] = useState(false);
   const [metodoModalSelection, setMetodoModalSelection] = useState<number[]>([]);
-
+  // ── Cheques de cartera (egreso) ────────────────────
+  const [chequesIds, setChequesIds] = useState<number[]>([]);
+  const [chequesTotal, setChequesTotal] = useState(0);
+  const [chequePickerOpen, setChequePickerOpen] = useState(false);
   // ── Queries ─────────────────────────────────────
   const { data: metodosPago = [] } = useQuery({
     queryKey: ['expenses-active-payment-methods'],
@@ -90,6 +95,15 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
         setSelectedMetodos([]);
         setMontosPorMetodo({});
       }
+
+      // Cheques
+      if (editData.cheques_ids && editData.cheques_ids.length > 0) {
+        setChequesIds(editData.cheques_ids);
+        setChequesTotal(editData.CHEQUES || 0);
+      } else {
+        setChequesIds([]);
+        setChequesTotal(0);
+      }
     }
   }, [editData, open, isEdit, form]);
 
@@ -100,6 +114,8 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
       form.setFieldsValue({ FECHA: dayjs() });
       setSelectedMetodos([]);
       setMontosPorMetodo({});
+      setChequesIds([]);
+      setChequesTotal(0);
       // Default PV: only PV if user has 1, otherwise active PV
       setPvId(
         puntosVenta.length === 1
@@ -115,7 +131,16 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
     for (const id of selectedMetodos) sum += montosPorMetodo[id] || 0;
     return Math.round(sum * 100) / 100;
   }, [selectedMetodos, montosPorMetodo]);
-
+  // Mantener sincronizado el monto del método CHEQUES con el total seleccionado
+  // del ChequePicker (no editable manualmente).
+  useEffect(() => {
+    const chequeMetodo = metodosPago.find(m => m.CATEGORIA === 'CHEQUES' && selectedMetodos.includes(m.METODO_PAGO_ID));
+    if (!chequeMetodo) return;
+    setMontosPorMetodo(prev => {
+      if ((prev[chequeMetodo.METODO_PAGO_ID] || 0) === chequesTotal) return prev;
+      return { ...prev, [chequeMetodo.METODO_PAGO_ID]: chequesTotal };
+    });
+  }, [chequesTotal, selectedMetodos, metodosPago]);
   // ── Mutations ───────────────────────────────────
   const crearMut = useMutation({
     mutationFn: (data: GastoServicioInput) => expensesApi.crear(data),
@@ -159,6 +184,16 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
         .filter(id => (montosPorMetodo[id] || 0) > 0)
         .map(id => ({ METODO_PAGO_ID: id, MONTO: montosPorMetodo[id] || 0 }));
 
+      // Validar que si hay método CHEQUES, haya cheques seleccionados
+      const tieneMetodoCheques = selectedMetodos.some(id => {
+        const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+        return m?.CATEGORIA === 'CHEQUES' && (montosPorMetodo[id] || 0) > 0;
+      });
+      if (tieneMetodoCheques && chequesIds.length === 0) {
+        message.warning('Seleccione cheques de cartera para el método CHEQUES');
+        return;
+      }
+
       const payload: GastoServicioInput = {
         ENTIDAD: (values.ENTIDAD || '').trim(),
         DESCRIPCION: (values.DESCRIPCION || '').trim() || undefined,
@@ -166,6 +201,7 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
         FECHA: values.FECHA.toISOString(),
         puntoVentaId: pvId,
         metodos_pago,
+        cheques_ids: chequesIds.length > 0 ? chequesIds : undefined,
       };
 
       if (isEdit) actualizarMut.mutate(payload);
@@ -296,6 +332,34 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
               {selectedMetodos.map(id => {
                 const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
                 if (!m) return null;
+                if (m.CATEGORIA === 'CHEQUES') {
+                  return (
+                    <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 130 }}>
+                        <BankOutlined style={{ color: '#722ed1' }} />
+                        <Text style={{ fontSize: 13 }}>{m.NOMBRE}</Text>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1 }}>
+                        <Button
+                          icon={<BankOutlined />}
+                          onClick={() => setChequePickerOpen(true)}
+                          style={{ flex: 1 }}
+                        >
+                          {chequesIds.length > 0
+                            ? `${chequesIds.length} cheque${chequesIds.length === 1 ? '' : 's'} — ${fmtMoney(chequesTotal)}`
+                            : 'Seleccionar cheques de cartera'}
+                        </Button>
+                        {chequesIds.length > 0 && (
+                          <Button
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={() => { setChequesIds([]); setChequesTotal(0); }}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
                 return (
                   <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 130 }}>
@@ -419,6 +483,18 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
           </div>
         </div>
       </Modal>
+
+      <ChequePicker
+        open={chequePickerOpen}
+        onClose={() => setChequePickerOpen(false)}
+        initialSelectedIds={chequesIds}
+        title="Seleccionar cheques de cartera"
+        onConfirm={(ids, t) => {
+          setChequesIds(ids);
+          setChequesTotal(t);
+          setChequePickerOpen(false);
+        }}
+      />
     </>
   );
 }

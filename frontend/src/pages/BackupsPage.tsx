@@ -197,16 +197,10 @@ export function BackupsPage() {
   };
 
   return (
-    <div style={{ padding: 16 }}>
-      <Row align="middle" justify="space-between" style={{ marginBottom: 16 }}>
-        <Col>
-          <Space align="center">
-            <DatabaseOutlined style={{ fontSize: 24 }} />
-            <Title level={3} style={{ margin: 0 }}>Backups</Title>
-          </Space>
-        </Col>
-        <Col>
-          <Space wrap>
+    <div className="page-enter">
+      <div className="page-header">
+        <Title level={3}>Backups</Title>
+        <Space wrap>
             <Button icon={<ReloadOutlined />} onClick={() => refetch()}>Actualizar</Button>
             <Button icon={<ClockCircleOutlined />} onClick={openConfig}>Configuración</Button>
             <Popconfirm
@@ -232,13 +226,12 @@ export function BackupsPage() {
               Ejecutar backup ahora
             </Button>
           </Space>
-        </Col>
-      </Row>
+      </div>
 
       {/* Estado de salud */}
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col xs={24} md={12}>
-          <Card size="small" title="Último backup">
+          <Card size="small" className="rg-card" title="Último backup">
             {lastOk ? (
               <Space direction="vertical" size={2}>
                 <Text strong>{formatDate(lastOk.FECHA_INICIO)}</Text>
@@ -257,7 +250,7 @@ export function BackupsPage() {
           </Card>
         </Col>
         <Col xs={24} md={12}>
-          <Card size="small" title="Programación">
+          <Card size="small" className="rg-card" title="Programación">
             {config ? (
               <Space direction="vertical" size={2}>
                 <Space>
@@ -278,7 +271,7 @@ export function BackupsPage() {
         </Col>
       </Row>
 
-      <Card size="small">
+      <Card size="small" className="rg-card">
         <Tabs
           defaultActiveKey="backups"
           items={[

@@ -109,7 +109,8 @@ export const cajaCentralService = {
         ISNULL(SUM(CASE WHEN TOTAL >= 0 THEN TOTAL ELSE 0 END), 0) AS totalIngresos,
         ISNULL(SUM(CASE WHEN TOTAL < 0 THEN ABS(TOTAL) ELSE 0 END), 0) AS totalEgresos,
         ISNULL(SUM(TOTAL), 0) AS balance,
-        ISNULL(SUM(DIGITAL), 0) AS digital
+        ISNULL(SUM(DIGITAL), 0) AS digital,
+        ISNULL(SUM(CHEQUES), 0) AS cheques
       FROM MOVIMIENTOS_CAJA m
       ${whereTotales}
     `);
@@ -151,7 +152,8 @@ export const cajaCentralService = {
         ISNULL(SUM(CASE WHEN TOTAL >= 0 THEN TOTAL ELSE 0 END), 0) AS totalIngresos,
         ISNULL(SUM(CASE WHEN TOTAL < 0 THEN ABS(TOTAL) ELSE 0 END), 0) AS totalEgresos,
         ISNULL(SUM(TOTAL), 0) AS balance,
-        ISNULL(SUM(DIGITAL), 0) AS digital
+        ISNULL(SUM(DIGITAL), 0) AS digital,
+        ISNULL(SUM(CHEQUES), 0) AS cheques
       FROM MOVIMIENTOS_CAJA
       ${excludeFC}
     `);

@@ -18,7 +18,7 @@ router.use(authMiddleware);
  * editable so the user can choose manually.
  */
 router.get('/cuit/:cuit', async (req: Request, res: Response) => {
-  const { cuit } = req.params;
+  const cuit = req.params.cuit as string;
 
   // Strip dashes — accept both "20-12345678-9" and "20123456789"
   const cleanCuit = cuit.replace(/-/g, '');
@@ -62,7 +62,7 @@ router.get('/cuit/:cuit', async (req: Request, res: Response) => {
  *   (none)        → 'Consumidor Final / No Alcanzado'
  */
 router.get('/constancia/:cuit', async (req: Request, res: Response) => {
-  const { cuit } = req.params;
+  const cuit = req.params.cuit as string;
   const cleanCuit = cuit.replace(/-/g, '');
 
   if (!/^\d{11}$/.test(cleanCuit)) {

@@ -1,4 +1,5 @@
 import { getPool, sql } from '../database/connection.js';
+import { marcarChequesEgresados, revertirEgresoCheques } from './cheques.service.js';
 
 // ═══════════════════════════════════════════════════
 //  Cuenta Corriente Proveedores — Service
@@ -44,13 +45,14 @@ async function ensureOrdenesPagoMetodosPagoTable(poolOrTx: any): Promise<void> {
   _ordenesPagoMetodosPagoTableReady = true;
 }
 
-/** Derive EFECTIVO / DIGITAL totals from metodos_pago */
+/** Derive EFECTIVO / DIGITAL / CHEQUES totals from metodos_pago */
 async function derivarCategoriasOP(
   tx: any,
   metodosPago: OrdenPagoMetodoPagoItem[]
-): Promise<{ efectivo: number; digital: number }> {
+): Promise<{ efectivo: number; digital: number; cheques: number }> {
   let efectivo = 0;
   let digital = 0;
+  let cheques = 0;
   for (const mp of metodosPago) {
     if (mp.MONTO <= 0) continue;
     const cat = await tx.request()
@@ -59,11 +61,13 @@ async function derivarCategoriasOP(
     const categoria = cat.recordset[0]?.CATEGORIA || 'EFECTIVO';
     if (categoria === 'DIGITAL') {
       digital += mp.MONTO;
+    } else if (categoria === 'CHEQUES') {
+      cheques += mp.MONTO;
     } else {
       efectivo += mp.MONTO;
     }
   }
-  return { efectivo: r2(efectivo), digital: r2(digital) };
+  return { efectivo: r2(efectivo), digital: r2(digital), cheques: r2(cheques) };
 }
 
 export interface OrdenPagoMetodoPagoItem {
@@ -114,6 +118,8 @@ export interface OrdenPagoInput {
   CONCEPTO: string;
   DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
   metodos_pago?: OrdenPagoMetodoPagoItem[];
+  /** IDs de cheques EN_CARTERA a egresar como pago al proveedor. */
+  cheques_ids?: number[];
 }
 
 export interface CtaCorrienteProvTotales {
@@ -303,7 +309,7 @@ export const ctaCorrienteProvService = {
   },
 
   // ── Get single orden de pago for edit ──────────
-  async getOrdenPagoById(pagoId: number): Promise<OrdenPagoItem & { EFECTIVO: number; DIGITAL: number; CHEQUES: number; metodos_pago: OrdenPagoMetodoPagoItem[] }> {
+  async getOrdenPagoById(pagoId: number): Promise<OrdenPagoItem & { EFECTIVO: number; DIGITAL: number; CHEQUES: number; metodos_pago: OrdenPagoMetodoPagoItem[]; cheques_ids: number[] }> {
     const pool = await getPool();
     const result = await pool.request()
       .input('pagoId', sql.Int, pagoId)
@@ -329,7 +335,13 @@ export const ctaCorrienteProvService = {
       .input('pagoId', sql.Int, pagoId)
       .query(`SELECT METODO_PAGO_ID, MONTO FROM ORDENES_PAGO_METODOS_PAGO WHERE PAGO_ID = @pagoId`);
 
-    return { ...result.recordset[0], metodos_pago: mpResult.recordset };
+    // Cheques egresados a esta OP
+    const chq = await pool.request()
+      .input('pagoId', sql.Int, pagoId)
+      .query(`SELECT CHEQUE_ID FROM CHEQUES WHERE DESTINO_TIPO = 'ORDEN_PAGO' AND DESTINO_ID = @pagoId`);
+    const cheques_ids = chq.recordset.map((r: any) => r.CHEQUE_ID as number);
+
+    return { ...result.recordset[0], metodos_pago: mpResult.recordset, cheques_ids };
   },
 
   // ── Create orden de pago ───────────────────────
@@ -344,21 +356,26 @@ export const ctaCorrienteProvService = {
     await tx.begin();
 
     try {
-      // Derive efectivo/digital from metodos_pago if provided
+      // Derive efectivo/digital/cheques from metodos_pago if provided
       let efectivo = input.EFECTIVO || 0;
       let digital = input.DIGITAL || 0;
-      const cheques = input.CHEQUES || 0;
+      let cheques = input.CHEQUES || 0;
 
       if (input.metodos_pago && input.metodos_pago.length > 0) {
         const derived = await derivarCategoriasOP(tx, input.metodos_pago);
         efectivo = derived.efectivo;
         digital = derived.digital;
+        cheques = derived.cheques;
       }
 
       const total = r2(efectivo + digital + cheques);
 
       if (total <= 0) {
         throw Object.assign(new Error('El total debe ser mayor a cero'), { name: 'ValidationError' });
+      }
+
+      if (cheques > 0 && (!input.cheques_ids || input.cheques_ids.length === 0)) {
+        throw Object.assign(new Error('Debe seleccionar cheques de cartera para el método CHEQUES'), { name: 'ValidationError' });
       }
 
       // 1) Insert payment
@@ -379,6 +396,25 @@ export const ctaCorrienteProvService = {
         `);
 
       const pagoId = insertResult.recordset[0].PAGO_ID;
+
+      // 1a) Marcar cheques EGRESADOS si se enviaron
+      if (input.cheques_ids && input.cheques_ids.length > 0) {
+        const r = await marcarChequesEgresados(
+          tx,
+          input.cheques_ids,
+          'ORDEN_PAGO',
+          pagoId,
+          `Pago OP #${pagoId}`,
+          usuarioId,
+          null,
+        );
+        if (Math.abs(r.total - cheques) > 0.01) {
+          throw Object.assign(
+            new Error(`El total de cheques seleccionados ($${r.total.toFixed(2)}) no coincide con el monto del método CHEQUES ($${cheques.toFixed(2)}).`),
+            { name: 'ValidationError' },
+          );
+        }
+      }
 
       // 1b) Store payment method breakdown
       if (input.metodos_pago && input.metodos_pago.length > 0) {
@@ -465,13 +501,14 @@ export const ctaCorrienteProvService = {
             .input('movimiento', sql.NVarChar(500), descEgreso)
             .input('uid', sql.Int, usuarioId)
             .input('efectivo', sql.Decimal(18, 2), -efectivoNeto)
-            .input('digital', sql.Decimal(18, 2), -(digitalNeto + chequesNeto))
+            .input('digital', sql.Decimal(18, 2), -digitalNeto)
+            .input('cheques', sql.Decimal(18, 2), -chequesNeto)
             .input('total', sql.Decimal(18, 2), -totalEgreso)
             .input('pvId', sql.Int, pvId)
             .query(`
               INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
               OUTPUT INSERTED.ID
-              VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, 0, 0, @total, @pvId, 0)
+              VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, @cheques, 0, @total, @pvId, 0)
             `);
 
           // Insert payment method breakdown for this movement
@@ -511,15 +548,16 @@ export const ctaCorrienteProvService = {
     await tx.begin();
 
     try {
-      // Derive efectivo/digital from metodos_pago if provided
+      // Derive efectivo/digital/cheques from metodos_pago if provided
       let efectivo = input.EFECTIVO || 0;
       let digital = input.DIGITAL || 0;
-      const cheques = input.CHEQUES || 0;
+      let cheques = input.CHEQUES || 0;
 
       if (input.metodos_pago && input.metodos_pago.length > 0) {
         const derived = await derivarCategoriasOP(tx, input.metodos_pago);
         efectivo = derived.efectivo;
         digital = derived.digital;
+        cheques = derived.cheques;
       }
 
       const total = r2(efectivo + digital + cheques);
@@ -527,6 +565,13 @@ export const ctaCorrienteProvService = {
       if (total <= 0) {
         throw Object.assign(new Error('El total debe ser mayor a cero'), { name: 'ValidationError' });
       }
+
+      if (cheques > 0 && (!input.cheques_ids || input.cheques_ids.length === 0)) {
+        throw Object.assign(new Error('Debe seleccionar cheques de cartera para el método CHEQUES'), { name: 'ValidationError' });
+      }
+
+      // 0) Revertir cheques previamente egresados (vuelven a EN_CARTERA)
+      await revertirEgresoCheques(tx, 'ORDEN_PAGO', pagoId, usuarioId, null);
 
       // 1) Revert previous imputaciones
       await this._revertirImputaciones(tx, pagoId);
@@ -583,6 +628,25 @@ export const ctaCorrienteProvService = {
       // 4) Re-imputar
       await this._imputarPagoAComprasPendientes(tx, ctaCorrienteId, proveedorId, pagoId, total, new Date(input.FECHA), usuarioId);
 
+      // 4b) Re-marcar cheques EGRESADOS
+      if (input.cheques_ids && input.cheques_ids.length > 0) {
+        const r = await marcarChequesEgresados(
+          tx,
+          input.cheques_ids,
+          'ORDEN_PAGO',
+          pagoId,
+          `Pago OP #${pagoId}`,
+          usuarioId,
+          null,
+        );
+        if (Math.abs(r.total - cheques) > 0.01) {
+          throw Object.assign(
+            new Error(`El total de cheques seleccionados ($${r.total.toFixed(2)}) no coincide con el monto del método CHEQUES ($${cheques.toFixed(2)}).`),
+            { name: 'ValidationError' },
+          );
+        }
+      }
+
       // 5) Remove old egreso records and re-register
       await tx.request().input('origenId', sql.Int, pagoId)
         .query(`DELETE FROM CAJA_ITEMS WHERE ORIGEN_ID = @origenId AND ORIGEN_TIPO = 'ORDEN_PAGO'`);
@@ -636,13 +700,14 @@ export const ctaCorrienteProvService = {
             .input('movimiento', sql.NVarChar(500), descEgreso)
             .input('uid', sql.Int, usuarioId)
             .input('efectivo', sql.Decimal(18, 2), -efectivoNeto)
-            .input('digital', sql.Decimal(18, 2), -(digitalNeto + chequesNeto))
+            .input('digital', sql.Decimal(18, 2), -digitalNeto)
+            .input('cheques', sql.Decimal(18, 2), -chequesNeto)
             .input('total', sql.Decimal(18, 2), -totalEgreso)
             .input('pvId', sql.Int, pvId)
             .query(`
               INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
               OUTPUT INSERTED.ID
-              VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, 0, 0, @total, @pvId, 0)
+              VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, @cheques, 0, @total, @pvId, 0)
             `);
 
           // Insert payment method breakdown for this movement
@@ -674,6 +739,9 @@ export const ctaCorrienteProvService = {
     await tx.begin();
 
     try {
+      // 0) Revertir cheques egresados a esta OP (vuelven a EN_CARTERA)
+      await revertirEgresoCheques(tx, 'ORDEN_PAGO', pagoId, 0, null);
+
       // 1) Revert imputaciones
       await this._revertirImputaciones(tx, pagoId);
 

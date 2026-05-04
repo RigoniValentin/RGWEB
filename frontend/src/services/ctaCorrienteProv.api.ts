@@ -56,10 +56,13 @@ export interface OrdenPagoInput {
   CONCEPTO: string;
   DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
   metodos_pago?: MetodoPagoItem[];
+  /** IDs de cheques EN_CARTERA a egresar (categoría CHEQUES). */
+  cheques_ids?: number[];
 }
 
 export interface OrdenPagoEditData extends OrdenPagoItem {
   metodos_pago: MetodoPagoItem[];
+  cheques_ids: number[];
 }
 
 // ── API ───────────────────────────────────────────

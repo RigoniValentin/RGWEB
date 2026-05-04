@@ -171,13 +171,76 @@ export interface Marca {
 }
 
 // ── Métodos de Pago ──────────────────────────────
+export type MetodoPagoCategoria = 'EFECTIVO' | 'DIGITAL' | 'CHEQUES';
+
 export interface MetodoPago {
   METODO_PAGO_ID: number;
   NOMBRE: string;
-  CATEGORIA: 'EFECTIVO' | 'DIGITAL';
+  CATEGORIA: MetodoPagoCategoria;
   IMAGEN_BASE64: string | null;
   ACTIVA: boolean;
   POR_DEFECTO: boolean;
+}
+
+// ── Cheques ─────────────────────────────────────
+export type ChequeEstado = 'EN_CARTERA' | 'EGRESADO' | 'DEPOSITADO' | 'ANULADO';
+
+export interface Banco {
+  BANCO_ID: number;
+  NOMBRE: string;
+  CUIT: string | null;
+  CODIGO_BCRA: string | null;
+  ACTIVO: boolean;
+}
+
+export interface Cheque {
+  CHEQUE_ID: number;
+  BANCO_ID: number | null;
+  BANCO: string;
+  LIBRADOR: string;
+  NUMERO: string;
+  IMPORTE: number;
+  PORTADOR: string | null;
+  FECHA_INGRESO: string;
+  FECHA_PRESENTACION: string | null;
+  FECHA_SALIDA: string | null;
+  ESTADO: ChequeEstado;
+  ORIGEN_TIPO: string | null;
+  ORIGEN_ID: number | null;
+  DESTINO_TIPO: string | null;
+  DESTINO_ID: number | null;
+  DESTINO_DESC: string | null;
+  OBSERVACIONES: string | null;
+  USUARIO_ID: number | null;
+  USUARIO_NOMBRE: string | null;
+  FECHA_CREACION: string;
+  FECHA_ACTUALIZACION: string | null;
+}
+
+export interface ChequeInput {
+  BANCO_ID?: number | null;
+  BANCO: string;
+  LIBRADOR: string;
+  NUMERO: string;
+  IMPORTE: number;
+  PORTADOR?: string | null;
+  FECHA_PRESENTACION?: string | null;
+  ORIGEN_TIPO?: string | null;
+  ORIGEN_ID?: number | null;
+  OBSERVACIONES?: string | null;
+}
+
+/** Datos del cheque a crear cuando se selecciona un método de pago de
+ *  categoría CHEQUES en un cobro (venta/cobranza). El backend usa estos
+ *  campos para crear automáticamente el registro en la tabla CHEQUES en
+ *  estado EN_CARTERA. */
+export interface ChequePayload {
+  BANCO_ID?: number | null;
+  BANCO: string;
+  LIBRADOR: string;
+  NUMERO: string;
+  PORTADOR?: string | null;
+  FECHA_PRESENTACION?: string | null;
 }
 
 // ── Clientes ─────────────────────────────────────

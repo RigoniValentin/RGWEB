@@ -1,17 +1,19 @@
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Typography, App, Alert } from 'antd';
-import { UserOutlined, LockOutlined, LockFilled, ExclamationCircleFilled, CheckCircleFilled, WarningFilled } from '@ant-design/icons';
+import { Form, Input, Button, Typography, App, Alert, Space } from 'antd';
+import { UserOutlined, LockOutlined, LockFilled, ExclamationCircleFilled, CheckCircleFilled, WarningFilled, SendOutlined, KeyOutlined } from '@ant-design/icons';
 import { authApi } from '../services/auth.api';
 import { useAuthStore } from '../store/authStore';
 import { RGLogo } from '../components/RGLogo';
+import type { LicenseStatus } from '../types';
 
 const { Title, Text } = Typography;
 
 type ErrorState = {
-  type: 'lockout' | 'invalid' | 'inactive' | 'server';
+  type: 'lockout' | 'invalid' | 'inactive' | 'server' | 'license';
   title: string;
   description: string;
+  license?: LicenseStatus;
 } | null;
 
 type SuccessState = {
@@ -19,12 +21,27 @@ type SuccessState = {
   mustChangePassword: boolean;
 } | null;
 
+type ActivationState = {
+  activationId: string;
+  expiresAt: string;
+} | null;
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('es-AR', { dateStyle: 'short', timeStyle: 'short' }).format(date);
+}
+
 export function LoginPage() {
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [errorState, setErrorState] = useState<ErrorState>(null);
   const [successState, setSuccessState] = useState<SuccessState>(null);
+  const [activationState, setActivationState] = useState<ActivationState>(null);
+  const [activationCode, setActivationCode] = useState('');
+  const [requestingCode, setRequestingCode] = useState(false);
+  const [activatingLicense, setActivatingLicense] = useState(false);
   const [shakeKey, setShakeKey] = useState(0);
   const passwordRef = useRef<any>(null);
   const navigate = useNavigate();
@@ -36,10 +53,16 @@ export function LoginPage() {
     // Clear previous feedback on each new attempt
     setErrorState(null);
     setSuccessState(null);
+    setActivationState(null);
+    setActivationCode('');
     setLoading(true);
     try {
-      const { user, token, permisos, puntosVenta, roles } = await authApi.login(values);
+      const { user, token, permisos, puntosVenta, roles, license } = await authApi.login(values);
       setAuth(user, token, permisos, puntosVenta, roles);
+
+      if (license?.state === 'warning') {
+        message.warning(license.message);
+      }
 
       if (user.DEBE_CAMBIAR_CLAVE) {
         setSuccessState({ name: user.NOMBRE_COMPLETO || user.NOMBRE, mustChangePassword: true });
@@ -52,10 +75,15 @@ export function LoginPage() {
     } catch (err: any) {
       const status = err.response?.status;
       const serverMsg: string = err.response?.data?.error || '';
+      const serverCode: string = err.response?.data?.code || '';
+      const license: LicenseStatus | undefined = err.response?.data?.license;
+      const isLicenseError = status === 403 && serverCode.startsWith('LICENSE_');
 
-      // Desktop-like: clear password on error, keep username, refocus password
-      form.setFieldValue('password', '');
-      setTimeout(() => passwordRef.current?.focus(), 50);
+      if (!isLicenseError) {
+        // Desktop-like: clear password on auth error, keep username, refocus password
+        form.setFieldValue('password', '');
+        setTimeout(() => passwordRef.current?.focus(), 50);
+      }
 
       if (status === 423) {
         setErrorState({
@@ -75,6 +103,18 @@ export function LoginPage() {
           title: 'Usuario o contraseña incorrectos',
           description: 'Verificá que el usuario y la contraseña sean correctos. Recordá que la contraseña distingue mayúsculas y minúsculas.',
         });
+      } else if (isLicenseError) {
+        const title = serverCode === 'LICENSE_DATE_INVALID'
+          ? 'Fecha del equipo inválida'
+          : serverCode === 'LICENSE_NOT_FOUND'
+          ? 'Licencia no encontrada'
+          : 'Licencia vencida';
+        setErrorState({
+          type: 'license',
+          title,
+          description: serverMsg || 'Solicitá un código de activación para renovar la licencia.',
+          license,
+        });
       } else {
         setErrorState({
           type: 'server',
@@ -85,6 +125,46 @@ export function LoginPage() {
       triggerShake();
     } finally {
       setLoading(false);
+    }
+  };
+
+  const requestLicenseCode = async () => {
+    try {
+      const values = await form.validateFields(['username', 'password']) as { username: string; password: string };
+      setRequestingCode(true);
+      const result = await authApi.requestLicenseActivationCode(values);
+      setActivationState({ activationId: result.activationId, expiresAt: result.expiresAt });
+      setActivationCode('');
+      message.success('Código solicitado. Revisá WhatsApp con soporte.');
+    } catch (err: any) {
+      const serverMsg: string = err.response?.data?.error || 'No se pudo solicitar el código.';
+      const retryAfter = err.response?.data?.retryAfterSeconds;
+      message.error(retryAfter ? `${serverMsg} Intentá nuevamente en ${retryAfter} segundos.` : serverMsg);
+    } finally {
+      setRequestingCode(false);
+    }
+  };
+
+  const activateLicense = async () => {
+    if (!activationState) return;
+    const code = activationCode.trim();
+    if (code.length < 6) {
+      message.warning('Ingresá el código de 6 dígitos.');
+      return;
+    }
+
+    try {
+      setActivatingLicense(true);
+      await authApi.activateLicense({ activationId: activationState.activationId, code });
+      setErrorState(null);
+      setActivationState(null);
+      setActivationCode('');
+      message.success('Licencia activada por 31 días.');
+      setTimeout(() => form.submit(), 700);
+    } catch (err: any) {
+      message.error(err.response?.data?.error || 'No se pudo activar la licencia.');
+    } finally {
+      setActivatingLicense(false);
     }
   };
 
@@ -286,12 +366,66 @@ export function LoginPage() {
                     ? <LockFilled />
                     : errorState.type === 'inactive'
                     ? <WarningFilled />
+                    : errorState.type === 'license'
+                    ? <KeyOutlined />
                     : <ExclamationCircleFilled />
                 }
                 message={errorState.title}
                 description={errorState.description}
                 style={{ borderRadius: 10, textAlign: 'left' }}
               />
+            </div>
+          )}
+
+          {errorState?.type === 'license' && errorState.license?.state !== 'date_invalid' && (
+            <div style={{ marginBottom: 24, animation: 'fadeInUp 0.35s ease-out' }}>
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                <Button
+                  icon={<SendOutlined />}
+                  loading={requestingCode}
+                  disabled={activatingLicense}
+                  block
+                  onClick={requestLicenseCode}
+                  style={{ height: 46, borderRadius: 10, fontWeight: 700 }}
+                >
+                  Solicitar código de activación
+                </Button>
+
+                {activationState && (
+                  <div
+                    style={{
+                      border: '1px solid #f0f0f0',
+                      borderRadius: 10,
+                      padding: 12,
+                      background: '#fafafa',
+                    }}
+                  >
+                    <Text style={{ display: 'block', color: '#595959', fontSize: 13, marginBottom: 10 }}>
+                      Solicitud enviada. Válido hasta {formatDateTime(activationState.expiresAt)}.
+                    </Text>
+                    <Space.Compact style={{ width: '100%' }}>
+                      <Input
+                        value={activationCode}
+                        onChange={(event) => setActivationCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                        onPressEnter={activateLicense}
+                        maxLength={6}
+                        inputMode="numeric"
+                        placeholder="Código"
+                        style={{ height: 44, fontSize: 16, letterSpacing: 2 }}
+                      />
+                      <Button
+                        type="primary"
+                        icon={<KeyOutlined />}
+                        loading={activatingLicense}
+                        onClick={activateLicense}
+                        style={{ height: 44, fontWeight: 700 }}
+                      >
+                        Activar
+                      </Button>
+                    </Space.Compact>
+                  </div>
+                )}
+              </Space>
             </div>
           )}
 

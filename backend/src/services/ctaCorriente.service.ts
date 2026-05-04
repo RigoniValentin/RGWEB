@@ -44,18 +44,24 @@ async function ensureCobranzasMetodosPagoTable(poolOrTx: any): Promise<void> {
   _cobranzasMetodosPagoTableReady = true;
 }
 
+import { crearChequeEnCartera } from './cheques.service.js';
+import type { ChequePayload } from '../types/index.js';
+
 export interface CobranzaMetodoPagoItem {
   METODO_PAGO_ID: number;
   MONTO: number;
+  /** Datos del cheque cuando el método es de categoría CHEQUES. */
+  cheque?: ChequePayload;
 }
 
-/** Derive EFECTIVO / DIGITAL totals from metodos_pago */
+/** Derive EFECTIVO / DIGITAL / CHEQUES totals from metodos_pago */
 async function derivarCategoriasCO(
   tx: any,
   metodosPago: CobranzaMetodoPagoItem[]
-): Promise<{ efectivo: number; digital: number }> {
+): Promise<{ efectivo: number; digital: number; cheques: number }> {
   let efectivo = 0;
   let digital = 0;
+  let cheques = 0;
   for (const mp of metodosPago) {
     if (mp.MONTO <= 0) continue;
     const cat = await tx.request()
@@ -64,11 +70,65 @@ async function derivarCategoriasCO(
     const categoria = cat.recordset[0]?.CATEGORIA || 'EFECTIVO';
     if (categoria === 'DIGITAL') {
       digital += mp.MONTO;
+    } else if (categoria === 'CHEQUES') {
+      cheques += mp.MONTO;
     } else {
       efectivo += mp.MONTO;
     }
   }
-  return { efectivo: r2(efectivo), digital: r2(digital) };
+  return { efectivo: r2(efectivo), digital: r2(digital), cheques: r2(cheques) };
+}
+
+/** Crea registros en CHEQUES (EN_CARTERA) por cada metodo de pago de
+ *  categoría CHEQUES con payload cheque. */
+async function crearChequesCobranza(
+  tx: any,
+  pagoId: number,
+  metodosPago: CobranzaMetodoPagoItem[],
+  usuarioId: number,
+): Promise<void> {
+  for (const mp of metodosPago) {
+    if (!mp.cheque || mp.MONTO <= 0) continue;
+    const cat = await tx.request()
+      .input('mid', sql.Int, mp.METODO_PAGO_ID)
+      .query(`SELECT CATEGORIA FROM METODOS_PAGO WHERE METODO_PAGO_ID = @mid`);
+    if (cat.recordset[0]?.CATEGORIA !== 'CHEQUES') continue;
+    await crearChequeEnCartera(
+      tx,
+      mp.cheque,
+      mp.MONTO,
+      'COBRANZA',
+      pagoId,
+      usuarioId,
+      null,
+    );
+  }
+}
+
+/** Valida que los cheques originados por una cobranza estén EN_CARTERA y los
+ *  borra; lanza ValidationError si hay alguno egresado/depositado/anulado. */
+async function eliminarChequesDeCobranza(
+  tx: any,
+  pagoId: number,
+): Promise<void> {
+  const r = await tx.request()
+    .input('pid', sql.Int, pagoId)
+    .query(`SELECT CHEQUE_ID, ESTADO FROM CHEQUES WHERE ORIGEN_TIPO = 'COBRANZA' AND ORIGEN_ID = @pid`);
+  const noCartera = r.recordset.find((x: any) => x.ESTADO !== 'EN_CARTERA');
+  if (noCartera) {
+    throw Object.assign(
+      new Error('No se puede modificar/eliminar la cobranza: hay cheques que ya fueron egresados, depositados o anulados.'),
+      { name: 'ValidationError' },
+    );
+  }
+  if (r.recordset.length > 0) {
+    await tx.request()
+      .input('pid', sql.Int, pagoId)
+      .query(`DELETE FROM CHEQUES_HISTORIAL WHERE CHEQUE_ID IN (SELECT CHEQUE_ID FROM CHEQUES WHERE ORIGEN_TIPO = 'COBRANZA' AND ORIGEN_ID = @pid)`);
+    await tx.request()
+      .input('pid', sql.Int, pagoId)
+      .query(`DELETE FROM CHEQUES WHERE ORIGEN_TIPO = 'COBRANZA' AND ORIGEN_ID = @pid`);
+  }
 }
 
 export interface CtaCorrienteListItem {
@@ -450,15 +510,16 @@ export const ctaCorrienteService = {
     await tx.begin();
 
     try {
-      // Derive efectivo/digital from metodos_pago if provided
+      // Derive efectivo/digital/cheques from metodos_pago if provided
       let efectivo = input.EFECTIVO || 0;
       let digital = input.DIGITAL || 0;
-      const cheques = input.CHEQUES || 0;
+      let cheques = input.CHEQUES || 0;
 
       if (input.metodos_pago && input.metodos_pago.length > 0) {
         const derived = await derivarCategoriasCO(tx, input.metodos_pago);
         efectivo = derived.efectivo;
         digital = derived.digital;
+        cheques = derived.cheques;
       }
 
       const total = r2(efectivo + digital + cheques);
@@ -486,7 +547,12 @@ export const ctaCorrienteService = {
 
       const pagoId = insertResult.recordset[0].PAGO_ID;
 
-      // 1b) Store payment method breakdown
+      // 1b) Crear registros en CHEQUES para los métodos de categoría CHEQUES
+      if (input.metodos_pago && input.metodos_pago.length > 0) {
+        await crearChequesCobranza(tx, pagoId, input.metodos_pago, usuarioId);
+      }
+
+      // 1c) Store payment method breakdown
       if (input.metodos_pago && input.metodos_pago.length > 0) {
         await ensureCobranzasMetodosPagoTable(tx);
         for (const mp of input.metodos_pago) {
@@ -571,13 +637,14 @@ export const ctaCorrienteService = {
             .input('movimiento', sql.NVarChar(500), descIngreso)
             .input('uid', sql.Int, usuarioId)
             .input('efectivo', sql.Decimal(18, 2), efectivoNeto)
-            .input('digital', sql.Decimal(18, 2), digitalNeto + chequesNeto)
+            .input('digital', sql.Decimal(18, 2), digitalNeto)
+            .input('cheques', sql.Decimal(18, 2), chequesNeto)
             .input('total', sql.Decimal(18, 2), totalIngreso)
             .input('pvId', sql.Int, pvId)
             .query(`
               INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
               OUTPUT INSERTED.ID
-              VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, 0, 0, @total, @pvId, 0)
+              VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, @cheques, 0, @total, @pvId, 0)
             `);
 
           // Insert payment method breakdown for this movement
@@ -617,15 +684,16 @@ export const ctaCorrienteService = {
     await tx.begin();
 
     try {
-      // Derive efectivo/digital from metodos_pago if provided
+      // Derive efectivo/digital/cheques from metodos_pago if provided
       let efectivo = input.EFECTIVO || 0;
       let digital = input.DIGITAL || 0;
-      const cheques = input.CHEQUES || 0;
+      let cheques = input.CHEQUES || 0;
 
       if (input.metodos_pago && input.metodos_pago.length > 0) {
         const derived = await derivarCategoriasCO(tx, input.metodos_pago);
         efectivo = derived.efectivo;
         digital = derived.digital;
+        cheques = derived.cheques;
       }
 
       const total = r2(efectivo + digital + cheques);
@@ -633,6 +701,9 @@ export const ctaCorrienteService = {
       if (total <= 0) {
         throw Object.assign(new Error('El total debe ser mayor a cero'), { name: 'ValidationError' });
       }
+
+      // 0) Eliminar cheques previos asociados a esta cobranza (deben estar EN_CARTERA)
+      await eliminarChequesDeCobranza(tx, pagoId);
 
       // 1) Revert previous imputaciones
       await this._revertirImputaciones(tx, pagoId);
@@ -689,6 +760,11 @@ export const ctaCorrienteService = {
       // 4) Re-imputar
       await this._imputarCobroAVentasPendientes(tx, ctaCorrienteId, clienteId, pagoId, total, new Date(input.FECHA), usuarioId);
 
+      // 4b) Re-crear cheques EN_CARTERA si los hay
+      if (input.metodos_pago && input.metodos_pago.length > 0) {
+        await crearChequesCobranza(tx, pagoId, input.metodos_pago, usuarioId);
+      }
+
       // 5) Remove old ingreso records and re-register
       await tx.request().input('origenId', sql.Int, pagoId)
         .query(`DELETE FROM CAJA_ITEMS WHERE ORIGEN_ID = @origenId AND ORIGEN_TIPO = 'COBRANZA'`);
@@ -742,13 +818,14 @@ export const ctaCorrienteService = {
             .input('movimiento', sql.NVarChar(500), descIngreso)
             .input('uid', sql.Int, usuarioId)
             .input('efectivo', sql.Decimal(18, 2), efectivoNeto)
-            .input('digital', sql.Decimal(18, 2), digitalNeto + chequesNeto)
+            .input('digital', sql.Decimal(18, 2), digitalNeto)
+            .input('cheques', sql.Decimal(18, 2), chequesNeto)
             .input('total', sql.Decimal(18, 2), totalIngreso)
             .input('pvId', sql.Int, pvId)
             .query(`
               INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
               OUTPUT INSERTED.ID
-              VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, 0, 0, @total, @pvId, 0)
+              VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, @cheques, 0, @total, @pvId, 0)
             `);
 
           // Insert payment method breakdown for this movement
@@ -780,6 +857,9 @@ export const ctaCorrienteService = {
     await tx.begin();
 
     try {
+      // 0) Eliminar cheques originados por esta cobranza (deben estar EN_CARTERA)
+      await eliminarChequesDeCobranza(tx, pagoId);
+
       // 1) Revert imputaciones
       await this._revertirImputaciones(tx, pagoId);
 

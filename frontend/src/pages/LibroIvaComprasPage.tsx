@@ -7,7 +7,7 @@ import {
 import type { TableColumnType } from 'antd';
 import {
   ReloadOutlined, FileExcelOutlined, FileTextOutlined,
-  DollarOutlined, AuditOutlined, DownloadOutlined,
+  DollarOutlined, DownloadOutlined,
   BankOutlined, PercentageOutlined, ShoppingCartOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';

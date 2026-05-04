@@ -206,14 +206,14 @@ export function DonutChart({ data, size = 200, centerLabel, centerValue }: {
           />
         ))}
         <text x={cx} y={cy - 4} textAnchor="middle" fontSize="11" fill="#999">
-          {hover != null ? slices[hover].label : centerLabel || 'Total'}
+          {hover != null ? slices[hover]?.label : centerLabel || 'Total'}
         </text>
         <text x={cx} y={cy + 14} textAnchor="middle" fontSize="16" fontWeight="700" fill="#1E1F22">
-          {hover != null ? fmtMoney(slices[hover].value) : (centerValue ?? fmtMoney(total))}
+          {hover != null ? fmtMoney(slices[hover]?.value ?? 0) : (centerValue ?? fmtMoney(total))}
         </text>
         {hover != null && (
           <text x={cx} y={cy + 30} textAnchor="middle" fontSize="10" fill="#666">
-            {(slices[hover].pct * 100).toFixed(1)}%
+            {((slices[hover]?.pct ?? 0) * 100).toFixed(1)}%
           </text>
         )}
       </svg>

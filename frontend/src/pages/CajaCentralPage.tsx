@@ -94,8 +94,8 @@ export function CajaCentralPage() {
   });
 
   const displayTotales: CajaCentralTotales = balanceHistorico
-    ? (totalesHistoricos || { totalIngresos: 0, totalEgresos: 0, balance: 0, efectivo: 0, digital: 0 })
-    : (totales || { totalIngresos: 0, totalEgresos: 0, balance: 0, efectivo: 0, digital: 0 });
+    ? (totalesHistoricos || { totalIngresos: 0, totalEgresos: 0, balance: 0, efectivo: 0, digital: 0, cheques: 0 })
+    : (totales || { totalIngresos: 0, totalEgresos: 0, balance: 0, efectivo: 0, digital: 0, cheques: 0 });
 
   // ── Mutations ──────────────────────────────────
   const invalidateAll = () => {
@@ -379,7 +379,7 @@ export function CajaCentralPage() {
               });
             }}
           >
-            <Statistic title="Total ▸" value={(displayTotales.efectivo || 0) + (displayTotales.digital || 0)} formatter={statFormatter} prefix="$" valueStyle={{ fontSize: 14, color: '#1677ff' }} />
+            <Statistic title="Total ▸" value={(displayTotales.efectivo || 0) + (displayTotales.digital || 0) + (displayTotales.cheques || 0)} formatter={statFormatter} prefix="$" valueStyle={{ fontSize: 14, color: '#1677ff' }} />
           </Card>
         </Col>
         <Col xs={12} sm={6} md={5}>

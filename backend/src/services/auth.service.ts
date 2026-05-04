@@ -1,14 +1,19 @@
 import { getPool, sql } from '../database/connection.js';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
 import { config } from '../config/index.js';
+import { licenseService } from './license.service.js';
 
 export interface LoginInput {
   username: string;
   password: string;
   ip?: string;
   userAgent?: string;
+}
+
+export interface ActivateLicenseInput {
+  activationId: string;
+  code: string;
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -50,109 +55,127 @@ async function getPolitica(pool: Awaited<ReturnType<typeof getPool>>) {
   } catch { return null; }
 }
 
+async function verifyCredentials(pool: Awaited<ReturnType<typeof getPool>>, input: LoginInput) {
+  const { username, password, ip, userAgent } = input;
+
+  const userRes = await pool.request()
+    .input('nombre', sql.VarChar, username)
+    .query(`
+      SELECT USUARIO_ID, NOMBRE, CLAVE,
+             ISNULL(CLAVE_HASH,'')         AS CLAVE_HASH,
+             ISNULL(CLAVE_ALGO,'')         AS CLAVE_ALGO,
+             ISNULL(ACTIVO,1)              AS ACTIVO,
+             ISNULL(BLOQUEADO,0)           AS BLOQUEADO,
+             BLOQUEADO_HASTA,
+             ISNULL(INTENTOS_FALLIDOS,0)   AS INTENTOS_FALLIDOS,
+             ISNULL(DEBE_CAMBIAR_CLAVE,0)  AS DEBE_CAMBIAR_CLAVE,
+             NOMBRE_COMPLETO, EMAIL
+      FROM USUARIOS
+      WHERE NOMBRE = @nombre AND FECHA_BAJA IS NULL
+    `);
+
+  const INVALID_ERR = Object.assign(new Error('Credenciales inválidas'), { name: 'ValidationError' });
+
+  if (userRes.recordset.length === 0) {
+    await logAudit(pool, { actorNombre: username, evento: 'LOGIN_FAIL', resultado: 'FAIL', ip, userAgent, detalle: 'Usuario no encontrado' });
+    throw INVALID_ERR;
+  }
+
+  const user = userRes.recordset[0];
+
+  if (!user.ACTIVO) {
+    await logAudit(pool, { usuarioId: user.USUARIO_ID, actorNombre: username, evento: 'LOGIN_FAIL', resultado: 'DENIED', ip, userAgent, detalle: 'Usuario inactivo' });
+    throw Object.assign(new Error('Usuario inactivo'), { name: 'ValidationError' });
+  }
+
+  if (user.BLOQUEADO) {
+    const hasta = user.BLOQUEADO_HASTA ? new Date(user.BLOQUEADO_HASTA) : null;
+    if (!hasta || hasta > new Date()) {
+      await logAudit(pool, { usuarioId: user.USUARIO_ID, actorNombre: username, evento: 'LOGIN_FAIL', resultado: 'DENIED', ip, userAgent, detalle: 'Cuenta bloqueada' });
+      throw Object.assign(new Error('Cuenta bloqueada temporalmente'), { name: 'LockoutError' });
+    }
+
+    await pool.request()
+      .input('uid', sql.Int, user.USUARIO_ID)
+      .query(`UPDATE USUARIOS SET BLOQUEADO=0,BLOQUEADO_HASTA=NULL,INTENTOS_FALLIDOS=0 WHERE USUARIO_ID=@uid`);
+    user.BLOQUEADO = false;
+    user.INTENTOS_FALLIDOS = 0;
+  }
+
+  let passwordOk = false;
+  let needsRehash = false;
+
+  if (user.CLAVE_HASH) {
+    passwordOk = await bcrypt.compare(password, user.CLAVE_HASH);
+  } else if (user.CLAVE) {
+    passwordOk = (password === user.CLAVE);
+    if (passwordOk) needsRehash = true;
+  }
+
+  if (!passwordOk) {
+    const politica = await getPolitica(pool);
+    const maxIntentos = politica?.LOCKOUT_INTENTOS ?? 5;
+    const lockMinutes = politica?.LOCKOUT_MINUTOS  ?? 15;
+    const newFails    = (user.INTENTOS_FALLIDOS ?? 0) + 1;
+    const shouldLock  = newFails >= maxIntentos;
+
+    await pool.request()
+      .input('uid',    sql.Int,       user.USUARIO_ID)
+      .input('fails',  sql.Int,       newFails)
+      .input('lock',   sql.Bit,       shouldLock ? 1 : 0)
+      .input('until',  sql.DateTime2, shouldLock ? new Date(Date.now() + lockMinutes * 60_000) : null)
+      .query(`UPDATE USUARIOS SET
+        INTENTOS_FALLIDOS=@fails, ULTIMO_LOGIN_FALLIDO=SYSUTCDATETIME(),
+        BLOQUEADO=@lock, BLOQUEADO_HASTA=@until
+        WHERE USUARIO_ID=@uid`);
+
+    await logAudit(pool, {
+      usuarioId: user.USUARIO_ID, actorNombre: username,
+      evento: shouldLock ? 'LOCKOUT' : 'LOGIN_FAIL',
+      resultado: 'FAIL', ip, userAgent,
+      detalle: JSON.stringify({ intentos: newFails }),
+    });
+    throw INVALID_ERR;
+  }
+
+  if (needsRehash) {
+    const hash = await bcrypt.hash(password, 12);
+    await pool.request()
+      .input('uid',  sql.Int,         user.USUARIO_ID)
+      .input('hash', sql.VarChar(255), hash)
+      .query(`UPDATE USUARIOS SET
+        CLAVE_HASH=@hash, CLAVE_ALGO='bcrypt', CLAVE='',
+        CLAVE_ACTUALIZADA=SYSUTCDATETIME()
+        WHERE USUARIO_ID=@uid`);
+  }
+
+  return user;
+}
+
 // ─── service ─────────────────────────────────────────────────────────────────
 export const authService = {
   async login(input: LoginInput) {
     const pool = await getPool();
-    const { username, password, ip, userAgent } = input;
+    const { username, ip, userAgent } = input;
 
-    // 1. Fetch user (including new security columns with safe fallbacks)
-    const userRes = await pool.request()
-      .input('nombre', sql.VarChar, username)
-      .query(`
-        SELECT USUARIO_ID, NOMBRE, CLAVE,
-               ISNULL(CLAVE_HASH,'')         AS CLAVE_HASH,
-               ISNULL(CLAVE_ALGO,'')         AS CLAVE_ALGO,
-               ISNULL(ACTIVO,1)              AS ACTIVO,
-               ISNULL(BLOQUEADO,0)           AS BLOQUEADO,
-               BLOQUEADO_HASTA,
-               ISNULL(INTENTOS_FALLIDOS,0)   AS INTENTOS_FALLIDOS,
-               ISNULL(DEBE_CAMBIAR_CLAVE,0)  AS DEBE_CAMBIAR_CLAVE,
-               NOMBRE_COMPLETO, EMAIL
-        FROM USUARIOS
-        WHERE NOMBRE = @nombre AND FECHA_BAJA IS NULL
-      `);
+    const user = await verifyCredentials(pool, input);
 
-    // Generic error — do not disclose whether user exists (timing-safe)
-    const INVALID_ERR = Object.assign(new Error('Credenciales inválidas'), { name: 'ValidationError' });
-
-    if (userRes.recordset.length === 0) {
-      await logAudit(pool, { actorNombre: username, evento: 'LOGIN_FAIL', resultado: 'FAIL', ip, userAgent, detalle: 'Usuario no encontrado' });
-      throw INVALID_ERR;
-    }
-
-    const user = userRes.recordset[0];
-
-    // 2. Check active
-    if (!user.ACTIVO) {
-      await logAudit(pool, { usuarioId: user.USUARIO_ID, actorNombre: username, evento: 'LOGIN_FAIL', resultado: 'DENIED', ip, userAgent, detalle: 'Usuario inactivo' });
-      throw Object.assign(new Error('Usuario inactivo'), { name: 'ValidationError' });
-    }
-
-    // 3. Lockout check
-    if (user.BLOQUEADO) {
-      const hasta = user.BLOQUEADO_HASTA ? new Date(user.BLOQUEADO_HASTA) : null;
-      if (!hasta || hasta > new Date()) {
-        await logAudit(pool, { usuarioId: user.USUARIO_ID, actorNombre: username, evento: 'LOGIN_FAIL', resultado: 'DENIED', ip, userAgent, detalle: 'Cuenta bloqueada' });
-        throw Object.assign(new Error('Cuenta bloqueada temporalmente'), { name: 'LockoutError' });
-      }
-      // Lockout expired — clear it
-      await pool.request()
-        .input('uid', sql.Int, user.USUARIO_ID)
-        .query(`UPDATE USUARIOS SET BLOQUEADO=0,BLOQUEADO_HASTA=NULL,INTENTOS_FALLIDOS=0 WHERE USUARIO_ID=@uid`);
-      user.BLOQUEADO = false;
-      user.INTENTOS_FALLIDOS = 0;
-    }
-
-    // 4. Verify password (CLAVE_HASH first, fallback to legacy CLAVE plaintext)
-    let passwordOk = false;
-    let needsRehash = false;
-
-    if (user.CLAVE_HASH) {
-      passwordOk = await bcrypt.compare(password, user.CLAVE_HASH);
-    } else if (user.CLAVE) {
-      // Legacy plaintext comparison
-      passwordOk = (password === user.CLAVE);
-      if (passwordOk) needsRehash = true;
-    }
-
-    if (!passwordOk) {
-      // Increment failures / apply lockout
-      const politica = await getPolitica(pool);
-      const maxIntentos = politica?.LOCKOUT_INTENTOS ?? 5;
-      const lockMinutes = politica?.LOCKOUT_MINUTOS  ?? 15;
-      const newFails    = (user.INTENTOS_FALLIDOS ?? 0) + 1;
-      const shouldLock  = newFails >= maxIntentos;
-
-      await pool.request()
-        .input('uid',    sql.Int,       user.USUARIO_ID)
-        .input('fails',  sql.Int,       newFails)
-        .input('lock',   sql.Bit,       shouldLock ? 1 : 0)
-        .input('until',  sql.DateTime2, shouldLock ? new Date(Date.now() + lockMinutes * 60_000) : null)
-        .query(`UPDATE USUARIOS SET
-          INTENTOS_FALLIDOS=@fails, ULTIMO_LOGIN_FALLIDO=SYSUTCDATETIME(),
-          BLOQUEADO=@lock, BLOQUEADO_HASTA=@until
-          WHERE USUARIO_ID=@uid`);
-
+    const license = await licenseService.validateAccess(pool);
+    if (!license.canAccess) {
       await logAudit(pool, {
-        usuarioId: user.USUARIO_ID, actorNombre: username,
-        evento: shouldLock ? 'LOCKOUT' : 'LOGIN_FAIL',
-        resultado: 'FAIL', ip, userAgent,
-        detalle: JSON.stringify({ intentos: newFails }),
+        usuarioId: user.USUARIO_ID,
+        actorNombre: username,
+        evento: 'LICENSE_BLOCK',
+        resultado: 'DENIED',
+        ip,
+        userAgent,
+        detalle: JSON.stringify({ code: license.code, message: license.message }),
       });
-      throw INVALID_ERR;
-    }
-
-    // 5. Rehash legacy plaintext password
-    if (needsRehash) {
-      const hash = await bcrypt.hash(password, 12);
-      await pool.request()
-        .input('uid',  sql.Int,         user.USUARIO_ID)
-        .input('hash', sql.VarChar(255), hash)
-        .query(`UPDATE USUARIOS SET
-          CLAVE_HASH=@hash, CLAVE_ALGO='bcrypt', CLAVE='',
-          CLAVE_ACTUALIZADA=SYSUTCDATETIME()
-          WHERE USUARIO_ID=@uid`);
+      throw Object.assign(new Error(license.message), {
+        name: 'LicenseError',
+        code: license.code,
+        license,
+      });
     }
 
     // 6. Reset failure counter, record login
@@ -163,6 +186,8 @@ export const authService = {
         INTENTOS_FALLIDOS=0, BLOQUEADO=0, BLOQUEADO_HASTA=NULL,
         ULTIMO_LOGIN=SYSUTCDATETIME(), ULTIMO_LOGIN_IP=@ip
         WHERE USUARIO_ID=@uid`);
+
+    await licenseService.recordAccess(pool);
 
     // 7. Load effective permissions from the web view
     let permisos: string[] = [];
@@ -213,7 +238,46 @@ export const authService = {
       roles,
       puntosVenta: pvResult.recordset,
       token,
+      license,
     };
+  },
+
+  async requestLicenseActivationCode(input: LoginInput) {
+    const pool = await getPool();
+    const { username, ip, userAgent } = input;
+    const user = await verifyCredentials(pool, input);
+    const result = await licenseService.requestActivationCode(pool, {
+      userId: user.USUARIO_ID,
+      username,
+      ip,
+      userAgent,
+    });
+
+    await logAudit(pool, {
+      usuarioId: user.USUARIO_ID,
+      actorNombre: username,
+      evento: 'LICENSE_CODE_REQUEST',
+      ip,
+      userAgent,
+      detalle: JSON.stringify({ activationId: result.activationId }),
+    });
+
+    return result;
+  },
+
+  async activateLicense(input: ActivateLicenseInput, ip?: string, userAgent?: string) {
+    const pool = await getPool();
+    const result = await licenseService.activateWithCode(pool, input);
+
+    await logAudit(pool, {
+      usuarioId: result.userId,
+      evento: 'LICENSE_ACTIVATED',
+      ip,
+      userAgent,
+      detalle: JSON.stringify({ activationId: input.activationId, expiresAt: result.license.expiresAt }),
+    });
+
+    return { ok: true, license: result.license };
   },
 
   async getProfile(userId: number) {

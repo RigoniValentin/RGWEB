@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Modal, Form, Input, InputNumber, DatePicker, Space, Typography, App, Divider, Segmented, Button, Tag,
 } from 'antd';
 import {
   BankOutlined, InboxOutlined, WalletOutlined, CheckCircleOutlined,
-  DollarOutlined, CreditCardOutlined,
+  DollarOutlined, CreditCardOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { ctaCorrienteProvApi, type OrdenPagoInput } from '../../services/ctaCorrienteProv.api';
@@ -13,6 +13,7 @@ import { cajaApi } from '../../services/caja.api';
 import { fmtMoney } from '../../utils/format';
 import { ordenesPagoApi } from '../../services/ordenesPago.api';
 import { printOrdenPago } from '../../utils/printOrdenPago';
+import { ChequePicker } from '../cheques/ChequePicker';
 import type { MetodoPagoItem } from '../../types';
 
 const { Text } = Typography;
@@ -39,8 +40,10 @@ export function NuevaOrdenPagoModal({
   const [selectedMetodos, setSelectedMetodos] = useState<number[]>([]);
   const [montosPorMetodo, setMontosPorMetodo] = useState<Record<number, number>>({});
   const [metodoModalOpen, setMetodoModalOpen] = useState(false);
-  const [metodoModalSelection, setMetodoModalSelection] = useState<number[]>([]);
-
+  const [metodoModalSelection, setMetodoModalSelection] = useState<number[]>([]);  const [chequesIds, setChequesIds] = useState<number[]>([]);
+  const [chequesTotal, setChequesTotal] = useState(0);
+  const [chequePickerOpen, setChequePickerOpen] = useState(false);
+  const queryClient = useQueryClient();
   // Check if user has an open cash register
   const { data: miCaja } = useQuery({
     queryKey: ['mi-caja'],
@@ -100,6 +103,15 @@ export function NuevaOrdenPagoModal({
         setSelectedMetodos([]);
         setMontosPorMetodo({});
       }
+
+      // Cheques egresados existentes
+      if (editData.cheques_ids && editData.cheques_ids.length > 0) {
+        setChequesIds(editData.cheques_ids);
+        setChequesTotal(editData.CHEQUES || 0);
+      } else {
+        setChequesIds([]);
+        setChequesTotal(0);
+      }
     }
   }, [editData, open, isEdit, form]);
 
@@ -111,6 +123,8 @@ export function NuevaOrdenPagoModal({
       setDestinoPago('CAJA_CENTRAL');
       setSelectedMetodos([]);
       setMontosPorMetodo({});
+      setChequesIds([]);
+      setChequesTotal(0);
     }
   }, [open, isEdit, form]);
 
@@ -122,12 +136,26 @@ export function NuevaOrdenPagoModal({
     }
     return Math.round(sum * 100) / 100;
   }, [selectedMetodos, montosPorMetodo]);
-
+  // Mantener sincronizado el monto del método CHEQUES con el total seleccionado
+  // del ChequePicker (no editable manualmente).
+  useEffect(() => {
+    const chequeMetodo = metodosPago.find(m => m.CATEGORIA === 'CHEQUES' && selectedMetodos.includes(m.METODO_PAGO_ID));
+    if (!chequeMetodo) return;
+    setMontosPorMetodo(prev => {
+      if ((prev[chequeMetodo.METODO_PAGO_ID] || 0) === chequesTotal) return prev;
+      return { ...prev, [chequeMetodo.METODO_PAGO_ID]: chequesTotal };
+    });
+  }, [chequesTotal, selectedMetodos, metodosPago]);
   // ── Mutations ───────────────────────────────────
   const crearMut = useMutation({
     mutationFn: (data: OrdenPagoInput) => ctaCorrienteProvApi.crearOrdenPago(ctaCorrienteId, data),
     onSuccess: (result) => {
       message.success('Orden de pago registrada exitosamente');
+      if (chequesIds.length > 0) {
+        queryClient.invalidateQueries({ queryKey: ['cheques'] });
+        queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
+        queryClient.invalidateQueries({ queryKey: ['cheques-cartera'] });
+      }
       onSuccess();
       Modal.confirm({
         title: '¿Desea imprimir la orden de pago?',
@@ -151,6 +179,9 @@ export function NuevaOrdenPagoModal({
     mutationFn: (data: OrdenPagoInput) => ctaCorrienteProvApi.actualizarOrdenPago(ctaCorrienteId, pagoId!, data),
     onSuccess: () => {
       message.success('Orden de pago modificada exitosamente');
+      queryClient.invalidateQueries({ queryKey: ['cheques'] });
+      queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
+      queryClient.invalidateQueries({ queryKey: ['cheques-cartera'] });
       onSuccess();
     },
     onError: (err: any) => message.error(err.response?.data?.error || err.message),
@@ -178,12 +209,24 @@ export function NuevaOrdenPagoModal({
         .filter(id => (montosPorMetodo[id] || 0) > 0)
         .map(id => ({ METODO_PAGO_ID: id, MONTO: montosPorMetodo[id] || 0 }));
 
+      // Validar que si hay método CHEQUES, haya cheques seleccionados
+      const tieneMetodoCheques = selectedMetodos.some(id => {
+        const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+        return m?.CATEGORIA === 'CHEQUES' && (montosPorMetodo[id] || 0) > 0;
+      });
+      if (tieneMetodoCheques && chequesIds.length === 0) {
+        message.warning('Seleccione cheques de cartera para el método CHEQUES');
+        return;
+      }
+
       // Derive category totals for backward compat
       let efectivoFinal = 0;
       let digitalFinal = 0;
+      let chequesFinal = 0;
       for (const mp of metodosPagoInput) {
         const m = metodosPago.find(x => x.METODO_PAGO_ID === mp.METODO_PAGO_ID);
         if (m?.CATEGORIA === 'EFECTIVO') efectivoFinal += mp.MONTO;
+        else if (m?.CATEGORIA === 'CHEQUES') chequesFinal += mp.MONTO;
         else digitalFinal += mp.MONTO;
       }
 
@@ -192,10 +235,11 @@ export function NuevaOrdenPagoModal({
         FECHA: values.FECHA.toISOString(),
         EFECTIVO: efectivoFinal,
         DIGITAL: digitalFinal,
-        CHEQUES: 0,
+        CHEQUES: chequesFinal,
         CONCEPTO: values.CONCEPTO || '',
         DESTINO_PAGO: destinoPago,
         metodos_pago: metodosPagoInput.length > 0 ? metodosPagoInput : undefined,
+        cheques_ids: chequesIds.length > 0 ? chequesIds : undefined,
       };
 
       if (isEdit) {
@@ -335,6 +379,34 @@ export function NuevaOrdenPagoModal({
               {selectedMetodos.map(id => {
                 const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
                 if (!m) return null;
+                if (m.CATEGORIA === 'CHEQUES') {
+                  return (
+                    <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 130 }}>
+                        <BankOutlined style={{ color: '#722ed1' }} />
+                        <Text style={{ fontSize: 13 }}>{m.NOMBRE}</Text>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1 }}>
+                        <Button
+                          icon={<BankOutlined />}
+                          onClick={() => setChequePickerOpen(true)}
+                          style={{ flex: 1 }}
+                        >
+                          {chequesIds.length > 0
+                            ? `${chequesIds.length} cheque${chequesIds.length === 1 ? '' : 's'} — ${fmtMoney(chequesTotal)}`
+                            : 'Seleccionar cheques de cartera'}
+                        </Button>
+                        {chequesIds.length > 0 && (
+                          <Button
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={() => { setChequesIds([]); setChequesTotal(0); }}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
                 return (
                   <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 130 }}>
@@ -467,6 +539,18 @@ export function NuevaOrdenPagoModal({
           </div>
         </div>
       </Modal>
+
+      <ChequePicker
+        open={chequePickerOpen}
+        onClose={() => setChequePickerOpen(false)}
+        initialSelectedIds={chequesIds}
+        title="Seleccionar cheques de cartera"
+        onConfirm={(ids, t) => {
+          setChequesIds(ids);
+          setChequesTotal(t);
+          setChequePickerOpen(false);
+        }}
+      />
     </>
   );
 }

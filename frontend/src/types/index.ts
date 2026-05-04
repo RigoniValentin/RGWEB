@@ -116,12 +116,35 @@ export interface LoginRequest {
   password: string;
 }
 
+export type LicenseState = 'active' | 'warning' | 'expired' | 'missing' | 'date_invalid';
+
+export interface LicenseStatus {
+  canAccess: boolean;
+  state: LicenseState;
+  code: 'LICENSE_OK' | 'LICENSE_WARNING' | 'LICENSE_EXPIRED' | 'LICENSE_NOT_FOUND' | 'LICENSE_DATE_INVALID';
+  message: string;
+  daysRemaining: number | null;
+  expiresAt: string | null;
+}
+
 export interface LoginResponse {
   user: Usuario;
   permisos: string[];
   roles: RolBasico[];
   puntosVenta: PuntoVentaAsignado[];
   token: string;
+  license?: LicenseStatus;
+}
+
+export interface LicenseActivationRequestResponse {
+  activationId: string;
+  expiresAt: string;
+  license: LicenseStatus;
+}
+
+export interface LicenseActivationResponse {
+  ok: boolean;
+  license: LicenseStatus;
 }
 
 // ── Productos ────────────────────────────────────
@@ -178,13 +201,59 @@ export interface Marca {
 }
 
 // ── Métodos de Pago ──────────────────────────────
+export type MetodoPagoCategoria = 'EFECTIVO' | 'DIGITAL' | 'CHEQUES';
+
 export interface MetodoPago {
   METODO_PAGO_ID: number;
   NOMBRE: string;
-  CATEGORIA: 'EFECTIVO' | 'DIGITAL';
+  CATEGORIA: MetodoPagoCategoria;
   IMAGEN_BASE64: string | null;
   ACTIVA: boolean;
   POR_DEFECTO: boolean;
+}
+
+// ── Cheques ──────────────────────────────────────
+export type ChequeEstado = 'EN_CARTERA' | 'EGRESADO' | 'DEPOSITADO' | 'ANULADO';
+
+export interface Banco {
+  BANCO_ID: number;
+  NOMBRE: string;
+  CUIT: string | null;
+  CODIGO_BCRA: string | null;
+  ACTIVO: boolean;
+}
+
+export interface Cheque {
+  CHEQUE_ID: number;
+  BANCO_ID: number | null;
+  BANCO: string;
+  LIBRADOR: string;
+  NUMERO: string;
+  IMPORTE: number;
+  PORTADOR: string | null;
+  FECHA_INGRESO: string;
+  FECHA_PRESENTACION: string | null;
+  FECHA_SALIDA: string | null;
+  ESTADO: ChequeEstado;
+  ORIGEN_TIPO: string | null;
+  ORIGEN_ID: number | null;
+  DESTINO_TIPO: string | null;
+  DESTINO_ID: number | null;
+  DESTINO_DESC: string | null;
+  OBSERVACIONES: string | null;
+  USUARIO_ID: number | null;
+  USUARIO_NOMBRE: string | null;
+  FECHA_CREACION: string;
+  FECHA_ACTUALIZACION: string | null;
+}
+
+export interface ChequePayload {
+  BANCO_ID?: number | null;
+  BANCO: string;
+  LIBRADOR: string;
+  NUMERO: string;
+  PORTADOR?: string | null;
+  FECHA_PRESENTACION?: string | null;
 }
 
 // ── Clientes ─────────────────────────────────────
@@ -295,6 +364,8 @@ export interface VentaMetodoPago {
 export interface MetodoPagoItem {
   METODO_PAGO_ID: number;
   MONTO: number;
+  /** Datos del cheque cuando el método es categoría CHEQUES (ingreso). */
+  cheque?: ChequePayload;
 }
 
 export interface DesgloseMetodo {
@@ -544,6 +615,7 @@ export interface CajaCentralTotales {
   balance: number;
   efectivo: number;
   digital: number;
+  cheques?: number;
 }
 
 export interface NuevoMovimientoInput {
@@ -749,6 +821,7 @@ export interface CompraInput {
   DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
   items: CompraItemInput[];
   metodos_pago?: MetodoPagoItem[];
+  cheques_ids?: number[];
 }
 
 export interface ProveedorCompra {

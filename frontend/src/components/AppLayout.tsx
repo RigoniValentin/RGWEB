@@ -73,6 +73,7 @@ import { RemitosPage } from '../pages/RemitosPage';
 import { StockPage } from '../pages/StockPage';
 import { ListadoComandasPage } from '../pages/ListadoComandasPage';
 import { CobranzasPage } from '../pages/CobranzasPage';
+import { ChequesPage } from '../pages/ChequesPage';
 import { OrdenesPagoPage } from '../pages/OrdenesPagoPage';
 import { ExpensesPage } from '../pages/ExpensesPage';
 import { LibroIvaVentasPage } from '../pages/LibroIvaVentasPage';
@@ -106,6 +107,7 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/brands':         { label: 'Marcas',        icon: <TagOutlined />,          component: BrandsPage,       closable: true },
   '/payment-methods': { label: 'Métodos de Pago', icon: <CreditCardOutlined />, component: PaymentMethodsPage, closable: true },
   '/cobranzas':      { label: 'Cobranzas',       icon: <DollarOutlined />,       component: CobranzasPage,    closable: true },
+  '/cheques':        { label: 'Cheques',         icon: <FileProtectOutlined />,  component: ChequesPage,      closable: true },
   '/ordenes-pago':   { label: 'Órdenes de Pago', icon: <WalletOutlined />,       component: OrdenesPagoPage,  closable: true },
   '/cta-corriente':  { label: 'Cta. Cte. Cli. ', icon: <WalletOutlined />,       component: CtaCorrientePage, closable: true },
   '/cta-corriente-prov': { label: 'Cta. Cte. Prov.', icon: <ShopOutlined />,     component: CtaCorrienteProvPage, closable: true },
@@ -149,6 +151,7 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
   '/brands':              'catalogo.ver',
   '/payment-methods':     'configuracion.ver',
   '/cobranzas':           'cobranzas.ver',
+  '/cheques':             'cheques.ver',
   '/ordenes-pago':        'ordenes_pago.ver',
   '/cta-corriente':       'cta_corriente.ver',
   '/cta-corriente-prov':  'cta_corriente_prov.ver',
@@ -225,6 +228,7 @@ const menuItems = [
         { key: '/remitos', icon: <FileTextOutlined />, label: 'Remitos' },
         { key: '/cashregisters', icon: <BankOutlined />, label: 'Cajas' },
         { key: '/cashcentral', icon: <WalletOutlined />, label: 'Caja Central' },
+        { key: '/cheques', icon: <FileProtectOutlined />, label: 'Cheques' },
         { key: 'ctas-corrientes', icon: <WalletOutlined />, label: 'Cuentas Corrientes', children: [
           { key: '/cobranzas', icon: <DollarOutlined />, label: 'Cobranzas' },
           { key: '/cta-corriente', icon: <TeamOutlined />, label: 'Cta Cte Clientes' },

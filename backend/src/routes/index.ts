@@ -31,6 +31,8 @@ import mobileRoutes from './mobile.routes.js';
 import afipRoutes from './afip.routes.js';
 import expensesRoutes from './expenses.routes.js';
 import backupsRoutes from './backups.routes.js';
+import chequesRoutes from './cheques.routes.js';
+import bancoRoutes from './banco.routes.js';
 
 const router = Router();
 
@@ -66,5 +68,7 @@ router.use('/mobile', mobileRoutes);
 router.use('/afip', afipRoutes);
 router.use('/expenses', expensesRoutes);
 router.use('/backups', backupsRoutes);
+router.use('/cheques', chequesRoutes);
+router.use('/bancos', bancoRoutes);
 
 export default router;
