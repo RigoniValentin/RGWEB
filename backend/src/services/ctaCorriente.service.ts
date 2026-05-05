@@ -50,8 +50,33 @@ import type { ChequePayload } from '../types/index.js';
 export interface CobranzaMetodoPagoItem {
   METODO_PAGO_ID: number;
   MONTO: number;
+  METODO_NOMBRE?: string;
+  CATEGORIA?: string;
+  IMAGEN_BASE64?: string | null;
   /** Datos del cheque cuando el método es de categoría CHEQUES. */
   cheque?: ChequePayload;
+}
+
+function normalizarMetodosPagoCobranza(
+  metodosPago: CobranzaMetodoPagoItem[] | undefined,
+): CobranzaMetodoPagoItem[] {
+  const acumulados = new Map<number, CobranzaMetodoPagoItem>();
+
+  for (const mp of metodosPago || []) {
+    const metodoId = Number(mp.METODO_PAGO_ID);
+    const monto = Number(mp.MONTO);
+    if (!Number.isFinite(metodoId) || metodoId <= 0 || !Number.isFinite(monto) || monto <= 0) continue;
+
+    const existente = acumulados.get(metodoId);
+    if (existente) {
+      existente.MONTO = r2(existente.MONTO + monto);
+      if (!existente.cheque && mp.cheque) existente.cheque = mp.cheque;
+    } else {
+      acumulados.set(metodoId, { ...mp, METODO_PAGO_ID: metodoId, MONTO: r2(monto) });
+    }
+  }
+
+  return Array.from(acumulados.values());
 }
 
 /** Derive EFECTIVO / DIGITAL / CHEQUES totals from metodos_pago */
@@ -88,11 +113,17 @@ async function crearChequesCobranza(
   usuarioId: number,
 ): Promise<void> {
   for (const mp of metodosPago) {
-    if (!mp.cheque || mp.MONTO <= 0) continue;
+    if (mp.MONTO <= 0) continue;
     const cat = await tx.request()
       .input('mid', sql.Int, mp.METODO_PAGO_ID)
       .query(`SELECT CATEGORIA FROM METODOS_PAGO WHERE METODO_PAGO_ID = @mid`);
     if (cat.recordset[0]?.CATEGORIA !== 'CHEQUES') continue;
+    if (!mp.cheque) {
+      throw Object.assign(
+        new Error('Debe completar los datos del cheque para el método CHEQUES'),
+        { name: 'ValidationError' }
+      );
+    }
     await crearChequeEnCartera(
       tx,
       mp.cheque,
@@ -174,7 +205,111 @@ export interface CobranzaInput {
   CHEQUES: number;
   CONCEPTO: string;
   DESTINO_COBRO?: 'CAJA_CENTRAL' | 'CAJA';
+  PUNTO_VENTA_ID?: number | null;
   metodos_pago?: CobranzaMetodoPagoItem[];
+}
+
+async function ensureCtaCorrienteClienteTx(
+  tx: any,
+  clienteId: number,
+  ctaCorrienteId?: number | null,
+): Promise<number> {
+  const cliente = await tx.request()
+    .input('clienteId', sql.Int, clienteId)
+    .query(`SELECT CLIENTE_ID FROM CLIENTES WHERE CLIENTE_ID = @clienteId AND ACTIVO = 1`);
+  if (cliente.recordset.length === 0) {
+    throw Object.assign(new Error('Cliente inexistente o inactivo'), { name: 'ValidationError' });
+  }
+
+  if (ctaCorrienteId && ctaCorrienteId > 0) {
+    const cuenta = await tx.request()
+      .input('ctaId', sql.Int, ctaCorrienteId)
+      .input('clienteId', sql.Int, clienteId)
+      .query(`SELECT CTA_CORRIENTE_ID FROM CTA_CORRIENTE_C WHERE CTA_CORRIENTE_ID = @ctaId AND CLIENTE_ID = @clienteId`);
+    if (cuenta.recordset.length === 0) {
+      throw Object.assign(new Error('La cuenta corriente no corresponde al cliente seleccionado'), { name: 'ValidationError' });
+    }
+    await tx.request()
+      .input('clienteId', sql.Int, clienteId)
+      .query(`UPDATE CLIENTES SET CTA_CORRIENTE = 1 WHERE CLIENTE_ID = @clienteId AND ISNULL(CTA_CORRIENTE, 0) = 0`);
+    return cuenta.recordset[0].CTA_CORRIENTE_ID;
+  }
+
+  const existente = await tx.request()
+    .input('clienteId', sql.Int, clienteId)
+    .query(`SELECT CTA_CORRIENTE_ID FROM CTA_CORRIENTE_C WITH (UPDLOCK, HOLDLOCK) WHERE CLIENTE_ID = @clienteId`);
+  if (existente.recordset.length > 0) {
+    await tx.request()
+      .input('clienteId', sql.Int, clienteId)
+      .query(`UPDATE CLIENTES SET CTA_CORRIENTE = 1 WHERE CLIENTE_ID = @clienteId AND ISNULL(CTA_CORRIENTE, 0) = 0`);
+    return existente.recordset[0].CTA_CORRIENTE_ID;
+  }
+
+  const creado = await tx.request()
+    .input('clienteId', sql.Int, clienteId)
+    .query(`
+      INSERT INTO CTA_CORRIENTE_C (CLIENTE_ID, FECHA)
+      OUTPUT INSERTED.CTA_CORRIENTE_ID
+      VALUES (@clienteId, GETDATE())
+    `);
+  await tx.request()
+    .input('clienteId', sql.Int, clienteId)
+    .query(`UPDATE CLIENTES SET CTA_CORRIENTE = 1 WHERE CLIENTE_ID = @clienteId`);
+  return creado.recordset[0].CTA_CORRIENTE_ID;
+}
+
+async function getCajaAbiertaCobranzaTx(
+  tx: any,
+  usuarioId: number,
+): Promise<{ CAJA_ID: number; PUNTO_VENTA_ID: number | null } | null> {
+  const result = await tx.request()
+    .input('uid', sql.Int, usuarioId)
+    .query(`SELECT CAJA_ID, PUNTO_VENTA_ID FROM CAJA WHERE USUARIO_ID = @uid AND ESTADO = 'ACTIVA'`);
+  return result.recordset.length > 0 ? result.recordset[0] : null;
+}
+
+async function getPuntoVentaCobranza(
+  tx: any,
+  usuarioId: number,
+  puntoVentaId?: number | null,
+): Promise<number | null> {
+  if (puntoVentaId) return puntoVentaId;
+  const caja = await getCajaAbiertaCobranzaTx(tx, usuarioId);
+  if (caja?.PUNTO_VENTA_ID) return caja.PUNTO_VENTA_ID;
+
+  const pvUsuario = await tx.request()
+    .input('uid', sql.Int, usuarioId)
+    .query(`
+      SELECT TOP 1 PUNTO_VENTA_ID
+      FROM USUARIOS_PUNTOS_VENTA
+      WHERE USUARIO_ID = @uid
+      ORDER BY CASE WHEN ISNULL(ES_PREFERIDO, 0) = 1 THEN 0 ELSE 1 END, PUNTO_VENTA_ID
+    `);
+  return pvUsuario.recordset[0]?.PUNTO_VENTA_ID ? Number(pvUsuario.recordset[0].PUNTO_VENTA_ID) : null;
+}
+
+async function insertMovimientoCajaMetodosPagoCobranza(
+  tx: any,
+  movimientoId: number,
+  metodosPago: CobranzaMetodoPagoItem[] | undefined,
+  onlyCategorias?: string[],
+): Promise<void> {
+  if (!metodosPago || metodosPago.length === 0) return;
+  await ensureMovCajaMetodosPagoTable(tx);
+  for (const mp of metodosPago) {
+    if (mp.MONTO <= 0) continue;
+    if (onlyCategorias && onlyCategorias.length > 0) {
+      const categoria = await tx.request()
+        .input('mid', sql.Int, mp.METODO_PAGO_ID)
+        .query(`SELECT CATEGORIA FROM METODOS_PAGO WHERE METODO_PAGO_ID = @mid`);
+      if (!onlyCategorias.includes(categoria.recordset[0]?.CATEGORIA)) continue;
+    }
+    await tx.request()
+      .input('movId', sql.Int, movimientoId)
+      .input('mpId', sql.Int, mp.METODO_PAGO_ID)
+      .input('monto', sql.Decimal(18, 2), r2(mp.MONTO))
+      .query(`INSERT INTO MOVIMIENTOS_CAJA_METODOS_PAGO (MOVIMIENTO_ID, METODO_PAGO_ID, MONTO) VALUES (@movId, @mpId, @monto)`);
+  }
 }
 
 export interface CtaCorrienteTotales {
@@ -406,7 +541,25 @@ export const ctaCorrienteService = {
     await ensureCobranzasMetodosPagoTable(pool);
     const mpResult = await pool.request()
       .input('pagoId', sql.Int, pagoId)
-      .query(`SELECT METODO_PAGO_ID, MONTO FROM COBRANZAS_METODOS_PAGO WHERE PAGO_ID = @pagoId`);
+      .query(`
+        SELECT
+          cm.METODO_PAGO_ID,
+          SUM(cm.MONTO) AS MONTO,
+          mp.NOMBRE AS METODO_NOMBRE,
+          mp.CATEGORIA,
+          mp.IMAGEN_BASE64
+        FROM COBRANZAS_METODOS_PAGO cm
+        INNER JOIN PAGOS_CTA_CORRIENTE_C p ON cm.PAGO_ID = p.PAGO_ID
+        LEFT JOIN METODOS_PAGO mp ON cm.METODO_PAGO_ID = mp.METODO_PAGO_ID
+        WHERE cm.PAGO_ID = @pagoId AND cm.MONTO > 0
+          AND (
+            (mp.CATEGORIA = 'EFECTIVO' AND ISNULL(p.EFECTIVO, 0) > 0) OR
+            (mp.CATEGORIA = 'DIGITAL' AND ISNULL(p.DIGITAL, 0) > 0) OR
+            (mp.CATEGORIA = 'CHEQUES' AND ISNULL(p.CHEQUES, 0) > 0)
+          )
+        GROUP BY cm.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64
+        ORDER BY MIN(cm.ID)
+      `);
 
     return { ...result.recordset[0], metodos_pago: mpResult.recordset };
   },
@@ -451,10 +604,18 @@ export const ctaCorrienteService = {
     const mpResult = await pool.request()
       .input('pagoId', sql.Int, pagoId)
       .query(`
-        SELECT cm.METODO_PAGO_ID, cm.MONTO, mp.NOMBRE AS METODO_NOMBRE, mp.CATEGORIA
+        SELECT cm.METODO_PAGO_ID, SUM(cm.MONTO) AS MONTO, mp.NOMBRE AS METODO_NOMBRE, mp.CATEGORIA
         FROM COBRANZAS_METODOS_PAGO cm
+        INNER JOIN PAGOS_CTA_CORRIENTE_C p ON cm.PAGO_ID = p.PAGO_ID
         INNER JOIN METODOS_PAGO mp ON cm.METODO_PAGO_ID = mp.METODO_PAGO_ID
-        WHERE cm.PAGO_ID = @pagoId
+        WHERE cm.PAGO_ID = @pagoId AND cm.MONTO > 0
+          AND (
+            (mp.CATEGORIA = 'EFECTIVO' AND ISNULL(p.EFECTIVO, 0) > 0) OR
+            (mp.CATEGORIA = 'DIGITAL' AND ISNULL(p.DIGITAL, 0) > 0) OR
+            (mp.CATEGORIA = 'CHEQUES' AND ISNULL(p.CHEQUES, 0) > 0)
+          )
+        GROUP BY cm.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA
+        ORDER BY MIN(cm.ID)
       `);
 
     // 3) Empresa info (try EMPRESA first, then override with EMPRESA_CLIENTE)
@@ -510,16 +671,23 @@ export const ctaCorrienteService = {
     await tx.begin();
 
     try {
+      ctaCorrienteId = await ensureCtaCorrienteClienteTx(tx, clienteId, ctaCorrienteId);
+      const metodosPago = normalizarMetodosPagoCobranza(input.metodos_pago);
+
       // Derive efectivo/digital/cheques from metodos_pago if provided
       let efectivo = input.EFECTIVO || 0;
       let digital = input.DIGITAL || 0;
       let cheques = input.CHEQUES || 0;
 
-      if (input.metodos_pago && input.metodos_pago.length > 0) {
-        const derived = await derivarCategoriasCO(tx, input.metodos_pago);
+      if (metodosPago.length > 0) {
+        const derived = await derivarCategoriasCO(tx, metodosPago);
         efectivo = derived.efectivo;
         digital = derived.digital;
         cheques = derived.cheques;
+      }
+
+      if (cheques > 0 && metodosPago.length === 0) {
+        throw Object.assign(new Error('Debe completar los datos del cheque para el método CHEQUES'), { name: 'ValidationError' });
       }
 
       const total = r2(efectivo + digital + cheques);
@@ -548,15 +716,17 @@ export const ctaCorrienteService = {
       const pagoId = insertResult.recordset[0].PAGO_ID;
 
       // 1b) Crear registros en CHEQUES para los métodos de categoría CHEQUES
-      if (input.metodos_pago && input.metodos_pago.length > 0) {
-        await crearChequesCobranza(tx, pagoId, input.metodos_pago, usuarioId);
+      if (metodosPago.length > 0) {
+        await crearChequesCobranza(tx, pagoId, metodosPago, usuarioId);
       }
 
       // 1c) Store payment method breakdown
-      if (input.metodos_pago && input.metodos_pago.length > 0) {
-        await ensureCobranzasMetodosPagoTable(tx);
-        for (const mp of input.metodos_pago) {
-          if (mp.MONTO <= 0) continue;
+      await ensureCobranzasMetodosPagoTable(tx);
+      await tx.request()
+        .input('pagoId', sql.Int, pagoId)
+        .query(`DELETE FROM COBRANZAS_METODOS_PAGO WHERE PAGO_ID = @pagoId`);
+      if (metodosPago.length > 0) {
+        for (const mp of metodosPago) {
           await tx.request()
             .input('pagoId', sql.Int, pagoId)
             .input('mpId', sql.Int, mp.METODO_PAGO_ID)
@@ -618,7 +788,7 @@ export const ctaCorrienteService = {
             .input('origenTipo', sql.VarChar(30), 'COBRANZA')
             .input('origenId', sql.Int, pagoId)
             .input('efectivo', sql.Decimal(18, 2), efectivoNeto)
-            .input('digital', sql.Decimal(18, 2), digitalNeto + chequesNeto)
+            .input('digital', sql.Decimal(18, 2), digitalNeto)
             .input('desc', sql.NVarChar(255), descIngreso)
             .input('uid', sql.Int, usuarioId)
             .query(`
@@ -627,10 +797,26 @@ export const ctaCorrienteService = {
               VALUES (@cajaId, GETDATE(), @origenTipo, @origenId,
                 @efectivo, @digital, @desc, @uid)
             `);
+          if (chequesNeto > 0) {
+            const pvId = await getPuntoVentaCobranza(tx, usuarioId, input.PUNTO_VENTA_ID ?? caja.PUNTO_VENTA_ID ?? null);
+            const movChequeResult = await tx.request()
+              .input('idEntidad', sql.Int, pagoId)
+              .input('tipoEntidad', sql.VarChar(20), 'COBRANZA')
+              .input('movimiento', sql.NVarChar(500), `Ingreso cheque(s) ${descIngreso}`)
+              .input('uid', sql.Int, usuarioId)
+              .input('cheques', sql.Decimal(18, 2), chequesNeto)
+              .input('total', sql.Decimal(18, 2), chequesNeto)
+              .input('pvId', sql.Int, pvId)
+              .query(`
+                INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+                OUTPUT INSERTED.ID
+                VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 0)
+              `);
+              await insertMovimientoCajaMetodosPagoCobranza(tx, movChequeResult.recordset[0].ID, metodosPago, ['CHEQUES']);
+          }
         } else {
           const totalIngreso = r2(efectivoNeto + digitalNeto + chequesNeto);
-          const caja = await this._getCajaAbiertaTx(tx, usuarioId);
-          const pvId = caja?.PUNTO_VENTA_ID || null;
+          const pvId = await getPuntoVentaCobranza(tx, usuarioId, input.PUNTO_VENTA_ID ?? null);
           const movResult = await tx.request()
             .input('idEntidad', sql.Int, pagoId)
             .input('tipoEntidad', sql.VarChar(20), 'COBRANZA')
@@ -649,17 +835,7 @@ export const ctaCorrienteService = {
 
           // Insert payment method breakdown for this movement
           const movId = movResult.recordset[0].ID;
-          if (input.metodos_pago && input.metodos_pago.length > 0) {
-            await ensureMovCajaMetodosPagoTable(tx);
-            for (const mp of input.metodos_pago) {
-              if (mp.MONTO <= 0) continue;
-              await tx.request()
-                .input('movId', sql.Int, movId)
-                .input('mpId', sql.Int, mp.METODO_PAGO_ID)
-                .input('monto', sql.Decimal(18, 2), r2(mp.MONTO))
-                .query(`INSERT INTO MOVIMIENTOS_CAJA_METODOS_PAGO (MOVIMIENTO_ID, METODO_PAGO_ID, MONTO) VALUES (@movId, @mpId, @monto)`);
-            }
-          }
+          await insertMovimientoCajaMetodosPagoCobranza(tx, movId, metodosPago);
         }
       }
 
@@ -684,16 +860,22 @@ export const ctaCorrienteService = {
     await tx.begin();
 
     try {
+      const metodosPago = normalizarMetodosPagoCobranza(input.metodos_pago);
+
       // Derive efectivo/digital/cheques from metodos_pago if provided
       let efectivo = input.EFECTIVO || 0;
       let digital = input.DIGITAL || 0;
       let cheques = input.CHEQUES || 0;
 
-      if (input.metodos_pago && input.metodos_pago.length > 0) {
-        const derived = await derivarCategoriasCO(tx, input.metodos_pago);
+      if (metodosPago.length > 0) {
+        const derived = await derivarCategoriasCO(tx, metodosPago);
         efectivo = derived.efectivo;
         digital = derived.digital;
         cheques = derived.cheques;
+      }
+
+      if (cheques > 0 && metodosPago.length === 0) {
+        throw Object.assign(new Error('Debe completar los datos del cheque para el método CHEQUES'), { name: 'ValidationError' });
       }
 
       const total = r2(efectivo + digital + cheques);
@@ -734,9 +916,8 @@ export const ctaCorrienteService = {
       await ensureCobranzasMetodosPagoTable(tx);
       await tx.request().input('pagoId', sql.Int, pagoId)
         .query(`DELETE FROM COBRANZAS_METODOS_PAGO WHERE PAGO_ID = @pagoId`);
-      if (input.metodos_pago && input.metodos_pago.length > 0) {
-        for (const mp of input.metodos_pago) {
-          if (mp.MONTO <= 0) continue;
+      if (metodosPago.length > 0) {
+        for (const mp of metodosPago) {
           await tx.request()
             .input('pagoId', sql.Int, pagoId)
             .input('mpId', sql.Int, mp.METODO_PAGO_ID)
@@ -761,8 +942,8 @@ export const ctaCorrienteService = {
       await this._imputarCobroAVentasPendientes(tx, ctaCorrienteId, clienteId, pagoId, total, new Date(input.FECHA), usuarioId);
 
       // 4b) Re-crear cheques EN_CARTERA si los hay
-      if (input.metodos_pago && input.metodos_pago.length > 0) {
-        await crearChequesCobranza(tx, pagoId, input.metodos_pago, usuarioId);
+      if (metodosPago.length > 0) {
+        await crearChequesCobranza(tx, pagoId, metodosPago, usuarioId);
       }
 
       // 5) Remove old ingreso records and re-register
@@ -799,7 +980,7 @@ export const ctaCorrienteService = {
             .input('origenTipo', sql.VarChar(30), 'COBRANZA')
             .input('origenId2', sql.Int, pagoId)
             .input('efectivo', sql.Decimal(18, 2), efectivoNeto)
-            .input('digital', sql.Decimal(18, 2), digitalNeto + chequesNeto)
+            .input('digital', sql.Decimal(18, 2), digitalNeto)
             .input('desc', sql.NVarChar(255), descIngreso)
             .input('uid', sql.Int, usuarioId)
             .query(`
@@ -808,10 +989,26 @@ export const ctaCorrienteService = {
               VALUES (@cajaId, GETDATE(), @origenTipo, @origenId2,
                 @efectivo, @digital, @desc, @uid)
             `);
+          if (chequesNeto > 0) {
+            const pvId = await getPuntoVentaCobranza(tx, usuarioId, input.PUNTO_VENTA_ID ?? caja.PUNTO_VENTA_ID ?? null);
+            const movChequeResult = await tx.request()
+              .input('idEntidad', sql.Int, pagoId)
+              .input('tipoEntidad', sql.VarChar(20), 'COBRANZA')
+              .input('movimiento', sql.NVarChar(500), `Ingreso cheque(s) ${descIngreso}`)
+              .input('uid', sql.Int, usuarioId)
+              .input('cheques', sql.Decimal(18, 2), chequesNeto)
+              .input('total', sql.Decimal(18, 2), chequesNeto)
+              .input('pvId', sql.Int, pvId)
+              .query(`
+                INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+                OUTPUT INSERTED.ID
+                VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 0)
+              `);
+              await insertMovimientoCajaMetodosPagoCobranza(tx, movChequeResult.recordset[0].ID, metodosPago, ['CHEQUES']);
+          }
         } else {
           const totalIngreso = r2(efectivoNeto + digitalNeto + chequesNeto);
-          const caja = await this._getCajaAbiertaTx(tx, usuarioId);
-          const pvId = caja?.PUNTO_VENTA_ID || null;
+          const pvId = await getPuntoVentaCobranza(tx, usuarioId, input.PUNTO_VENTA_ID ?? null);
           const movResult = await tx.request()
             .input('idEntidad', sql.Int, pagoId)
             .input('tipoEntidad', sql.VarChar(20), 'COBRANZA')
@@ -830,16 +1027,7 @@ export const ctaCorrienteService = {
 
           // Insert payment method breakdown for this movement
           const movId = movResult.recordset[0].ID;
-          if (input.metodos_pago && input.metodos_pago.length > 0) {
-            for (const mp of input.metodos_pago) {
-              if (mp.MONTO <= 0) continue;
-              await tx.request()
-                .input('movId', sql.Int, movId)
-                .input('mpId', sql.Int, mp.METODO_PAGO_ID)
-                .input('monto', sql.Decimal(18, 2), r2(mp.MONTO))
-                .query(`INSERT INTO MOVIMIENTOS_CAJA_METODOS_PAGO (MOVIMIENTO_ID, METODO_PAGO_ID, MONTO) VALUES (@movId, @mpId, @monto)`);
-            }
-          }
+          await insertMovimientoCajaMetodosPagoCobranza(tx, movId, metodosPago);
         }
       }
 
@@ -1079,6 +1267,7 @@ export const ctaCorrienteService = {
 
     const result = await req.query(`
       SELECT 
+        mp.METODO_PAGO_ID,
         mp.NOMBRE AS METODO_NOMBRE,
         mp.CATEGORIA,
         ISNULL(mp.IMAGEN_BASE64, '') AS IMAGEN_BASE64,
@@ -1088,12 +1277,18 @@ export const ctaCorrienteService = {
       INNER JOIN CTA_CORRIENTE_C cta ON p.CTA_CORRIENTE_ID = cta.CTA_CORRIENTE_ID
       INNER JOIN CLIENTES c ON cta.CLIENTE_ID = c.CLIENTE_ID
       INNER JOIN METODOS_PAGO mp ON cm.METODO_PAGO_ID = mp.METODO_PAGO_ID
-      WHERE cm.MONTO > 0 ${dateFilter} ${searchFilter}
-      GROUP BY mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64
+      WHERE cm.MONTO > 0
+        AND (
+          (mp.CATEGORIA = 'EFECTIVO' AND ISNULL(p.EFECTIVO, 0) > 0) OR
+          (mp.CATEGORIA = 'DIGITAL' AND ISNULL(p.DIGITAL, 0) > 0) OR
+          (mp.CATEGORIA = 'CHEQUES' AND ISNULL(p.CHEQUES, 0) > 0)
+        )
+        ${dateFilter} ${searchFilter}
+      GROUP BY mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64
       ORDER BY mp.CATEGORIA, SUM(cm.MONTO) DESC
     `);
 
-    return result.recordset as { METODO_NOMBRE: string; CATEGORIA: string; IMAGEN_BASE64: string; TOTAL: number }[];
+    return result.recordset as { METODO_PAGO_ID: number; METODO_NOMBRE: string; CATEGORIA: string; IMAGEN_BASE64: string; TOTAL: number }[];
   },
 
   // ── Get ALL cobranzas across all accounts ──────
@@ -1156,7 +1351,7 @@ export const ctaCorrienteService = {
     const result = await req.query(`
       SELECT 
         c.CLIENTE_ID,
-        cta.CTA_CORRIENTE_ID,
+        ISNULL(cta.CTA_CORRIENTE_ID, 0) AS CTA_CORRIENTE_ID,
         c.NOMBRE,
         c.CODIGOPARTICULAR,
         c.NUMERO_DOC,
@@ -1166,8 +1361,8 @@ export const ctaCorrienteService = {
           WHERE vc.CTA_CORRIENTE_ID = cta.CTA_CORRIENTE_ID
         ), 0) AS SALDO_ACTUAL
       FROM CLIENTES c
-      INNER JOIN CTA_CORRIENTE_C cta ON c.CLIENTE_ID = cta.CLIENTE_ID
-      WHERE c.ACTIVO = 1 AND c.CTA_CORRIENTE = 1 ${searchFilter}
+      LEFT JOIN CTA_CORRIENTE_C cta ON c.CLIENTE_ID = cta.CLIENTE_ID
+      WHERE c.ACTIVO = 1 ${searchFilter}
       ORDER BY c.NOMBRE
     `);
 

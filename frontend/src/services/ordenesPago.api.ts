@@ -25,11 +25,15 @@ export interface OrdenPagoGeneralInput {
   CHEQUES: number;
   CONCEPTO: string;
   DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
+  PUNTO_VENTA_ID?: number | null;
   metodos_pago?: MetodoPagoItem[];
+  /** IDs de cheques EN_CARTERA a egresar (categoría CHEQUES). */
+  cheques_ids?: number[];
 }
 
 export interface OrdenPagoEditData extends OrdenPagoGeneralItem {
   metodos_pago: MetodoPagoItem[];
+  cheques_ids: number[];
 }
 
 export interface ProveedorCtaCorriente {
@@ -95,7 +99,7 @@ export const ordenesPagoApi = {
 
   // Get aggregated payment method totals
   getMetodosTotales: (fechaDesde?: string, fechaHasta?: string, search?: string) =>
-    api.get<{ METODO_NOMBRE: string; CATEGORIA: string; IMAGEN_BASE64: string; TOTAL: number }[]>(
+    api.get<{ METODO_PAGO_ID: number; METODO_NOMBRE: string; CATEGORIA: string; IMAGEN_BASE64: string; TOTAL: number }[]>(
       '/ordenes-pago/metodos-totales', { params: { fechaDesde, fechaHasta, search } },
     ).then(r => r.data),
 

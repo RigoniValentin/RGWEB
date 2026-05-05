@@ -149,6 +149,106 @@ async function insertHistorial(
     `);
 }
 
+async function ensureMovCajaMetodosPagoTable(tx: any): Promise<void> {
+  await tx.request().query(`
+    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'MOVIMIENTOS_CAJA_METODOS_PAGO')
+    CREATE TABLE MOVIMIENTOS_CAJA_METODOS_PAGO (
+      ID INT IDENTITY(1,1) PRIMARY KEY,
+      MOVIMIENTO_ID INT NOT NULL,
+      METODO_PAGO_ID INT NOT NULL,
+      MONTO DECIMAL(18,2) NOT NULL
+    )
+  `);
+}
+
+async function insertDesgloseMetodoCheque(tx: any, movimientoId: number, monto: number): Promise<void> {
+  try {
+    const metodo = await tx.request().query(`
+      SELECT TOP 1 METODO_PAGO_ID
+      FROM METODOS_PAGO
+      WHERE CATEGORIA = 'CHEQUES' AND ACTIVA = 1
+      ORDER BY POR_DEFECTO DESC, METODO_PAGO_ID
+    `);
+    const metodoId = metodo.recordset[0]?.METODO_PAGO_ID;
+    if (!metodoId) return;
+
+    await ensureMovCajaMetodosPagoTable(tx);
+    await tx.request()
+      .input('movId', sql.Int, movimientoId)
+      .input('mpId', sql.Int, metodoId)
+      .input('monto', sql.Decimal(18, 2), r2(monto))
+      .query(`
+        INSERT INTO MOVIMIENTOS_CAJA_METODOS_PAGO (MOVIMIENTO_ID, METODO_PAGO_ID, MONTO)
+        VALUES (@movId, @mpId, @monto)
+      `);
+  } catch {
+    /* El balance ya queda reflejado en MOVIMIENTOS_CAJA.CHEQUES/TOTAL. */
+  }
+}
+
+async function getPuntoVentaParaMovimientoCheque(
+  tx: any,
+  chequeId: number,
+  usuarioId: number | null,
+  puntoVentaId?: number | null,
+): Promise<number | null> {
+  if (puntoVentaId) return puntoVentaId;
+
+  const movPrevio = await tx.request()
+    .input('chequeId', sql.Int, chequeId)
+    .query(`
+      SELECT TOP 1 PUNTO_VENTA_ID
+      FROM MOVIMIENTOS_CAJA
+      WHERE TIPO_ENTIDAD = 'CHEQUE'
+        AND ID_ENTIDAD = @chequeId
+        AND PUNTO_VENTA_ID IS NOT NULL
+      ORDER BY FECHA DESC, ID DESC
+    `);
+  if (movPrevio.recordset[0]?.PUNTO_VENTA_ID) {
+    return Number(movPrevio.recordset[0].PUNTO_VENTA_ID);
+  }
+
+  if (!usuarioId) return null;
+  const pvUsuario = await tx.request()
+    .input('uid', sql.Int, usuarioId)
+    .query(`
+      SELECT TOP 1 PUNTO_VENTA_ID
+      FROM USUARIOS_PUNTOS_VENTA
+      WHERE USUARIO_ID = @uid
+      ORDER BY CASE WHEN ISNULL(ES_PREFERIDO, 0) = 1 THEN 0 ELSE 1 END, PUNTO_VENTA_ID
+    `);
+  return pvUsuario.recordset[0]?.PUNTO_VENTA_ID ? Number(pvUsuario.recordset[0].PUNTO_VENTA_ID) : null;
+}
+
+async function insertMovimientoCajaIngresoCheque(
+  tx: any,
+  chequeId: number,
+  importe: number,
+  numeroCheque: string,
+  librador: string,
+  usuarioId: number | null,
+  puntoVentaId?: number | null,
+): Promise<void> {
+  const importeAbs = r2(Math.abs(importe));
+  const descripcion = `Ingreso cheque #${numeroCheque} — ${librador}`;
+  const pvId = await getPuntoVentaParaMovimientoCheque(tx, chequeId, usuarioId, puntoVentaId);
+  const result = await tx.request()
+    .input('idEntidad', sql.Int, chequeId)
+    .input('tipoEntidad', sql.VarChar(20), 'CHEQUE')
+    .input('movimiento', sql.NVarChar(500), descripcion)
+    .input('uid', sql.Int, usuarioId)
+    .input('cheques', sql.Decimal(18, 2), importeAbs)
+    .input('total', sql.Decimal(18, 2), importeAbs)
+    .input('pvId', sql.Int, pvId)
+    .query(`
+      INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+      OUTPUT INSERTED.ID
+      VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 1)
+    `);
+
+  await insertDesgloseMetodoCheque(tx, result.recordset[0].ID, importeAbs);
+}
+
 /**
  * Inserta un MOVIMIENTOS_CAJA reflejando una salida de cheque de cartera.
  * Reglas:
@@ -164,8 +264,10 @@ async function insertMovimientoCajaCheque(
   numeroCheque: string,
   destinoDesc: string | null,
   usuarioId: number | null,
+  puntoVentaId?: number | null,
 ): Promise<void> {
   const importeAbs = r2(Math.abs(importe));
+  const pvId = await getPuntoVentaParaMovimientoCheque(tx, chequeId, usuarioId, puntoVentaId);
   let efectivo = 0;
   let digital = 0;
   let cheques = -importeAbs;
@@ -186,7 +288,7 @@ async function insertMovimientoCajaCheque(
       ? `Egreso cheque #${numeroCheque} — ${destinoDesc}`
       : `Egreso cheque #${numeroCheque}`;
   }
-  await tx.request()
+  const result = await tx.request()
     .input('idEntidad', sql.Int, chequeId)
     .input('tipoEntidad', sql.VarChar(20), 'CHEQUE')
     .input('movimiento', sql.NVarChar(500), descripcion)
@@ -195,10 +297,16 @@ async function insertMovimientoCajaCheque(
     .input('digital', sql.Decimal(18, 2), digital)
     .input('cheques', sql.Decimal(18, 2), cheques)
     .input('total', sql.Decimal(18, 2), total)
+    .input('pvId', sql.Int, pvId)
     .query(`
       INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
-      VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, @cheques, 0, @total, NULL, 1)
+      OUTPUT INSERTED.ID
+      VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, @cheques, 0, @total, @pvId, 1)
     `);
+
+  if (estadoNuevo === 'ANULADO' || estadoNuevo === 'EGRESADO') {
+    await insertDesgloseMetodoCheque(tx, result.recordset[0].ID, -importeAbs);
+  }
 }
 
 // ═══════════════════════════════════════════════════
@@ -513,6 +621,15 @@ export const chequesService = {
           .input('obs', sql.NVarChar(500), input.OBSERVACIONES)
           .query('UPDATE CHEQUES SET OBSERVACIONES = @obs WHERE CHEQUE_ID = @id');
       }
+      await insertMovimientoCajaIngresoCheque(
+        tx,
+        id,
+        input.IMPORTE,
+        input.NUMERO,
+        input.LIBRADOR,
+        usuarioId,
+        input.PUNTO_VENTA_ID ?? null,
+      );
       await tx.commit();
       return { CHEQUE_ID: id };
     } catch (err) {
@@ -647,7 +764,7 @@ export const chequesService = {
         //   Reversal: CHEQUES=+imp, TOTAL=+imp
         const digitalRev = estadoAnterior === 'DEPOSITADO' ? -importeRev : 0;
         const totalRev = estadoAnterior === 'DEPOSITADO' ? 0 : importeRev;
-        await tx.request()
+        const movResult = await tx.request()
           .input('idEntidad', sql.Int, id)
           .input('tipoEntidad', sql.VarChar(20), 'CHEQUE')
           .input('movimiento', sql.NVarChar(500), descRev)
@@ -655,10 +772,15 @@ export const chequesService = {
           .input('digital', sql.Decimal(18, 2), digitalRev)
           .input('cheques', sql.Decimal(18, 2), importeRev)
           .input('total', sql.Decimal(18, 2), totalRev)
+          .input('pvId', sql.Int, await getPuntoVentaParaMovimientoCheque(tx, id, usuarioId))
           .query(`
             INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
-            VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, 0, @digital, @cheques, 0, @total, NULL, 1)
+            OUTPUT INSERTED.ID
+            VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, 0, @digital, @cheques, 0, @total, @pvId, 1)
           `);
+        if (estadoAnterior === 'EGRESADO') {
+          await insertDesgloseMetodoCheque(tx, movResult.recordset[0].ID, importeRev);
+        }
       }
 
       await tx.commit();

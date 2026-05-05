@@ -71,7 +71,7 @@ export function ExpensesPage() {
       message.success('Gasto eliminado');
       qc.invalidateQueries({ queryKey: ['expenses'] });
       qc.invalidateQueries({ queryKey: ['expenses-metodos-totales'] });
-      qc.invalidateQueries({ queryKey: ['caja-central-movimientos'] });
+      qc.invalidateQueries({ queryKey: ['caja-central-mov'] });
       qc.invalidateQueries({ queryKey: ['caja-central-totales'] });
     },
     onError: (err: any) => message.error(err.response?.data?.error || err.message),
@@ -108,7 +108,7 @@ export function ExpensesPage() {
     setEditGastoId(null);
     qc.invalidateQueries({ queryKey: ['expenses'] });
     qc.invalidateQueries({ queryKey: ['expenses-metodos-totales'] });
-    qc.invalidateQueries({ queryKey: ['caja-central-movimientos'] });
+    qc.invalidateQueries({ queryKey: ['caja-central-mov'] });
     qc.invalidateQueries({ queryKey: ['caja-central-totales'] });
   };
 
@@ -204,7 +204,10 @@ export function ExpensesPage() {
       <div className="page-header">
         <Title level={3}>Gastos y Servicios</Title>
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => qc.invalidateQueries({ queryKey: ['expenses'] })}>
+          <Button icon={<ReloadOutlined />} onClick={() => {
+            qc.invalidateQueries({ queryKey: ['expenses'] });
+            qc.invalidateQueries({ queryKey: ['expenses-metodos-totales'] });
+          }}>
             Actualizar
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleNew}>

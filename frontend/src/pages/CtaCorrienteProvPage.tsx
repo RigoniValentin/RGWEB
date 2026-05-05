@@ -9,7 +9,7 @@ import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
   EyeOutlined, ReloadOutlined, DollarOutlined, BankOutlined,
   ArrowUpOutlined, ArrowDownOutlined, WalletOutlined, ShopOutlined,
-  CreditCardOutlined,
+  CreditCardOutlined, FileProtectOutlined,
 } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import {
@@ -365,7 +365,11 @@ export function CtaCorrienteProvPage() {
       {/* Header */}
       <div className="page-header">
         <Title level={3}>Cuentas Corrientes — Proveedores</Title>
-        <Button icon={<ReloadOutlined />} onClick={() => qc.invalidateQueries({ queryKey: ['cta-corriente-prov-list'] })}>
+        <Button icon={<ReloadOutlined />} onClick={() => {
+          qc.invalidateQueries({ queryKey: ['cta-corriente-prov-list'] });
+          qc.invalidateQueries({ queryKey: ['cta-prov-movimientos'] });
+          qc.invalidateQueries({ queryKey: ['cta-prov-ordenes-pago'] });
+        }}>
           Actualizar
         </Button>
       </div>
@@ -695,20 +699,25 @@ function DetalleOrdenPagoModal({ detalleOrdenPago, onClose }: {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {detalle.metodos_pago.map((mp, idx) => {
                   const m = metodosPago.find(x => x.METODO_PAGO_ID === mp.METODO_PAGO_ID);
+                  const categoria = mp.CATEGORIA || m?.CATEGORIA;
+                  const imagen = mp.IMAGEN_BASE64 || m?.IMAGEN_BASE64;
+                  const nombre = mp.METODO_NOMBRE || mp.NOMBRE || m?.NOMBRE || `Método #${mp.METODO_PAGO_ID}`;
                   return (
                     <div key={idx} style={{
                       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                       padding: '6px 12px', background: '#fafafa', borderRadius: 6,
                     }}>
                       <Space size={8}>
-                        {m?.IMAGEN_BASE64 ? (
-                          <img src={m.IMAGEN_BASE64} alt={m.NOMBRE} style={{ width: 20, height: 20, objectFit: 'contain', borderRadius: 3 }} />
-                        ) : m?.CATEGORIA === 'EFECTIVO' ? (
+                        {imagen ? (
+                          <img src={imagen} alt={nombre} style={{ width: 20, height: 20, objectFit: 'contain', borderRadius: 3 }} />
+                        ) : categoria === 'EFECTIVO' ? (
                           <DollarOutlined style={{ color: '#52c41a' }} />
+                        ) : categoria === 'CHEQUES' ? (
+                          <FileProtectOutlined style={{ color: '#d46b08' }} />
                         ) : (
                           <CreditCardOutlined style={{ color: '#1890ff' }} />
                         )}
-                        <Text>{m?.NOMBRE || `Método #${mp.METODO_PAGO_ID}`}</Text>
+                        <Text>{nombre}</Text>
                       </Space>
                       <Text strong>{fmtMoney(mp.MONTO)}</Text>
                     </div>

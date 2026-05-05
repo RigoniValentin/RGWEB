@@ -54,6 +54,7 @@ export interface CompraInput {
   ACTUALIZAR_COSTOS?: boolean;
   ACTUALIZAR_PRECIOS?: boolean;
   DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
+  PUNTO_VENTA_ID?: number | null;
   /** IDs de cheques EN_CARTERA a egresar como pago (endoso). El backend
    *  marca cada cheque como EGRESADO con DESTINO_TIPO='COMPRA'. */
   cheques_ids?: number[];
@@ -124,6 +125,30 @@ async function insertComprasMetodosPago(
   }
 }
 
+async function insertMovimientoCajaMetodosPago(
+  tx: any,
+  movimientoId: number,
+  metodosPago: CompraMetodoPagoItem[],
+  onlyCategorias?: string[],
+): Promise<void> {
+  if (!metodosPago || metodosPago.length === 0) return;
+  await ensureMovCajaMetodosPagoTable(tx);
+  for (const mp of metodosPago) {
+    if (mp.MONTO <= 0) continue;
+    if (onlyCategorias && onlyCategorias.length > 0) {
+      const categoria = await tx.request()
+        .input('mid', sql.Int, mp.METODO_PAGO_ID)
+        .query(`SELECT CATEGORIA FROM METODOS_PAGO WHERE METODO_PAGO_ID = @mid`);
+      if (!onlyCategorias.includes(categoria.recordset[0]?.CATEGORIA)) continue;
+    }
+    await tx.request()
+      .input('movId', sql.Int, movimientoId)
+      .input('mpId', sql.Int, mp.METODO_PAGO_ID)
+      .input('monto', sql.Decimal(18, 2), -r2(mp.MONTO))
+      .query(`INSERT INTO MOVIMIENTOS_CAJA_METODOS_PAGO (MOVIMIENTO_ID, METODO_PAGO_ID, MONTO) VALUES (@movId, @mpId, @monto)`);
+  }
+}
+
 /** Derive MONTO_EFECTIVO/MONTO_DIGITAL/MONTO_CHEQUES from payment methods.
  *  Los cheques NO suman a efectivo ni digital (van por flujo separado). */
 async function derivarCategoriasCompra(
@@ -164,6 +189,26 @@ async function getCajaAbiertaTx(
     .input('uid', sql.Int, usuarioId)
     .query(`SELECT CAJA_ID, PUNTO_VENTA_ID FROM CAJA WHERE USUARIO_ID = @uid AND ESTADO = 'ACTIVA'`);
   return result.recordset.length > 0 ? result.recordset[0] : null;
+}
+
+async function getPuntoVentaMovimientoCompra(
+  tx: any,
+  usuarioId: number,
+  puntoVentaId?: number | null,
+): Promise<number | null> {
+  if (puntoVentaId) return puntoVentaId;
+  const caja = await getCajaAbiertaTx(tx, usuarioId);
+  if (caja?.PUNTO_VENTA_ID) return caja.PUNTO_VENTA_ID;
+
+  const pvUsuario = await tx.request()
+    .input('uid', sql.Int, usuarioId)
+    .query(`
+      SELECT TOP 1 PUNTO_VENTA_ID
+      FROM USUARIOS_PUNTOS_VENTA
+      WHERE USUARIO_ID = @uid
+      ORDER BY CASE WHEN ISNULL(ES_PREFERIDO, 0) = 1 THEN 0 ELSE 1 END, PUNTO_VENTA_ID
+    `);
+  return pvUsuario.recordset[0]?.PUNTO_VENTA_ID ? Number(pvUsuario.recordset[0].PUNTO_VENTA_ID) : null;
 }
 
 // ── Stock helpers ────────────────────────────────
@@ -1099,7 +1144,7 @@ export const purchasesService = {
               `);
             // Cheques son instrumento de caja central — registrar el egreso allí.
             if (montoChequesEgresados > 0) {
-              await tx.request()
+              const movChequeResult = await tx.request()
                 .input('idEntidad', sql.Int, compraId)
                 .input('tipoEntidad', sql.VarChar(20), 'COMPRA')
                 .input('movimiento', sql.NVarChar(500), `Egreso cheque(s) ${descEgreso}`)
@@ -1109,14 +1154,17 @@ export const purchasesService = {
                 .input('pvId', sql.Int, caja.PUNTO_VENTA_ID)
                 .query(`
                   INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+                  OUTPUT INSERTED.ID
                   VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 0)
                 `);
+              if (input.metodos_pago && input.metodos_pago.length > 0) {
+                await insertMovimientoCajaMetodosPago(tx, movChequeResult.recordset[0].ID, input.metodos_pago, ['CHEQUES']);
+              }
             }
           } else {
             // Register in MOVIMIENTOS_CAJA (Caja Central)
             const totalEgreso = r2(efectivoNeto + montoDigital + montoChequesEgresados);
-            const caja = await getCajaAbiertaTx(tx, usuarioId);
-            const pvId = caja?.PUNTO_VENTA_ID || null;
+            const pvId = await getPuntoVentaMovimientoCompra(tx, usuarioId, input.PUNTO_VENTA_ID ?? null);
             const movResult = await tx.request()
               .input('idEntidad', sql.Int, compraId)
               .input('tipoEntidad', sql.VarChar(20), 'COMPRA')
@@ -1136,15 +1184,7 @@ export const purchasesService = {
             // Insert payment method breakdown for this movement
             const movId = movResult.recordset[0].ID;
             if (input.metodos_pago && input.metodos_pago.length > 0) {
-              await ensureMovCajaMetodosPagoTable(tx);
-              for (const mp of input.metodos_pago) {
-                if (mp.MONTO <= 0) continue;
-                await tx.request()
-                  .input('movId', sql.Int, movId)
-                  .input('mpId', sql.Int, mp.METODO_PAGO_ID)
-                  .input('monto', sql.Decimal(18, 2), -r2(mp.MONTO))
-                  .query(`INSERT INTO MOVIMIENTOS_CAJA_METODOS_PAGO (MOVIMIENTO_ID, METODO_PAGO_ID, MONTO) VALUES (@movId, @mpId, @monto)`);
-              }
+              await insertMovimientoCajaMetodosPago(tx, movId, input.metodos_pago);
             }
           }
         }
@@ -1272,10 +1312,12 @@ export const purchasesService = {
       // Derive category totals from metodos_pago if provided
       let montoEfectivoUpd2 = input.MONTO_EFECTIVO || 0;
       let montoDigitalUpd2 = input.MONTO_DIGITAL || 0;
+      let montoChequesAporteUpd2 = 0;
       if (input.metodos_pago && input.metodos_pago.length > 0) {
         const derived = await derivarCategoriasCompra(tx, input.metodos_pago);
         montoEfectivoUpd2 = derived.montoEfectivo;
         montoDigitalUpd2 = derived.montoDigital;
+        montoChequesAporteUpd2 = derived.montoCheques;
       }
 
       // ── 5. UPDATE COMPRAS ──
@@ -1428,6 +1470,12 @@ export const purchasesService = {
             usuarioId, null,
           );
           montoChequesEgresados = chqResult.total;
+          if (montoChequesAporteUpd2 > 0 && Math.abs(montoChequesEgresados - montoChequesAporteUpd2) > 0.01) {
+            throw Object.assign(
+              new Error(`La suma de los cheques egresados ($${montoChequesEgresados}) no coincide con el aporte declarado en métodos de pago ($${montoChequesAporteUpd2})`),
+              { name: 'ValidationError' }
+            );
+          }
         }
 
         if (efectivoNetoUpd > 0 || montoDigitalUpd > 0 || montoChequesEgresados > 0) {
@@ -1467,7 +1515,7 @@ export const purchasesService = {
                   @efectivo, @digital, @desc, @uid)
               `);
             if (montoChequesEgresados > 0) {
-              await tx.request()
+              const movChequeResultUpd = await tx.request()
                 .input('idEntidad', sql.Int, id)
                 .input('tipoEntidad', sql.VarChar(20), 'COMPRA')
                 .input('movimiento', sql.NVarChar(500), `Egreso cheque(s) ${descEgresoUpd}`)
@@ -1475,13 +1523,18 @@ export const purchasesService = {
                 .input('cheques', sql.Decimal(18, 2), -montoChequesEgresados)
                 .input('total', sql.Decimal(18, 2), -montoChequesEgresados)
                 .input('pvId', sql.Int, caja.PUNTO_VENTA_ID)
-                .query(`INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
-                        VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 0)`);
+                .query(`
+                  INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+                  OUTPUT INSERTED.ID
+                  VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 0)
+                `);
+              if (input.metodos_pago && input.metodos_pago.length > 0) {
+                await insertMovimientoCajaMetodosPago(tx, movChequeResultUpd.recordset[0].ID, input.metodos_pago, ['CHEQUES']);
+              }
             }
           } else {
             const totalEgresoUpd = r2(efectivoNetoUpd + montoDigitalUpd + montoChequesEgresados);
-            const caja = await getCajaAbiertaTx(tx, usuarioId);
-            const pvId = caja?.PUNTO_VENTA_ID || null;
+            const pvId = await getPuntoVentaMovimientoCompra(tx, usuarioId, input.PUNTO_VENTA_ID ?? null);
             const movResultUpd = await tx.request()
               .input('idEntidad', sql.Int, id)
               .input('tipoEntidad', sql.VarChar(20), 'COMPRA')
@@ -1501,15 +1554,7 @@ export const purchasesService = {
             // Insert payment method breakdown for this movement
             const movIdUpd = movResultUpd.recordset[0].ID;
             if (input.metodos_pago && input.metodos_pago.length > 0) {
-              await ensureMovCajaMetodosPagoTable(tx);
-              for (const mp of input.metodos_pago) {
-                if (mp.MONTO <= 0) continue;
-                await tx.request()
-                  .input('movId', sql.Int, movIdUpd)
-                  .input('mpId', sql.Int, mp.METODO_PAGO_ID)
-                  .input('monto', sql.Decimal(18, 2), -r2(mp.MONTO))
-                  .query(`INSERT INTO MOVIMIENTOS_CAJA_METODOS_PAGO (MOVIMIENTO_ID, METODO_PAGO_ID, MONTO) VALUES (@movId, @mpId, @monto)`);
-              }
+              await insertMovimientoCajaMetodosPago(tx, movIdUpd, input.metodos_pago);
             }
           }
         }

@@ -18,6 +18,7 @@ import type { CompraItemInput, CompraInput, ProductoSearchCompra, ProductoSearch
 import { ProductSearchModal } from '../ProductSearchModal';
 import { ChequePicker } from '../cheques/ChequePicker';
 import { usePurchaseDraftStore } from '../../store/purchaseDraftStore';
+import { useAuthStore } from '../../store/authStore';
 import type { PurchaseCartItem } from '../../store/purchaseDraftStore';
 
 const { Title, Text } = Typography;
@@ -46,6 +47,7 @@ interface Props {
 
 export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const queryClient = useQueryClient();
+  const puntoVentaActivo = useAuthStore(s => s.puntoVentaActivo);
   // ── Draft persistence ──────────────────────────
   const draftInitialized = useRef(false);
 
@@ -700,6 +702,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       ACTUALIZAR_COSTOS: actualizarCostos,
       ACTUALIZAR_PRECIOS: actualizarPrecios,
       DESTINO_PAGO: esCtaCorriente ? undefined : destinoPago,
+      PUNTO_VENTA_ID: esCtaCorriente ? undefined : puntoVentaActivo,
       metodos_pago: metodosPagoInput.length > 0 ? metodosPagoInput : undefined,
       cheques_ids: !esCtaCorriente && chequesIds.length > 0 ? chequesIds : undefined,
       items: cart.map(item => ({

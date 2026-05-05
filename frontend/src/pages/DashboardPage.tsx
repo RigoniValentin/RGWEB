@@ -10,7 +10,7 @@ import {
   CalendarOutlined, ClockCircleOutlined, UserOutlined,
   BarChartOutlined, FundOutlined, PercentageOutlined, StarOutlined,
   ArrowDownOutlined, ArrowUpOutlined,  CreditCardOutlined, WalletOutlined,
-  UnorderedListOutlined,
+  UnorderedListOutlined, FileProtectOutlined, ReloadOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { dashboardApi } from '../services/dashboard.api';
@@ -156,7 +156,7 @@ export function DashboardPage() {
     retry: false,
   });
 
-  const { data: analytics, isLoading } = useQuery({
+  const { data: analytics, isLoading, isFetching, refetch: refetchAnalytics } = useQuery({
     queryKey: ['dashboard-analytics', periodRng.from, periodRng.to, effGranularity, pvFilter],
     queryFn: () => dashboardApi.getAnalytics({
       from: periodRng.from,
@@ -205,6 +205,8 @@ export function DashboardPage() {
       value: Number(m.TOTAL) || 0,
       color: m.CATEGORIA === 'EFECTIVO'
         ? ['#52c41a', '#73d13d', '#95de64'][i % 3]
+        : m.CATEGORIA === 'CHEQUES'
+          ? ['#fa8c16', '#ffc069', '#d46b08'][i % 3]
         : ['#1677ff', '#13c2c2', '#722ed1', '#eb2f96'][i % 4],
     }));
   }, [analytics]);
@@ -332,6 +334,15 @@ export function DashboardPage() {
                 ]}
               />
             </Space>
+          </Col>
+          <Col flex="none">
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => void refetchAnalytics()}
+              loading={isFetching}
+            >
+              Actualizar
+            </Button>
           </Col>
         </Row>
       </Card>
@@ -522,7 +533,7 @@ export function DashboardPage() {
                         </div>
                       )}
 
-                      {/* 4 tiles grid */}
+                      {/* 5 tiles grid */}
                       <Row gutter={[10, 10]} style={{ marginTop: 12 }}>
                         <Col xs={12}>
                           <Tooltip title="Total de ingresos del período (excl. transferencias internas)">
@@ -559,6 +570,23 @@ export function DashboardPage() {
                                 <UnorderedListOutlined className="rg-cc-tile-action" />
                               </div>
                               <div className="rg-cc-tile-value">{fmtMoney(cc.digital)}</div>
+                            </div>
+                          </Tooltip>
+                        </Col>
+                        <Col xs={24} sm={12}>
+                          <Tooltip title="Cheques actualmente en cartera. Click para abrir el módulo de cheques.">
+                            <div
+                              className="rg-cc-tile rg-cc-tile-cheques rg-cc-tile-clickable"
+                              onClick={() => openTab({ key: '/cheques', label: 'Cheques', closable: true })}
+                            >
+                              <div className="rg-cc-tile-label">
+                                <FileProtectOutlined /> Cheques cartera
+                                <UnorderedListOutlined className="rg-cc-tile-action" />
+                              </div>
+                              <div className="rg-cc-tile-value">{fmtMoney(cc.chequesEnCartera ?? cc.cheques ?? 0)}</div>
+                              <div className="rg-cc-tile-meta">
+                                {cc.chequesEnCarteraCantidad ?? 0} cheque{(cc.chequesEnCarteraCantidad ?? 0) === 1 ? '' : 's'}
+                              </div>
                             </div>
                           </Tooltip>
                         </Col>
@@ -777,17 +805,23 @@ export function DashboardPage() {
               <div key={d.METODO_PAGO_ID} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 padding: '10px 14px', borderRadius: 8,
-                background: d.CATEGORIA === 'EFECTIVO' ? 'rgba(82,196,26,0.06)' : 'rgba(22,119,255,0.06)',
-                border: `1px solid ${d.CATEGORIA === 'EFECTIVO' ? '#b7eb8f' : '#91caff'}`,
+                background: d.CATEGORIA === 'EFECTIVO'
+                  ? 'rgba(82,196,26,0.06)'
+                  : d.CATEGORIA === 'CHEQUES'
+                    ? 'rgba(250,140,22,0.08)'
+                    : 'rgba(22,119,255,0.06)',
+                border: `1px solid ${d.CATEGORIA === 'EFECTIVO' ? '#b7eb8f' : d.CATEGORIA === 'CHEQUES' ? '#ffd591' : '#91caff'}`,
               }}>
                 <Space>
                   {d.IMAGEN_BASE64 ? (
                     <img src={d.IMAGEN_BASE64} alt={d.NOMBRE} style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 4 }} />
+                  ) : d.CATEGORIA === 'CHEQUES' ? (
+                    <FileProtectOutlined style={{ fontSize: 20, color: '#fa8c16' }} />
                   ) : null}
                   <div>
                     <Text strong>{d.NOMBRE}</Text>
                     <br />
-                    <Tag color={d.CATEGORIA === 'EFECTIVO' ? 'green' : 'blue'} style={{ fontSize: 10 }}>
+                    <Tag color={d.CATEGORIA === 'EFECTIVO' ? 'green' : d.CATEGORIA === 'CHEQUES' ? 'orange' : 'blue'} style={{ fontSize: 10 }}>
                       {d.CATEGORIA}
                     </Tag>
                   </div>
@@ -833,7 +867,7 @@ export function DashboardPage() {
           </div>
         ) : (() => {
           const items = (ccDesglose || []).filter(d =>
-            ccDesgloseOpen === 'EFECTIVO' ? d.CATEGORIA === 'EFECTIVO' : d.CATEGORIA !== 'EFECTIVO'
+            ccDesgloseOpen === 'EFECTIVO' ? d.CATEGORIA === 'EFECTIVO' : d.CATEGORIA === 'DIGITAL'
           );
           if (items.length === 0) {
             return <Empty description="Sin movimientos en el período" image={Empty.PRESENTED_IMAGE_SIMPLE} />;

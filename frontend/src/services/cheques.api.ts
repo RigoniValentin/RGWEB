@@ -18,6 +18,7 @@ export interface ChequeInput {
   LIBRADOR: string;
   NUMERO: string;
   IMPORTE: number;
+  PUNTO_VENTA_ID?: number | null;
   PORTADOR?: string | null;
   FECHA_PRESENTACION?: string | null;
   OBSERVACIONES?: string | null;

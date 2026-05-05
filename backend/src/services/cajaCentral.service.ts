@@ -18,6 +18,29 @@ export interface NuevoMovimientoInput {
   metodos_pago?: { METODO_PAGO_ID: number; MONTO: number }[];
 }
 
+async function getChequesEnCarteraResumen(connectionPool: any) {
+  const exists = await connectionPool.request().query(`
+    SELECT CASE WHEN OBJECT_ID(N'[dbo].[CHEQUES]', N'U') IS NULL THEN 0 ELSE 1 END AS existe
+  `);
+
+  if (!exists.recordset[0]?.existe) {
+    return { chequesEnCartera: 0, chequesEnCarteraCantidad: 0 };
+  }
+
+  const result = await connectionPool.request().query(`
+    SELECT
+      ISNULL(SUM(CASE WHEN ESTADO = 'EN_CARTERA' THEN IMPORTE ELSE 0 END), 0) AS chequesEnCartera,
+      ISNULL(SUM(CASE WHEN ESTADO = 'EN_CARTERA' THEN 1 ELSE 0 END), 0) AS chequesEnCarteraCantidad
+    FROM CHEQUES
+  `);
+
+  const row = result.recordset[0] || {};
+  return {
+    chequesEnCartera: Number(row.chequesEnCartera) || 0,
+    chequesEnCarteraCantidad: Number(row.chequesEnCarteraCantidad) || 0,
+  };
+}
+
 export const cajaCentralService = {
   // ── Get movement lists (income/expenses) ───────
   async getMovimientos(filter: CajaCentralFilter = {}) {
@@ -36,7 +59,7 @@ export const cajaCentralService = {
     }
     if (filter.puntoVentaIds && filter.puntoVentaIds.length > 0) {
       const pvPlaceholders = filter.puntoVentaIds.map((_, i) => `@pv${i}`).join(', ');
-      where += ` AND m.PUNTO_VENTA_ID IN (${pvPlaceholders})`;
+      where += ` AND (m.PUNTO_VENTA_ID IN (${pvPlaceholders}) OR (m.TIPO_ENTIDAD = 'CHEQUE' AND m.PUNTO_VENTA_ID IS NULL) OR (m.TIPO_ENTIDAD IN ('COMPRA', 'ORDEN_PAGO', 'COBRANZA') AND m.PUNTO_VENTA_ID IS NULL AND ISNULL(m.CHEQUES, 0) <> 0))`;
       filter.puntoVentaIds.forEach((id, i) => {
         params.push({ name: `pv${i}`, type: sql.Int, value: id });
       });
@@ -89,7 +112,7 @@ export const cajaCentralService = {
     }
     if (filter.puntoVentaIds && filter.puntoVentaIds.length > 0) {
       const pvPlaceholders = filter.puntoVentaIds.map((_, i) => `@pv${i}`).join(', ');
-      where += ` AND m.PUNTO_VENTA_ID IN (${pvPlaceholders})`;
+      where += ` AND (m.PUNTO_VENTA_ID IN (${pvPlaceholders}) OR (m.TIPO_ENTIDAD = 'CHEQUE' AND m.PUNTO_VENTA_ID IS NULL) OR (m.TIPO_ENTIDAD IN ('COMPRA', 'ORDEN_PAGO', 'COBRANZA') AND m.PUNTO_VENTA_ID IS NULL AND ISNULL(m.CHEQUES, 0) <> 0))`;
       filter.puntoVentaIds.forEach((id, i) => {
         params.push({ name: `pv${i}`, type: sql.Int, value: id });
       });
@@ -122,9 +145,12 @@ export const cajaCentralService = {
       ${where}
     `);
 
+    const chequesResumen = await getChequesEnCarteraResumen(pool);
+
     return {
       ...totalesResult.recordset[0],
       efectivo: efectivoResult.recordset[0].efectivo,
+      ...chequesResumen,
     };
   },
 
@@ -136,7 +162,7 @@ export const cajaCentralService = {
 
     if (puntoVentaIds && puntoVentaIds.length > 0) {
       const pvPlaceholders = puntoVentaIds.map((_, i) => `@pv${i}`).join(', ');
-      pvFilter = `WHERE PUNTO_VENTA_ID IN (${pvPlaceholders})`;
+      pvFilter = `WHERE (PUNTO_VENTA_ID IN (${pvPlaceholders}) OR (TIPO_ENTIDAD = 'CHEQUE' AND PUNTO_VENTA_ID IS NULL) OR (TIPO_ENTIDAD IN ('COMPRA', 'ORDEN_PAGO', 'COBRANZA') AND PUNTO_VENTA_ID IS NULL AND ISNULL(CHEQUES, 0) <> 0))`;
       puntoVentaIds.forEach((id, i) => {
         req.input(`pv${i}`, sql.Int, id);
       });
@@ -171,9 +197,12 @@ export const cajaCentralService = {
       ${pvFilter}
     `);
 
+    const chequesResumen = await getChequesEnCarteraResumen(pool);
+
     return {
       ...totalesResult.recordset[0],
       efectivo: efectivoResult.recordset[0].efectivo,
+      ...chequesResumen,
     };
   },
 
@@ -220,6 +249,7 @@ export const cajaCentralService = {
     // Derive efectivo/digital from payment methods
     let efectivo = 0;
     let digital = 0;
+    let cheques = 0;
     const metodos = input.metodos_pago || [];
     if (metodos.length > 0) {
       // Look up categories
@@ -232,11 +262,12 @@ export const cajaCentralService = {
       for (const r of catResult.recordset) catMap[r.METODO_PAGO_ID] = r.CATEGORIA;
       for (const m of metodos) {
         if (catMap[m.METODO_PAGO_ID] === 'EFECTIVO') efectivo += m.MONTO;
+        else if (catMap[m.METODO_PAGO_ID] === 'CHEQUES') cheques += m.MONTO;
         else digital += m.MONTO;
       }
     }
 
-    const total = efectivo + digital;
+    const total = efectivo + digital + cheques;
     const sign = input.tipo === 'EGRESO' ? -1 : 1;
 
     const result = await pool.request()
@@ -245,7 +276,7 @@ export const cajaCentralService = {
       .input('uid', sql.Int, usuarioId)
       .input('efectivo', sql.Decimal(18, 2), sign * efectivo)
       .input('digital', sql.Decimal(18, 2), sign * digital)
-      .input('cheques', sql.Decimal(18, 2), 0)
+      .input('cheques', sql.Decimal(18, 2), sign * cheques)
       .input('ctaCte', sql.Decimal(18, 2), 0)
       .input('total', sql.Decimal(18, 2), sign * total)
       .input('pvId', sql.Int, puntoVentaId || null)
@@ -333,10 +364,10 @@ export const cajaCentralService = {
     // Fallback for old movements: derive from EFECTIVO/DIGITAL columns
     const mov = await pool.request()
       .input('id', sql.Int, movimientoId)
-      .query(`SELECT EFECTIVO, DIGITAL FROM MOVIMIENTOS_CAJA WHERE ID = @id`);
+      .query(`SELECT EFECTIVO, DIGITAL, CHEQUES FROM MOVIMIENTOS_CAJA WHERE ID = @id`);
     if (mov.recordset.length === 0) return [];
 
-    const { EFECTIVO, DIGITAL } = mov.recordset[0];
+    const { EFECTIVO, DIGITAL, CHEQUES } = mov.recordset[0];
     const fallback: any[] = [];
 
     if (EFECTIVO && EFECTIVO !== 0) {
@@ -349,6 +380,12 @@ export const cajaCentralService = {
       const dg = await pool.request().query(`SELECT TOP 1 METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64 FROM METODOS_PAGO WHERE CATEGORIA = 'DIGITAL' AND ACTIVA = 1 ORDER BY POR_DEFECTO DESC`);
       if (dg.recordset.length > 0) {
         fallback.push({ ...dg.recordset[0], TOTAL: DIGITAL });
+      }
+    }
+    if (CHEQUES && CHEQUES !== 0) {
+      const ch = await pool.request().query(`SELECT TOP 1 METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64 FROM METODOS_PAGO WHERE CATEGORIA = 'CHEQUES' AND ACTIVA = 1 ORDER BY POR_DEFECTO DESC`);
+      if (ch.recordset.length > 0) {
+        fallback.push({ ...ch.recordset[0], TOTAL: CHEQUES });
       }
     }
     return fallback;

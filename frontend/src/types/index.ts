@@ -364,6 +364,10 @@ export interface VentaMetodoPago {
 export interface MetodoPagoItem {
   METODO_PAGO_ID: number;
   MONTO: number;
+  METODO_NOMBRE?: string;
+  NOMBRE?: string;
+  CATEGORIA?: MetodoPagoCategoria;
+  IMAGEN_BASE64?: string | null;
   /** Datos del cheque cuando el método es categoría CHEQUES (ingreso). */
   cheque?: ChequePayload;
 }
@@ -371,7 +375,7 @@ export interface MetodoPagoItem {
 export interface DesgloseMetodo {
   METODO_PAGO_ID: number;
   NOMBRE: string;
-  CATEGORIA: 'EFECTIVO' | 'DIGITAL';
+  CATEGORIA: MetodoPagoCategoria;
   IMAGEN_BASE64: string | null;
   TOTAL: number;
 }
@@ -616,6 +620,8 @@ export interface CajaCentralTotales {
   efectivo: number;
   digital: number;
   cheques?: number;
+  chequesEnCartera?: number;
+  chequesEnCarteraCantidad?: number;
 }
 
 export interface NuevoMovimientoInput {
@@ -714,6 +720,9 @@ export interface DashboardCajaCentral {
   balance: number;
   efectivo: number;
   digital: number;
+  cheques?: number;
+  chequesEnCartera?: number;
+  chequesEnCarteraCantidad?: number;
 }
 
 export interface DashboardAnalytics {
@@ -819,6 +828,7 @@ export interface CompraInput {
   ACTUALIZAR_COSTOS?: boolean;
   ACTUALIZAR_PRECIOS?: boolean;
   DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
+  PUNTO_VENTA_ID?: number | null;
   items: CompraItemInput[];
   metodos_pago?: MetodoPagoItem[];
   cheques_ids?: number[];

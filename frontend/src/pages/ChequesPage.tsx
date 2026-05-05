@@ -15,6 +15,7 @@ import { bancosApi } from '../services/bancos.api';
 import BancoSelect from '../components/cheques/BancoSelect';
 import { fmtMoney } from '../utils/format';
 import type { Banco, Cheque, ChequeEstado } from '../types';
+import { useAuthStore } from '../store/authStore';
 
 const { Title, Text } = Typography;
 
@@ -35,6 +36,7 @@ const ESTADO_LABELS: Record<ChequeEstado, string> = {
 export function ChequesPage() {
   const { message } = App.useApp();
   const qc = useQueryClient();
+  const puntoVentaActivo = useAuthStore(s => s.puntoVentaActivo);
 
   // Filters
   const [page, setPage] = useState(1);
@@ -89,6 +91,11 @@ export function ChequesPage() {
     qc.invalidateQueries({ queryKey: ['cheques'] });
     qc.invalidateQueries({ queryKey: ['cheques-resumen'] });
     qc.invalidateQueries({ queryKey: ['cheques-cartera'] });
+    qc.invalidateQueries({ queryKey: ['caja-central-mov'] });
+    qc.invalidateQueries({ queryKey: ['caja-central-totales'] });
+    qc.invalidateQueries({ queryKey: ['caja-central-historico'] });
+    qc.invalidateQueries({ queryKey: ['cc-desglose'] });
+    qc.invalidateQueries({ queryKey: ['dashboard-analytics'] });
   };
 
   // ── Mutations ─────────────────────────────────────
@@ -166,6 +173,7 @@ export function ChequesPage() {
       LIBRADOR: values.LIBRADOR,
       NUMERO: String(values.NUMERO).replace(/\D/g, ''),
       IMPORTE: Number(values.IMPORTE),
+      PUNTO_VENTA_ID: puntoVentaActivo,
       PORTADOR: values.PORTADOR || null,
       FECHA_PRESENTACION: values.FECHA_PRESENTACION ? (values.FECHA_PRESENTACION as Dayjs).format('YYYY-MM-DD') : null,
       OBSERVACIONES: values.OBSERVACIONES || null,

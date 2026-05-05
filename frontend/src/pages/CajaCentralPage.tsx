@@ -9,6 +9,7 @@ import {
 import {
   ArrowUpOutlined, ArrowDownOutlined,
   PlusOutlined, DeleteOutlined, ReloadOutlined, SwapOutlined, EyeOutlined,
+  FileProtectOutlined,
 } from '@ant-design/icons';
 import { cajaCentralApi } from '../services/cajaCentral.api';
 import { cajaApi } from '../services/caja.api';
@@ -23,6 +24,12 @@ import { useTabStore } from '../store/tabStore';
 import type { MovimientoCaja, CajaCentralTotales, DesgloseMetodo, MetodoPago } from '../types';
 
 const { Title, Text } = Typography;
+
+const metodoVisual = (categoria: string) => {
+  if (categoria === 'EFECTIVO') return { tag: 'green', background: 'rgba(82,196,26,0.06)', border: '#b7eb8f' };
+  if (categoria === 'CHEQUES') return { tag: 'orange', background: 'rgba(250,140,22,0.07)', border: '#ffd591' };
+  return { tag: 'blue', background: 'rgba(22,119,255,0.06)', border: '#91caff' };
+};
 
 export function CajaCentralPage() {
   const queryClient = useQueryClient();
@@ -94,8 +101,12 @@ export function CajaCentralPage() {
   });
 
   const displayTotales: CajaCentralTotales = balanceHistorico
-    ? (totalesHistoricos || { totalIngresos: 0, totalEgresos: 0, balance: 0, efectivo: 0, digital: 0, cheques: 0 })
-    : (totales || { totalIngresos: 0, totalEgresos: 0, balance: 0, efectivo: 0, digital: 0, cheques: 0 });
+    ? (totalesHistoricos || { totalIngresos: 0, totalEgresos: 0, balance: 0, efectivo: 0, digital: 0, cheques: 0, chequesEnCartera: 0, chequesEnCarteraCantidad: 0 })
+    : (totales || { totalIngresos: 0, totalEgresos: 0, balance: 0, efectivo: 0, digital: 0, cheques: 0, chequesEnCartera: 0, chequesEnCarteraCantidad: 0 });
+
+  const chequesEnCartera = displayTotales.chequesEnCartera ?? displayTotales.cheques ?? 0;
+  const chequesEnCarteraCantidad = displayTotales.chequesEnCarteraCantidad ?? 0;
+  const totalMetodos = (displayTotales.efectivo || 0) + (displayTotales.digital || 0) + (displayTotales.cheques || 0);
 
   // ── Mutations ──────────────────────────────────
   const invalidateAll = () => {
@@ -103,7 +114,11 @@ export function CajaCentralPage() {
     queryClient.invalidateQueries({ queryKey: ['caja-central-totales'] });
     queryClient.invalidateQueries({ queryKey: ['caja-central-historico'] });
     queryClient.invalidateQueries({ queryKey: ['caja-central-fondo'] });
+    queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
+    queryClient.invalidateQueries({ queryKey: ['cheques-cartera'] });
     queryClient.invalidateQueries({ queryKey: ['fc-modal'] });
+    queryClient.invalidateQueries({ queryKey: ['cc-desglose'] });
+    queryClient.invalidateQueries({ queryKey: ['dashboard-analytics'] });
   };
 
   const crearMutation = useMutation({
@@ -336,8 +351,8 @@ export function CajaCentralPage() {
       </div>
 
       {/* ── Totals cards ───────────────────────── */}
-      <Row gutter={12} style={{ marginBottom: 16 }}>
-        <Col xs={12} sm={6} md={5}>
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={12} sm={8} md={4}>
           <Card size="small" className="rg-card">
             <Statistic
               title="Ingresos"
@@ -347,7 +362,7 @@ export function CajaCentralPage() {
             />
           </Card>
         </Col>
-        <Col xs={12} sm={6} md={5}>
+        <Col xs={12} sm={8} md={4}>
           <Card size="small" className="rg-card">
             <Statistic
               title="Egresos"
@@ -357,7 +372,7 @@ export function CajaCentralPage() {
             />
           </Card>
         </Col>
-        <Col xs={12} sm={6} md={5}>
+        <Col xs={12} sm={8} md={4}>
           <Card size="small" className="rg-card">
             <Statistic
               title={balanceHistorico ? 'Balance Histórico' : 'Balance'}
@@ -367,22 +382,43 @@ export function CajaCentralPage() {
             />
           </Card>
         </Col>
-        <Col xs={12} sm={6} md={4}>
+        <Col xs={12} sm={8} md={4}>
           <Card size="small" className="rg-card" hoverable
             onClick={() => {
               cajaCentralApi.getDesgloseMetodos({
                 fechaDesde, fechaHasta,
-                pvIds: pvIdsParam,
+                puntoVentaIds: pvIdsParam,
               }).then(data => {
                 setDesgloseData(data);
                 setDesgloseModalOpen(true);
               });
             }}
           >
-            <Statistic title="Total ▸" value={(displayTotales.efectivo || 0) + (displayTotales.digital || 0) + (displayTotales.cheques || 0)} formatter={statFormatter} prefix="$" valueStyle={{ fontSize: 14, color: '#1677ff' }} />
+            <Statistic title="Métodos ▸" value={totalMetodos} formatter={statFormatter} prefix="$" valueStyle={{ fontSize: 14, color: '#1677ff' }} />
           </Card>
         </Col>
-        <Col xs={12} sm={6} md={5}>
+        <Col xs={12} sm={8} md={4}>
+          <Card
+            size="small"
+            className="rg-card"
+            hoverable
+            onClick={() => {
+              openTab({ key: '/cheques', label: 'Cheques', closable: true });
+              navigate('/cheques');
+            }}
+          >
+            <Statistic
+              title={<span><FileProtectOutlined /> Cheques cartera</span>}
+              value={chequesEnCartera}
+              formatter={statFormatter} prefix="$"
+              valueStyle={{ color: '#fa8c16', fontSize: 14 }}
+            />
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              {chequesEnCarteraCantidad} cheque{chequesEnCarteraCantidad === 1 ? '' : 's'}
+            </Text>
+          </Card>
+        </Col>
+        <Col xs={12} sm={8} md={4}>
           <Card size="small" className="rg-card">
             <Statistic
               title="Fondo Cambio"
@@ -576,26 +612,33 @@ export function CajaCentralPage() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
             {desgloseData.map(d => (
+              (() => {
+                const visual = metodoVisual(d.CATEGORIA);
+                return (
               <div key={d.METODO_PAGO_ID} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 padding: '10px 14px', borderRadius: 8,
-                background: d.CATEGORIA === 'EFECTIVO' ? 'rgba(82,196,26,0.06)' : 'rgba(22,119,255,0.06)',
-                border: `1px solid ${d.CATEGORIA === 'EFECTIVO' ? '#b7eb8f' : '#91caff'}`,
+                background: visual.background,
+                border: `1px solid ${visual.border}`,
               }}>
                 <Space>
                   {d.IMAGEN_BASE64 ? (
                     <img src={d.IMAGEN_BASE64} alt={d.NOMBRE} style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 4 }} />
+                  ) : d.CATEGORIA === 'CHEQUES' ? (
+                    <FileProtectOutlined style={{ fontSize: 20, color: '#fa8c16' }} />
                   ) : null}
                   <div>
                     <Text strong>{d.NOMBRE}</Text>
                     <br />
-                    <Tag color={d.CATEGORIA === 'EFECTIVO' ? 'green' : 'blue'} style={{ fontSize: 10 }}>
+                    <Tag color={visual.tag} style={{ fontSize: 10 }}>
                       {d.CATEGORIA}
                     </Tag>
                   </div>
                 </Space>
                 <Text strong style={{ fontSize: 16 }}>{fmtMoney(d.TOTAL)}</Text>
               </div>
+                );
+              })()
             ))}
           </div>
         )}

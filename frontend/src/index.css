@@ -2960,6 +2960,17 @@ body {
   border-color: #91caff;
 }
 .rg-cc-tile-digital .rg-cc-tile-value { color: #1677ff; }
+.rg-cc-tile-cheques {
+  background: linear-gradient(135deg, rgba(250,140,22,0.09), rgba(250,140,22,0.02));
+  border-color: #ffd591;
+}
+.rg-cc-tile-cheques .rg-cc-tile-value { color: #d46b08; }
+.rg-cc-tile-meta {
+  margin-top: 2px;
+  color: #8c8c8c;
+  font-size: 11px;
+  font-weight: 500;
+}
 .rg-cc-tile-clickable {
   cursor: pointer;
   position: relative;

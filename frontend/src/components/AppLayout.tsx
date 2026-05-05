@@ -455,7 +455,7 @@ export function AppLayout() {
     if (activeKey !== prevActiveKey.current) {
       prevActiveKey.current = activeKey;
       const keyMap: Record<string, string[]> = {
-        '/dashboard':     ['dashboard-stats', 'ventas-por-dia'],
+        '/dashboard':     ['dashboard-analytics'],
         '/customers':     ['customers'],
         '/products':      ['products'],
         '/sales':         ['sales'],

@@ -8,7 +8,7 @@ import type { TableColumnType } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
   EyeOutlined, ReloadOutlined, DollarOutlined, BankOutlined,
-  CreditCardOutlined, PrinterOutlined,
+  CreditCardOutlined, PrinterOutlined, FileProtectOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import {
@@ -41,7 +41,6 @@ export function OrdenesPagoPage() {
   const [editProveedorNombre, setEditProveedorNombre] = useState<string | undefined>();
   const [detalleOrdenPago, setDetalleOrdenPago] = useState<OrdenPagoGeneralItem | null>(null);
   const [desgloseModalOpen, setDesgloseModalOpen] = useState(false);
-  const [desgloseFilter, setDesgloseFilter] = useState<'EFECTIVO' | 'DIGITAL' | null>(null);
 
   // ── Queries ─────────────────────────────────────
   const { data: ordenesPago, isLoading } = useQuery({
@@ -60,8 +59,9 @@ export function OrdenesPagoPage() {
     onSuccess: () => {
       message.success('Orden de pago eliminada');
       qc.invalidateQueries({ queryKey: ['ordenes-pago-general'] });
-      qc.invalidateQueries({ queryKey: ['ctaProv-ordenes-pago'] });
-      qc.invalidateQueries({ queryKey: ['ctaProv-movimientos'] });
+      qc.invalidateQueries({ queryKey: ['ordenes-pago-metodos-totales'] });
+      qc.invalidateQueries({ queryKey: ['cta-prov-ordenes-pago'] });
+      qc.invalidateQueries({ queryKey: ['cta-prov-movimientos'] });
       qc.invalidateQueries({ queryKey: ['cta-corriente-prov-list'] });
     },
     onError: (err: any) => message.error(err.response?.data?.error || err.message),
@@ -92,8 +92,9 @@ export function OrdenesPagoPage() {
     setModalOpen(false);
     setEditPagoId(null);
     qc.invalidateQueries({ queryKey: ['ordenes-pago-general'] });
-    qc.invalidateQueries({ queryKey: ['ctaProv-ordenes-pago'] });
-    qc.invalidateQueries({ queryKey: ['ctaProv-movimientos'] });
+    qc.invalidateQueries({ queryKey: ['ordenes-pago-metodos-totales'] });
+    qc.invalidateQueries({ queryKey: ['cta-prov-ordenes-pago'] });
+    qc.invalidateQueries({ queryKey: ['cta-prov-movimientos'] });
     qc.invalidateQueries({ queryKey: ['cta-corriente-prov-list'] });
   };
 
@@ -108,12 +109,13 @@ export function OrdenesPagoPage() {
 
   // ── Statistics ──────────────────────────────────
   const stats = useMemo(() => {
-    if (!ordenesPago) return { cantidad: 0, totalPagado: 0, totalEfectivo: 0, totalDigital: 0 };
+    if (!ordenesPago) return { cantidad: 0, totalPagado: 0, totalEfectivo: 0, totalDigital: 0, totalCheques: 0 };
     return {
       cantidad: ordenesPago.length,
       totalPagado: ordenesPago.reduce((s, c) => s + c.TOTAL, 0),
       totalEfectivo: ordenesPago.reduce((s, c) => s + c.EFECTIVO, 0),
       totalDigital: ordenesPago.reduce((s, c) => s + c.DIGITAL, 0),
+      totalCheques: ordenesPago.reduce((s, c) => s + c.CHEQUES, 0),
     };
   }, [ordenesPago]);
 
@@ -189,7 +191,10 @@ export function OrdenesPagoPage() {
       <div className="page-header">
         <Title level={3}>Órdenes de Pago</Title>
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => qc.invalidateQueries({ queryKey: ['ordenes-pago-general'] })}>
+          <Button icon={<ReloadOutlined />} onClick={() => {
+            qc.invalidateQueries({ queryKey: ['ordenes-pago-general'] });
+            qc.invalidateQueries({ queryKey: ['ordenes-pago-metodos-totales'] });
+          }}>
             Actualizar
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleNew}>
@@ -217,23 +222,12 @@ export function OrdenesPagoPage() {
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small" className="rg-card" hoverable style={{ cursor: 'pointer' }}
-            onClick={() => { setDesgloseFilter('EFECTIVO'); setDesgloseModalOpen(true); }}>
+            onClick={() => setDesgloseModalOpen(true)}>
             <Statistic
-              title="Efectivo"
-              value={stats.totalEfectivo}
-              precision={2} prefix={<DollarOutlined />}
-              valueStyle={{ color: '#52c41a' }}
-            />
-          </Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card size="small" className="rg-card" hoverable style={{ cursor: 'pointer' }}
-            onClick={() => { setDesgloseFilter('DIGITAL'); setDesgloseModalOpen(true); }}>
-            <Statistic
-              title="Digital"
-              value={stats.totalDigital}
-              precision={2} prefix={<CreditCardOutlined />}
-              valueStyle={{ color: '#1890ff' }}
+              title="Métodos ▸"
+              value={stats.totalPagado}
+              precision={2} prefix="$"
+              valueStyle={{ fontSize: 14, color: '#1677ff' }}
             />
           </Card>
         </Col>
@@ -281,26 +275,24 @@ export function OrdenesPagoPage() {
         open={desgloseModalOpen}
         onCancel={() => setDesgloseModalOpen(false)}
         footer={<Button onClick={() => setDesgloseModalOpen(false)}>Cerrar</Button>}
-        title={`Desglose por método de pago — ${desgloseFilter === 'EFECTIVO' ? 'Efectivo' : 'Digital'}`}
+        title="Desglose por método de pago"
         width={480}
         destroyOnClose
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {(() => {
-          const items = (metodosTotales || []).filter(m =>
-            desgloseFilter === 'EFECTIVO' ? m.CATEGORIA === 'EFECTIVO' : m.CATEGORIA !== 'EFECTIVO'
-          );
+          const items = metodosTotales || [];
           if (!items.length) {
             return <Text type="secondary">No hay métodos de pago registrados para este período.</Text>;
           }
           return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
-              {items.map((d, idx) => (
-                <div key={idx} style={{
+              {items.map((d) => (
+                <div key={d.METODO_PAGO_ID} style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   padding: '10px 14px', borderRadius: 8,
-                  background: d.CATEGORIA === 'EFECTIVO' ? 'rgba(82,196,26,0.06)' : 'rgba(22,119,255,0.06)',
-                  border: `1px solid ${d.CATEGORIA === 'EFECTIVO' ? '#b7eb8f' : '#91caff'}`,
+                  background: d.CATEGORIA === 'EFECTIVO' ? 'rgba(82,196,26,0.06)' : d.CATEGORIA === 'CHEQUES' ? 'rgba(212,107,8,0.08)' : 'rgba(22,119,255,0.06)',
+                  border: `1px solid ${d.CATEGORIA === 'EFECTIVO' ? '#b7eb8f' : d.CATEGORIA === 'CHEQUES' ? '#ffd591' : '#91caff'}`,
                 }}>
                   <Space>
                     {d.IMAGEN_BASE64 ? (
@@ -310,7 +302,7 @@ export function OrdenesPagoPage() {
                     <div>
                       <Text strong>{d.METODO_NOMBRE}</Text>
                       <br />
-                      <Tag color={d.CATEGORIA === 'EFECTIVO' ? 'green' : 'blue'} style={{ fontSize: 10 }}>
+                      <Tag color={d.CATEGORIA === 'EFECTIVO' ? 'green' : d.CATEGORIA === 'CHEQUES' ? 'orange' : 'blue'} style={{ fontSize: 10 }}>
                         {d.CATEGORIA}
                       </Tag>
                     </div>
@@ -408,20 +400,25 @@ function DetalleOrdenPagoModal({ detalleOrdenPago, onClose }: {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {detalle.metodos_pago.map((mp, idx) => {
                   const m = metodosPago.find(x => x.METODO_PAGO_ID === mp.METODO_PAGO_ID);
+                  const categoria = mp.CATEGORIA || m?.CATEGORIA;
+                  const imagen = mp.IMAGEN_BASE64 || m?.IMAGEN_BASE64;
+                  const nombre = mp.METODO_NOMBRE || mp.NOMBRE || m?.NOMBRE || `Método #${mp.METODO_PAGO_ID}`;
                   return (
                     <div key={idx} style={{
                       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                       padding: '6px 12px', background: '#fafafa', borderRadius: 6,
                     }}>
                       <Space size={8}>
-                        {m?.IMAGEN_BASE64 ? (
-                          <img src={m.IMAGEN_BASE64} alt={m.NOMBRE} style={{ width: 20, height: 20, objectFit: 'contain', borderRadius: 3 }} />
-                        ) : m?.CATEGORIA === 'EFECTIVO' ? (
+                        {imagen ? (
+                          <img src={imagen} alt={nombre} style={{ width: 20, height: 20, objectFit: 'contain', borderRadius: 3 }} />
+                        ) : categoria === 'EFECTIVO' ? (
                           <DollarOutlined style={{ color: '#52c41a' }} />
+                        ) : categoria === 'CHEQUES' ? (
+                          <FileProtectOutlined style={{ color: '#d46b08' }} />
                         ) : (
                           <CreditCardOutlined style={{ color: '#1890ff' }} />
                         )}
-                        <Text>{m?.NOMBRE || `Método #${mp.METODO_PAGO_ID}`}</Text>
+                        <Text>{nombre}</Text>
                       </Space>
                       <Text strong>{fmtMoney(mp.MONTO)}</Text>
                     </div>

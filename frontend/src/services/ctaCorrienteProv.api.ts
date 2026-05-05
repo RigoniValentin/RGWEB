@@ -55,6 +55,7 @@ export interface OrdenPagoInput {
   CHEQUES: number;
   CONCEPTO: string;
   DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
+  PUNTO_VENTA_ID?: number | null;
   metodos_pago?: MetodoPagoItem[];
   /** IDs de cheques EN_CARTERA a egresar (categoría CHEQUES). */
   cheques_ids?: number[];

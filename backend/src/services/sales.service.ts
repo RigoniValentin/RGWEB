@@ -2313,7 +2313,7 @@ export const salesService = {
     }
     if (filter.puntoVentaIds && filter.puntoVentaIds.length > 0) {
       const ph = filter.puntoVentaIds.map((_, i) => `@pv${i}`).join(', ');
-      commonWhere += ` AND mc.PUNTO_VENTA_ID IN (${ph})`;
+      commonWhere += ` AND (mc.PUNTO_VENTA_ID IN (${ph}) OR (mc.TIPO_ENTIDAD = 'CHEQUE' AND mc.PUNTO_VENTA_ID IS NULL) OR (mc.TIPO_ENTIDAD IN ('COMPRA', 'ORDEN_PAGO', 'COBRANZA') AND mc.PUNTO_VENTA_ID IS NULL AND ISNULL(mc.CHEQUES, 0) <> 0))`;
       filter.puntoVentaIds.forEach((id, i) => req.input(`pv${i}`, sql.Int, id));
     }
 

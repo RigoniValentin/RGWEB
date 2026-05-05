@@ -329,7 +329,8 @@ export const dashboardService = {
     // ── Caja Central summary ──────────────────────────────────────
     let cajaCentral: any = {
       totalIngresos: 0, totalEgresos: 0, balance: 0,
-      efectivo: 0, digital: 0,
+      efectivo: 0, digital: 0, cheques: 0,
+      chequesEnCartera: 0, chequesEnCarteraCantidad: 0,
     };
     try {
       const { cajaCentralService } = await import('./cajaCentral.service.js');

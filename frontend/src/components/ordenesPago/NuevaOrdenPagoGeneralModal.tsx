@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Modal, Form, Input, InputNumber, DatePicker, Space, Typography, App, Divider, Segmented, Button, Tag, Select,
 } from 'antd';
 import {
   BankOutlined, InboxOutlined, WalletOutlined, CheckCircleOutlined,
-  DollarOutlined, CreditCardOutlined, ShopOutlined,
+  DollarOutlined, CreditCardOutlined, ShopOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import {
@@ -16,6 +16,8 @@ import {
 import { cajaApi } from '../../services/caja.api';
 import { fmtMoney } from '../../utils/format';
 import { printOrdenPago } from '../../utils/printOrdenPago';
+import { useAuthStore } from '../../store/authStore';
+import { ChequePicker } from '../cheques/ChequePicker';
 import type { MetodoPagoItem } from '../../types';
 
 const { Text } = Typography;
@@ -36,8 +38,10 @@ export function NuevaOrdenPagoGeneralModal({
   onSuccess, onCancel,
 }: Props) {
   const { message } = App.useApp();
+  const queryClient = useQueryClient();
   const [form] = Form.useForm();
   const isEdit = pagoId !== null;
+  const puntoVentaActivo = useAuthStore(s => s.puntoVentaActivo);
   const [destinoPago, setDestinoPago] = useState<'CAJA_CENTRAL' | 'CAJA'>('CAJA_CENTRAL');
 
   // ── Supplier selection state ────────────────────
@@ -49,6 +53,9 @@ export function NuevaOrdenPagoGeneralModal({
   const [montosPorMetodo, setMontosPorMetodo] = useState<Record<number, number>>({});
   const [metodoModalOpen, setMetodoModalOpen] = useState(false);
   const [metodoModalSelection, setMetodoModalSelection] = useState<number[]>([]);
+  const [chequesIds, setChequesIds] = useState<number[]>([]);
+  const [chequesTotal, setChequesTotal] = useState(0);
+  const [chequePickerOpen, setChequePickerOpen] = useState(false);
 
   // ── Queries ─────────────────────────────────────
 
@@ -131,6 +138,14 @@ export function NuevaOrdenPagoGeneralModal({
         setSelectedMetodos([]);
         setMontosPorMetodo({});
       }
+
+      if (editData.cheques_ids && editData.cheques_ids.length > 0) {
+        setChequesIds(editData.cheques_ids);
+        setChequesTotal(editData.CHEQUES || 0);
+      } else {
+        setChequesIds([]);
+        setChequesTotal(0);
+      }
     }
   }, [editData, open, isEdit, form, editProveedorId, editCtaCorrienteId, editProveedorNombre]);
 
@@ -142,6 +157,8 @@ export function NuevaOrdenPagoGeneralModal({
       setDestinoPago('CAJA_CENTRAL');
       setSelectedMetodos([]);
       setMontosPorMetodo({});
+      setChequesIds([]);
+      setChequesTotal(0);
       setSelectedProveedor(null);
       setProveedorSearch('');
     }
@@ -156,12 +173,32 @@ export function NuevaOrdenPagoGeneralModal({
     return Math.round(sum * 100) / 100;
   }, [selectedMetodos, montosPorMetodo]);
 
+  useEffect(() => {
+    const chequeMetodo = metodosPago.find(m => m.CATEGORIA === 'CHEQUES' && selectedMetodos.includes(m.METODO_PAGO_ID));
+    if (!chequeMetodo) {
+      if (chequesIds.length > 0 || chequesTotal > 0) {
+        setChequesIds([]);
+        setChequesTotal(0);
+      }
+      return;
+    }
+    setMontosPorMetodo(prev => {
+      if ((prev[chequeMetodo.METODO_PAGO_ID] || 0) === chequesTotal) return prev;
+      return { ...prev, [chequeMetodo.METODO_PAGO_ID]: chequesTotal };
+    });
+  }, [chequesTotal, chequesIds.length, selectedMetodos, metodosPago]);
+
   // ── Mutations ───────────────────────────────────
   const crearMut = useMutation({
     mutationFn: (data: OrdenPagoGeneralInput & { ctaId: number }) =>
       ordenesPagoApi.crearOrdenPago(data.ctaId, data),
     onSuccess: (result) => {
       message.success('Orden de pago registrada exitosamente');
+      if (chequesIds.length > 0) {
+        queryClient.invalidateQueries({ queryKey: ['cheques'] });
+        queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
+        queryClient.invalidateQueries({ queryKey: ['cheques-cartera'] });
+      }
       onSuccess();
       Modal.confirm({
         title: '¿Desea imprimir la orden de pago?',
@@ -186,6 +223,9 @@ export function NuevaOrdenPagoGeneralModal({
       ordenesPagoApi.actualizarOrdenPago(data.ctaId, pagoId!, data),
     onSuccess: () => {
       message.success('Orden de pago modificada exitosamente');
+      queryClient.invalidateQueries({ queryKey: ['cheques'] });
+      queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
+      queryClient.invalidateQueries({ queryKey: ['cheques-cartera'] });
       onSuccess();
     },
     onError: (err: any) => message.error(err.response?.data?.error || err.message),
@@ -223,12 +263,23 @@ export function NuevaOrdenPagoGeneralModal({
         .filter(id => (montosPorMetodo[id] || 0) > 0)
         .map(id => ({ METODO_PAGO_ID: id, MONTO: montosPorMetodo[id] || 0 }));
 
+      const tieneMetodoCheques = selectedMetodos.some(id => {
+        const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+        return m?.CATEGORIA === 'CHEQUES' && (montosPorMetodo[id] || 0) > 0;
+      });
+      if (tieneMetodoCheques && chequesIds.length === 0) {
+        message.warning('Seleccione cheques de cartera para el método CHEQUES');
+        return;
+      }
+
       // Derive category totals
       let efectivoFinal = 0;
       let digitalFinal = 0;
+      let chequesFinal = 0;
       for (const mp of metodosPagoInput) {
         const m = metodosPago.find(x => x.METODO_PAGO_ID === mp.METODO_PAGO_ID);
         if (m?.CATEGORIA === 'EFECTIVO') efectivoFinal += mp.MONTO;
+        else if (m?.CATEGORIA === 'CHEQUES') chequesFinal += mp.MONTO;
         else digitalFinal += mp.MONTO;
       }
 
@@ -238,10 +289,12 @@ export function NuevaOrdenPagoGeneralModal({
         FECHA: values.FECHA.toISOString(),
         EFECTIVO: efectivoFinal,
         DIGITAL: digitalFinal,
-        CHEQUES: 0,
+        CHEQUES: chequesFinal,
         CONCEPTO: values.CONCEPTO || '',
         DESTINO_PAGO: destinoPago,
+        PUNTO_VENTA_ID: puntoVentaActivo,
         metodos_pago: metodosPagoInput.length > 0 ? metodosPagoInput : undefined,
+        cheques_ids: chequesIds.length > 0 ? chequesIds : undefined,
       };
 
       if (isEdit) {
@@ -438,7 +491,7 @@ export function NuevaOrdenPagoGeneralModal({
                       {m.IMAGEN_BASE64 ? (
                         <img src={m.IMAGEN_BASE64} alt={m.NOMBRE} style={{ width: 16, height: 16, objectFit: 'contain', borderRadius: 2 }} />
                       ) : (
-                        m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined /> : <CreditCardOutlined />
+                        m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined /> : m.CATEGORIA === 'CHEQUES' ? <BankOutlined /> : <CreditCardOutlined />
                       )}
                       {m.NOMBRE}
                     </Tag>
@@ -454,6 +507,34 @@ export function NuevaOrdenPagoGeneralModal({
               {selectedMetodos.map(id => {
                 const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
                 if (!m) return null;
+                if (m.CATEGORIA === 'CHEQUES') {
+                  return (
+                    <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 130 }}>
+                        <BankOutlined style={{ color: '#722ed1' }} />
+                        <Text style={{ fontSize: 13 }}>{m.NOMBRE}</Text>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1 }}>
+                        <Button
+                          icon={<BankOutlined />}
+                          onClick={() => setChequePickerOpen(true)}
+                          style={{ flex: 1 }}
+                        >
+                          {chequesIds.length > 0
+                            ? `${chequesIds.length} cheque${chequesIds.length === 1 ? '' : 's'} — ${fmtMoney(chequesTotal)}`
+                            : 'Seleccionar cheques de cartera'}
+                        </Button>
+                        {chequesIds.length > 0 && (
+                          <Button
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={() => { setChequesIds([]); setChequesTotal(0); }}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
                 return (
                   <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 130 }}>
@@ -572,7 +653,7 @@ export function NuevaOrdenPagoGeneralModal({
                   )}
                   <Text strong style={{ fontSize: 13, lineHeight: 1.2 }}>{m.NOMBRE}</Text>
                   <Tag
-                    color={m.CATEGORIA === 'EFECTIVO' ? 'green' : 'blue'}
+                    color={m.CATEGORIA === 'EFECTIVO' ? 'green' : m.CATEGORIA === 'CHEQUES' ? 'orange' : 'blue'}
                     style={{ fontSize: 10, margin: 0 }}
                   >
                     {m.CATEGORIA}
@@ -586,6 +667,18 @@ export function NuevaOrdenPagoGeneralModal({
           </div>
         </div>
       </Modal>
+
+      <ChequePicker
+        open={chequePickerOpen}
+        onClose={() => setChequePickerOpen(false)}
+        initialSelectedIds={chequesIds}
+        title="Seleccionar cheques de cartera"
+        onConfirm={(ids, t) => {
+          setChequesIds(ids);
+          setChequesTotal(t);
+          setChequePickerOpen(false);
+        }}
+      />
     </>
   );
 }

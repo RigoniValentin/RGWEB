@@ -15,6 +15,7 @@ import { bancosApi } from '../../services/bancos.api';
 import BancoSelect from '../cheques/BancoSelect';
 import { fmtMoney } from '../../utils/format';
 import { printReciboCobranza } from '../../utils/printReciboCobranza';
+import { useAuthStore } from '../../store/authStore';
 import type { MetodoPagoItem, ChequePayload } from '../../types';
 
 const { Text } = Typography;
@@ -34,7 +35,9 @@ export function NuevaCobranzaModal({
 }: Props) {
   const { message } = App.useApp();
   const [form] = Form.useForm();
-  const isEdit = pagoId !== null;  const [destinoCobro, setDestinoCobro] = useState<'CAJA_CENTRAL' | 'CAJA'>('CAJA_CENTRAL');
+  const isEdit = pagoId !== null;
+  const puntoVentaActivo = useAuthStore(s => s.puntoVentaActivo);
+  const [destinoCobro, setDestinoCobro] = useState<'CAJA_CENTRAL' | 'CAJA'>('CAJA_CENTRAL');
 
   // Check if user has an open cash register
   const { data: miCaja } = useQuery({
@@ -241,6 +244,7 @@ export function NuevaCobranzaModal({
         CHEQUES: chequesFinal,
         CONCEPTO: values.CONCEPTO || '',
         DESTINO_COBRO: destinoCobro,
+        PUNTO_VENTA_ID: puntoVentaActivo,
         metodos_pago: metodosPagoInput.length > 0 ? metodosPagoInput : undefined,
       };
 

@@ -14,6 +14,7 @@ import { fmtMoney } from '../../utils/format';
 import { ordenesPagoApi } from '../../services/ordenesPago.api';
 import { printOrdenPago } from '../../utils/printOrdenPago';
 import { ChequePicker } from '../cheques/ChequePicker';
+import { useAuthStore } from '../../store/authStore';
 import type { MetodoPagoItem } from '../../types';
 
 const { Text } = Typography;
@@ -34,6 +35,7 @@ export function NuevaOrdenPagoModal({
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const isEdit = pagoId !== null;
+  const puntoVentaActivo = useAuthStore(s => s.puntoVentaActivo);
   const [destinoPago, setDestinoPago] = useState<'CAJA_CENTRAL' | 'CAJA'>('CAJA_CENTRAL');
 
   // ── Payment method state ────────────────────────
@@ -140,12 +142,18 @@ export function NuevaOrdenPagoModal({
   // del ChequePicker (no editable manualmente).
   useEffect(() => {
     const chequeMetodo = metodosPago.find(m => m.CATEGORIA === 'CHEQUES' && selectedMetodos.includes(m.METODO_PAGO_ID));
-    if (!chequeMetodo) return;
+    if (!chequeMetodo) {
+      if (chequesIds.length > 0 || chequesTotal > 0) {
+        setChequesIds([]);
+        setChequesTotal(0);
+      }
+      return;
+    }
     setMontosPorMetodo(prev => {
       if ((prev[chequeMetodo.METODO_PAGO_ID] || 0) === chequesTotal) return prev;
       return { ...prev, [chequeMetodo.METODO_PAGO_ID]: chequesTotal };
     });
-  }, [chequesTotal, selectedMetodos, metodosPago]);
+  }, [chequesTotal, chequesIds.length, selectedMetodos, metodosPago]);
   // ── Mutations ───────────────────────────────────
   const crearMut = useMutation({
     mutationFn: (data: OrdenPagoInput) => ctaCorrienteProvApi.crearOrdenPago(ctaCorrienteId, data),
@@ -238,6 +246,7 @@ export function NuevaOrdenPagoModal({
         CHEQUES: chequesFinal,
         CONCEPTO: values.CONCEPTO || '',
         DESTINO_PAGO: destinoPago,
+        PUNTO_VENTA_ID: puntoVentaActivo,
         metodos_pago: metodosPagoInput.length > 0 ? metodosPagoInput : undefined,
         cheques_ids: chequesIds.length > 0 ? chequesIds : undefined,
       };
