@@ -11,6 +11,7 @@ import dayjs from 'dayjs';
 import { ctaCorrienteProvApi, type OrdenPagoInput } from '../../services/ctaCorrienteProv.api';
 import { cajaApi } from '../../services/caja.api';
 import { fmtMoney } from '../../utils/format';
+import { invalidateCashQueries } from '../../utils/invalidateCashQueries';
 import { ordenesPagoApi } from '../../services/ordenesPago.api';
 import { printOrdenPago } from '../../utils/printOrdenPago';
 import { ChequePicker } from '../cheques/ChequePicker';
@@ -164,6 +165,7 @@ export function NuevaOrdenPagoModal({
         queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
         queryClient.invalidateQueries({ queryKey: ['cheques-cartera'] });
       }
+      invalidateCashQueries(queryClient);
       onSuccess();
       Modal.confirm({
         title: '¿Desea imprimir la orden de pago?',
@@ -190,6 +192,7 @@ export function NuevaOrdenPagoModal({
       queryClient.invalidateQueries({ queryKey: ['cheques'] });
       queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
       queryClient.invalidateQueries({ queryKey: ['cheques-cartera'] });
+      invalidateCashQueries(queryClient);
       onSuccess();
     },
     onError: (err: any) => message.error(err.response?.data?.error || err.message),

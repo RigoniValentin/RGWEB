@@ -15,6 +15,7 @@ import {
 } from '../../services/ordenesPago.api';
 import { cajaApi } from '../../services/caja.api';
 import { fmtMoney } from '../../utils/format';
+import { invalidateCashQueries } from '../../utils/invalidateCashQueries';
 import { printOrdenPago } from '../../utils/printOrdenPago';
 import { useAuthStore } from '../../store/authStore';
 import { ChequePicker } from '../cheques/ChequePicker';
@@ -199,6 +200,7 @@ export function NuevaOrdenPagoGeneralModal({
         queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
         queryClient.invalidateQueries({ queryKey: ['cheques-cartera'] });
       }
+      invalidateCashQueries(queryClient);
       onSuccess();
       Modal.confirm({
         title: '¿Desea imprimir la orden de pago?',
@@ -226,6 +228,7 @@ export function NuevaOrdenPagoGeneralModal({
       queryClient.invalidateQueries({ queryKey: ['cheques'] });
       queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
       queryClient.invalidateQueries({ queryKey: ['cheques-cartera'] });
+      invalidateCashQueries(queryClient);
       onSuccess();
     },
     onError: (err: any) => message.error(err.response?.data?.error || err.message),

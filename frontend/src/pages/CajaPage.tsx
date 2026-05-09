@@ -670,16 +670,16 @@ export function CajaPage() {
 
             {/* Totals summary */}
             {detail.totales && (
-              <Row gutter={12} style={{ marginBottom: 16 }}>
-                <Col span={8}>
+              <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+                <Col span={6}>
                   <Statistic title="Ingresos" value={detail.totales.ingresos} formatter={statFormatter} prefix="$"
                     valueStyle={{ color: '#52c41a', fontSize: 16 }} />
                 </Col>
-                <Col span={8}>
+                <Col span={6}>
                   <Statistic title="Egresos" value={detail.totales.egresos} formatter={statFormatter} prefix="$"
                     valueStyle={{ color: '#ff4d4f', fontSize: 16 }} />
                 </Col>
-                <Col span={8}>
+                <Col span={6}>
                   <div
                     style={{ cursor: 'pointer' }}
                     onClick={() => {
@@ -694,6 +694,22 @@ export function CajaPage() {
                     <Statistic title="Total ▸" value={(detail.totales.efectivo || 0) + (detail.totales.digital || 0)} formatter={statFormatter} prefix="$"
                       valueStyle={{ fontSize: 16, color: '#1677ff' }} />
                   </div>
+                </Col>
+                <Col span={6}>
+                  <Statistic
+                    title={
+                      <span>
+                        Efectivo a rendir{' '}
+                        <Text type="secondary" style={{ fontSize: 11, fontWeight: 'normal' }}>
+                          (incl. apertura)
+                        </Text>
+                      </span>
+                    }
+                    value={detail.totales.efectivo || 0}
+                    formatter={statFormatter}
+                    prefix="$"
+                    valueStyle={{ fontSize: 16, color: '#EABD23', fontWeight: 700 }}
+                  />
                 </Col>
               </Row>
             )}

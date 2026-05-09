@@ -10,11 +10,12 @@ import {
   ArrowLeftOutlined, ArrowRightOutlined,
   CreditCardOutlined, WalletOutlined,
 } from '@ant-design/icons';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ncComprasApi, type NCCompraInput, type NCCompraItemInput, type CompraParaNC } from '../../services/ncCompras.api';
 import { purchasesApi } from '../../services/purchases.api';
 import { cajaApi } from '../../services/caja.api';
 import { fmtComprobanteTipo, fmtMoney, fmtNum } from '../../utils/format';
+import { invalidateInventoryQueries } from '../../utils/invalidateInventoryQueries';
 import type { MetodoPago } from '../../types';
 
 const { Text } = Typography;
@@ -51,6 +52,7 @@ interface Props {
 }
 
 export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
+  const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
 
   // Step 0: Config
@@ -265,6 +267,7 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
   const createMutation = useMutation({
     mutationFn: (data: NCCompraInput) => ncComprasApi.create(data),
     onSuccess: (result) => {
+      invalidateInventoryQueries(queryClient);
       message.success(`NC #${result.NC_ID} creada por ${fmtMoney(result.MONTO)}`);
       onSuccess();
     },

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Drawer, Descriptions, Spin, Alert,
   Button, Input, Dropdown, Popconfirm, message, Checkbox, Badge,
@@ -13,6 +13,7 @@ import { usePurchaseDraftStore } from '../store/purchaseDraftStore';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { purchasesApi } from '../services/purchases.api';
+import { invalidateInventoryQueries } from '../utils/invalidateInventoryQueries';
 import { NewPurchaseModal } from '../components/purchases/NewPurchaseModal';
 import { PriceCheckModal } from '../components/purchases/PriceCheckModal';
 import { DateFilterPopover, type DatePreset } from '../components/DateFilterPopover';
@@ -24,6 +25,7 @@ import type { Compra, CompraDetalle } from '../types';
 const { Title, Text } = Typography;
 
 export function PurchasesPage() {
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const openTab = useTabStore(s => s.openTab);
   const navTo = useNavigationStore(s => s.navigate);
@@ -93,6 +95,7 @@ export function PurchasesPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: number) => purchasesApi.delete(id),
     onSuccess: () => {
+      invalidateInventoryQueries(queryClient);
       message.success('Compra eliminada');
       refetch();
       if (drawerOpen) { setDrawerOpen(false); setSelectedId(null); }

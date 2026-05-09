@@ -26,6 +26,7 @@ import { printReceipt } from '../../utils/printReceipt';
 import { generateFacturaPdf } from './facturaPdf';
 import { printFacturaTicket } from './facturaTicket';
 import { settingsApi } from '../../services/settings.api';
+import { invalidateInventoryQueries } from '../../utils/invalidateInventoryQueries';
 import { FilePdfOutlined } from '@ant-design/icons';
 
 import type { ReceiptData } from '../../utils/printReceipt';
@@ -106,7 +107,12 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     st.updateDraft(id, { cart: newVal });
   }, []);
   const setClienteId = useCallback((v: number) => ud('clienteId', v), [ud]);
-  const setDepositoId = useCallback((v: number | null) => ud('depositoId', v), [ud]);
+  const setDepositoId = useCallback((v: number | null) => {
+    ud('depositoId', v);
+    setCart(prev => prev.map(item =>
+      item.DESDE_REMITO ? item : { ...item, DEPOSITO_ID: v || undefined }
+    ));
+  }, [ud, setCart]);
   const setTipoComprobante = useCallback((v: string) => ud('tipoComprobante', v), [ud]);
   const setEsCtaCorriente = useCallback((v: boolean) => ud('esCtaCorriente', v), [ud]);
   const setDtoGral = useCallback((v: number) => ud('dtoGral', v), [ud]);
@@ -323,13 +329,39 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     staleTime: 60000,
   });
 
-  // Fetch depositos for the active punto de venta
+  // Fetch depositos for the active punto de venta.
+  // When puntoVentaActivo is set the backend resolves PV-specific deposits (with
+  // ES_PREFERIDO), falling back to ALL deposits when PUNTOS_VENTA_DEPOSITOS is
+  // empty for that PV (e.g. PVs created via the C# desktop app).
+  // When there is no active PV (admin without assignment) we fall back to all deposits.
   const { data: depositosPV = [] } = useQuery({
-    queryKey: ['sales-depositos-pv', puntoVentaActivo],
-    queryFn: () => salesApi.getDepositosPV(puntoVentaActivo!),
-    enabled: open && !!puntoVentaActivo,
+    queryKey: ['sales-depositos-pv', puntoVentaActivo ?? 'all'],
+    queryFn: () =>
+      puntoVentaActivo
+        ? salesApi.getDepositosPV(puntoVentaActivo)
+        : salesApi.getDepositos().then(list =>
+            list.map(d => ({ ...d, ES_PREFERIDO: false as boolean }))
+          ),
+    enabled: open,
     staleTime: 60000,
   });
+
+  const defaultDepositoId = useMemo(() => {
+    const preferido = depositosPV.find(d => d.ES_PREFERIDO);
+    return preferido?.DEPOSITO_ID || depositosPV[0]?.DEPOSITO_ID || null;
+  }, [depositosPV]);
+
+  const depositoVentaId = depositoId ?? defaultDepositoId;
+
+  // When the active PV changes (e.g. user switches PV) clear any previously
+  // auto-selected deposit so the useEffect below re-evaluates the preference.
+  const prevPVRef = useRef<number | null>(puntoVentaActivo);
+  useEffect(() => {
+    if (prevPVRef.current !== puntoVentaActivo) {
+      prevPVRef.current = puntoVentaActivo;
+      setDepositoId(null);
+    }
+  }, [puntoVentaActivo, setDepositoId]);
 
   // Fetch empresa IVA condition
   const { data: empresaIva } = useQuery({
@@ -430,11 +462,10 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
 
   // Set default deposito when data loads
   useEffect(() => {
-    if (depositosPV.length > 0 && depositoId === null) {
-      const preferido = depositosPV.find(d => d.ES_PREFERIDO);
-      setDepositoId(preferido?.DEPOSITO_ID || depositosPV[0]?.DEPOSITO_ID || null);
+    if (depositoId === null && defaultDepositoId !== null) {
+      setDepositoId(defaultDepositoId);
     }
-  }, [depositosPV, depositoId]);
+  }, [activeDraftId, defaultDepositoId, depositoId, setDepositoId]);
 
   // Auto-determine tipo comprobante based on empresa IVA + client IVA
   const selectedCliente = useMemo(
@@ -537,6 +568,8 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const createMutation = useMutation({
     mutationFn: (data: VentaInput) => salesApi.create(data),
     onSuccess: async (result) => {
+      invalidateInventoryQueries(queryClient);
+
       // Show appropriate message based on anticipo usage
       if (result.MONTO_ANTICIPO && result.MONTO_ANTICIPO > 0) {
         if (result.COBRADA) {
@@ -611,9 +644,11 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
             unidad: item.UNIDAD,
             precioUnitario: item.PRECIO_UNITARIO,
             descuento: item.DESCUENTO,
-            subtotal: Math.round(((item.DESCUENTO > 0
-              ? item.PRECIO_UNITARIO * (1 - item.DESCUENTO / 100)
-              : item.PRECIO_UNITARIO) * item.CANTIDAD) * 100) / 100,
+            subtotal: precioFinalMode[item.key]
+              ? (precioFinalValues[item.key] ?? 0)
+              : Math.round(((item.DESCUENTO > 0
+                ? item.PRECIO_UNITARIO * (1 - item.DESCUENTO / 100)
+                : item.PRECIO_UNITARIO) * item.CANTIDAD) * 100) / 100,
           })),
           dtoGral,
           subtotal,
@@ -749,6 +784,11 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     product: ProductoSearch,
     options?: { focusPrice?: boolean; focusSearch?: boolean }
   ) => {
+    if (!depositoVentaId && product.DESCUENTA_STOCK !== false) {
+      message.warning('Seleccione un depósito para descontar stock');
+      return;
+    }
+
     const focusPrice = options?.focusPrice !== false;
     const focusSearch = options?.focusSearch === true;
 
@@ -757,7 +797,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       if (existing) {
         return prev.map(i =>
           i.PRODUCTO_ID === product.PRODUCTO_ID
-            ? { ...i, CANTIDAD: i.CANTIDAD + 1 }
+            ? { ...i, CANTIDAD: i.CANTIDAD + 1, DEPOSITO_ID: i.DEPOSITO_ID || depositoVentaId || undefined }
             : i
         );
       }
@@ -778,7 +818,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         STOCK: product.STOCK,
         UNIDAD: product.UNIDAD_ABREVIACION || 'u',
         UNIDAD_NOMBRE: product.UNIDAD_NOMBRE || '',
-        DEPOSITO_ID: depositoId || undefined,
+        DEPOSITO_ID: depositoVentaId || undefined,
         LISTA_ID: product.LISTA_DEFECTO || 1,
         LISTA_1: product.LISTA_1,
         LISTA_2: product.LISTA_2,
@@ -791,11 +831,16 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     if (focusSearch) {
       setTimeout(() => searchRef.current?.focus(), 0);
     }
-  }, [depositoId]);
+  }, [depositoVentaId]);
 
   // Add product from barcode balanza with pre-set quantity (weight)
   // Does NOT set lastAddedKey so the search input stays focused for the next scan
   const addBalanzaProduct = useCallback((product: ProductoSearch, cantidad: number) => {
+    if (!depositoVentaId && product.DESCUENTA_STOCK !== false) {
+      message.warning('Seleccione un depósito para descontar stock');
+      return;
+    }
+
     setCart(prev => {
       const newKey = `${product.PRODUCTO_ID}-${Date.now()}`;
       return [...prev, {
@@ -810,7 +855,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         STOCK: product.STOCK,
         UNIDAD: product.UNIDAD_ABREVIACION || 'kg',
         UNIDAD_NOMBRE: product.UNIDAD_NOMBRE || '',
-        DEPOSITO_ID: depositoId || undefined,
+        DEPOSITO_ID: depositoVentaId || undefined,
         LISTA_ID: product.LISTA_DEFECTO || 1,
         LISTA_1: product.LISTA_1,
         LISTA_2: product.LISTA_2,
@@ -821,7 +866,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     });
     setSearchText('');
     setTimeout(() => searchRef.current?.focus(), 0);
-  }, [depositoId]);
+  }, [depositoVentaId]);
 
   // Detect barcode balanza code: 13 digits starting with "2"
   const isBalanzaBarcode = (code: string): boolean => {
@@ -849,7 +894,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
             STOCK: item.STOCK,
             UNIDAD: item.UNIDAD_ABREVIACION || 'u',
             UNIDAD_NOMBRE: item.UNIDAD_NOMBRE || '',
-            DEPOSITO_ID: item.DEPOSITO_ID || depositoId || undefined,
+            DEPOSITO_ID: item.DEPOSITO_ID || depositoVentaId || undefined,
             LISTA_ID: 1,
             DESDE_REMITO: true,
           });
@@ -863,7 +908,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     } finally {
       setLoadingRemitoItems(false);
     }
-  }, [depositoId]);
+  }, [depositoVentaId]);
 
   // Auto-focus price field when a new product is added
   useEffect(() => {
@@ -1018,6 +1063,9 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
 
   // Calculate totals (round to 2 decimals to avoid floating-point artifacts)
   const subtotal = Math.round(cart.reduce((sum, item) => {
+    if (precioFinalMode[item.key]) {
+      return sum + (precioFinalValues[item.key] ?? 0);
+    }
     const precio = item.DESCUENTO > 0
       ? item.PRECIO_UNITARIO * (1 - item.DESCUENTO / 100)
       : item.PRECIO_UNITARIO;
@@ -1027,12 +1075,36 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const descuentoMonto = Math.round((dtoGral > 0 ? subtotal * (dtoGral / 100) : 0) * 100) / 100;
   const total = Math.round((subtotal - descuentoMonto) * 100) / 100;
 
+  const buildVentaItems = useCallback((): VentaInput['items'] => (
+    cart.map(({ PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID, DESDE_REMITO }) => ({
+      PRODUCTO_ID,
+      PRECIO_UNITARIO,
+      CANTIDAD,
+      DESCUENTO,
+      PRECIO_COMPRA,
+      DEPOSITO_ID: DEPOSITO_ID || depositoVentaId || undefined,
+      LISTA_ID,
+      ...(DESDE_REMITO ? { DESDE_REMITO: true } : {}),
+    }))
+  ), [cart, depositoVentaId]);
+
+  const ensureDepositoParaVenta = useCallback(() => {
+    const faltaDeposito = cart.some(item => !item.DESDE_REMITO && !(item.DEPOSITO_ID || depositoVentaId));
+    if (faltaDeposito) {
+      message.warning('Seleccione un depósito antes de continuar con la venta');
+      return false;
+    }
+    return true;
+  }, [cart, depositoVentaId]);
+
   // Submit sale
   const handleSubmit = async (cobrar: boolean) => {
     if (cart.length === 0) {
       message.warning('Agregue al menos un producto');
       return;
     }
+
+    if (!ensureDepositoParaVenta()) return;
 
     if (cobrar) {
       // Open payment method selection modal
@@ -1083,10 +1155,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       MONTO_EFECTIVO: 0,
       MONTO_DIGITAL: 0,
       VUELTO: 0,
-      items: cart.map(({ PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID, DESDE_REMITO }) => ({
-        PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID,
-        ...(DESDE_REMITO ? { DESDE_REMITO: true } : {}),
-      })),
+      items: buildVentaItems(),
       ...(pedido ? { PEDIDO_ID: pedido.PEDIDO_ID, MESA_ID: pedido.MESA_ID } : {}),
       ...(selectedRemitoIds.length > 0 ? { REMITO_IDS: selectedRemitoIds } : {}),
     };
@@ -1116,6 +1185,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
 
   const handleConfirmCobro = () => {
     if (!pagoValido) return;
+    if (!ensureDepositoParaVenta()) return;
 
     const vueltoFinal = vuelto;
 
@@ -1152,10 +1222,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       MONTO_EFECTIVO: efectivoFinal,
       MONTO_DIGITAL: digitalFinal,
       VUELTO: vueltoFinal,
-      items: cart.map(({ PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID, DESDE_REMITO }) => ({
-        PRODUCTO_ID, PRECIO_UNITARIO, CANTIDAD, DESCUENTO, PRECIO_COMPRA, DEPOSITO_ID, LISTA_ID,
-        ...(DESDE_REMITO ? { DESDE_REMITO: true } : {}),
-      })),
+      items: buildVentaItems(),
       metodos_pago: metodosPagoInput,
       ...(pedido ? { PEDIDO_ID: pedido.PEDIDO_ID, MESA_ID: pedido.MESA_ID } : {}),
       ...(selectedRemitoIds.length > 0 ? { REMITO_IDS: selectedRemitoIds } : {}),
@@ -1338,7 +1405,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
             if (isWeightOrVolume && precioFinalMode[record.key] && newPrice > 0) {
               const pf = precioFinalValues[record.key] ?? 0;
               if (pf > 0) {
-                const qty = Math.round((pf / newPrice) * 10000) / 10000;
+                const qty = Math.round((pf / newPrice) * 1000000) / 1000000;
                 updateCartItem(record.key, 'CANTIDAD', qty);
               }
             }
@@ -1523,7 +1590,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
           setPrecioFinalValues(prev => ({ ...prev, [record.key]: precioFinal }));
           if (record.PRECIO_UNITARIO > 0 && precioFinal > 0) {
             const rawQty = precioFinal / record.PRECIO_UNITARIO;
-            const qty = Math.round(rawQty * 10000) / 10000;
+            const qty = Math.round(rawQty * 1000000) / 1000000;
             updateCartItem(record.key, 'CANTIDAD', qty);
           } else {
             updateCartItem(record.key, 'CANTIDAD', 0);
@@ -1863,12 +1930,12 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                 <Select
                   placeholder="Depósito"
                   style={{ width: '100%' }}
-                  value={depositoId}
+                  value={depositoVentaId ?? undefined}
                   onChange={setDepositoId}
                   size="large"
                   options={depositosPV.map(d => ({
                     value: d.DEPOSITO_ID,
-                    label: d.NOMBRE,
+                    label: d.ES_PREFERIDO ? `${d.NOMBRE} (preferido)` : d.NOMBRE,
                   }))}
                 />
               </div>

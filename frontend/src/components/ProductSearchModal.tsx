@@ -145,7 +145,7 @@ export function ProductSearchModal({
   const isBalanzaBarcode = (text: string) => /^2\d{12}$/.test(text);
   const isBarcode = (text: string) => /^\d{6,}$/.test(text);
 
-  // Handle Enter on filter inputs: detect barcodes, confirm active row, or search
+  // Handle Enter on filter inputs: detect barcodes, confirm selection, or search
   const handleFilterKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -168,8 +168,12 @@ export function ProductSearchModal({
         return;
       }
 
-      // If keywords haven't changed since last search, confirm the active row
+      // If keywords haven't changed since last search, confirm selection
       if (!keywordsDirty.current) {
+        if (selectedRowKeys.length > 0) {
+          confirmSelection();
+          return;
+        }
         if (confirmActiveRow()) return;
       }
 
@@ -178,51 +182,68 @@ export function ProductSearchModal({
     }
   };
 
-  // Global keyboard handler for the modal
-  const handleModalKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') return; // Let Modal handle Escape
+  // Document-level keyboard handler (fires regardless of where focus is)
+  useEffect(() => {
+    if (!open) return;
 
-    // Arrow navigation when results exist
-    if (results.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
-      e.preventDefault();
-      setActiveRowIndex(prev => {
-        let next: number;
-        if (e.key === 'ArrowDown') {
-          next = prev < results.length - 1 ? prev + 1 : prev;
-        } else {
-          next = prev > 0 ? prev - 1 : 0;
-        }
-        const product = results[next];
-        if (product) {
-          if (multiSelect) {
-            setSelectedRowKeys(keys => {
-              if (!keys.includes(product.PRODUCTO_ID)) {
-                return [product.PRODUCTO_ID];
-              }
-              return keys;
-            });
-          } else {
-            setSelectedRowKeys([product.PRODUCTO_ID]);
-          }
-          // Scroll into view
-          const row = tableRef.current?.querySelector(`[data-row-key="${product.PRODUCTO_ID}"]`);
-          row?.scrollIntoView({ block: 'nearest' });
-        }
-        return next;
-      });
-      return;
-    }
+    const handleDocKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') return; // Let Modal handle Escape
 
-    // Enter to confirm selection (only when not in a filter input)
-    if (e.key === 'Enter') {
       const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      if (tag === 'input') return; // Let filter handler handle it
-      e.preventDefault();
-      if (!confirmActiveRow()) {
-        confirmSelection();
+      const isInInput = tag === 'input' || tag === 'textarea';
+
+      // Printable character outside an input → append to keywords and focus search
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && !isInInput) {
+        e.preventDefault();
+        setKeywords(prev => prev + e.key);
+        keywordsDirty.current = true;
+        setTimeout(() => keywordsRef.current?.focus(), 0);
+        return;
       }
-    }
-  }, [results, multiSelect, confirmSelection, confirmActiveRow]);
+
+      // Arrow navigation when results exist
+      if (results.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp') && !isInInput) {
+        e.preventDefault();
+        setActiveRowIndex(prev => {
+          let next: number;
+          if (e.key === 'ArrowDown') {
+            next = prev < results.length - 1 ? prev + 1 : prev;
+          } else {
+            next = prev > 0 ? prev - 1 : 0;
+          }
+          const product = results[next];
+          if (product) {
+            if (multiSelect) {
+              setSelectedRowKeys(keys =>
+                keys.includes(product.PRODUCTO_ID) ? keys : [product.PRODUCTO_ID]
+              );
+            } else {
+              setSelectedRowKeys([product.PRODUCTO_ID]);
+            }
+            const row = tableRef.current?.querySelector(`[data-row-key="${product.PRODUCTO_ID}"]`);
+            row?.scrollIntoView({ block: 'nearest' });
+          }
+          return next;
+        });
+        return;
+      }
+
+      // Enter: confirm selection
+      if (e.key === 'Enter') {
+        // When focus is in an input, let handleFilterKeyDown handle it
+        if (isInInput) return;
+        e.preventDefault();
+        if (selectedRowKeys.length > 0) {
+          confirmSelection();
+        } else {
+          confirmActiveRow();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleDocKeyDown);
+    return () => document.removeEventListener('keydown', handleDocKeyDown);
+  }, [open, results, multiSelect, selectedRowKeys, confirmSelection, confirmActiveRow]);
 
   const columns = [
     {
@@ -292,7 +313,7 @@ export function ProductSearchModal({
         </Space>
       }
     >
-      <div onKeyDown={handleModalKeyDown}>
+      <div>
         {/* Filter row */}
         <Space wrap style={{ width: '100%', marginBottom: 12 }}>
           <Input
@@ -398,6 +419,8 @@ export function ProductSearchModal({
                   lastClickedIndex.current = idx;
                 }
                 setActiveRowIndex(idx);
+                // Clicking a row signals intent to select it: reset dirty so Enter confirms
+                keywordsDirty.current = false;
               },
               onDoubleClick: () => {
                 setSelectedRowKeys([record.PRODUCTO_ID]);

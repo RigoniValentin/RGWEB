@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Drawer, Descriptions, Spin, Alert,
   Button, Input, Dropdown, Popconfirm, message, Select, Statistic, Card, Row, Col,
@@ -13,6 +13,7 @@ import {
 import dayjs from 'dayjs';
 import { remitosApi } from '../services/remitos.api';
 import { settingsApi } from '../services/settings.api';
+import { invalidateInventoryQueries } from '../utils/invalidateInventoryQueries';
 import type { Remito, RemitoDetalle } from '../types';
 import { DateFilterPopover, type DatePreset } from '../components/DateFilterPopover';
 import { NewRemitoModal } from '../components/remitos/NewRemitoModal.js';
@@ -24,6 +25,7 @@ import { fmtMoney, fmtNum, statFormatter } from '../utils/format';
 const { Title, Text } = Typography;
 
 export function RemitosPage() {
+  const queryClient = useQueryClient();
   const [datePreset, setDatePreset] = useState<DatePreset>('mes');
   const [fechaDesde, setFechaDesde] = useState<string | undefined>(dayjs().startOf('month').format('YYYY-MM-DD'));
   const [fechaHasta, setFechaHasta] = useState<string | undefined>(dayjs().format('YYYY-MM-DD'));
@@ -96,6 +98,7 @@ export function RemitosPage() {
   const anularMutation = useMutation({
     mutationFn: (id: number) => remitosApi.anular(id),
     onSuccess: (data) => {
+      invalidateInventoryQueries(queryClient);
       message.success(`Remito #${data.REMITO_ID} anulado`);
       refetch();
       if (drawerOpen) { setDrawerOpen(false); setSelectedId(null); }

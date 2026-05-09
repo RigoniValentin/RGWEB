@@ -1,5 +1,5 @@
 import { getPool, sql } from '../database/connection.js';
-import { registrarHistorialStock, getCurrentStock } from './stockHistorial.helper.js';
+import { registrarHistorialStock, getCurrentStock, insertStockDeposito } from './stockHistorial.helper.js';
 import { facturacionService } from './facturacion.service.js';
 import { config } from '../config/index.js';
 import {
@@ -151,11 +151,7 @@ async function incrementarStockTx(
         .input('cant', sql.Decimal(18, 4), cantidad)
         .query('UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant WHERE PRODUCTO_ID = @pid AND DEPOSITO_ID = @did');
     } else {
-      await tx.request()
-        .input('pid', sql.Int, productoId)
-        .input('did', sql.Int, depositoId)
-        .input('cant', sql.Decimal(18, 4), cantidad)
-        .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@pid, @did, @cant)');
+      await insertStockDeposito(tx, productoId, depositoId, cantidad);
     }
     await registrarHistorialStock(tx, {
       productoId, depositoId,

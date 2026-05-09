@@ -19,6 +19,7 @@ import { ProductSearchModal } from '../ProductSearchModal';
 import { ChequePicker } from '../cheques/ChequePicker';
 import { usePurchaseDraftStore } from '../../store/purchaseDraftStore';
 import { useAuthStore } from '../../store/authStore';
+import { invalidateInventoryQueries } from '../../utils/invalidateInventoryQueries';
 import type { PurchaseCartItem } from '../../store/purchaseDraftStore';
 
 const { Title, Text } = Typography;
@@ -608,6 +609,8 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const createMutation = useMutation({
     mutationFn: (data: CompraInput) => purchasesApi.create(data),
     onSuccess: (result) => {
+      invalidateInventoryQueries(queryClient);
+
       // Invalidar caché de cheques (cartera/resumen) si se egresaron cheques
       if (chequesIds.length > 0) {
         queryClient.invalidateQueries({ queryKey: ['cheques'] });

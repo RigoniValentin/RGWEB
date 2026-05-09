@@ -19,6 +19,7 @@ import {
   type CobranzaItem,
 } from '../services/ctaCorriente.api';
 import { fmtMoney } from '../utils/format';
+import { invalidateCashQueries } from '../utils/invalidateCashQueries';
 import { NuevaCobranzaModal } from '../components/ctaCorriente/NuevaCobranzaModal';
 import { useNavigationStore } from '../store/navigationStore';
 
@@ -135,6 +136,7 @@ export function CtaCorrientePage() {
       qc.invalidateQueries({ queryKey: ['cta-cobranzas'] });
       qc.invalidateQueries({ queryKey: ['cta-movimientos'] });
       qc.invalidateQueries({ queryKey: ['cta-corriente-list'] });
+      invalidateCashQueries(qc);
     },
     onError: (err: any) => message.error(err.response?.data?.error || err.message),
   });

@@ -16,6 +16,7 @@ import {
   type CobranzaGeneralItem,
 } from '../services/cobranzas.api';
 import { fmtMoney } from '../utils/format';
+import { invalidateCashQueries } from '../utils/invalidateCashQueries';
 import { printReciboCobranza } from '../utils/printReciboCobranza';
 import { NuevaCobranzaGeneralModal } from '../components/cobranzas/NuevaCobranzaGeneralModal';
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
@@ -63,6 +64,7 @@ export function CobranzasPage() {
       qc.invalidateQueries({ queryKey: ['cta-cobranzas'] });
       qc.invalidateQueries({ queryKey: ['cta-movimientos'] });
       qc.invalidateQueries({ queryKey: ['cta-corriente-list'] });
+      invalidateCashQueries(qc);
     },
     onError: (err: any) => message.error(err.response?.data?.error || err.message),
   });

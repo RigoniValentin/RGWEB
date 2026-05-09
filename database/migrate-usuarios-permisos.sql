@@ -494,7 +494,7 @@ GO
 
 -- CAJERO: permisos base (dashboard, ventas, caja granular, clientes/productos en lectura)
 --   Por defecto recibe TODOS los permisos de caja excepto caja.central.operar y caja.depositos.crear
---   (esos son operaciones de tesorería, requieren override explícito si se los quiere dar).
+--   (esos son operaciones de tesorería, recOMOuieren override explícito si se los quiere dar).
 DECLARE @CAJERO INT = (SELECT ROL_ID FROM ROLES WHERE NOMBRE = 'CAJERO');
 INSERT INTO ROLES_PERMISOS (ROL_ID, PERMISO_ID)
 SELECT @CAJERO, p.PERMISO_ID

@@ -1,7 +1,7 @@
 import { getPool, sql } from '../database/connection.js';
 import { config } from '../config/index.js';
 import type { Venta, VentaItem, VentaMetodoPago, PaginatedResult } from '../types/index.js';
-import { registrarHistorialStock, getCurrentStock } from './stockHistorial.helper.js';
+import { registrarHistorialStock, getCurrentStock, insertStockDeposito } from './stockHistorial.helper.js';
 import { crearChequeEnCartera } from './cheques.service.js';
 
 // ═══════════════════════════════════════════════════
@@ -129,11 +129,7 @@ async function decrementarStock(
           .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant
                   WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
       } else {
-        await tx.request()
-          .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
-          .input('depId', sql.Int, child.DEPOSITO_ID)
-          .input('cant', sql.Decimal(18, 4), childQty)
-          .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@prodId, @depId, -@cant)');
+        await insertStockDeposito(tx, child.PRODUCTO_ID_HIJO, child.DEPOSITO_ID, -childQty);
       }
       await tx.request()
         .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
@@ -162,11 +158,7 @@ async function decrementarStock(
             .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant
                     WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
         } else {
-          await tx.request()
-            .input('prodId', sql.Int, productoId)
-            .input('depId', sql.Int, depositoId)
-            .input('cant', sql.Decimal(18, 4), cantidad)
-            .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@prodId, @depId, -@cant)');
+          await insertStockDeposito(tx, productoId, depositoId, -cantidad);
         }
         await registrarHistorialStock(tx, {
           productoId, depositoId,
@@ -194,11 +186,7 @@ async function decrementarStock(
           .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD - @cant
                   WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
       } else {
-        await tx.request()
-          .input('prodId', sql.Int, productoId)
-          .input('depId', sql.Int, depositoId)
-          .input('cant', sql.Decimal(18, 4), cantidad)
-          .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@prodId, @depId, -@cant)');
+        await insertStockDeposito(tx, productoId, depositoId, -cantidad);
       }
       await registrarHistorialStock(tx, {
         productoId, depositoId,
@@ -253,11 +241,7 @@ async function restaurarStock(
           .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant
                   WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
       } else {
-        await tx.request()
-          .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
-          .input('depId', sql.Int, child.DEPOSITO_ID)
-          .input('cant', sql.Decimal(18, 4), childQty)
-          .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@prodId, @depId, @cant)');
+        await insertStockDeposito(tx, child.PRODUCTO_ID_HIJO, child.DEPOSITO_ID, childQty);
       }
       await tx.request()
         .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
@@ -285,11 +269,7 @@ async function restaurarStock(
             .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant
                     WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
         } else {
-          await tx.request()
-            .input('prodId', sql.Int, productoId)
-            .input('depId', sql.Int, depositoId)
-            .input('cant', sql.Decimal(18, 4), cantidad)
-            .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@prodId, @depId, @cant)');
+          await insertStockDeposito(tx, productoId, depositoId, cantidad);
         }
         await registrarHistorialStock(tx, {
           productoId, depositoId,
@@ -317,11 +297,7 @@ async function restaurarStock(
           .query(`UPDATE STOCK_DEPOSITOS SET CANTIDAD = CANTIDAD + @cant
                   WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
       } else {
-        await tx.request()
-          .input('prodId', sql.Int, productoId)
-          .input('depId', sql.Int, depositoId)
-          .input('cant', sql.Decimal(18, 4), cantidad)
-          .query('INSERT INTO STOCK_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@prodId, @depId, @cant)');
+        await insertStockDeposito(tx, productoId, depositoId, cantidad);
       }
       await registrarHistorialStock(tx, {
         productoId, depositoId,
@@ -404,6 +380,73 @@ async function ensureCtaCorriente(tx: any, clienteId: number): Promise<number> {
 
 function r2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+async function getDepositoDefaultVenta(tx: any, puntoVentaId: number | null | undefined): Promise<number | null> {
+  const result = await tx.request()
+    .input('pvId', sql.Int, puntoVentaId ?? null)
+    .query(`
+      SELECT TOP 1 d.DEPOSITO_ID
+      FROM DEPOSITOS d
+      LEFT JOIN PUNTOS_VENTA_DEPOSITOS pvd
+             ON pvd.DEPOSITO_ID = d.DEPOSITO_ID AND pvd.PUNTO_VENTA_ID = @pvId
+      WHERE pvd.PUNTO_VENTA_ID = @pvId
+         OR NOT EXISTS (
+              SELECT 1 FROM PUNTOS_VENTA_DEPOSITOS pvd2
+              WHERE pvd2.PUNTO_VENTA_ID = @pvId
+            )
+      ORDER BY ISNULL(pvd.ES_PREFERIDO, 0) DESC, d.NOMBRE
+    `);
+
+  return result.recordset[0]?.DEPOSITO_ID ?? null;
+}
+
+async function normalizarItemsDepositoVenta(
+  tx: any,
+  items: VentaItemInput[],
+  puntoVentaId: number | null | undefined
+): Promise<VentaItemInput[]> {
+  if (items.length === 0) {
+    throw Object.assign(new Error('Agregue al menos un producto'), { name: 'ValidationError' });
+  }
+
+  const depositoDefaultId = await getDepositoDefaultVenta(tx, puntoVentaId);
+  const normalizados = items.map(item => ({
+    ...item,
+    DEPOSITO_ID: item.DEPOSITO_ID || depositoDefaultId || undefined,
+  }));
+
+  const productIds = [...new Set(normalizados.map(item => Number(item.PRODUCTO_ID)).filter(Boolean))];
+  if (productIds.length === 0) {
+    throw Object.assign(new Error('Los productos de la venta no son válidos'), { name: 'ValidationError' });
+  }
+
+  const req = tx.request();
+  productIds.forEach((id, index) => req.input(`stockPid${index}`, sql.Int, id));
+  const idList = productIds.map((_, index) => `@stockPid${index}`).join(', ');
+  const stockFlags = await req.query(`
+    SELECT PRODUCTO_ID, ISNULL(DESCUENTA_STOCK, 0) AS DESCUENTA_STOCK
+    FROM PRODUCTOS
+    WHERE PRODUCTO_ID IN (${idList})
+  `);
+
+  const descuentaStock = new Map<number, boolean>();
+  for (const row of stockFlags.recordset) {
+    descuentaStock.set(row.PRODUCTO_ID, !!row.DESCUENTA_STOCK);
+  }
+
+  const sinDeposito = normalizados.find(item =>
+    !item.DESDE_REMITO && !item.DEPOSITO_ID && descuentaStock.get(item.PRODUCTO_ID)
+  );
+
+  if (sinDeposito) {
+    throw Object.assign(
+      new Error('No se pudo determinar el depósito para descontar stock. Verifique el depósito preferido del punto de venta.'),
+      { name: 'ValidationError' }
+    );
+  }
+
+  return normalizados;
 }
 
 // ── NETO_EXENTO column helper ────────────────────
@@ -769,8 +812,10 @@ export const salesService = {
     await tx.begin();
 
     try {
+      const itemsVenta = await normalizarItemsDepositoVenta(tx, input.items, input.PUNTO_VENTA_ID);
+
       // ── 1. Batch-fetch IVA rates for all products ──
-      const productIds = input.items.map(i => Number(i.PRODUCTO_ID));
+      const productIds = itemsVenta.map(i => Number(i.PRODUCTO_ID));
       const ivaReq = tx.request();
       productIds.forEach((id, i) => ivaReq.input(`pid${i}`, sql.Int, id));
       const idList = productIds.map((_, i) => `@pid${i}`).join(', ');
@@ -799,7 +844,7 @@ export const salesService = {
       let netoExento = 0;
       const dtoGral = input.DTO_GRAL || 0;
 
-      for (const item of input.items) {
+      for (const item of itemsVenta) {
         const precioConDto = item.DESCUENTO > 0
           ? item.PRECIO_UNITARIO * (1 - item.DESCUENTO / 100)
           : item.PRECIO_UNITARIO;
@@ -930,7 +975,7 @@ export const salesService = {
       const ventaId = ventaResult.recordset[0].VENTA_ID;
 
       // ── 4. INSERT VENTAS_ITEMS + decrement stock ──
-      for (const item of input.items) {
+      for (const item of itemsVenta) {
         const precioConDto = item.DESCUENTO > 0
           ? item.PRECIO_UNITARIO * (1 - item.DESCUENTO / 100)
           : item.PRECIO_UNITARIO;
@@ -1228,8 +1273,14 @@ export const salesService = {
           .query(`DELETE FROM VENTAS_CTA_CORRIENTE WHERE COMPROBANTE_ID = @comprobanteId AND TIPO_COMPROBANTE = 'VENTA'`);
       }
 
+      const itemsVenta = await normalizarItemsDepositoVenta(
+        tx,
+        input.items,
+        input.PUNTO_VENTA_ID || oldVenta.PUNTO_VENTA_ID
+      );
+
       // ── 5. Batch-fetch IVA rates for all products ──
-      const productIds = input.items.map(i => Number(i.PRODUCTO_ID));
+      const productIds = itemsVenta.map(i => Number(i.PRODUCTO_ID));
       const ivaReq = tx.request();
       productIds.forEach((pid, i) => ivaReq.input(`pid${i}`, sql.Int, pid));
       const idList = productIds.map((_, i) => `@pid${i}`).join(', ');
@@ -1258,7 +1309,7 @@ export const salesService = {
       let netoExento = 0;
       const dtoGral = input.DTO_GRAL || 0;
 
-      for (const item of input.items) {
+      for (const item of itemsVenta) {
         const precioConDto = item.DESCUENTO > 0
           ? item.PRECIO_UNITARIO * (1 - item.DESCUENTO / 100)
           : item.PRECIO_UNITARIO;
@@ -1334,7 +1385,7 @@ export const salesService = {
         `);
 
       // ── 7. Insert new items + decrement stock ──
-      for (const item of input.items) {
+      for (const item of itemsVenta) {
         const precioConDto = item.DESCUENTO > 0
           ? item.PRECIO_UNITARIO * (1 - item.DESCUENTO / 100)
           : item.PRECIO_UNITARIO;
@@ -2056,11 +2107,20 @@ export const salesService = {
     const result = await pool.request()
       .input('pvId', sql.Int, puntoVentaId)
       .query(`
-        SELECT d.DEPOSITO_ID, d.CODIGOPARTICULAR, d.NOMBRE, pvd.ES_PREFERIDO
-        FROM PUNTOS_VENTA_DEPOSITOS pvd
-        JOIN DEPOSITOS d ON pvd.DEPOSITO_ID = d.DEPOSITO_ID
+        -- Return deposits linked to the PV via PUNTOS_VENTA_DEPOSITOS (with ES_PREFERIDO).
+        -- Fallback: if that junction table has no entries for this PV, return ALL deposits
+        -- (ES_PREFERIDO=false) so that new environments (C# app created PVs) always get a result.
+        SELECT d.DEPOSITO_ID, d.CODIGOPARTICULAR, d.NOMBRE,
+               ISNULL(pvd.ES_PREFERIDO, 0) AS ES_PREFERIDO
+        FROM DEPOSITOS d
+        LEFT JOIN PUNTOS_VENTA_DEPOSITOS pvd
+               ON pvd.DEPOSITO_ID = d.DEPOSITO_ID AND pvd.PUNTO_VENTA_ID = @pvId
         WHERE pvd.PUNTO_VENTA_ID = @pvId
-        ORDER BY pvd.ES_PREFERIDO DESC, d.NOMBRE
+           OR NOT EXISTS (
+                SELECT 1 FROM PUNTOS_VENTA_DEPOSITOS pvd2
+                WHERE pvd2.PUNTO_VENTA_ID = @pvId
+              )
+        ORDER BY ISNULL(pvd.ES_PREFERIDO, 0) DESC, d.NOMBRE
       `);
     return result.recordset;
   },

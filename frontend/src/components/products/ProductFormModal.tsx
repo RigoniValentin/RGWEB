@@ -99,6 +99,8 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
     queryKey: ['product-edit', editId],
     queryFn: () => productApi.getById(editId!),
     enabled: !!editId && open,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   // Refresh catalog data every time the modal opens

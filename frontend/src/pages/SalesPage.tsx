@@ -17,6 +17,7 @@ import type { ReceiptData } from '../utils/printReceipt';
 import dayjs from 'dayjs';
 import { salesApi } from '../services/sales.api';
 import { cajaApi } from '../services/caja.api';
+import { invalidateInventoryQueries } from '../utils/invalidateInventoryQueries';
 import { NewSaleModal } from '../components/sales/NewSaleModal';
 import { PaymentModal } from '../components/sales/PaymentModal';
 import { DateFilterPopover, type DatePreset } from '../components/DateFilterPopover';
@@ -148,6 +149,7 @@ export function SalesPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: number) => salesApi.delete(id),
     onSuccess: () => {
+      invalidateInventoryQueries(queryClient);
       message.success('Venta eliminada');
       refetch();
       if (drawerOpen) { setDrawerOpen(false); setSelectedId(null); }

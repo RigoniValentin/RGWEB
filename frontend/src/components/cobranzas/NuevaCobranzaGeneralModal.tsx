@@ -17,6 +17,7 @@ import { cajaApi } from '../../services/caja.api';
 import { bancosApi } from '../../services/bancos.api';
 import BancoSelect from '../cheques/BancoSelect';
 import { fmtMoney } from '../../utils/format';
+import { invalidateCashQueries } from '../../utils/invalidateCashQueries';
 import { printReciboCobranza } from '../../utils/printReciboCobranza';
 import { useAuthStore } from '../../store/authStore';
 import type { MetodoPagoItem, ChequePayload } from '../../types';
@@ -194,6 +195,7 @@ export function NuevaCobranzaGeneralModal({
         queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
         queryClient.invalidateQueries({ queryKey: ['cheques-cartera'] });
       }
+      invalidateCashQueries(queryClient);
       onSuccess();
       Modal.confirm({
         title: '¿Desea imprimir el recibo?',
@@ -223,6 +225,7 @@ export function NuevaCobranzaGeneralModal({
         queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
         queryClient.invalidateQueries({ queryKey: ['cheques-cartera'] });
       }
+      invalidateCashQueries(queryClient);
       onSuccess();
     },
     onError: (err: any) => message.error(err.response?.data?.error || err.message),

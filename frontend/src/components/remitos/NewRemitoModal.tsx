@@ -7,13 +7,14 @@ import {
   DeleteOutlined, SearchOutlined,
   ImportOutlined, ExportOutlined, PrinterOutlined,
 } from '@ant-design/icons';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { remitosApi } from '../../services/remitos.api';
 import { settingsApi } from '../../services/settings.api';
 import type { RemitoInput, RemitoItemInput, ProductoSearch } from '../../types';
 import { fmtMoney, fmtNum } from '../../utils/format';
 import { ProductSearchModal } from '../ProductSearchModal';
 import { generateRemitoPdf, type CopiasTipo } from './remitoPdf.js';
+import { invalidateInventoryQueries } from '../../utils/invalidateInventoryQueries';
 import dayjs from 'dayjs';
 
 const { Text } = Typography;
@@ -35,6 +36,7 @@ interface Props {
 }
 
 export function NewRemitoModal({ open, tipo, onClose, onSuccess }: Props) {
+  const queryClient = useQueryClient();
   const [items, setItems] = useState<RemitoItemRow[]>([]);
   const [clienteId, setClienteId] = useState<number | null>(null);
   const [proveedorId, setProveedorId] = useState<number | null>(null);
@@ -105,6 +107,7 @@ export function NewRemitoModal({ open, tipo, onClose, onSuccess }: Props) {
   const createMutation = useMutation({
     mutationFn: (data: RemitoInput) => remitosApi.create(data),
     onSuccess: async (result) => {
+      invalidateInventoryQueries(queryClient);
       message.success(`Remito ${tipo} ${result.PTO_VTA}-${result.NRO_REMITO} creado`);
       if (printAfterCreate && result.REMITO_ID) {
         try {

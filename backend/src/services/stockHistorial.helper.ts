@@ -62,3 +62,26 @@ export async function getCurrentStock(tx: any, productoId: number, depositoId: n
     .query(`SELECT CANTIDAD FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @prodId AND DEPOSITO_ID = @depId`);
   return result.recordset.length > 0 ? result.recordset[0].CANTIDAD : 0;
 }
+
+/**
+ * Inserts a new row into STOCK_DEPOSITOS with an auto-generated ITEM_ID.
+ * ITEM_ID is NOT an identity column — it must be provided manually.
+ * Uses MAX(ITEM_ID)+1 within the same transaction so concurrent inserts
+ * in the same TX (e.g. kit children) each get a unique id.
+ */
+export async function insertStockDeposito(
+  tx: any,
+  productoId: number,
+  depositoId: number,
+  cantidad: number
+): Promise<void> {
+  const idRes = await tx.request()
+    .query(`SELECT ISNULL(MAX(ITEM_ID), 0) + 1 AS nextId FROM STOCK_DEPOSITOS`);
+  const itemId: number = idRes.recordset[0].nextId;
+  await tx.request()
+    .input('itemId', sql.Int, itemId)
+    .input('prodId', sql.Int, productoId)
+    .input('depId', sql.Int, depositoId)
+    .input('cant', sql.Decimal(18, 4), cantidad)
+    .query('INSERT INTO STOCK_DEPOSITOS (ITEM_ID, PRODUCTO_ID, DEPOSITO_ID, CANTIDAD) VALUES (@itemId, @prodId, @depId, @cant)');
+}

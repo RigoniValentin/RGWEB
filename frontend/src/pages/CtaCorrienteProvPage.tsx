@@ -19,6 +19,7 @@ import {
   type OrdenPagoItem,
 } from '../services/ctaCorrienteProv.api';
 import { fmtMoney } from '../utils/format';
+import { invalidateCashQueries } from '../utils/invalidateCashQueries';
 import { NuevaOrdenPagoModal } from '../components/ctaCorriente/NuevaOrdenPagoModal';
 import { useNavigationStore } from '../store/navigationStore';
 
@@ -142,6 +143,7 @@ export function CtaCorrienteProvPage() {
       qc.invalidateQueries({ queryKey: ['cta-prov-ordenes-pago'] });
       qc.invalidateQueries({ queryKey: ['cta-prov-movimientos'] });
       qc.invalidateQueries({ queryKey: ['cta-corriente-prov-list'] });
+      invalidateCashQueries(qc);
     },
     onError: (err: any) => message.error(err.response?.data?.error || err.message),
   });

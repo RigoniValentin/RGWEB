@@ -16,6 +16,7 @@ import {
   type OrdenPagoGeneralItem,
 } from '../services/ordenesPago.api';
 import { fmtMoney } from '../utils/format';
+import { invalidateCashQueries } from '../utils/invalidateCashQueries';
 import { printOrdenPago } from '../utils/printOrdenPago';
 import { NuevaOrdenPagoGeneralModal } from '../components/ordenesPago/NuevaOrdenPagoGeneralModal';
 import { useTabStore } from '../store/tabStore';
@@ -63,6 +64,7 @@ export function OrdenesPagoPage() {
       qc.invalidateQueries({ queryKey: ['cta-prov-ordenes-pago'] });
       qc.invalidateQueries({ queryKey: ['cta-prov-movimientos'] });
       qc.invalidateQueries({ queryKey: ['cta-corriente-prov-list'] });
+      invalidateCashQueries(qc);
     },
     onError: (err: any) => message.error(err.response?.data?.error || err.message),
   });

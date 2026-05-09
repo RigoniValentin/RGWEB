@@ -10,11 +10,12 @@ import {
   ArrowLeftOutlined, ArrowRightOutlined,
   ThunderboltOutlined, CreditCardOutlined, WalletOutlined,
 } from '@ant-design/icons';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ncVentasApi, type NCVentaInput, type NCVentaItemInput, type VentaParaNC } from '../../services/ncVentas.api';
 import { salesApi } from '../../services/sales.api';
 import { cajaApi } from '../../services/caja.api';
 import { fmtComprobanteTipo, fmtMoney, fmtNum } from '../../utils/format';
+import { invalidateInventoryQueries } from '../../utils/invalidateInventoryQueries';
 import type { MetodoPago } from '../../types';
 
 const { Text } = Typography;
@@ -57,6 +58,7 @@ interface Props {
 }
 
 export function NewNCVentaModal({ open, onClose, onSuccess, preselectedVentaId, preselectedClienteId, utilizaFE }: Props) {
+  const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
 
   // Step 0: Config
@@ -276,6 +278,8 @@ export function NewNCVentaModal({ open, onClose, onSuccess, preselectedVentaId, 
   const createMutation = useMutation({
     mutationFn: (data: NCVentaInput) => ncVentasApi.create(data),
     onSuccess: (result) => {
+      invalidateInventoryQueries(queryClient);
+
       let msg = `NC #${result.NC_ID} creada por ${fmtMoney(result.MONTO)}`;
       if (result.fiscal?.success) {
         msg += ` — Fiscal: ${result.fiscal.tipo_comprobante} ${result.fiscal.comprobante_nro}`;
