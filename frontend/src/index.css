@@ -1909,7 +1909,7 @@ body {
 
 /* ── Product Search Modal ─────────────────────── */
 .psm-active-row td {
-  background: rgba(22, 119, 255, 0.08) !important;
+  background: rgba(234, 189, 35, 0.35) !important;
 }
 
 .nsm-search-item-right {

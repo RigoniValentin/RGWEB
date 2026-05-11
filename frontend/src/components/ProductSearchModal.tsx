@@ -201,8 +201,8 @@ export function ProductSearchModal({
         return;
       }
 
-      // Arrow navigation when results exist
-      if (results.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp') && !isInInput) {
+      // Arrow navigation when results exist (works even when focus is in a filter input)
+      if (results.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
         e.preventDefault();
         setActiveRowIndex(prev => {
           let next: number;
