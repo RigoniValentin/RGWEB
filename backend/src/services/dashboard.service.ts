@@ -1,4 +1,5 @@
 import { getPool, sql } from '../database/connection.js';
+import { cajaCentralService } from './cajaCentral.service.js';
 
 export const dashboardService = {
   async getStats(puntoVentaId?: number) {
@@ -327,19 +328,11 @@ export const dashboardService = {
     `);
 
     // ── Caja Central summary ──────────────────────────────────────
-    let cajaCentral: any = {
-      totalIngresos: 0, totalEgresos: 0, balance: 0,
-      efectivo: 0, digital: 0, cheques: 0,
-      chequesEnCartera: 0, chequesEnCarteraCantidad: 0,
-    };
-    try {
-      const { cajaCentralService } = await import('./cajaCentral.service.js');
-      cajaCentral = await cajaCentralService.getTotales({
-        fechaDesde: from,
-        fechaHasta: to,
-        puntoVentaIds: puntoVentaId ? [puntoVentaId] : undefined,
-      });
-    } catch { /* ignore */ }
+    const cajaCentral = await cajaCentralService.getTotales({
+      fechaDesde: from,
+      fechaHasta: to,
+      puntoVentaIds: puntoVentaId ? [puntoVentaId] : undefined,
+    });
 
     // ── Stock bajo (snapshot, sin filtro de fecha) ────────────────
     const lowStock = await pool.request().query(`

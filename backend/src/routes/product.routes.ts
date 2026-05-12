@@ -5,6 +5,16 @@ import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 const router = Router();
 router.use(authMiddleware);
 
+function parseIdList(value: unknown): number[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  const raw = Array.isArray(value) ? value.join(',') : String(value);
+  const ids = raw
+    .split(',')
+    .map(v => parseInt(v, 10))
+    .filter(v => Number.isFinite(v) && v > 0);
+  return ids.length > 0 ? ids : undefined;
+}
+
 // GET /api/products
 router.get('/', async (req: Request, res: Response) => {
   try {
@@ -14,6 +24,7 @@ router.get('/', async (req: Request, res: Response) => {
       search: req.query.search as string | undefined,
       categoriaId: req.query.categoriaId ? parseInt(req.query.categoriaId as string) : undefined,
       marcaId: req.query.marcaId ? parseInt(req.query.marcaId as string) : undefined,
+      unidadIds: parseIdList(req.query.unidadIds),
       activo: req.query.activo !== undefined ? req.query.activo === 'true' : undefined,
       stockBajo: req.query.stockBajo === 'true',
       orderBy: req.query.orderBy as string | undefined,

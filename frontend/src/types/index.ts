@@ -494,9 +494,12 @@ export interface ClienteVenta {
 // ── Catálogos ────────────────────────────────────
 export interface ListaPrecio {
   LISTA_ID: number;
+  CODIGOPARTICULAR: string | null;
   NOMBRE: string;
+  DESCRIPCION: string | null;
   MARGEN: number;
   ACTIVA: boolean;
+  MARGEN_REAL: number | null;
 }
 
 export interface Deposito {

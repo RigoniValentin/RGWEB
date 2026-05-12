@@ -53,6 +53,7 @@ import { QuickProductLookupModal } from './products/QuickProductLookupModal';
 import { DashboardPage } from '../pages/DashboardPage';
 import { CustomersPage } from '../pages/CustomersPage';
 import { ProductsPage } from '../pages/ProductsPage';
+import { PriceListsPage } from '../pages/PriceListsPage';
 import { SalesPage } from '../pages/SalesPage';
 import { SuppliersPage } from '../pages/SuppliersPage';
 import { CajaPage } from '../pages/CajaPage';
@@ -81,6 +82,7 @@ import { LibroIvaComprasPage } from '../pages/LibroIvaComprasPage';
 import { UsuariosPage } from '../pages/UsuariosPage';
 import { PuntosVentaPage } from '../pages/PuntosVentaPage';
 import { BackupsPage } from '../pages/BackupsPage';
+import { ListadoProductosPage } from '../pages/ListadoProductosPage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -97,6 +99,7 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/dashboard':      { label: 'Dashboard',    icon: <DashboardOutlined />,    component: DashboardPage,    closable: false },
   '/customers':      { label: 'Clientes',     icon: <TeamOutlined />,         component: CustomersPage,    closable: true },
   '/products':       { label: 'Productos',    icon: <ShoppingOutlined />,     component: ProductsPage,     closable: true },
+  '/price-lists':    { label: 'Listas de Precio', icon: <TagsOutlined />,     component: PriceListsPage,   closable: true },
   '/sales':          { label: 'Ventas',       icon: <DollarOutlined />,       component: SalesPage,        closable: true },
   '/suppliers':      { label: 'Proveedores',  icon: <ShopOutlined />,         component: SuppliersPage,    closable: true },
   '/cashregisters':  { label: 'Cajas',        icon: <BankOutlined />,         component: CajaPage,         closable: true },
@@ -122,6 +125,7 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/stock':            { label: 'Stock',           icon: <InboxOutlined />,      component: StockPage,        closable: true },
   '/libro-iva-ventas':   { label: 'Libro IVA Ventas',   icon: <AuditOutlined />,        component: LibroIvaVentasPage,  closable: true },
   '/libro-iva-compras':  { label: 'Libro IVA Compras',  icon: <ShoppingCartOutlined />, component: LibroIvaComprasPage, closable: true },
+  '/reports/listings/products': { label: 'Listado Productos', icon: <UnorderedListOutlined />, component: ListadoProductosPage, closable: true },
   '/users/users':      { label: 'Usuarios',         icon: <SafetyOutlined />,     component: UsuariosPage,      closable: true },
   '/settings/pos':     { label: 'Puntos de Venta',  icon: <EnvironmentOutlined />, component: PuntosVentaPage,   closable: true },
   '/settings/backups': { label: 'Backups',          icon: <DatabaseOutlined />,    component: BackupsPage,       closable: true },
@@ -137,6 +141,7 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
   // '/dashboard' is intentionally omitted — every authenticated user sees their role-appropriate view
   '/customers':           'clientes.ver',
   '/products':            'productos.ver',
+  '/price-lists':         'productos.ver',
   '/etiquetas':           'productos.ver',
   '/stock':               'stock.ver',
   '/sales':               'ventas.ver',
@@ -158,6 +163,7 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
   '/remitos':             'remitos.ver',
   '/gastronomy/tables':   'gastronomy.mesas.ver',
   '/gastronomy/comandas': 'gastronomy.mesas.ver',
+  '/reports/listings/products': 'productos.ver',
   '/libro-iva-ventas':    'reportes.iva.ver',
   '/libro-iva-compras':   'reportes.iva.compras.ver',
   '/users/users':         'usuarios.ver',
@@ -204,6 +210,7 @@ const menuItems = [
       { type: 'group' as const, label: 'Archivos', className: 'rg-popup-group-title', children: [
         { key: 'productos-sub', icon: <ShoppingOutlined />, label: 'Productos', children: [
           { key: '/products', icon: <ShoppingOutlined />, label: 'ABM Productos' },
+          { key: '/price-lists', icon: <TagsOutlined />, label: 'Listas de Precio' },
           { key: '/stock', icon: <InboxOutlined />, label: 'Stock' },
           { key: '/etiquetas', icon: <TagOutlined />, label: 'Etiquetas de Precios' },
         ]},
@@ -278,7 +285,9 @@ const menuItems = [
     children: [
       { type: 'group' as const, label: 'Reportes', className: 'rg-popup-group-title', children: [
         { key: '/reports/reports', icon: <FileTextOutlined />, label: 'Reportes' },
-        { key: '/reports/listings', icon: <UnorderedListOutlined />, label: 'Listados' },
+        { key: 'reports-listings-sub', icon: <UnorderedListOutlined />, label: 'Listados', children: [
+          { key: '/reports/listings/products', icon: <ShoppingOutlined />, label: 'Listado de productos' },
+        ]},
         { key: '/libro-iva-ventas',  icon: <AuditOutlined />,        label: 'Libro IVA Ventas' },
         { key: '/libro-iva-compras', icon: <ShoppingCartOutlined />, label: 'Libro IVA Compras' },
       ]},
@@ -470,6 +479,7 @@ export function AppLayout() {
         '/cta-corriente-prov': ['cta-corriente-prov-list', 'cta-prov-movimientos', 'cta-prov-ordenes-pago'],
         '/gastronomy/tables': ['mesas-sectores', 'mesas-mesas'],
         '/stock':         ['stock', 'stock-depositos'],
+        '/reports/listings/products': ['product-listing'],
       };
       const keys = keyMap[activeKey];
       if (keys) {
@@ -566,7 +576,7 @@ export function AppLayout() {
       movimientos: ['/sales', '/purchases', '/cashregisters', '/cashcentral', '/arca', '/expenses', '/audit'],
       produccion: ['/production/structures', '/production/orders'],
       gastronomia: ['/gastronomy/tables', '/gastronomy/comandas'],
-      reportes: ['/reports/reports', '/reports/listings'],
+      reportes: ['/reports/reports', '/reports/listings/products', '/libro-iva-ventas', '/libro-iva-compras'],
       usuarios: ['/users/users', '/users/staff', '/users/permissions'],
       configuracion: ['/settings/general', '/settings/company', '/settings/pos'],
     };
@@ -575,6 +585,7 @@ export function AppLayout() {
       'ctas-corrientes': ['/cta-corriente', '/cta-corriente-prov', '/cobranzas', '/ordenes-pago'],
       'notas-credito': ['/nc-ventas', '/nc-compras'],
       'notas-debito': ['/nd-ventas', '/nd-compras'],
+      'reports-listings-sub': ['/reports/listings/products'],
     };
     const keys: string[] = [];
     for (const [group, paths] of Object.entries(groups)) {

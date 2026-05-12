@@ -25,6 +25,7 @@ export interface PurchaseDraft {
   proveedorId: number | null;
   depositoId: number | null;
   tipoComprobante: string;
+  fechaCompra: string;
   ptoVta: string;
   nroComprobante: string;
   esCtaCorriente: boolean;
@@ -47,6 +48,7 @@ const EMPTY_DRAFT: PurchaseDraft = {
   proveedorId: null,
   depositoId: null,
   tipoComprobante: 'FB',
+  fechaCompra: new Date().toISOString(),
   ptoVta: '0000',
   nroComprobante: '00000000',
   esCtaCorriente: false,

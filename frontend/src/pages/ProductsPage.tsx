@@ -33,6 +33,7 @@ export function ProductsPage() {
   const [search, setSearch] = useState('');
   const [categoriaId, setCategoriaId] = useState<number | undefined>();
   const [marcaId, setMarcaId] = useState<number | undefined>();
+  const [unidadIds, setUnidadIds] = useState<number[]>([]);
   const [activo, setActivo] = useState<boolean | undefined>(undefined);
   const [orderBy, setOrderBy] = useState<string>('NOMBRE');
   const [orderDir, setOrderDir] = useState<'ASC' | 'DESC'>('ASC');
@@ -61,11 +62,12 @@ export function ProductsPage() {
 
   // ── Data queries ─────────────────────────────────
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['products', page, pageSize, search, categoriaId, marcaId, activo, orderBy, orderDir],
+    queryKey: ['products', page, pageSize, search, categoriaId, marcaId, unidadIds, activo, orderBy, orderDir],
     queryFn: () => productApi.getAll({
       page, pageSize,
       search: search || undefined,
       categoriaId, marcaId,
+      unidadIds: unidadIds.length > 0 ? unidadIds.join(',') : undefined,
       activo,
       orderBy, orderDir,
     }),
@@ -73,6 +75,7 @@ export function ProductsPage() {
 
   const { data: categorias } = useQuery({ queryKey: ['categorias'], queryFn: () => catalogApi.getCategorias() });
   const { data: marcas } = useQuery({ queryKey: ['marcas'], queryFn: () => catalogApi.getMarcas() });
+  const { data: unidades } = useQuery({ queryKey: ['unidades'], queryFn: () => catalogApi.getUnidades() });
   const { data: listas } = useQuery({ queryKey: ['listas-precios'], queryFn: () => catalogApi.getListasPrecios() });
 
   // Detail
@@ -497,6 +500,19 @@ export function ProductsPage() {
             showSearch
             optionFilterProp="label"
             options={marcas?.map(m => ({ label: m.NOMBRE, value: m.MARCA_ID }))}
+            suffixIcon={<FilterOutlined />}
+          />
+          <Select
+            mode="multiple"
+            placeholder="Unidad"
+            allowClear
+            maxTagCount="responsive"
+            style={{ width: 190 }}
+            value={unidadIds}
+            onChange={(v) => { setUnidadIds(v); setPage(1); }}
+            showSearch
+            optionFilterProp="label"
+            options={unidades?.map(u => ({ label: `${u.NOMBRE} (${u.ABREVIACION})`, value: u.UNIDAD_ID }))}
             suffixIcon={<FilterOutlined />}
           />
           <Select

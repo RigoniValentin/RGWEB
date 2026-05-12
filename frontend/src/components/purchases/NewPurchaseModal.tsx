@@ -1,16 +1,17 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Modal, Input, Select, Button, InputNumber, Table, Space, Typography,
-  Divider, message, Tag, Checkbox, Segmented, Badge, Switch,
+  Divider, message, Tag, Checkbox, Segmented, Badge, Switch, DatePicker,
 } from 'antd';
 import {
   SearchOutlined, DeleteOutlined, ShoppingCartOutlined,
   ShopOutlined, FileTextOutlined, SwapOutlined,
   ArrowLeftOutlined, CheckCircleOutlined,
   DollarOutlined, CreditCardOutlined, WalletOutlined,
-  BankOutlined, InboxOutlined,
+  BankOutlined, InboxOutlined, CalendarOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import dayjs from 'dayjs';
 import { purchasesApi } from '../../services/purchases.api';
 import { cajaApi } from '../../services/caja.api';
 import { fmtMoney } from '../../utils/format';
@@ -56,6 +57,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const [proveedorId, setProveedorId] = useState<number | null>(null);
   const [depositoId, setDepositoId] = useState<number | null>(null);
   const [tipoComprobante, setTipoComprobante] = useState<string>('FB');
+  const [fechaCompra, setFechaCompra] = useState(dayjs());
   const [ptoVta, setPtoVta] = useState('0000');
   const [nroComprobante, setNroComprobante] = useState('00000000');
   const [esCtaCorriente, setEsCtaCorriente] = useState(false);
@@ -185,6 +187,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
         setProveedorId(d.proveedorId);
         if (d.depositoId !== null) setDepositoId(d.depositoId);
         setTipoComprobante(d.tipoComprobante);
+        setFechaCompra((d as any).fechaCompra ? dayjs((d as any).fechaCompra) : dayjs());
         setPtoVta(d.ptoVta);
         setNroComprobante(d.nroComprobante);
         setEsCtaCorriente(d.esCtaCorriente);
@@ -212,13 +215,13 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     if (!open) return;
     usePurchaseDraftStore.getState().updateDraft({
       cart: cart as PurchaseCartItem[],
-      proveedorId, depositoId, tipoComprobante, ptoVta, nroComprobante,
+      proveedorId, depositoId, tipoComprobante, fechaCompra: fechaCompra.toISOString(), ptoVta, nroComprobante,
       esCtaCorriente, ivaIncluido, ivaManual, actualizarCostos, actualizarPrecios,
       percepcionIva, percepcionIibb, tipoCarga, impIntGravaIva,
       step, selectedMetodos, montosPorMetodo, destinoPago,
     });
   }, [
-    open, cart, proveedorId, depositoId, tipoComprobante, ptoVta, nroComprobante,
+    open, cart, proveedorId, depositoId, tipoComprobante, fechaCompra, ptoVta, nroComprobante,
     esCtaCorriente, ivaIncluido, ivaManual, actualizarCostos, actualizarPrecios,
     percepcionIva, percepcionIibb, tipoCarga, impIntGravaIva,
     step, selectedMetodos, montosPorMetodo, destinoPago,
@@ -574,6 +577,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     setProveedorId(null);
     setDepositoId(depositos.length > 0 ? depositos[0]!.DEPOSITO_ID : null);
     setTipoComprobante('FB');
+    setFechaCompra(dayjs());
     setPtoVta('0000');
     setNroComprobante('00000000');
     setEsCtaCorriente(false);
@@ -689,6 +693,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
 
     const payload: CompraInput = {
       PROVEEDOR_ID: proveedorId,
+      FECHA_COMPRA: fechaCompra.toISOString(),
       TIPO_COMPROBANTE: tipoComprobante,
       PTO_VTA: ptoVta,
       NRO_COMPROBANTE: nroComprobante,
@@ -1053,6 +1058,22 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                     value: d.DEPOSITO_ID,
                     label: d.NOMBRE,
                   }))}
+                />
+              </div>
+
+              {/* Fecha */}
+              <div className="nsm-field-group">
+                <label className="nsm-label">
+                  <CalendarOutlined style={{ marginRight: 6 }} />
+                  Fecha
+                </label>
+                <DatePicker
+                  value={fechaCompra}
+                  onChange={value => setFechaCompra(value || dayjs())}
+                  format="DD/MM/YYYY"
+                  allowClear={false}
+                  style={{ width: '100%' }}
+                  size="large"
                 />
               </div>
 

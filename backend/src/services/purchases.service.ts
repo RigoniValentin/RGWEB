@@ -68,6 +68,14 @@ function r2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+function parseFechaCompra(fecha?: string): Date {
+  const fechaCompra = fecha ? new Date(fecha) : new Date();
+  if (Number.isNaN(fechaCompra.getTime())) {
+    throw Object.assign(new Error('Ingrese una fecha de compra válida'), { name: 'ValidationError' });
+  }
+  return fechaCompra;
+}
+
 // ── MOVIMIENTOS_CAJA_METODOS_PAGO table helper ──
 
 let _movCajaMetodosPagoTableReady = false;
@@ -779,6 +787,8 @@ export const purchasesService = {
     await tx.begin();
 
     try {
+      const fechaCompra = parseFechaCompra(input.FECHA_COMPRA);
+
       // ── 1. Calculate totals from items ──
       // Non-FA comprobantes (FB, FC, etc.) don't discriminate IVA
       const discriminaIva = (input.TIPO_COMPROBANTE || 'FB') === 'FA';
@@ -884,7 +894,7 @@ export const purchasesService = {
         .input('impInterno', sql.Decimal(18, 2), r2(impInternoTotal))
         .input('ivaTotal', sql.Decimal(18, 2), r2(ivaTotal))
         .input('bonifTotal', sql.Decimal(18, 2), r2(bonifTotal))
-        .input('fechaCompra', sql.DateTime, input.FECHA_COMPRA ? new Date(input.FECHA_COMPRA) : new Date())
+        .input('fechaCompra', sql.DateTime, fechaCompra)
         .input('montoAnticipo', sql.Decimal(18, 2), montoAnticipo)
         .query(`
           INSERT INTO COMPRAS (
@@ -980,7 +990,6 @@ export const purchasesService = {
       // ── 4. CTA_CORRIENTE_P (if cuenta corriente purchase) ──
       if (input.ES_CTA_CORRIENTE) {
         const ctaCteId = await ensureCtaCorrienteP(tx, input.PROVEEDOR_ID);
-        const fechaCompra = input.FECHA_COMPRA ? new Date(input.FECHA_COMPRA) : new Date();
         const ptoVta = input.PTO_VTA || '0000';
         const nroComp = input.NRO_COMPROBANTE || '00000000';
         const tipoComp = input.TIPO_COMPROBANTE || 'FB';
@@ -1106,6 +1115,7 @@ export const purchasesService = {
             }
             await tx.request()
               .input('cajaId', sql.Int, caja.CAJA_ID)
+              .input('fecha', sql.DateTime, fechaCompra)
               .input('origenTipo', sql.VarChar(30), 'COMPRA')
               .input('origenId', sql.Int, compraId)
               .input('efectivo', sql.Decimal(18, 2), -efectivoNeto)
@@ -1115,13 +1125,14 @@ export const purchasesService = {
               .query(`
                 INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
                   MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
-                VALUES (@cajaId, GETDATE(), @origenTipo, @origenId,
+                VALUES (@cajaId, @fecha, @origenTipo, @origenId,
                   @efectivo, @digital, @desc, @uid)
               `);
             // Cheques son instrumento de caja central — registrar el egreso allí.
             if (montoChequesEgresados > 0) {
               const movChequeResult = await tx.request()
                 .input('idEntidad', sql.Int, compraId)
+                .input('fecha', sql.DateTime, fechaCompra)
                 .input('tipoEntidad', sql.VarChar(20), 'COMPRA')
                 .input('movimiento', sql.NVarChar(500), `Egreso cheque(s) ${descEgreso}`)
                 .input('uid', sql.Int, usuarioId)
@@ -1129,9 +1140,9 @@ export const purchasesService = {
                 .input('total', sql.Decimal(18, 2), -montoChequesEgresados)
                 .input('pvId', sql.Int, caja.PUNTO_VENTA_ID)
                 .query(`
-                  INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+                  INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, FECHA, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
                   OUTPUT INSERTED.ID
-                  VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 0)
+                  VALUES (@idEntidad, @fecha, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 0)
                 `);
               if (input.metodos_pago && input.metodos_pago.length > 0) {
                 await insertMovimientoCajaMetodosPago(tx, movChequeResult.recordset[0].ID, input.metodos_pago, ['CHEQUES']);
@@ -1143,6 +1154,7 @@ export const purchasesService = {
             const pvId = await getPuntoVentaMovimientoCompra(tx, usuarioId, input.PUNTO_VENTA_ID ?? null);
             const movResult = await tx.request()
               .input('idEntidad', sql.Int, compraId)
+              .input('fecha', sql.DateTime, fechaCompra)
               .input('tipoEntidad', sql.VarChar(20), 'COMPRA')
               .input('movimiento', sql.NVarChar(500), descEgreso)
               .input('uid', sql.Int, usuarioId)
@@ -1152,9 +1164,9 @@ export const purchasesService = {
               .input('total', sql.Decimal(18, 2), -totalEgreso)
               .input('pvId', sql.Int, pvId)
               .query(`
-                INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+                INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, FECHA, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
                 OUTPUT INSERTED.ID
-                VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, @cheques, 0, @total, @pvId, 0)
+                VALUES (@idEntidad, @fecha, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, @cheques, 0, @total, @pvId, 0)
               `);
 
             // Insert payment method breakdown for this movement
@@ -1187,6 +1199,8 @@ export const purchasesService = {
     await tx.begin();
 
     try {
+      const fechaCompra = parseFechaCompra(input.FECHA_COMPRA);
+
       const existing = await tx.request()
         .input('id', sql.Int, id)
         .query(`SELECT COMPRA_ID, ES_CTA_CORRIENTE, PROVEEDOR_ID, TOTAL
@@ -1300,7 +1314,7 @@ export const purchasesService = {
       await tx.request()
         .input('id', sql.Int, id)
         .input('proveedorId', sql.Int, input.PROVEEDOR_ID)
-        .input('fechaCompra', sql.DateTime, input.FECHA_COMPRA ? new Date(input.FECHA_COMPRA) : new Date())
+        .input('fechaCompra', sql.DateTime, fechaCompra)
         .input('total', sql.Decimal(18, 2), total)
         .input('esCtaCorriente', sql.Bit, input.ES_CTA_CORRIENTE ? 1 : 0)
         .input('montoEfectivo', sql.Decimal(18, 2), montoEfectivoUpd2)
@@ -1410,7 +1424,7 @@ export const purchasesService = {
         await tx.request()
           .input('comprobanteId', sql.Int, id)
           .input('ctaCteId', sql.Int, ctaCteId)
-          .input('fecha', sql.DateTime, input.FECHA_COMPRA ? new Date(input.FECHA_COMPRA) : new Date())
+          .input('fecha', sql.DateTime, fechaCompra)
           .input('concepto', sql.NVarChar(255), `Compra ${tipoLabelUpd2} ${ptoVta}-${nroComp}`)
           .input('tipoComp', sql.NVarChar(50), tipoCompUpd2)
           .input('debe', sql.Decimal(18, 2), r2(total))
@@ -1478,6 +1492,7 @@ export const purchasesService = {
             }
             await tx.request()
               .input('cajaId', sql.Int, caja.CAJA_ID)
+              .input('fecha', sql.DateTime, fechaCompra)
               .input('origenTipo', sql.VarChar(30), 'COMPRA')
               .input('origenId', sql.Int, id)
               .input('efectivo', sql.Decimal(18, 2), -efectivoNetoUpd)
@@ -1487,12 +1502,13 @@ export const purchasesService = {
               .query(`
                 INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
                   MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
-                VALUES (@cajaId, GETDATE(), @origenTipo, @origenId,
+                VALUES (@cajaId, @fecha, @origenTipo, @origenId,
                   @efectivo, @digital, @desc, @uid)
               `);
             if (montoChequesEgresados > 0) {
               const movChequeResultUpd = await tx.request()
                 .input('idEntidad', sql.Int, id)
+                .input('fecha', sql.DateTime, fechaCompra)
                 .input('tipoEntidad', sql.VarChar(20), 'COMPRA')
                 .input('movimiento', sql.NVarChar(500), `Egreso cheque(s) ${descEgresoUpd}`)
                 .input('uid', sql.Int, usuarioId)
@@ -1500,9 +1516,9 @@ export const purchasesService = {
                 .input('total', sql.Decimal(18, 2), -montoChequesEgresados)
                 .input('pvId', sql.Int, caja.PUNTO_VENTA_ID)
                 .query(`
-                  INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+                  INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, FECHA, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
                   OUTPUT INSERTED.ID
-                  VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 0)
+                  VALUES (@idEntidad, @fecha, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 0)
                 `);
               if (input.metodos_pago && input.metodos_pago.length > 0) {
                 await insertMovimientoCajaMetodosPago(tx, movChequeResultUpd.recordset[0].ID, input.metodos_pago, ['CHEQUES']);
@@ -1513,6 +1529,7 @@ export const purchasesService = {
             const pvId = await getPuntoVentaMovimientoCompra(tx, usuarioId, input.PUNTO_VENTA_ID ?? null);
             const movResultUpd = await tx.request()
               .input('idEntidad', sql.Int, id)
+              .input('fecha', sql.DateTime, fechaCompra)
               .input('tipoEntidad', sql.VarChar(20), 'COMPRA')
               .input('movimiento', sql.NVarChar(500), descEgresoUpd)
               .input('uid', sql.Int, usuarioId)
@@ -1522,9 +1539,9 @@ export const purchasesService = {
               .input('total', sql.Decimal(18, 2), -totalEgresoUpd)
               .input('pvId', sql.Int, pvId)
               .query(`
-                INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+                INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, FECHA, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
                 OUTPUT INSERTED.ID
-                VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, @cheques, 0, @total, @pvId, 0)
+                VALUES (@idEntidad, @fecha, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, @cheques, 0, @total, @pvId, 0)
               `);
 
             // Insert payment method breakdown for this movement

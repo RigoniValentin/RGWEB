@@ -667,8 +667,8 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       // ── Post-sale: WhatsApp ──
       if (wantWhatsApp) {
         setPendingVentaId(result.VENTA_ID);
-        // Pre-fill name from selected client
-        setWspNombre(selectedCliente?.NOMBRE || '');
+        // Pre-fill name only for real clients; leave empty for Consumidor Final so the user can type it
+        setWspNombre(clienteId !== 1 ? (selectedCliente?.NOMBRE || '') : '');
         setWspTelefono('');
         setWspModalOpen(true);
         // Don't resetForm yet — wait for WhatsApp modal to close
@@ -2544,8 +2544,9 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
           <Input
             value={wspNombre}
             onChange={e => setWspNombre(e.target.value)}
-            placeholder="Nombre"
+            placeholder="Nombre del destinatario"
             prefix={<UserOutlined />}
+            autoFocus
           />
         </div>
         <div>

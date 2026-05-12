@@ -37,6 +37,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
   const [tabErrors, setTabErrors] = useState<{ stock?: boolean; proveedores?: boolean }>({});
   const [margenes, setMargenes] = useState<number[]>([0, 0, 0, 0, 0]);
   const [esServicio, setEsServicio] = useState(false);
+  const listaDefectoActual = Form.useWatch('LISTA_DEFECTO', form) ?? 1;
 
   // ── Puntos de venta del usuario ────────────────
   // El usuario sólo ve depósitos de su PV preferido por defecto. Si tiene
@@ -144,7 +145,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
     } else if (copyFrom) {
       form.setFieldsValue({
         ...copyFrom,
-        CODIGOPARTICULAR: copyFrom.CODIGOPARTICULAR + ' (copia)',
+        CODIGOPARTICULAR: '',
         NOMBRE: copyFrom.NOMBRE + ' (copia)',
         FECHA_VENCIMIENTO: null,
       });
@@ -270,6 +271,15 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
   };
 
   // ── Price / Margin auto-calculation ────────────
+
+  // Helper: get IVA rate percentage from the currently selected TASA_IVA_ID
+  const getIvaRate = useCallback((): number => {
+    const tasaId = form.getFieldValue('TASA_IVA_ID');
+    if (!tasaId || !tasas) return 0;
+    const tasa = tasas.find((t: TasaImpuesto) => t.TASA_ID === tasaId);
+    return tasa?.PORCENTAJE ?? 0;
+  }, [form, tasas]);
+
   const recalcAllPricesFromMargins = useCallback((costo: number, currentMargenes: number[]) => {
     if (costo <= 0) return;
     const fields: Record<string, number> = {};
@@ -279,11 +289,81 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
     form.setFieldsValue(fields);
   }, [form]);
 
+  /**
+   * Recalculate PRECIO_COMPRA (costo con impuestos) and list prices given a
+   * new base cost, impuesto interno, and IVA rate.
+   *
+   * Fiscally correct formula (Argentina):
+   *   Costo con impuestos = Costo sin impuestos + IVA (sobre base) + Imp. Interno
+   *   IVA = PRECIO_COMPRA_BASE × ivaRate / 100
+   *
+   * The resulting PRECIO_COMPRA is the reference cost for price-list margins.
+   */
+  const recalcCostoConImpuestos = useCallback((
+    base: number,
+    impInt: number,
+    ivaRate: number,
+    currentMargenes: number[],
+  ) => {
+    const iva = Math.round(base * ivaRate) / 100;
+    const costoConImp = Math.round((base + iva + impInt) * 100) / 100;
+    form.setFieldsValue({ PRECIO_COMPRA: costoConImp });
+    recalcAllPricesFromMargins(costoConImp, currentMargenes);
+  }, [form, recalcAllPricesFromMargins]);
+
+  /**
+   * Given PRECIO_COMPRA (costo con impuestos), back-calculate PRECIO_COMPRA_BASE:
+   *   base = (costoConImp - impInt) / (1 + ivaRate / 100)
+   */
+  const recalcCostoSinImpuestos = useCallback((
+    costoConImp: number,
+    impInt: number,
+    ivaRate: number,
+  ) => {
+    const divisor = 1 + ivaRate / 100;
+    const base = divisor > 0
+      ? Math.round(((costoConImp - impInt) / divisor) * 100) / 100
+      : costoConImp - impInt;
+    form.setFieldsValue({ PRECIO_COMPRA_BASE: Math.max(0, base) });
+  }, [form]);
+
+  // Called when PRECIO_COMPRA_BASE changes
+  const handleCostoBaseChange = useCallback((value: number | null) => {
+    const base = value ?? 0;
+    const impInt = form.getFieldValue('IMP_INT') ?? 0;
+    const ivaRate = getIvaRate();
+    recalcCostoConImpuestos(base, impInt, ivaRate, margenes);
+  }, [form, margenes, getIvaRate, recalcCostoConImpuestos]);
+
+  // Called when PRECIO_COMPRA (costo con impuestos) changes
   const handleCostoChange = useCallback((value: number | null) => {
     const costo = value ?? 0;
-    form.setFieldsValue({ PRECIO_COMPRA: costo });
+    const impInt = form.getFieldValue('IMP_INT') ?? 0;
+    const ivaRate = getIvaRate();
+    recalcCostoSinImpuestos(costo, impInt, ivaRate);
     recalcAllPricesFromMargins(costo, margenes);
-  }, [form, margenes, recalcAllPricesFromMargins]);
+  }, [form, margenes, getIvaRate, recalcCostoSinImpuestos, recalcAllPricesFromMargins]);
+
+  // Called when IMP_INT changes
+  const handleImpIntChange = useCallback((value: number | null) => {
+    const impInt = value ?? 0;
+    const base = form.getFieldValue('PRECIO_COMPRA_BASE') ?? 0;
+    const ivaRate = getIvaRate();
+    // Re-derive costo con impuestos from the current base + new imp. interno
+    recalcCostoConImpuestos(base, impInt, ivaRate, margenes);
+  }, [form, margenes, getIvaRate, recalcCostoConImpuestos]);
+
+  // Called when TASA_IVA_ID changes
+  const handleTasaIvaChange = useCallback((tasaId: number) => {
+    form.setFieldsValue({ TASA_IVA_ID: tasaId });
+    const tasa = tasas?.find((t: TasaImpuesto) => t.TASA_ID === tasaId);
+    const ivaRate = tasa?.PORCENTAJE ?? 0;
+    const base = form.getFieldValue('PRECIO_COMPRA_BASE') ?? 0;
+    const impInt = form.getFieldValue('IMP_INT') ?? 0;
+    if (base > 0) {
+      recalcCostoConImpuestos(base, impInt, ivaRate, margenes);
+    }
+  }, [form, tasas, margenes, recalcCostoConImpuestos]);
 
   const handleMargenChange = useCallback((idx: number, value: number | null) => {
     const newMargenes = [...margenes];
@@ -434,9 +514,9 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                     <Col span={8}>
                       <Form.Item name="CODIGOPARTICULAR" label="Código"
                         tooltip={isEdit ? 'El código es obligatorio' : 'Si se deja vacío se asigna automáticamente'}
-                        rules={isEdit || copyFrom ? [{ required: true, message: 'Requerido' }] : []}>
+                        rules={isEdit ? [{ required: true, message: 'Requerido' }] : []}>
                         <Input
-                          placeholder={isEdit || copyFrom ? 'Código particular' : 'Auto'}
+                          placeholder={isEdit ? 'Código particular' : 'Auto'}
                         />
                       </Form.Item>
                     </Col>
@@ -487,6 +567,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                         <Select
                           placeholder="IVA"
                           options={tasas?.map((t: TasaImpuesto) => ({ label: t.NOMBRE, value: t.TASA_ID }))}
+                          onChange={handleTasaIvaChange}
                         />
                       </Form.Item>
                     </Col>
@@ -530,19 +611,24 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                       </Form.Item>
                     </Col>
                     <Col span={8}>
-                      <Form.Item name="IMP_INT" label="Imp. Internos ($)">
-                        <InputNumber min={0} precision={2} style={{ width: '100%' }} prefix="$" />
+                      <Form.Item name="IMP_INT" label="Imp. Internos ($)"
+                        tooltip="Impuesto Interno: monto fijo en $ que se suma al costo (Ley 24.674). Modifica el costo con impuestos y los precios de lista.">
+                        <InputNumber min={0} precision={2} style={{ width: '100%' }} prefix="$"
+                          onChange={handleImpIntChange} />
                       </Form.Item>
                     </Col>
                     <Col span={8}>
-                      <Form.Item name="PRECIO_COMPRA_BASE" label="Costo sin impuestos ($)">
-                        <InputNumber min={0} precision={2} style={{ width: '100%' }} prefix="$" />
+                      <Form.Item name="PRECIO_COMPRA_BASE" label="Costo sin impuestos ($)"
+                        tooltip="Precio neto (base imponible). Al modificarlo se recalcula automáticamente el costo con IVA + Imp. Internos y los precios de lista.">
+                        <InputNumber min={0} precision={2} style={{ width: '100%' }} prefix="$"
+                          onChange={handleCostoBaseChange} />
                       </Form.Item>
                     </Col>
                   </Row>
                   <Row gutter={16}>
                     <Col span={8}>
-                      <Form.Item name="PRECIO_COMPRA" label="Costo con impuestos ($)">
+                      <Form.Item name="PRECIO_COMPRA" label="Costo con impuestos ($)"
+                        tooltip="Costo total = Base + IVA + Imp. Internos. Al modificarlo se recalcula el costo sin impuestos y los precios de lista.">
                         <InputNumber min={0} precision={2} style={{ width: '100%' }} prefix="$"
                           onChange={handleCostoChange} />
                       </Form.Item>
@@ -598,9 +684,27 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                     size="small"
                     pagination={false}
                     dataSource={listas?.slice(0, 5).map((l, i) => ({ key: i, idx: i, NOMBRE: l.NOMBRE })) || []}
+                    onRow={(row: any) => ({
+                      style: row.idx + 1 === listaDefectoActual
+                        ? { background: 'rgba(234, 189, 35, 0.14)' }
+                        : undefined,
+                    })}
                     columns={[
                       {
                         title: 'Nombre', dataIndex: 'NOMBRE', width: '40%',
+                        render: (value: string, row: any) => {
+                          const esDefecto = row.idx + 1 === listaDefectoActual;
+                          return (
+                            <Space size={6}>
+                              <Text strong={esDefecto}>{value}</Text>
+                              {esDefecto && (
+                                <Tag style={{ margin: 0, borderColor: '#EABD23', color: '#1E1F22', background: '#EABD23' }}>
+                                  Por defecto
+                                </Tag>
+                              )}
+                            </Space>
+                          );
+                        },
                       },
                       {
                         title: 'Margen (%)', dataIndex: 'idx', width: '30%',

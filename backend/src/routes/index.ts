@@ -2,6 +2,7 @@ import { Router } from 'express';
 import authRoutes from './auth.routes.js';
 import usuariosRoutes from './usuarios.routes.js';
 import productRoutes from './product.routes.js';
+import priceListRoutes from './priceList.routes.js';
 import customerRoutes from './customer.routes.js';
 import salesRoutes from './sales.routes.js';
 import supplierRoutes from './supplier.routes.js';
@@ -33,12 +34,14 @@ import expensesRoutes from './expenses.routes.js';
 import backupsRoutes from './backups.routes.js';
 import chequesRoutes from './cheques.routes.js';
 import bancoRoutes from './banco.routes.js';
+import reportsRoutes from './reports.routes.js';
 
 const router = Router();
 
 router.use('/auth', authRoutes);
 router.use('/usuarios', usuariosRoutes);
 router.use('/products', productRoutes);
+router.use('/price-lists', priceListRoutes);
 router.use('/customers', customerRoutes);
 router.use('/sales', salesRoutes);
 router.use('/suppliers', supplierRoutes);
@@ -70,5 +73,6 @@ router.use('/expenses', expensesRoutes);
 router.use('/backups', backupsRoutes);
 router.use('/cheques', chequesRoutes);
 router.use('/bancos', bancoRoutes);
+router.use('/reports', reportsRoutes);
 
 export default router;

@@ -12,6 +12,7 @@ export interface ProductFilter {
   search?: string;
   categoriaId?: number;
   marcaId?: number;
+  unidadIds?: number[];
   activo?: boolean;
   stockBajo?: boolean;
   orderBy?: string;
@@ -100,6 +101,14 @@ export const productService = {
     if (filter.marcaId) {
       where += ' AND p.MARCA_ID = @marcaId';
       params.push({ name: 'marcaId', type: sql.Int, value: filter.marcaId });
+    }
+    if (filter.unidadIds && filter.unidadIds.length > 0) {
+      const unidadParamNames = filter.unidadIds.map((unidadId, i) => {
+        const name = `unidadId${i}`;
+        params.push({ name, type: sql.Int, value: unidadId });
+        return `@${name}`;
+      });
+      where += ` AND p.UNIDAD_ID IN (${unidadParamNames.join(', ')})`;
     }
     if (filter.stockBajo) {
       where += ' AND p.STOCK_MINIMO IS NOT NULL AND (SELECT ISNULL(SUM(sd2.CANTIDAD),0) FROM STOCK_DEPOSITOS sd2 WHERE sd2.PRODUCTO_ID = p.PRODUCTO_ID) <= p.STOCK_MINIMO';

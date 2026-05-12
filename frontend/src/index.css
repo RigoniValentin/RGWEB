@@ -751,6 +751,17 @@ body {
   border-radius: 2px;
 }
 
+/* ── Price Lists ──────────────────────────────── */
+.price-list-row-selected > td {
+  background: rgba(234, 189, 35, 0.18) !important;
+}
+
+@media (max-width: 860px) {
+  .price-list-row-selected > td {
+    background: rgba(234, 189, 35, 0.18) !important;
+  }
+}
+
 /* ── Gold Button ──────────────────────────────── */
 .btn-gold {
   background: linear-gradient(135deg, var(--rg-gold), var(--rg-gold-dark)) !important;

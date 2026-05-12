@@ -2176,13 +2176,14 @@ export const salesService = {
   },
 
   // ── Build WhatsApp sale detail message ─────────
-  async buildWhatsAppMessage(ventaId: number) {
+  async buildWhatsAppMessage(ventaId: number, nombreCliente?: string) {
     const venta = await this.getById(ventaId);
     const empresa = await this.getEmpresaInfo();
 
+    const displayName = nombreCliente || venta.CLIENTE_NOMBRE || 'Cliente';
     let msg = `*-------- ${empresa.NOMBRE_FANTASIA.toUpperCase()} --------*\n`;
     msg += `🗣️ \`\`\`Su compra.\`\`\`\n\n`;
-    msg += `Estimado/a *${venta.CLIENTE_NOMBRE || 'Cliente'}*\n\n`;
+    msg += `Estimado/a *${displayName}*\n\n`;
     msg += `Le enviamos el detalle de su compra:\n\n`;
 
     for (const item of venta.items) {
@@ -2203,7 +2204,7 @@ export const salesService = {
 
   // ── Send sale detail notifications ─────────────
   async sendSaleWhatsApp(ventaId: number, telefonoCliente: string, nombreCliente: string) {
-    const msg = await this.buildWhatsAppMessage(ventaId);
+    const msg = await this.buildWhatsAppMessage(ventaId, nombreCliente);
 
     // Normalize phone: ensure 549 prefix
     let phone = telefonoCliente.replace(/\D/g, '');

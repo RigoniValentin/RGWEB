@@ -1236,7 +1236,11 @@ export const ctaCorrienteService = {
       .input('pagoId', sql.Int, pagoId)
       .query('DELETE FROM ANTICIPOS_CLIENTES WHERE PAGO_ID = @pagoId');
 
-    // Update COBRADA and reset MONTO_ANTICIPO for affected sales
+    // Update COBRADA for affected sales
+    // NOTE: MONTO_ANTICIPO is a historical field set at sale creation time and must not be
+    // modified here. Fully-consumed anticipos are deleted from ANTICIPOS_CLIENTES, so any
+    // join against that table would incorrectly zero out MONTO_ANTICIPO for sales whose
+    // anticipo source has been fully spent. COBRADA is the authoritative settlement flag.
     if (ventaIds.length > 0) {
       const ids = ventaIds.join(',');
       await tx.request().query(`
@@ -1246,11 +1250,7 @@ export const ctaCorrienteService = {
                                   FROM IMPUTACIONES_PAGOS 
                                   WHERE VENTA_ID = v.VENTA_ID), 0) THEN 1
           ELSE 0
-        END,
-        v.MONTO_ANTICIPO = ISNULL((SELECT SUM(MONTO_IMPUTADO) 
-                                   FROM IMPUTACIONES_PAGOS ip2
-                                   INNER JOIN ANTICIPOS_CLIENTES ac ON ip2.PAGO_ID = ac.PAGO_ID
-                                   WHERE ip2.VENTA_ID = v.VENTA_ID), 0)
+        END
         FROM VENTAS v
         INNER JOIN VENTAS_CTA_CORRIENTE vc ON v.VENTA_ID = vc.COMPROBANTE_ID
         WHERE v.VENTA_ID IN (${ids})
