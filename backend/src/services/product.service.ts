@@ -1,6 +1,7 @@
 import { getPool, sql } from '../database/connection.js';
 import type { Producto, PaginatedResult } from '../types/index.js';
 import { registrarHistorialStock } from './stockHistorial.helper.js';
+import { webhookDispatcher } from './webhook.dispatcher.js';
 
 // ═══════════════════════════════════════════════════
 //  Product Service — Full CRUD + Bulk Operations
@@ -505,6 +506,22 @@ export const productService = {
       }
 
       await tx.commit();
+
+      // Notificar al webhook dispatcher si cambiaron campos relevantes para la tienda.
+      // Cubre el caso de cambio de precio (LISTA_1) o activación de VENTA_WEB sin
+      // cambio de stock en depósitos (que ya lo notifica registrarHistorialStock).
+      const webRelevantChanged =
+        ('LISTA_1'    in input) ||
+        ('VENTA_WEB'  in input) ||
+        ('ACTIVO'     in input) ||
+        ('NOMBRE'     in input);
+      if (webRelevantChanged) {
+        try {
+          webhookDispatcher.notifyStockChange(id);
+        } catch {
+          // fire-and-forget, nunca bloquea ni rompe la edición
+        }
+      }
     } catch (err) {
       await tx.rollback();
       throw err;
