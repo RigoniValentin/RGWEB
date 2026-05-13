@@ -86,13 +86,26 @@ BEGIN
 END
 GO
 
--- ── Permisos (si existe la tabla PERMISOS) ────────────────────────
-IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[PERMISOS]') AND type IN (N'U'))
+-- ── Permisos (Integración con PERMISOS_WEB si existe) ───────────
+IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[PERMISOS_WEB]') AND type IN (N'U'))
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM PERMISOS WHERE LLAVE = 'integraciones.ver')
-        INSERT INTO PERMISOS (LLAVE, DESCRIPCION) VALUES ('integraciones.ver', 'Ver módulo Integraciones Externas');
-    IF NOT EXISTS (SELECT 1 FROM PERMISOS WHERE LLAVE = 'integraciones.administrar')
-        INSERT INTO PERMISOS (LLAVE, DESCRIPCION) VALUES ('integraciones.administrar', 'Administrar Integraciones (API keys, webhook)');
+    -- Insertar en catálogo maestro
+    IF NOT EXISTS (SELECT 1 FROM PERMISOS_WEB WHERE LLAVE = 'integraciones.ver')
+        INSERT INTO PERMISOS_WEB (LLAVE, DESCRIPCION, MODULO, CATEGORIA, RIESGO, ORDEN)
+        VALUES ('integraciones.ver', 'Ver módulo Integraciones Externas', 'configuracion', 'lectura', 'BAJO', 40);
+
+    IF NOT EXISTS (SELECT 1 FROM PERMISOS_WEB WHERE LLAVE = 'integraciones.administrar')
+        INSERT INTO PERMISOS_WEB (LLAVE, DESCRIPCION, MODULO, CATEGORIA, RIESGO, ORDEN)
+        VALUES ('integraciones.administrar', 'Administrar Integraciones (API keys, webhook)', 'configuracion', 'admin', 'ALTO', 50);
+
+    -- Auto-asignar a SUPERADMIN si existe
+    DECLARE @SUPER_ID INT = (SELECT ROL_ID FROM ROLES WHERE NOMBRE = 'SUPERADMIN');
+    IF @SUPER_ID IS NOT NULL
+    BEGIN
+        INSERT INTO ROLES_PERMISOS (ROL_ID, PERMISO_ID)
+        SELECT @SUPER_ID, PERMISO_ID FROM PERMISOS_WEB WHERE LLAVE IN ('integraciones.ver', 'integraciones.administrar')
+        AND NOT EXISTS (SELECT 1 FROM ROLES_PERMISOS WHERE ROL_ID = @SUPER_ID AND PERMISO_ID = PERMISOS_WEB.PERMISO_ID);
+    END
 END
 GO
 

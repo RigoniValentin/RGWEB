@@ -312,6 +312,7 @@ export function ListadoComandasPage() {
       {/* ── Table ── */}
       <div style={{ flex: 1, overflow: 'auto', padding: '0 20px' }}>
         <Table<ComandaListItem>
+          className="rg-table"
           dataSource={comandas}
           columns={columns}
           rowKey="PEDIDO_ID"

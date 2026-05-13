@@ -452,7 +452,10 @@ WITH nuevos AS (
     ('configuracion.ver',         'Ver configuración del sistema',   'configuracion', 'lectura',   'BAJO',    10),
     ('configuracion.editar',      'Editar configuración del sistema','configuracion', 'admin',     'ALTO',    20),
     -- Backups
-    ('backups.administrar',       'Administrar copias de seguridad', 'configuracion', 'admin',     'ALTO',    30)
+    ('backups.administrar',       'Administrar copias de seguridad', 'configuracion', 'admin',     'ALTO',    30),
+    -- Integraciones
+    ('integraciones.ver',         'Ver módulo Integraciones Externas', 'configuracion', 'lectura', 'BAJO',    40),
+    ('integraciones.administrar', 'Administrar Integraciones (API keys, webhook)', 'configuracion', 'admin', 'ALTO', 50)
   ) AS v(LLAVE, DESCRIPCION, MODULO, CATEGORIA, RIESGO, ORDEN)
   WHERE NOT EXISTS (SELECT 1 FROM PERMISOS_WEB WHERE LLAVE = v.LLAVE)
 )

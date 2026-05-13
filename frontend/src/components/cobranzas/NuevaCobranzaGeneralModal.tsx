@@ -20,6 +20,7 @@ import { fmtMoney } from '../../utils/format';
 import { invalidateCashQueries } from '../../utils/invalidateCashQueries';
 import { printReciboCobranza } from '../../utils/printReciboCobranza';
 import { useAuthStore } from '../../store/authStore';
+import { usePaymentMethodKeyboardNavigation } from '../../hooks/usePaymentMethodKeyboardNavigation';
 import type { MetodoPagoItem, ChequePayload } from '../../types';
 
 const { Text } = Typography;
@@ -162,6 +163,32 @@ export function NuevaCobranzaGeneralModal({
       setClienteSearch('');
     }
   }, [open, isEdit, form]);
+
+  const paymentMethodKeyboard = usePaymentMethodKeyboardNavigation({
+    enabled: metodoModalOpen,
+    items: metodosPagoOrdenados,
+    selectedIds: metodoModalSelection,
+    getId: metodo => metodo.METODO_PAGO_ID,
+    onToggle: id => {
+      setMetodoModalSelection(prev =>
+        prev.includes(id)
+          ? prev.filter(metodoId => metodoId !== id)
+          : [...prev, id]
+      );
+    },
+    onConfirm: () => {
+      if (metodoModalSelection.length === 0) return;
+      setSelectedMetodos(metodoModalSelection);
+      setMontosPorMetodo(prev => {
+        const next: Record<number, number> = {};
+        for (const id of metodoModalSelection) {
+          next[id] = prev[id] || 0;
+        }
+        return next;
+      });
+      setMetodoModalOpen(false);
+    },
+  });
 
   // ── Computed total ──────────────────────────────
   const total = useMemo(() => {
@@ -670,13 +697,15 @@ export function NuevaCobranzaGeneralModal({
           <Text type="secondary" style={{ fontSize: 12, marginBottom: 12, display: 'block' }}>
             Seleccione uno o más métodos. Si elige varios, podrá distribuir los montos.
           </Text>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12 }}>
+          <div ref={paymentMethodKeyboard.gridRef} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12, padding: 6 }}>
             {metodosPagoOrdenados.map(m => {
               const isSelected = metodoModalSelection.includes(m.METODO_PAGO_ID);
+              const isActive = paymentMethodKeyboard.activeId === m.METODO_PAGO_ID;
               return (
                 <div
                   key={m.METODO_PAGO_ID}
                   onClick={() => {
+                    paymentMethodKeyboard.setActiveId(m.METODO_PAGO_ID);
                     setMetodoModalSelection(prev =>
                       isSelected
                         ? prev.filter(id => id !== m.METODO_PAGO_ID)
@@ -685,10 +714,12 @@ export function NuevaCobranzaGeneralModal({
                   }}
                   style={{
                     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-                    padding: '16px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'center',
+                    padding: '22px 16px', borderRadius: 10, cursor: 'pointer', textAlign: 'center',
                     border: isSelected ? '2px solid #EABD23' : '1px solid #d9d9d9',
                     background: isSelected ? 'rgba(234, 189, 35, 0.08)' : 'transparent',
                     transition: 'all 0.15s', position: 'relative',
+                    outline: isActive ? '2px solid rgba(234, 189, 35, 0.55)' : 'none',
+                    outlineOffset: 2,
                   }}
                 >
                   {m.IMAGEN_BASE64 ? (

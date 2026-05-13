@@ -28,7 +28,8 @@ $tunnelName = Read-Host "Nombre del tunel [rg-tricarios]"
 if ([string]::IsNullOrWhiteSpace($tunnelName)) { $tunnelName = "rg-tricarios" }
 $localPort = Read-Host "Puerto local RG WEB [3001]"
 if ([string]::IsNullOrWhiteSpace($localPort)) { $localPort = "3001" }
-$configDir = "$env:USERPROFILE.cloudflared"
+$configDir = Join-Path $env:USERPROFILE ".cloudflared"
+$certPath = Join-Path $configDir "cert.pem"
 
 Write-Info "Tunel  : $tunnelName"
 Write-Info "Puerto : $localPort"
@@ -38,11 +39,11 @@ if ($confirm -notmatch "^[sS]") { exit 0 }
 
 # --- Paso 1: Login ---
 Write-Step "Paso 1/4 - Autenticacion en Cloudflare"
-if (Test-Path "$configDir\cert.pem") {
+if (Test-Path $certPath) {
     Write-OK "Ya autenticado."
 } else {
     & $cfExe tunnel login
-    if (-not (Test-Path "$configDir\cert.pem")) { Write-Err "Login fallido."; exit 1 }
+    if (-not (Test-Path $certPath)) { Write-Err "Login fallido."; exit 1 }
     Write-OK "Autenticado."
 }
 

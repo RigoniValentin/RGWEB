@@ -7,6 +7,7 @@ import { salesApi } from '../../services/sales.api';
 import { bancosApi } from '../../services/bancos.api';
 import BancoSelect from '../cheques/BancoSelect';
 import { fmtMoney } from '../../utils/format';
+import { usePaymentMethodKeyboardNavigation } from '../../hooks/usePaymentMethodKeyboardNavigation';
 import type { Venta, ChequePayload } from '../../types';
 
 const { Title, Text } = Typography;
@@ -163,6 +164,28 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
     ? totalRecibido > 0
     : totalRecibido >= montoASaldar) && !chequesIncompletos;
 
+  const paymentMethodKeyboard = usePaymentMethodKeyboardNavigation({
+    enabled: open && !!venta,
+    items: metodosPagoOrdenados,
+    selectedIds: selectedMetodos,
+    getId: metodo => metodo.METODO_PAGO_ID,
+    onToggle: id => {
+      if (selectedMetodos.includes(id)) {
+        setSelectedMetodos(prev => prev.filter(metodoId => metodoId !== id));
+        setMontosPorMetodo(prev => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      } else {
+        setSelectedMetodos(prev => [...prev, id]);
+      }
+    },
+    onConfirm: () => {
+      if (esValido) payMutation.mutate();
+    },
+  });
+
   return (
     <Modal
       open={open}
@@ -196,13 +219,15 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
             <Text type="secondary" style={{ fontSize: 12, marginBottom: 10, display: 'block' }}>
               Haga click para seleccionar un método. Mantenga Ctrl presionado para seleccionar varios.
             </Text>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 10 }}>
+            <div ref={paymentMethodKeyboard.gridRef} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 10, padding: 6 }}>
               {metodosPagoOrdenados.map(m => {
                 const isSelected = selectedMetodos.includes(m.METODO_PAGO_ID);
+                const isActive = paymentMethodKeyboard.activeId === m.METODO_PAGO_ID;
                 return (
                   <div
                     key={m.METODO_PAGO_ID}
                     onClick={(e: React.MouseEvent) => {
+                      paymentMethodKeyboard.setActiveId(m.METODO_PAGO_ID);
                       if (e.ctrlKey || e.metaKey) {
                         // Ctrl+Click: toggle individual
                         if (isSelected) {
@@ -227,6 +252,8 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
                       border: isSelected ? '2px solid #EABD23' : '1px solid #d9d9d9',
                       background: isSelected ? 'rgba(234, 189, 35, 0.08)' : 'transparent',
                       transition: 'all 0.15s', position: 'relative',
+                      outline: isActive ? '2px solid rgba(234, 189, 35, 0.55)' : 'none',
+                      outlineOffset: 2,
                     }}
                   >
                     {m.IMAGEN_BASE64 ? (
@@ -264,6 +291,7 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
                   formatter={v => `$ ${v}`}
                   onChange={v => setMontosPorMetodo(prev => ({ ...prev, [id]: v || 0 }))}
                   autoFocus
+                  onPressEnter={() => { if (esValido) payMutation.mutate(); }}
                 />
               </div>
             );
@@ -283,6 +311,7 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
                   style={{ width: '100%' }}
                   formatter={v => `$ ${v}`}
                   onChange={v => setMontosPorMetodo(prev => ({ ...prev, [id]: v || 0 }))}
+                  onPressEnter={() => { if (esValido) payMutation.mutate(); }}
                 />
               </div>
             );

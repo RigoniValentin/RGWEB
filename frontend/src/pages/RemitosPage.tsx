@@ -278,6 +278,7 @@ export function RemitosPage() {
 
       {/* ── Table ── */}
       <Table
+        className="rg-table"
         dataSource={remitos}
         columns={columns}
         rowKey="REMITO_ID"

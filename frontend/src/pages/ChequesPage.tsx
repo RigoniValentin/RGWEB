@@ -337,6 +337,7 @@ export function ChequesPage() {
         </Space>
 
         <Table<Cheque>
+          className="rg-table"
           rowKey="CHEQUE_ID"
           columns={columns}
           dataSource={data?.data || []}

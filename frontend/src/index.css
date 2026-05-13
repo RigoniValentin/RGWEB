@@ -34,10 +34,12 @@ body {
   -moz-osx-font-smoothing: grayscale;
   color: var(--rg-text);
   background: var(--rg-white-smoke);
+  overflow: hidden;
 }
 
 #root {
   min-height: 100vh;
+  overflow: hidden;
 }
 
 /* ── Scrollbar ────────────────────────────────── */
@@ -155,6 +157,33 @@ body {
   animation: fadeIn 0.3s ease-out both;
 }
 
+/* ── Routed panels ───────────────────────────── */
+.rg-tab-panel {
+  display: none;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px;
+}
+.rg-tab-panel-active {
+  display: block;
+}
+.rg-tab-panel-active > .page-enter {
+  min-height: 100%;
+}
+.rg-tab-panel-active > .page-enter:has(> .page-header):has(.rg-table) {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 8px;
+}
+.rg-tab-panel-active > .page-enter:has(> .page-header):has(.rg-table) > :not(.ant-table-wrapper):not(.ant-card:has(.rg-table)) {
+  flex-shrink: 0;
+}
+
 /* ── Reduced motion (accesibilidad + dispositivos débiles) ──
    Usuarios con la preferencia OS "reducir movimiento" o equipos
    con limitaciones de GPU obtienen una UI completamente estática. */
@@ -235,6 +264,70 @@ body {
 }
 
 /* ── Table Styling ────────────────────────────── */
+.rg-tab-panel-active > .page-enter:has(> .page-header):has(.rg-table) > .ant-table-wrapper.rg-table,
+.rg-tab-panel-active > .page-enter:has(> .page-header):has(.rg-table) > .ant-card:has(.rg-table) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.rg-tab-panel-active > .page-enter:has(> .page-header):has(.rg-table) > .ant-card:has(.rg-table) {
+  display: flex;
+  flex-direction: column;
+}
+.rg-tab-panel-active > .page-enter:has(> .page-header):has(.rg-table) > .ant-card:has(.rg-table) > .ant-card-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.rg-tab-panel-active > .page-enter:has(> .page-header):has(.rg-table) > .ant-card:has(.rg-table) > .ant-card-body > :not(.ant-table-wrapper):not(.ant-tabs) {
+  flex-shrink: 0;
+}
+.rg-tab-panel-active > .page-enter:has(> .page-header):has(.rg-table) > .ant-card:has(.rg-table) .ant-tabs,
+.rg-tab-panel-active > .page-enter:has(> .page-header):has(.rg-table) > .ant-card:has(.rg-table) .ant-tabs-content-holder,
+.rg-tab-panel-active > .page-enter:has(> .page-header):has(.rg-table) > .ant-card:has(.rg-table) .ant-tabs-content,
+.rg-tab-panel-active > .page-enter:has(> .page-header):has(.rg-table) > .ant-card:has(.rg-table) .ant-tabs-tabpane-active {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.rg-tab-panel-active .rg-table {
+  min-height: 0;
+}
+.rg-tab-panel-active > .page-enter:has(> .page-header):has(.rg-table) > .ant-table-wrapper.rg-table,
+.rg-tab-panel-active > .page-enter:has(> .page-header):has(.rg-table) > .ant-card:has(.rg-table) .ant-card-body > .ant-table-wrapper.rg-table,
+.rg-tab-panel-active > .page-enter:has(> .page-header):has(.rg-table) > .ant-card:has(.rg-table) .ant-tabs-tabpane-active > .ant-table-wrapper.rg-table {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.rg-tab-panel-active .rg-table > .ant-spin-nested-loading,
+.rg-tab-panel-active .rg-table > .ant-spin-nested-loading > .ant-spin-container {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.rg-tab-panel-active .rg-table .ant-table {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.rg-tab-panel-active .rg-table .ant-table-container,
+.rg-tab-panel-active .rg-table .ant-table-content,
+.rg-tab-panel-active .rg-table .ant-table-body {
+  height: 100%;
+  min-height: 0;
+}
+.rg-tab-panel-active .rg-table .ant-table-content,
+.rg-tab-panel-active .rg-table .ant-table-body {
+  overflow: auto !important;
+}
+.rg-tab-panel-active .rg-table .ant-table-pagination {
+  flex-shrink: 0;
+  margin: 12px 0 0 !important;
+}
 .rg-table .ant-table-thead > tr > th {
   background: var(--rg-black) !important;
   color: var(--rg-gold) !important;
@@ -244,6 +337,9 @@ body {
   letter-spacing: 0.03em;
   border-bottom: 2px solid var(--rg-gold) !important;
   padding: 12px 16px !important;
+  position: sticky;
+  top: 0;
+  z-index: 4;
 }
 .rg-table .ant-table-tbody > tr {
   transition: var(--rg-transition);
@@ -1643,6 +1739,17 @@ body {
   color: #EABD23;
   line-height: 1.2;
   margin: 4px 0 2px;
+}
+
+/* ── Payment method grid — hover & keyboard-active styles ── */
+[data-pm-grid] > div {
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.15s, outline 0.15s;
+}
+[data-pm-grid] > div:hover {
+  border-color: rgba(234, 189, 35, 0.65) !important;
+  background: rgba(234, 189, 35, 0.06) !important;
+  box-shadow: 0 2px 8px rgba(234, 189, 35, 0.18);
+  transform: translateY(-1px);
 }
 
 /* ── Método de pago selector ─────── */

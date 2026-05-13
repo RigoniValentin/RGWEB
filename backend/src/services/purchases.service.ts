@@ -53,6 +53,7 @@ export interface CompraInput {
   IVA_TOTAL?: number;
   ACTUALIZAR_COSTOS?: boolean;
   ACTUALIZAR_PRECIOS?: boolean;
+  ACTUALIZAR_STOCK?: boolean;
   DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
   PUNTO_VENTA_ID?: number | null;
   /** IDs de cheques EN_CARTERA a egresar como pago (endoso). El backend
@@ -961,7 +962,9 @@ export const purchasesService = {
           `);
 
         // Increment stock (purchase increases inventory)
-        await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, depositoId, compraId, usuarioId);
+        if (input.ACTUALIZAR_STOCK !== false) {
+          await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, depositoId, compraId, usuarioId);
+        }
 
         // Update costs if requested
         if (input.ACTUALIZAR_COSTOS) {
@@ -1392,7 +1395,9 @@ export const purchasesService = {
             )
           `);
 
-        await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, depositoId, id, usuarioId);
+        if (input.ACTUALIZAR_STOCK !== false) {
+          await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, depositoId, id, usuarioId);
+        }
 
         if (input.ACTUALIZAR_COSTOS) {
           const impIntUnit = (item.IMP_INTERNOS || 0);

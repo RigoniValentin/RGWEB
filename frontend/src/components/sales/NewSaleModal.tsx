@@ -27,6 +27,7 @@ import { generateFacturaPdf } from './facturaPdf';
 import { printFacturaTicket } from './facturaTicket';
 import { settingsApi } from '../../services/settings.api';
 import { invalidateInventoryQueries } from '../../utils/invalidateInventoryQueries';
+import { usePaymentMethodKeyboardNavigation } from '../../hooks/usePaymentMethodKeyboardNavigation';
 import { FilePdfOutlined } from '@ant-design/icons';
 
 import type { ReceiptData } from '../../utils/printReceipt';
@@ -564,6 +565,33 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     }
   }, [esCtaCorriente]);
 
+  const paymentMethodKeyboard = usePaymentMethodKeyboardNavigation({
+    enabled: metodoModalOpen,
+    items: metodosPagoOrdenados,
+    selectedIds: metodoModalSelection,
+    getId: metodo => metodo.METODO_PAGO_ID,
+    onToggle: id => {
+      setMetodoModalSelection(prev =>
+        prev.includes(id)
+          ? prev.filter(metodoId => metodoId !== id)
+          : [...prev, id]
+      );
+    },
+    onConfirm: () => {
+      if (metodoModalSelection.length === 0) return;
+      setSelectedMetodos(metodoModalSelection);
+      setMontosPorMetodo(prev => {
+        const next: Record<number, number> = {};
+        for (const id of metodoModalSelection) {
+          next[id] = prev[id] || 0;
+        }
+        return next;
+      });
+      setMetodoModalOpen(false);
+      setStep('cobro');
+    },
+  });
+
   // Create sale mutation
   const createMutation = useMutation({
     mutationFn: (data: VentaInput) => salesApi.create(data),
@@ -801,9 +829,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
             : i
         );
       }
-      const isKg = (product.UNIDAD_NOMBRE || '').toUpperCase().includes('KILOGRAMO');
       const isLt = (product.UNIDAD_NOMBRE || '').toUpperCase().includes('LITRO');
-      const isWeightOrVolume = isKg || isLt;
       const newKey = `${product.PRODUCTO_ID}-${Date.now()}`;
       setLastAddedKey(focusPrice ? newKey : null);
       return [...prev, {
@@ -812,7 +838,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         NOMBRE: product.NOMBRE,
         CODIGO: product.CODIGOPARTICULAR,
         PRECIO_UNITARIO: product.PRECIO_VENTA,
-        CANTIDAD: isWeightOrVolume ? 0 : 1,
+        CANTIDAD: isLt ? 0 : 1,
         DESCUENTO: 0,
         PRECIO_COMPRA: product.PRECIO_COMPRA || 0,
         STOCK: product.STOCK,
@@ -1104,6 +1130,12 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       return;
     }
 
+    const itemsSinCantidad = cart.filter(item => !item.CANTIDAD || item.CANTIDAD <= 0);
+    if (itemsSinCantidad.length > 0) {
+      message.warning(`Hay ${itemsSinCantidad.length === 1 ? 'un producto' : `${itemsSinCantidad.length} productos`} con cantidad 0. Ingrese una cantidad válida antes de continuar.`);
+      return;
+    }
+
     if (!ensureDepositoParaVenta()) return;
 
     if (cobrar) {
@@ -1244,6 +1276,10 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
+      // Cuando el sub-modal de selección de método de pago está abierto,
+      // cedemos el control al hook de navegación de métodos de pago.
+      if (metodoModalOpen) return;
+
       const settings = useSettingsStore.getState();
       const atajoIrCobro = (settings.get('atajo_ir_cobro') || 'F2').toUpperCase();
       const atajoCobrar = (settings.get('atajo_cobrar') || 'F4').toUpperCase();
@@ -1316,7 +1352,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     };
     window.addEventListener('keydown', handler, true);
     return () => window.removeEventListener('keydown', handler, true);
-  }, [open, step, cart.length, pagoValido, drafts, activeDraftId]);
+  }, [open, step, cart.length, pagoValido, drafts, activeDraftId, metodoModalOpen]);
 
   const activeListasPrecios = useMemo(() => listasPrecios.filter(l => l.ACTIVA), [listasPrecios]);
 
@@ -2176,6 +2212,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                       style={{ width: '100%' }}
                       formatter={v => `$ ${v}`}
                       onChange={v => setMontosPorMetodo(prev => ({ ...prev, [id]: v || 0 }))}
+                      onPressEnter={() => { if (pagoValido) handleConfirmCobro(); }}
                     />
                   </div>
                 );
@@ -2385,13 +2422,15 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         <Text type="secondary" style={{ fontSize: 12, marginBottom: 12, display: 'block' }}>
           Haga click para seleccionar un método. Mantenga Ctrl presionado para seleccionar varios.
         </Text>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12 }}>
+        <div ref={paymentMethodKeyboard.gridRef} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12, padding: 6 }}>
           {metodosPagoOrdenados.map(m => {
             const isSelected = metodoModalSelection.includes(m.METODO_PAGO_ID);
+            const isActive = paymentMethodKeyboard.activeId === m.METODO_PAGO_ID;
             return (
               <div
                 key={m.METODO_PAGO_ID}
                 onClick={(e: React.MouseEvent) => {
+                  paymentMethodKeyboard.setActiveId(m.METODO_PAGO_ID);
                   if (e.ctrlKey || e.metaKey) {
                     // Ctrl+Click: toggle individual
                     setMetodoModalSelection(prev =>
@@ -2406,10 +2445,12 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                 }}
                 style={{
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-                  padding: '16px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'center',
+                  padding: '22px 16px', borderRadius: 10, cursor: 'pointer', textAlign: 'center',
                   border: isSelected ? '2px solid #EABD23' : '1px solid #d9d9d9',
                   background: isSelected ? 'rgba(234, 189, 35, 0.08)' : 'transparent',
                   transition: 'all 0.15s', position: 'relative',
+                  outline: isActive ? '2px solid rgba(234, 189, 35, 0.55)' : 'none',
+                  outlineOffset: 2,
                 }}
               >
                 {m.IMAGEN_BASE64 ? (

@@ -33,6 +33,7 @@ export interface PurchaseDraft {
   ivaManual: number;
   actualizarCostos: boolean;
   actualizarPrecios: boolean;
+  actualizarStock: boolean;
   percepcionIva: number;
   percepcionIibb: number;
   tipoCarga: 'simple' | 'detallada';
@@ -56,6 +57,7 @@ const EMPTY_DRAFT: PurchaseDraft = {
   ivaManual: 0,
   actualizarCostos: true,
   actualizarPrecios: true,
+  actualizarStock: true,
   percepcionIva: 0,
   percepcionIibb: 0,
   tipoCarga: 'detallada',

@@ -280,6 +280,7 @@ export function BackupsPage() {
               label: <span><DatabaseOutlined /> Backups</span>,
               children: (
                 <Table<BackupRecord>
+                  className="rg-table"
                   rowKey="BACKUP_ID"
                   dataSource={list}
                   columns={columns}
@@ -295,6 +296,7 @@ export function BackupsPage() {
               label: <span><RollbackOutlined /> Restauraciones</span>,
               children: (
                 <Table<RestoreRecord>
+                  className="rg-table"
                   rowKey="RESTORE_ID"
                   dataSource={restoreList}
                   loading={loadingRestores}
