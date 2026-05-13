@@ -40,6 +40,7 @@ import {
   FileDoneOutlined,
   FileAddOutlined,
   DatabaseOutlined,
+  LinkOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../store/authStore';
 import { useTabStore } from '../store/tabStore';
@@ -83,6 +84,7 @@ import { UsuariosPage } from '../pages/UsuariosPage';
 import { PuntosVentaPage } from '../pages/PuntosVentaPage';
 import { BackupsPage } from '../pages/BackupsPage';
 import { ListadoProductosPage } from '../pages/ListadoProductosPage';
+import { IntegracionesPage } from '../pages/IntegracionesPage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -129,6 +131,7 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/users/users':      { label: 'Usuarios',         icon: <SafetyOutlined />,     component: UsuariosPage,      closable: true },
   '/settings/pos':     { label: 'Puntos de Venta',  icon: <EnvironmentOutlined />, component: PuntosVentaPage,   closable: true },
   '/settings/backups': { label: 'Backups',          icon: <DatabaseOutlined />,    component: BackupsPage,       closable: true },
+  '/settings/integraciones': { label: 'Integraciones', icon: <LinkOutlined />,    component: IntegracionesPage, closable: true },
 };
 
 /** Icon map for TabBar */
@@ -170,6 +173,7 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
   '/settings/general':    'configuracion.ver',
   '/settings/pos':        'configuracion.ver',
   '/settings/backups':    'backups.administrar',
+  '/settings/integraciones': 'integraciones.ver',
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -315,6 +319,7 @@ const menuItems = [
         { key: '/settings/company', icon: <HomeOutlined />, label: 'Mi Empresa' },
         { key: '/settings/pos', icon: <EnvironmentOutlined />, label: 'Puntos de Venta' },
         { key: '/settings/backups', icon: <DatabaseOutlined />, label: 'Backups' },
+        { key: '/settings/integraciones', icon: <LinkOutlined />, label: 'Integraciones' },
       ]},
     ],
   },
@@ -525,8 +530,7 @@ export function AppLayout() {
         return (
           <div
             key={tab.key}
-            className="rg-tab-panel"
-            style={{ display: tab.key === activeKey ? 'block' : 'none' }}
+            className={`rg-tab-panel ${tab.key === activeKey ? 'rg-tab-panel-active' : ''}`}
           >
             {canAccessRoute(tab.key) ? <Comp /> : <AccessDenied />}
           </div>
@@ -578,7 +582,7 @@ export function AppLayout() {
       gastronomia: ['/gastronomy/tables', '/gastronomy/comandas'],
       reportes: ['/reports/reports', '/reports/listings/products', '/libro-iva-ventas', '/libro-iva-compras'],
       usuarios: ['/users/users', '/users/staff', '/users/permissions'],
-      configuracion: ['/settings/general', '/settings/company', '/settings/pos'],
+      configuracion: ['/settings/general', '/settings/company', '/settings/pos', '/settings/backups', '/settings/integraciones'],
     };
     const subGroups: Record<string, string[]> = {
       'productos-sub': ['/products', '/etiquetas'],
@@ -610,7 +614,7 @@ export function AppLayout() {
   };
 
   return (
-    <Layout style={{ minHeight: '100vh', paddingBottom: 42 }}>
+    <Layout style={{ height: '100dvh', paddingBottom: 42, overflow: 'hidden' }}>
       {/* ── Sidebar ─────────────────────────── */}
       <Sider
         trigger={null}
@@ -727,7 +731,7 @@ export function AppLayout() {
         )}
       </Sider>
 
-      <Layout>
+      <Layout style={{ minHeight: 0, overflow: 'hidden' }}>
         {/* ── Header ──────────────────────────── */}
         <Header className="rg-header" style={{
           padding: '0 24px',
@@ -828,6 +832,9 @@ export function AppLayout() {
           background: '#FFFFFF',
           borderRadius: '12px 12px 12px 12px',
           minHeight: 280,
+          minWidth: 0,
+          flex: 1,
+          overflow: 'hidden',
           boxShadow: '0 1px 8px rgba(0,0,0,0.1)',
         }}>
           {tabPanels}

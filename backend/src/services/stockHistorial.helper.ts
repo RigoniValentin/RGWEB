@@ -1,4 +1,5 @@
 import { sql } from '../database/connection.js';
+import { webhookDispatcher } from './webhook.dispatcher.js';
 
 // ═══════════════════════════════════════════════════
 //  Stock History Helper — Shared utility for logging
@@ -48,6 +49,14 @@ export async function registrarHistorialStock(
       `);
   } catch {
     // Table might not exist yet — don't break the main operation
+  }
+
+  // Notificar al dispatcher de webhooks (fire-and-forget, NO bloquea ni rompe la tx).
+  // El worker filtra por VENTA_WEB=1 y envía el snapshot fuera del hilo principal.
+  try {
+    webhookDispatcher.notifyStockChange(params.productoId);
+  } catch {
+    // no-op
   }
 }
 
