@@ -175,6 +175,7 @@ export interface Producto {
   IMP_INT: number;
   FECHA_VENCIMIENTO: string | null;
   MARGEN_INDIVIDUAL: boolean | null;
+  VENTA_WEB?: boolean;
   // Joined
   CATEGORIA_NOMBRE?: string;
   MARCA_NOMBRE?: string;
@@ -830,6 +831,7 @@ export interface CompraInput {
   IVA_TOTAL?: number;
   ACTUALIZAR_COSTOS?: boolean;
   ACTUALIZAR_PRECIOS?: boolean;
+  ACTUALIZAR_STOCK?: boolean;
   DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
   PUNTO_VENTA_ID?: number | null;
   items: CompraItemInput[];

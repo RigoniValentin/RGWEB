@@ -106,6 +106,15 @@ router.post('/webhook/test', requirePermiso('integraciones.administrar'), async 
   }
 });
 
+router.post('/webhook/push-stock', requirePermiso('integraciones.administrar'), async (_req: AuthRequest, res: Response) => {
+  try {
+    const result = await webhookDispatcher.pushFullStock();
+    res.status(result.ok ? 200 : 502).json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Logs de sincronización ───────────────────────────────
 router.get('/logs', requirePermiso('integraciones.ver'), async (req: AuthRequest, res: Response) => {
   try {

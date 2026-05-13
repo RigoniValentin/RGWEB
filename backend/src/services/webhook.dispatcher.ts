@@ -263,11 +263,64 @@ async function testWebhook(): Promise<{ ok: boolean; message: string }> {
   }
 }
 
+/**
+ * Envía manualmente el snapshot completo de productos VENTA_WEB.
+ * Devuelve cantidad de items + status.
+ */
+async function pushFullStock(): Promise<{ ok: boolean; itemsCount: number; message: string }> {
+  try {
+    const config = await integracionesService.getConfig();
+    if (!config.webhook_url) {
+      return { ok: false, itemsCount: 0, message: 'No hay URL de webhook configurada' };
+    }
+    const items = await integracionesService.getStockParaTienda();
+    const body = JSON.stringify({
+      event: 'stock.full_sync',
+      timestamp: new Date().toISOString(),
+      data: { items },
+    });
+    const headers: Record<string, string> = {};
+    if (config.webhook_secret) headers['X-RG-Signature'] = buildSignature(config.webhook_secret, body);
+
+    const started = Date.now();
+    const res = await httpPost(config.webhook_url, headers, body);
+    const duration = Date.now() - started;
+    const ok = res.status >= 200 && res.status < 300;
+
+    await integracionesService.log({
+      eventType: 'stock.full_sync',
+      direction: 'OUTBOUND',
+      status: ok ? 'SUCCESS' : 'ERROR',
+      httpStatus: res.status,
+      targetUrl: config.webhook_url,
+      requestBody: { itemsCount: items.length },
+      responseBody: res.body,
+      errorMessage: ok ? null : `HTTP ${res.status}`,
+      durationMs: duration,
+    });
+    return {
+      ok,
+      itemsCount: items.length,
+      message: ok ? `Sincronizados ${items.length} productos` : `HTTP ${res.status}`,
+    };
+  } catch (err) {
+    const msg = (err as Error).message;
+    await integracionesService.log({
+      eventType: 'stock.full_sync',
+      direction: 'OUTBOUND',
+      status: 'ERROR',
+      errorMessage: msg,
+    });
+    return { ok: false, itemsCount: 0, message: msg };
+  }
+}
+
 export const webhookDispatcher = {
   notifyStockChange,
   start,
   stop,
   testWebhook,
+  pushFullStock,
   /** Para testing — flush inmediato */
   _flushNow: flush,
 };

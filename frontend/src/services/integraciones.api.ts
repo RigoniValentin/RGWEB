@@ -70,6 +70,8 @@ export const integracionesApi = {
     api.put<IntegracionesConfig>('/integraciones/config', data).then(r => r.data),
   testWebhook: () =>
     api.post<{ ok: boolean; message: string }>('/integraciones/webhook/test').then(r => r.data),
+  pushFullStock: () =>
+    api.post<{ ok: boolean; itemsCount: number; message: string }>('/integraciones/webhook/push-stock').then(r => r.data),
 
   // Logs
   listLogs: (limit = 10) =>

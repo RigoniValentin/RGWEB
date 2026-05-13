@@ -44,6 +44,7 @@ export interface ProductInput {
   LISTA_DEFECTO?: number | null;
   FECHA_VENCIMIENTO?: string | null;
   MARGEN_INDIVIDUAL?: boolean | null;
+  VENTA_WEB?: boolean;
   codigosBarras?: string[];
   depositos?: { DEPOSITO_ID: number; CANTIDAD: number }[];
   proveedores?: number[];
@@ -151,6 +152,7 @@ export const productService = {
         p.LISTA_DEFECTO, p.COSTO_USD, p.TASA_IVA_ID,
         p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, p.PRECIO_COMPRA_BASE, p.IMP_INT,
         p.FECHA_VENCIMIENTO, p.MARGEN_INDIVIDUAL,
+        ISNULL(p.VENTA_WEB, 0) AS VENTA_WEB,
         c.NOMBRE AS CATEGORIA_NOMBRE,
         m.NOMBRE AS MARCA_NOMBRE,
         u.NOMBRE AS UNIDAD_NOMBRE,
@@ -280,19 +282,20 @@ export const productService = {
         .input('listaDefecto', sql.Int, input.LISTA_DEFECTO || 1)
         .input('fechaVenc', sql.Date, input.FECHA_VENCIMIENTO || null)
         .input('margenInd', sql.Bit, input.MARGEN_INDIVIDUAL ? 1 : 0)
+        .input('ventaWeb', sql.Bit, input.VENTA_WEB ? 1 : 0)
         .query(`
           INSERT INTO PRODUCTOS (
             CODIGOPARTICULAR, NOMBRE, DESCRIPCION, CATEGORIA_ID, MARCA_ID, UNIDAD_ID,
             PRECIO_COMPRA, COSTO_USD, PRECIO_COMPRA_BASE, STOCK_MINIMO, TASA_IVA_ID, IMP_INT,
             ES_CONJUNTO, ES_SERVICIO, DESCUENTA_STOCK, ACTIVO, CANTIDAD,
             LISTA_1, LISTA_2, LISTA_3, LISTA_4, LISTA_5, LISTA_DEFECTO,
-            FECHA_VENCIMIENTO, MARGEN_INDIVIDUAL
+            FECHA_VENCIMIENTO, MARGEN_INDIVIDUAL, VENTA_WEB
           ) VALUES (
             @codigo, @nombre, @descripcion, @categoriaId, @marcaId, @unidadId,
             @precioCompra, @costoUsd, @precioCompraBase, @stockMinimo, @tasaIvaId, @impInt,
             @esConjunto, @esServicio, @descuentaStock, @activo, 0,
             @lista1, @lista2, @lista3, @lista4, @lista5, @listaDefecto,
-            @fechaVenc, @margenInd
+            @fechaVenc, @margenInd, @ventaWeb
           );
           SELECT SCOPE_IDENTITY() AS PRODUCTO_ID;
         `);
@@ -403,6 +406,7 @@ export const productService = {
         { column: 'LISTA_DEFECTO', param: 'listaDefecto', type: sql.Int, value: input.LISTA_DEFECTO || null, key: 'LISTA_DEFECTO' },
         { column: 'FECHA_VENCIMIENTO', param: 'fechaVenc', type: sql.Date, value: input.FECHA_VENCIMIENTO || null, key: 'FECHA_VENCIMIENTO' },
         { column: 'MARGEN_INDIVIDUAL', param: 'margenInd', type: sql.Bit, value: input.MARGEN_INDIVIDUAL ? 1 : 0, key: 'MARGEN_INDIVIDUAL' },
+        { column: 'VENTA_WEB', param: 'ventaWeb', type: sql.Bit, value: input.VENTA_WEB ? 1 : 0, key: 'VENTA_WEB' },
       ];
 
       // Only include fields that were explicitly sent in the input

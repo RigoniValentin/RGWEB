@@ -284,15 +284,26 @@ function WebhookConfigSection() {
     onError: (e: any) => message.error(e?.response?.data?.message || e.message),
   });
 
+  const pushFullMut = useMutation({
+    mutationFn: integracionesApi.pushFullStock,
+    onSuccess: (r) => r.ok ? message.success(r.message) : message.error(r.message),
+    onError: (e: any) => message.error(e?.response?.data?.message || e.message),
+  });
+
   if (isLoading || !config) return <Card loading />;
 
   return (
     <Card
       title="Webhook hacia la tienda online"
       extra={
-        <Button icon={<SendOutlined />} loading={testMut.isPending} onClick={() => testMut.mutate()}>
-          Probar conexión
-        </Button>
+        <Space>
+          <Button icon={<SendOutlined />} loading={testMut.isPending} onClick={() => testMut.mutate()}>
+            Probar conexión
+          </Button>
+          <Button type="primary" loading={pushFullMut.isPending} onClick={() => pushFullMut.mutate()}>
+            Sincronizar catálogo completo
+          </Button>
+        </Space>
       }
     >
       <Form

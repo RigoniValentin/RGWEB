@@ -594,6 +594,16 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                         <Switch disabled={esServicio} />
                       </Form.Item>
                     </Col>
+                    <Col span={4}>
+                      <Form.Item
+                        name="VENTA_WEB"
+                        label="Venta Web"
+                        valuePropName="checked"
+                        tooltip="Expone el producto a la tienda online (sincroniza stock y precio)"
+                      >
+                        <Switch />
+                      </Form.Item>
+                    </Col>
                   </Row>
                 </>
               ),
