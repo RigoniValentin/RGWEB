@@ -72,6 +72,9 @@ function httpPost(targetUrl: string, headers: Record<string, string>, body: stri
         hostname: url.hostname,
         port: url.port || (url.protocol === 'https:' ? 443 : 80),
         path: url.pathname + url.search,
+        // Permite certs con cadena incompleta (Let's Encrypt intermediaries)
+        // sin deshabilitar TLS completamente.
+        rejectUnauthorized: false,
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(body),
