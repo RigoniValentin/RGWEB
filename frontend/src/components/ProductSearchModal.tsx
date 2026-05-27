@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Modal, Input, Table, Button, Space, Checkbox, Tag, Typography,
 } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
+import { SearchOutlined, FilterOutlined } from '@ant-design/icons';
 import type { ProductoSearch } from '../types';
 import { fmtMoney } from '../utils/format';
 
@@ -39,6 +39,7 @@ export function ProductSearchModal({
   const [codigo, setCodigo] = useState('');
   const [soloActivos, setSoloActivos] = useState(true);
   const [soloConStock, setSoloConStock] = useState(false);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [results, setResults] = useState<ProductoSearch[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -61,6 +62,7 @@ export function ProductSearchModal({
       setCodigo('');
       setSoloActivos(true);
       setSoloConStock(false);
+      setShowAdvancedFilters(false);
       setResults([]);
       setSelectedRowKeys([]);
       setActiveRowIndex(-1);
@@ -78,6 +80,7 @@ export function ProductSearchModal({
       if (/^\d{6,}$/.test(text)) {
         setCodigo(text);
         setKeywords('');
+        setShowAdvancedFilters(true);
         doSearch('', '', '', text, true, false);
       } else {
         doSearch(initialSearch, '', '', '', true, false);
@@ -275,7 +278,7 @@ export function ProductSearchModal({
       align: 'center' as const,
       render: (stock: number, record: ProductoSearch) => {
         const unit = record.UNIDAD_ABREVIACION || 'u';
-        if (stock <= 0) return <Text type="danger">0</Text>;
+        if (stock <= 0) return <Text type="danger">{stock} {unit}</Text>;
         if (stock <= 5) return <Text type="warning">{stock} {unit}</Text>;
         return <>{stock} {unit}</>;
       },
@@ -314,55 +317,72 @@ export function ProductSearchModal({
       }
     >
       <div>
-        {/* Filter row */}
+        {/* Filter row: por defecto solo descripción (búsqueda más rápida) */}
         <Space wrap style={{ width: '100%', marginBottom: 12 }}>
           <Input
             ref={keywordsRef}
             prefix={<SearchOutlined />}
-            placeholder="Descripción / palabras clave"
+            placeholder="Nombre del producto o código de barras"
             value={keywords}
             onChange={e => { setKeywords(e.target.value); keywordsDirty.current = true; }}
             onKeyDown={handleFilterKeyDown}
-            style={{ width: 260 }}
+            style={{ width: 320 }}
             allowClear
             autoFocus
-          />
-          <Input
-            placeholder="Marca"
-            value={marca}
-            onChange={e => setMarca(e.target.value)}
-            onKeyDown={handleFilterKeyDown}
-            style={{ width: 140 }}
-            allowClear
-          />
-          <Input
-            placeholder="Categoría"
-            value={categoria}
-            onChange={e => setCategoria(e.target.value)}
-            onKeyDown={handleFilterKeyDown}
-            style={{ width: 140 }}
-            allowClear
-          />
-          <Input
-            placeholder="Código / Cod.Barras"
-            value={codigo}
-            onChange={e => setCodigo(e.target.value)}
-            onKeyDown={handleFilterKeyDown}
-            style={{ width: 160 }}
-            allowClear
           />
           <Button type="primary" icon={<SearchOutlined />} onClick={handleSearchClick} loading={loading}>
             Buscar
           </Button>
+          <Button
+            type={showAdvancedFilters ? 'default' : 'text'}
+            icon={<FilterOutlined />}
+            onClick={() => setShowAdvancedFilters(v => !v)}
+          >
+            {showAdvancedFilters ? 'Ocultar filtros' : 'Más filtros'}
+            {(marca || categoria || codigo || soloConStock) && !showAdvancedFilters && (
+              <Tag color="blue" style={{ marginLeft: 6 }}>activos</Tag>
+            )}
+          </Button>
         </Space>
+
+        {showAdvancedFilters && (
+          <Space wrap style={{ width: '100%', marginBottom: 12 }}>
+            <Input
+              placeholder="Marca"
+              value={marca}
+              onChange={e => setMarca(e.target.value)}
+              onKeyDown={handleFilterKeyDown}
+              style={{ width: 160 }}
+              allowClear
+            />
+            <Input
+              placeholder="Categoría"
+              value={categoria}
+              onChange={e => setCategoria(e.target.value)}
+              onKeyDown={handleFilterKeyDown}
+              style={{ width: 160 }}
+              allowClear
+            />
+            <Input
+              placeholder="Código / Cod.Barras"
+              value={codigo}
+              onChange={e => setCodigo(e.target.value)}
+              onKeyDown={handleFilterKeyDown}
+              style={{ width: 180 }}
+              allowClear
+            />
+          </Space>
+        )}
 
         <Space style={{ marginBottom: 12 }}>
           <Checkbox checked={soloActivos} onChange={e => setSoloActivos(e.target.checked)}>
             Solo activos
           </Checkbox>
-          <Checkbox checked={soloConStock} onChange={e => setSoloConStock(e.target.checked)}>
-            Con stock
-          </Checkbox>
+          {showAdvancedFilters && (
+            <Checkbox checked={soloConStock} onChange={e => setSoloConStock(e.target.checked)}>
+              Con stock
+            </Checkbox>
+          )}
           {results.length > 0 && (
             <Tag>{results.length} resultado{results.length !== 1 ? 's' : ''}</Tag>
           )}

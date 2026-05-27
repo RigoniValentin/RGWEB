@@ -59,6 +59,7 @@ export interface MetodoPagoItem {
 
 export interface VentaInput {
   CLIENTE_ID: number;
+  CLIENT_REQUEST_ID?: string;
   FECHA_VENTA?: string;
   TIPO_COMPROBANTE?: string;
   PUNTO_VENTA_ID: number;
@@ -475,6 +476,112 @@ async function ensureDesdeRemitoColumn(pool: any): Promise<void> {
   _desdeRemitoColumnReady = true;
 }
 
+// ── Sale idempotency helper ─────────────────────
+
+let _clientRequestIdColumnReady = false;
+
+async function ensureVentasClientRequestIdColumn(pool: any): Promise<void> {
+  if (_clientRequestIdColumnReady) return;
+  await pool.request().query(`
+    DECLARE @lockResult INT;
+    EXEC @lockResult = sp_getapplock
+      @Resource = N'RGWEB:VENTAS:CLIENT_REQUEST_ID_SCHEMA',
+      @LockMode = 'Exclusive',
+      @LockOwner = 'Session',
+      @LockTimeout = 15000;
+
+    IF @lockResult < 0
+      THROW 51000, 'No se pudo preparar la idempotencia de ventas. Intente nuevamente.', 1;
+
+    BEGIN TRY
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('VENTAS') AND name = 'CLIENT_REQUEST_ID')
+        ALTER TABLE VENTAS ADD CLIENT_REQUEST_ID NVARCHAR(80) NULL;
+
+      IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('VENTAS') AND name = 'UX_VENTAS_CLIENT_REQUEST_ID')
+        EXEC(N'CREATE UNIQUE INDEX UX_VENTAS_CLIENT_REQUEST_ID ON VENTAS (CLIENT_REQUEST_ID) WHERE CLIENT_REQUEST_ID IS NOT NULL');
+
+      EXEC sp_releaseapplock
+        @Resource = N'RGWEB:VENTAS:CLIENT_REQUEST_ID_SCHEMA',
+        @LockOwner = 'Session';
+    END TRY
+    BEGIN CATCH
+      EXEC sp_releaseapplock
+        @Resource = N'RGWEB:VENTAS:CLIENT_REQUEST_ID_SCHEMA',
+        @LockOwner = 'Session';
+      THROW;
+    END CATCH
+  `);
+
+  const columnCheck = await pool.request().query(`
+    SELECT 1 AS existsColumn
+    FROM sys.columns
+    WHERE object_id = OBJECT_ID('VENTAS') AND name = 'CLIENT_REQUEST_ID'
+  `);
+  if (columnCheck.recordset.length === 0) {
+    throw new Error('No se pudo preparar la columna CLIENT_REQUEST_ID en VENTAS');
+  }
+
+  _clientRequestIdColumnReady = true;
+}
+
+function normalizeClientRequestId(value: unknown): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string') {
+    throw Object.assign(new Error('Identificador de solicitud inválido'), { name: 'ValidationError' });
+  }
+  const normalized = value.trim();
+  if (!/^[A-Za-z0-9:_-]{8,80}$/.test(normalized)) {
+    throw Object.assign(new Error('Identificador de solicitud inválido'), { name: 'ValidationError' });
+  }
+  return normalized;
+}
+
+async function acquireSaleCreateLock(tx: any, clientRequestId: string): Promise<void> {
+  const result = await tx.request()
+    .input('resource', sql.NVarChar(255), `VENTA_CREATE:${clientRequestId}`)
+    .query(`
+      DECLARE @lockResult INT;
+      EXEC @lockResult = sp_getapplock
+        @Resource = @resource,
+        @LockMode = 'Exclusive',
+        @LockOwner = 'Transaction',
+        @LockTimeout = 15000;
+      SELECT @lockResult AS LOCK_RESULT;
+    `);
+
+  const lockResult = result.recordset[0]?.LOCK_RESULT;
+  if (lockResult === undefined || lockResult < 0) {
+    throw Object.assign(
+      new Error('La venta ya se está procesando. Espere unos segundos y vuelva a consultar.'),
+      { name: 'ConflictError' }
+    );
+  }
+}
+
+async function getVentaByClientRequestId(tx: any, clientRequestId: string): Promise<{
+  VENTA_ID: number;
+  TOTAL: number;
+  MONTO_ANTICIPO: number;
+  COBRADA: boolean;
+} | null> {
+  const existing = await tx.request()
+    .input('clientRequestId', sql.NVarChar(80), clientRequestId)
+    .query(`
+      SELECT TOP 1 VENTA_ID, TOTAL, ISNULL(MONTO_ANTICIPO, 0) AS MONTO_ANTICIPO, COBRADA
+      FROM VENTAS WITH (UPDLOCK, HOLDLOCK)
+      WHERE CLIENT_REQUEST_ID = @clientRequestId
+    `);
+
+  if (existing.recordset.length === 0) return null;
+  const row = existing.recordset[0];
+  return {
+    VENTA_ID: row.VENTA_ID,
+    TOTAL: r2(row.TOTAL || 0),
+    MONTO_ANTICIPO: r2(row.MONTO_ANTICIPO || 0),
+    COBRADA: !!row.COBRADA,
+  };
+}
+
 // ── VENTAS_METODOS_PAGO table helper ─────────────
 
 let _metodosPagoTableReady = false;
@@ -808,10 +915,21 @@ export const salesService = {
     const pool = await getPool();
     await ensureNetoExentoColumn(pool);
     await ensureDesdeRemitoColumn(pool);
+    await ensureVentasClientRequestIdColumn(pool);
+    const clientRequestId = normalizeClientRequestId(input.CLIENT_REQUEST_ID);
     const tx = pool.transaction();
     await tx.begin();
 
     try {
+      if (clientRequestId) {
+        await acquireSaleCreateLock(tx, clientRequestId);
+        const existing = await getVentaByClientRequestId(tx, clientRequestId);
+        if (existing) {
+          await tx.commit();
+          return existing;
+        }
+      }
+
       const itemsVenta = await normalizarItemsDepositoVenta(tx, input.items, input.PUNTO_VENTA_ID);
 
       // ── 1. Batch-fetch IVA rates for all products ──
@@ -955,19 +1073,20 @@ export const salesService = {
         .input('netoGravado', sql.Decimal(18, 2), r2(netoGravado))
         .input('netoNoGravado', sql.Decimal(18, 2), r2(netoNoGravado))
         .input('netoExento', sql.Decimal(18, 2), r2(netoExento))
+        .input('clientRequestId', sql.NVarChar(80), clientRequestId)
         .query(`
           INSERT INTO VENTAS (
             CLIENTE_ID, FECHA_VENTA, TOTAL, GANANCIAS, ES_CTA_CORRIENTE,
             MONTO_EFECTIVO, MONTO_DIGITAL, VUELTO, TIPO_COMPROBANTE,
             COBRADA, PUNTO_VENTA_ID, USUARIO_ID, DTO_GRAL,
             SUBTOTAL, BONIFICACIONES, IMPUESTO_INTERNO, IVA_TOTAL, MONTO_ANTICIPO,
-            NETO_GRAVADO, NETO_NO_GRAVADO, NETO_EXENTO
+            NETO_GRAVADO, NETO_NO_GRAVADO, NETO_EXENTO, CLIENT_REQUEST_ID
           ) VALUES (
             @clienteId, GETDATE(), @total, @ganancias, @esCtaCorriente,
             @montoEfectivo, @montoDigital, @vuelto, @tipoComprobante,
             @cobrada, @puntoVentaId, @usuarioId, @dtoGral,
             @subtotal, @bonificaciones, @impuestoInterno, @ivaTotal, @montoAnticipo,
-            @netoGravado, @netoNoGravado, @netoExento
+            @netoGravado, @netoNoGravado, @netoExento, @clientRequestId
           );
           SELECT SCOPE_IDENTITY() AS VENTA_ID;
         `);
@@ -1920,6 +2039,11 @@ export const salesService = {
   },
 
   // ── Advanced product search for modal ──────────
+  // Optimizado: por defecto busca SOLO en p.NOMBRE (sin joins → máxima velocidad).
+  // Si el texto en `search` parece código de barras (≥ 6 dígitos), se enruta
+  // automáticamente al lookup por código (con join a PRODUCTOS_COD_BARRAS).
+  // Los joins a MARCAS / CATEGORIAS / PRODUCTOS_COD_BARRAS solo se agregan
+  // cuando el usuario aplica esos filtros específicos.
   async searchProductsAdvanced(params: {
     search?: string;
     marca?: string;
@@ -1947,6 +2071,9 @@ export const salesService = {
 
     const conditions: string[] = [];
     const req = pool.request();
+    let joinMarca = false;
+    let joinCategoria = false;
+    let joinCodBarras = false;
 
     if (params.soloActivos !== false) {
       conditions.push('p.ACTIVO = 1');
@@ -1957,23 +2084,30 @@ export const salesService = {
     }
 
     if (params.search) {
-      const tokens = params.search.trim().split(/\s+/).filter(t => t.length > 0);
-      tokens.forEach((token, i) => {
-        conditions.push(
-          `(p.NOMBRE LIKE @t${i} OR p.CODIGOPARTICULAR LIKE @t${i}
-            OR p.DESCRIPCION LIKE @t${i} OR cb.CODIGO_BARRAS LIKE @t${i}
-            OR c.NOMBRE LIKE @t${i} OR m.NOMBRE LIKE @t${i})`
-        );
-        req.input(`t${i}`, sql.NVarChar, `%${token}%`);
-      });
+      const searchTrim = params.search.trim();
+      // Auto-detección de código de barras / código de balanza (solo dígitos, ≥ 6)
+      if (/^\d{6,}$/.test(searchTrim)) {
+        joinCodBarras = true;
+        conditions.push('(p.CODIGOPARTICULAR = @searchCode OR cb.CODIGO_BARRAS = @searchCode)');
+        req.input('searchCode', sql.NVarChar, searchTrim);
+      } else {
+        // Solo busca en NOMBRE (sin joins → mucho más rápido)
+        const tokens = searchTrim.split(/\s+/).filter(t => t.length > 0);
+        tokens.forEach((token, i) => {
+          conditions.push(`p.NOMBRE LIKE @t${i}`);
+          req.input(`t${i}`, sql.NVarChar, `%${token}%`);
+        });
+      }
     }
 
-    if (params.marca) {
+    if (params.marca && params.marca.trim()) {
+      joinMarca = true;
       conditions.push('m.NOMBRE LIKE @marca');
       req.input('marca', sql.NVarChar, `%${params.marca.trim()}%`);
     }
 
-    if (params.categoria) {
+    if (params.categoria && params.categoria.trim()) {
+      joinCategoria = true;
       conditions.push('c.NOMBRE LIKE @categoria');
       req.input('categoria', sql.NVarChar, `%${params.categoria.trim()}%`);
     }
@@ -1981,9 +2115,11 @@ export const salesService = {
     if (params.codigo) {
       const codigo = params.codigo.trim();
       if (/^\d{6,}$/.test(codigo)) {
-        conditions.push('cb.CODIGO_BARRAS = @codExact');
+        joinCodBarras = true;
+        conditions.push('(p.CODIGOPARTICULAR = @codExact OR cb.CODIGO_BARRAS = @codExact)');
         req.input('codExact', sql.NVarChar, codigo);
       } else {
+        joinCodBarras = true;
         conditions.push('(p.CODIGOPARTICULAR LIKE @cod OR cb.CODIGO_BARRAS LIKE @cod)');
         req.input('cod', sql.NVarChar, `%${codigo}%`);
       }
@@ -1995,11 +2131,17 @@ export const salesService = {
 
     req.input('limit', sql.Int, limit);
 
+    // DISTINCT solo es necesario cuando hacemos join 1-a-N con COD_BARRAS
+    const distinctClause = joinCodBarras ? 'DISTINCT' : '';
+    const joinMarcaSql = joinMarca ? 'LEFT JOIN MARCAS m ON p.MARCA_ID = m.MARCA_ID' : '';
+    const joinCategoriaSql = joinCategoria ? 'LEFT JOIN CATEGORIAS c ON p.CATEGORIA_ID = c.CATEGORIA_ID' : '';
+    const joinCodBarrasSql = joinCodBarras ? 'LEFT JOIN PRODUCTOS_COD_BARRAS cb ON p.PRODUCTO_ID = cb.PRODUCTO_ID' : '';
+
     const result = await req.query(`
-        SELECT DISTINCT TOP (@limit)
+        SELECT ${distinctClause} TOP (@limit)
           p.PRODUCTO_ID, p.CODIGOPARTICULAR, p.NOMBRE,
-          ISNULL(m.NOMBRE, '') AS MARCA,
-          ISNULL(c.NOMBRE, '') AS CATEGORIA,
+          ISNULL((SELECT TOP 1 NOMBRE FROM MARCAS WHERE MARCA_ID = p.MARCA_ID), '') AS MARCA,
+          ISNULL((SELECT TOP 1 NOMBRE FROM CATEGORIAS WHERE CATEGORIA_ID = p.CATEGORIA_ID), '') AS CATEGORIA,
           ${precioExpr} AS PRECIO_VENTA,
           ISNULL(p.LISTA_DEFECTO, 1) AS LISTA_DEFECTO,
           p.LISTA_1, p.LISTA_2, p.LISTA_3, p.LISTA_4, p.LISTA_5,
@@ -2012,11 +2154,12 @@ export const salesService = {
         FROM PRODUCTOS p
         LEFT JOIN UNIDADES_MEDIDA u ON p.UNIDAD_ID = u.UNIDAD_ID
         LEFT JOIN TASAS_IMPUESTOS ti ON p.TASA_IVA_ID = ti.TASA_ID
-        LEFT JOIN PRODUCTOS_COD_BARRAS cb ON p.PRODUCTO_ID = cb.PRODUCTO_ID
-        LEFT JOIN CATEGORIAS c ON p.CATEGORIA_ID = c.CATEGORIA_ID
-        LEFT JOIN MARCAS m ON p.MARCA_ID = m.MARCA_ID
+        ${joinCodBarrasSql}
+        ${joinCategoriaSql}
+        ${joinMarcaSql}
         ${whereClause}
         ORDER BY p.NOMBRE
+        OPTION (RECOMPILE)
       `);
 
     return result.recordset;

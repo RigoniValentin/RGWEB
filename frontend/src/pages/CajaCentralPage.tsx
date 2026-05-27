@@ -4,12 +4,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Card, Row, Col,
   Statistic, Button, Input, InputNumber, Popconfirm, message,
-  Modal, Form, Select, Switch, Tabs, Tooltip,
+  Modal, Form, Select, Switch, Tabs, Tooltip, Descriptions, Divider,
 } from 'antd';
 import {
   ArrowUpOutlined, ArrowDownOutlined,
   PlusOutlined, DeleteOutlined, ReloadOutlined, SwapOutlined, EyeOutlined,
-  FileProtectOutlined,
+  FileProtectOutlined, QuestionCircleOutlined,
 } from '@ant-design/icons';
 import { cajaCentralApi } from '../services/cajaCentral.api';
 import { cajaApi } from '../services/caja.api';
@@ -21,7 +21,7 @@ import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
 import { FondoCambioModal } from '../components/FondoCambioModal';
 import { fmtMoney, fmtMoneyAbs, statFormatter } from '../utils/format';
 import { useTabStore } from '../store/tabStore';
-import type { MovimientoCaja, CajaCentralTotales, DesgloseMetodo, MetodoPago } from '../types';
+import type { MovimientoCaja, CajaCentralTotales, CajaCentralCierreDetalle, DesgloseMetodo, MetodoPago } from '../types';
 
 const { Title, Text } = Typography;
 
@@ -60,6 +60,9 @@ export function CajaCentralPage() {
   const [pvFilter, setPvFilter] = useState<number | undefined>(() => puntoVentaActivo ?? undefined);
   const [desgloseModalOpen, setDesgloseModalOpen] = useState(false);
   const [desgloseData, setDesgloseData] = useState<DesgloseMetodo[]>([]);
+  const [cierreDetalleOpen, setCierreDetalleOpen] = useState(false);
+  const [cierreDetalle, setCierreDetalle] = useState<CajaCentralCierreDetalle | null>(null);
+  const [cierreMetodos, setCierreMetodos] = useState<DesgloseMetodo[]>([]);
 
   const pvIdsParam = pvFilter ? String(pvFilter) : undefined;
 
@@ -100,13 +103,46 @@ export function CajaCentralPage() {
     queryFn: () => cajaCentralApi.getFondoCambioSaldo(pvIdsParam),
   });
 
+  const emptyTotales: CajaCentralTotales = {
+    totalIngresos: 0,
+    totalEgresos: 0,
+    balance: 0,
+    efectivo: 0,
+    efectivoOperativo: 0,
+    ajusteFondoCambio: 0,
+    totalMetodos: 0,
+    diferenciaMetodosBalance: 0,
+    fondoCambioSaldo: 0,
+    digital: 0,
+    cheques: 0,
+    chequesEnCartera: 0,
+    chequesEnCarteraCantidad: 0,
+  };
+
   const displayTotales: CajaCentralTotales = balanceHistorico
-    ? (totalesHistoricos || { totalIngresos: 0, totalEgresos: 0, balance: 0, efectivo: 0, digital: 0, cheques: 0, chequesEnCartera: 0, chequesEnCarteraCantidad: 0 })
-    : (totales || { totalIngresos: 0, totalEgresos: 0, balance: 0, efectivo: 0, digital: 0, cheques: 0, chequesEnCartera: 0, chequesEnCarteraCantidad: 0 });
+    ? (totalesHistoricos || emptyTotales)
+    : (totales || emptyTotales);
 
   const chequesEnCartera = displayTotales.chequesEnCartera ?? displayTotales.cheques ?? 0;
   const chequesEnCarteraCantidad = displayTotales.chequesEnCarteraCantidad ?? 0;
-  const totalMetodos = (displayTotales.efectivo || 0) + (displayTotales.digital || 0) + (displayTotales.cheques || 0);
+  const totalMetodos = displayTotales.totalMetodos ?? ((displayTotales.efectivo || 0) + (displayTotales.digital || 0) + (displayTotales.cheques || 0));
+  const desgloseParams = balanceHistorico
+    ? { puntoVentaIds: pvIdsParam }
+    : { fechaDesde, fechaHasta, puntoVentaIds: pvIdsParam };
+
+  const openCierreDetalle = async (cajaId: number) => {
+    try {
+      const [detalle, metodos] = await Promise.all([
+        cajaCentralApi.getDetalleCierreCaja(cajaId),
+        cajaApi.getDesgloseMetodos(cajaId),
+      ]);
+      setCierreDetalle(detalle);
+      setCierreMetodos(metodos);
+      setCierreDetalleOpen(true);
+    } catch (err: any) {
+      message.error(err.response?.data?.error || 'Error al cargar el detalle de cierre');
+    }
+  };
 
   // ── Mutations ──────────────────────────────────
   const invalidateAll = () => {
@@ -203,14 +239,20 @@ export function CajaCentralPage() {
     { title: 'Usuario', dataIndex: 'USUARIO_NOMBRE', key: 'user', width: 120, ellipsis: true, align: 'center' as const },
     {
       title: 'Total', dataIndex: 'TOTAL', key: 'total', width: 160, align: 'center' as const,
-      render: (v: number, record: MovimientoCaja) => {
-        const showDesglose = record.CAJA_ID || record.ES_MANUAL || record.TIPO_ENTIDAD === 'COMPRA' || record.TIPO_ENTIDAD === 'ORDEN_PAGO' || record.TIPO_ENTIDAD === 'COBRANZA' || record.TIPO_ENTIDAD === 'NC_VENTA' || record.TIPO_ENTIDAD === 'NC_COMPRA' || record.TIPO_ENTIDAD === 'GASTO';
+      render: (_: number, record: MovimientoCaja) => {
+        const isFondoCambio = ['TRANSFERENCIA_FC', 'REINTEGRO_FONDO', 'DEPOSITO_FONDO'].includes(record.TIPO_ENTIDAD);
+        const displayValue = isFondoCambio ? record.EFECTIVO : record.TOTAL;
+        const showDesglose = !isFondoCambio && (record.CAJA_ID || record.ES_MANUAL || record.TIPO_ENTIDAD === 'COMPRA' || record.TIPO_ENTIDAD === 'ORDEN_PAGO' || record.TIPO_ENTIDAD === 'COBRANZA' || record.TIPO_ENTIDAD === 'NC_VENTA' || record.TIPO_ENTIDAD === 'NC_COMPRA' || record.TIPO_ENTIDAD === 'GASTO');
         if (showDesglose) {
           return (
             <Text
               strong
               style={{ cursor: 'pointer'}}
               onClick={() => {
+                if (record.TIPO_ENTIDAD === 'CIERRE_CAJA' && record.CAJA_ID) {
+                  openCierreDetalle(record.CAJA_ID);
+                  return;
+                }
                 const promise = record.CAJA_ID
                   ? cajaApi.getDesgloseMetodos(record.CAJA_ID)
                   : cajaCentralApi.getDesgloseMovimiento(record.ID);
@@ -220,11 +262,11 @@ export function CajaCentralPage() {
                 });
               }}
             >
-              {fmtMoneyAbs(v)} ▸
+              {fmtMoneyAbs(displayValue)} ▸
             </Text>
           );
         }
-        return <Text strong>{fmtMoneyAbs(v)}</Text>;
+        return <Text strong>{fmtMoneyAbs(displayValue)}</Text>;
       },
     },
     {
@@ -355,7 +397,7 @@ export function CajaCentralPage() {
         <Col xs={12} sm={8} md={4}>
           <Card size="small" className="rg-card">
             <Statistic
-              title="Ingresos"
+              title={<span>Ingresos&nbsp;<Tooltip title="Total de ingresos operativos del período. No incluye movimientos de Fondo de Cambio."><QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 11 }} /></Tooltip></span>}
               value={displayTotales.totalIngresos}
               formatter={statFormatter} prefix="$"
               valueStyle={{ color: '#52c41a', fontSize: 16 }}
@@ -365,7 +407,7 @@ export function CajaCentralPage() {
         <Col xs={12} sm={8} md={4}>
           <Card size="small" className="rg-card">
             <Statistic
-              title="Egresos"
+              title={<span>Egresos&nbsp;<Tooltip title="Total de egresos operativos del período. No incluye movimientos de Fondo de Cambio."><QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 11 }} /></Tooltip></span>}
               value={displayTotales.totalEgresos}
               formatter={statFormatter} prefix="$"
               valueStyle={{ color: '#ff4d4f', fontSize: 16 }}
@@ -375,7 +417,7 @@ export function CajaCentralPage() {
         <Col xs={12} sm={8} md={4}>
           <Card size="small" className="rg-card">
             <Statistic
-              title={balanceHistorico ? 'Balance Histórico' : 'Balance'}
+              title={<span>{balanceHistorico ? 'Balance Histórico' : 'Balance'}&nbsp;<Tooltip title={balanceHistorico ? 'Balance total acumulado, excluyendo movimientos de Fondo de Cambio. Con fondo en $0 y sin cajas abiertas debería coincidir con Métodos.' : 'Diferencia entre ingresos y egresos operativos del período. No incluye movimientos de Fondo de Cambio. Puede diferir de Métodos si hay traslados al fondo en el período.'}><QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 11 }} /></Tooltip></span>}
               value={displayTotales.balance}
               formatter={statFormatter} prefix="$"
               valueStyle={{ color: displayTotales.balance >= 0 ? '#52c41a' : '#ff4d4f', fontSize: 16, fontWeight: 'bold' }}
@@ -385,16 +427,13 @@ export function CajaCentralPage() {
         <Col xs={12} sm={8} md={4}>
           <Card size="small" className="rg-card" hoverable
             onClick={() => {
-              cajaCentralApi.getDesgloseMetodos({
-                fechaDesde, fechaHasta,
-                puntoVentaIds: pvIdsParam,
-              }).then(data => {
+              cajaCentralApi.getDesgloseMetodos(desgloseParams).then(data => {
                 setDesgloseData(data);
                 setDesgloseModalOpen(true);
               });
             }}
           >
-            <Statistic title="Métodos ▸" value={totalMetodos} formatter={statFormatter} prefix="$" valueStyle={{ fontSize: 14, color: '#1677ff' }} />
+            <Statistic title={<span>Métodos CC ▸&nbsp;<Tooltip title="Distribución del balance por método de pago. Incluye el efectivo movido hacia/desde el Fondo de Cambio. En filtros parciales puede diferir del Balance; en Histórico con fondo en $0 deberían coincidir."><QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 11 }} /></Tooltip></span>} value={totalMetodos} formatter={statFormatter} prefix="$" valueStyle={{ fontSize: 14, color: '#1677ff' }} />
           </Card>
         </Col>
         <Col xs={12} sm={8} md={4}>
@@ -408,7 +447,7 @@ export function CajaCentralPage() {
             }}
           >
             <Statistic
-              title={<span><FileProtectOutlined /> Cheques cartera</span>}
+              title={<span><FileProtectOutlined /> Cheques cartera&nbsp;<Tooltip title="Importe total de cheques en estado EN_CARTERA. No afecta el Balance. Clic para ir a Cheques."><QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 11 }} /></Tooltip></span>}
               value={chequesEnCartera}
               formatter={statFormatter} prefix="$"
               valueStyle={{ color: '#fa8c16', fontSize: 14 }}
@@ -421,7 +460,7 @@ export function CajaCentralPage() {
         <Col xs={12} sm={8} md={4}>
           <Card size="small" className="rg-card">
             <Statistic
-              title="Fondo Cambio"
+              title={<span>Fondo Cambio&nbsp;<Tooltip title="Efectivo apartado como fondo operativo. No forma parte del Balance ni de Métodos; se registra como movimiento interno al transferir."><QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 11 }} /></Tooltip></span>}
               value={fondoData?.saldo ?? 0}
               formatter={statFormatter} prefix="$"
               valueStyle={{ color: '#EABD23', fontSize: 14 }}
@@ -597,6 +636,119 @@ export function CajaCentralPage() {
           invalidateAll();
         }}
       />
+      {/* ── Detalle Cierre de Caja ───────────── */}
+      <Modal
+        open={cierreDetalleOpen}
+        onCancel={() => setCierreDetalleOpen(false)}
+        footer={<Button onClick={() => setCierreDetalleOpen(false)}>Cerrar</Button>}
+        title={cierreDetalle ? `Detalle Cierre Caja #${cierreDetalle.caja.CAJA_ID}` : 'Detalle Cierre Caja'}
+        width={720}
+        destroyOnClose
+        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', overflowX: 'hidden', paddingRight: 4 } }}
+      >
+        {cierreDetalle && (() => {
+          const t = cierreDetalle.totales;
+          return (
+          <>
+            {/* ── Identificación ── */}
+            <Descriptions column={2} size="small" style={{ marginBottom: 16 }}>
+              <Descriptions.Item label="Usuario">{cierreDetalle.caja.USUARIO_NOMBRE || '-'}</Descriptions.Item>
+              <Descriptions.Item label="Punto de Venta">{cierreDetalle.caja.PUNTO_VENTA_NOMBRE || '-'}</Descriptions.Item>
+              <Descriptions.Item label="Apertura">
+                {new Date(cierreDetalle.caja.FECHA_APERTURA).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}
+              </Descriptions.Item>
+              <Descriptions.Item label="Cierre">
+                {cierreDetalle.caja.FECHA_CIERRE
+                  ? new Date(cierreDetalle.caja.FECHA_CIERRE).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+                  : '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Movimientos">{t.cantidadItems}</Descriptions.Item>
+              <Descriptions.Item label="Estado">{cierreDetalle.caja.ESTADO}</Descriptions.Item>
+            </Descriptions>
+
+            {/* ── Ingresos del período ── */}
+            <Divider orientation="left" style={{ marginTop: 0, marginBottom: 12, fontSize: 13 }}>Ingresos del período</Divider>
+            <Row gutter={[16, 8]} style={{ marginBottom: 20 }}>
+              <Col xs={24} sm={8}>
+                <Statistic
+                  title={<Text strong style={{ fontSize: 13 }}>Total ingresado</Text>}
+                  value={t.totalOperativo}
+                  formatter={statFormatter} prefix="$"
+                  valueStyle={{ color: '#52c41a', fontSize: 20, fontWeight: 700 }}
+                />
+              </Col>
+              <Col xs={12} sm={8}>
+                <Statistic
+                  title={<Text type="secondary" style={{ fontSize: 12 }}>↳ Efectivo</Text>}
+                  value={t.efectivoReal}
+                  formatter={statFormatter} prefix="$"
+                  valueStyle={{ fontSize: 15 }}
+                />
+              </Col>
+              <Col xs={12} sm={8}>
+                <Statistic
+                  title={<Text type="secondary" style={{ fontSize: 12 }}>↳ Digital</Text>}
+                  value={t.digital}
+                  formatter={statFormatter} prefix="$"
+                  valueStyle={{ fontSize: 15, color: '#1677ff' }}
+                />
+              </Col>
+            </Row>
+
+            {/* ── Efectivo en caja al cierre ── */}
+            <Divider orientation="left" style={{ marginTop: 0, marginBottom: 12, fontSize: 13 }}>Efectivo en caja al cierre</Divider>
+            <Row gutter={[16, 8]} style={{ marginBottom: 20 }}>
+              <Col xs={12} sm={8}>
+                <Statistic
+                  title={<Text type="secondary" style={{ fontSize: 12 }}>Fondo inicial</Text>}
+                  value={t.fondoInicial}
+                  formatter={statFormatter} prefix="$"
+                  valueStyle={{ fontSize: 15, color: '#EABD23' }}
+                />
+              </Col>
+              <Col xs={12} sm={8}>
+                <Statistic
+                  title={<Text type="secondary" style={{ fontSize: 12 }}>+ Efectivo de ventas</Text>}
+                  value={t.efectivoReal}
+                  formatter={statFormatter} prefix="$"
+                  valueStyle={{ fontSize: 15 }}
+                />
+              </Col>
+              <Col xs={24} sm={8}>
+                <Statistic
+                  title={<Text style={{ fontSize: 12, color: '#08979c' }}>= Total físico → depositado al FC</Text>}
+                  value={t.efectivoTotal}
+                  formatter={statFormatter} prefix="$"
+                  valueStyle={{ fontSize: 16, color: '#08979c', fontWeight: 700 }}
+                />
+              </Col>
+            </Row>
+
+            {/* ── Detalle por método de pago ── */}
+            <Divider orientation="left" style={{ marginTop: 0, marginBottom: 12, fontSize: 13 }}>Detalle por método de pago</Divider>
+            {cierreMetodos.length === 0 ? (
+              <Text type="secondary">No hay métodos de pago registrados para esta caja.</Text>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {cierreMetodos.map(metodo => {
+                  const visual = metodoVisual(metodo.CATEGORIA);
+                  return (
+                    <div key={metodo.METODO_PAGO_ID} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderRadius: 8, background: visual.background, border: `1px solid ${visual.border}`, overflow: 'hidden' }}>
+                      <Space style={{ minWidth: 0, overflow: 'hidden' }}>
+                        {metodo.IMAGEN_BASE64 ? <img src={metodo.IMAGEN_BASE64} alt={metodo.NOMBRE} style={{ width: 22, height: 22, objectFit: 'contain', borderRadius: 3, flexShrink: 0 }} /> : null}
+                        <Text strong>{metodo.NOMBRE}</Text>
+                        <Tag color={visual.tag} style={{ fontSize: 10 }}>{metodo.CATEGORIA}</Tag>
+                      </Space>
+                      <Text strong style={{ flexShrink: 0, paddingLeft: 8 }}>{fmtMoney(metodo.TOTAL)}</Text>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+          );
+        })()}
+      </Modal>
       {/* ── Desglose Métodos de Pago Modal ──── */}
       <Modal
         open={desgloseModalOpen}

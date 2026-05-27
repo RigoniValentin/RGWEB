@@ -63,6 +63,7 @@ export function CajaPage() {
   const [ieMonto, setIeMonto] = useState<number>(0);
   const [ieDescripcion, setIeDescripcion] = useState('');
   const [fondoModalOpen, setFondoModalOpen] = useState(false);
+
   const montoAperturaRef = useRef<any>(null);
 
   // ── Open caja detail from external navigation (e.g. Caja Central) ──
@@ -669,50 +670,60 @@ export function CajaPage() {
             </Descriptions>
 
             {/* Totals summary */}
-            {detail.totales && (
-              <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-                <Col span={6}>
-                  <Statistic title="Ingresos" value={detail.totales.ingresos} formatter={statFormatter} prefix="$"
-                    valueStyle={{ color: '#52c41a', fontSize: 16 }} />
-                </Col>
-                <Col span={6}>
-                  <Statistic title="Egresos" value={detail.totales.egresos} formatter={statFormatter} prefix="$"
-                    valueStyle={{ color: '#ff4d4f', fontSize: 16 }} />
-                </Col>
-                <Col span={6}>
-                  <div
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => {
-                      cajaApi.getDesgloseMetodos(detail.CAJA_ID).then(data => {
-                        setDesgloseData(data);
-                        setDesgloseCategoria(null);
-                        setDesgloseModalOpen(true);
-                      });
-                    }}
-                    title="Ver desglose por método de pago"
-                  >
-                    <Statistic title="Total ▸" value={(detail.totales.efectivo || 0) + (detail.totales.digital || 0)} formatter={statFormatter} prefix="$"
-                      valueStyle={{ fontSize: 16, color: '#1677ff' }} />
-                  </div>
-                </Col>
-                <Col span={6}>
-                  <Statistic
-                    title={
-                      <span>
-                        Efectivo a rendir{' '}
-                        <Text type="secondary" style={{ fontSize: 11, fontWeight: 'normal' }}>
-                          (incl. apertura)
-                        </Text>
-                      </span>
-                    }
-                    value={detail.totales.efectivo || 0}
-                    formatter={statFormatter}
-                    prefix="$"
-                    valueStyle={{ fontSize: 16, color: '#EABD23', fontWeight: 700 }}
-                  />
-                </Col>
-              </Row>
-            )}
+            {detail.totales && (() => {
+              const fi = detail.totales.fondoInicial ?? 0;
+              const ingresos  = detail.totales.ingresos;
+              const egresos   = detail.totales.egresos;
+              const efectivo  = (detail.totales.efectivo || 0);
+              const digital   = detail.totales.digital || 0;
+              const totalOperativo = (efectivo - fi) + digital;
+              return (
+              <>
+                <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+                  <Col span={6}>
+                    <Statistic title="Ingresos" value={ingresos} formatter={statFormatter} prefix="$"
+                      valueStyle={{ color: '#52c41a', fontSize: 16 }} />
+                  </Col>
+                  <Col span={6}>
+                    <Statistic title="Egresos" value={egresos} formatter={statFormatter} prefix="$"
+                      valueStyle={{ color: '#ff4d4f', fontSize: 16 }} />
+                  </Col>
+                  <Col span={6}>
+                    <div
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => {
+                        cajaApi.getDesgloseMetodos(detail.CAJA_ID).then(data => {
+                          setDesgloseData(data);
+                          setDesgloseCategoria(null);
+                          setDesgloseModalOpen(true);
+                        });
+                      }}
+                      title="Ver desglose por método de pago"
+                    >
+                      <Statistic title="Total ▸" value={totalOperativo} formatter={statFormatter} prefix="$"
+                        valueStyle={{ fontSize: 16, color: '#1677ff' }} />
+                    </div>
+                  </Col>
+                  <Col span={6}>
+                    <Statistic
+                      title={
+                        <span>
+                          Efectivo a rendir{' '}
+                          <Typography.Text type="secondary" style={{ fontSize: 11, fontWeight: 'normal' }}>
+                            {fi > 0 ? '(incl. apertura)' : ''}
+                          </Typography.Text>
+                        </span>
+                      }
+                      value={efectivo}
+                      formatter={statFormatter}
+                      prefix="$"
+                      valueStyle={{ fontSize: 16, color: '#EABD23', fontWeight: 700 }}
+                    />
+                  </Col>
+                </Row>
+              </>
+              );
+            })()}
 
             {/* Items table */}
             {detail.items && detail.items.length > 0 && (

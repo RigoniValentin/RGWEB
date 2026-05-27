@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Modal, Input, Select, Button, InputNumber, Table, Space, Typography,
-  Divider, Spin, Switch, message, Badge, Tag, Checkbox, Popover, Tabs,
+  Divider, Spin, Switch, message, Badge, Tag, Checkbox, Popover, Tabs, Tooltip,
 } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, ShoppingCartOutlined,
@@ -9,7 +9,7 @@ import {
   FileTextOutlined, SwapOutlined, DollarOutlined, CreditCardOutlined,
   WalletOutlined, ArrowLeftOutlined, CheckCircleOutlined,
   WarningOutlined, BankOutlined, PrinterOutlined, WhatsAppOutlined,
-  SendOutlined, ExclamationCircleOutlined,
+  SendOutlined, ExclamationCircleOutlined, QuestionCircleOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -195,7 +195,11 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const [wspNombre, setWspNombre] = useState('');
   const [wspSending, setWspSending] = useState(false);
   const [pendingVentaId, setPendingVentaId] = useState<number | null>(null);
+  const [pendingWhatsappDraftId, setPendingWhatsappDraftId] = useState<string | null>(null);
   const [facturando, setFacturando] = useState(false);
+  const submittingDraftIdsRef = useRef(new Set<string>());
+  const completedDraftIdsRef = useRef(new Set<string>());
+  const [, refreshSubmitLocks] = useState(0);
   const refocusSearchAfterProductModalClose = useRef(true);
   const productSearchKey = useRef(0);
 
@@ -594,8 +598,10 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
 
   // Create sale mutation
   const createMutation = useMutation({
-    mutationFn: (data: VentaInput) => salesApi.create(data),
-    onSuccess: async (result) => {
+    mutationFn: ({ input }: { input: VentaInput; draftId: string }) => salesApi.create(input),
+    onSuccess: async (result, variables) => {
+      completedDraftIdsRef.current.add(variables.draftId);
+      refreshSubmitLocks(v => v + 1);
       invalidateInventoryQueries(queryClient);
 
       // Show appropriate message based on anticipo usage
@@ -695,6 +701,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       // ── Post-sale: WhatsApp ──
       if (wantWhatsApp) {
         setPendingVentaId(result.VENTA_ID);
+        setPendingWhatsappDraftId(variables.draftId);
         // Pre-fill name only for real clients; leave empty for Consumidor Final so the user can type it
         setWspNombre(clienteId !== 1 ? (selectedCliente?.NOMBRE || '') : '');
         setWspTelefono('');
@@ -706,8 +713,8 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
 
       // Check if the user wants to reopen the new sale form
       const reabrir = useSettingsStore.getState().getBool('reabrir_nueva_venta');
-      const remainingDrafts = useSaleDraftsStore.getState().drafts.filter(d => d.id !== activeDraftId);
-      resetForm();
+      const remainingDrafts = useSaleDraftsStore.getState().drafts.filter(d => d.id !== variables.draftId);
+      resetForm(variables.draftId);
       queryClient.invalidateQueries({ queryKey: ['sales'] });
       if (reabrir || remainingDrafts.length > 0) {
         // Keep modal open: either setting says reopen, or there are other drafts
@@ -723,7 +730,57 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     onError: (err: any) => {
       message.error(err.response?.data?.error || 'Error al crear la venta');
     },
+    onSettled: (_data, _error, variables) => {
+      if (variables?.draftId && !completedDraftIdsRef.current.has(variables.draftId)) {
+        submittingDraftIdsRef.current.delete(variables.draftId);
+        refreshSubmitLocks(v => v + 1);
+      }
+    },
   });
+
+  const getActiveSubmitContext = useCallback(() => {
+    const store = useSaleDraftsStore.getState();
+    const draft = store.getActiveDraft();
+    if (!draft) return null;
+    let clientRequestId = draft.clientRequestId;
+    if (!clientRequestId) {
+      clientRequestId = crypto.randomUUID();
+      store.updateDraft(draft.id, { clientRequestId });
+    }
+    return { draftId: draft.id, clientRequestId };
+  }, []);
+
+  const isActiveDraftSubmitLocked = useCallback(() => {
+    const draftId = useSaleDraftsStore.getState().activeDraftId;
+    return !!draftId && (
+      submittingDraftIdsRef.current.has(draftId) ||
+      completedDraftIdsRef.current.has(draftId)
+    );
+  }, []);
+
+  const activeDraftSubmitLocked = !!activeDraftId && (
+    submittingDraftIdsRef.current.has(activeDraftId) ||
+    completedDraftIdsRef.current.has(activeDraftId)
+  );
+  const saleSubmitBusy = createMutation.isPending || facturando || activeDraftSubmitLocked;
+
+  const submitSale = useCallback((input: VentaInput) => {
+    const context = getActiveSubmitContext();
+    if (!context) return;
+    if (createMutation.isPending || facturando || isActiveDraftSubmitLocked()) {
+      message.info('La venta ya se está procesando');
+      return;
+    }
+    submittingDraftIdsRef.current.add(context.draftId);
+    refreshSubmitLocks(v => v + 1);
+    createMutation.mutate({
+      draftId: context.draftId,
+      input: {
+        ...input,
+        CLIENT_REQUEST_ID: context.clientRequestId,
+      },
+    });
+  }, [createMutation, facturando, getActiveSubmitContext, isActiveDraftSubmitLocked]);
 
   // ── Send WhatsApp ──
   const handleSendWhatsApp = async () => {
@@ -743,7 +800,9 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       message.success('Detalle enviado por WhatsApp');
       setWspModalOpen(false);
       setPendingVentaId(null);
-      resetForm();
+      const draftIdToReset = pendingWhatsappDraftId;
+      setPendingWhatsappDraftId(null);
+      resetForm(draftIdToReset || undefined);
     } catch (err: any) {
       message.error(err.response?.data?.error || 'Error al enviar WhatsApp');
     } finally {
@@ -754,13 +813,18 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const handleCloseWspModal = () => {
     setWspModalOpen(false);
     setPendingVentaId(null);
-    resetForm();
+    const draftIdToReset = pendingWhatsappDraftId;
+    setPendingWhatsappDraftId(null);
+    resetForm(draftIdToReset || undefined);
   };
 
   // Remove the current draft from the store (after a sale is completed)
-  const resetForm = useCallback(() => {
-    if (activeDraftId) {
-      removeDraft(activeDraftId);
+  const resetForm = useCallback((draftId = activeDraftId) => {
+    if (draftId) {
+      submittingDraftIdsRef.current.delete(draftId);
+      completedDraftIdsRef.current.delete(draftId);
+      removeDraft(draftId);
+      refreshSubmitLocks(v => v + 1);
     }
     // Note: search-related state is per-draft, so removing the draft above
     // already cleans it up. Don't write to the next active draft.
@@ -1123,18 +1187,27 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     return true;
   }, [cart, depositoVentaId]);
 
+  const ensureCantidadesValidas = useCallback(() => {
+    const itemsSinCantidad = cart.filter(item => !item.CANTIDAD || item.CANTIDAD <= 0);
+    if (itemsSinCantidad.length > 0) {
+      message.warning(`Hay ${itemsSinCantidad.length === 1 ? 'un producto' : `${itemsSinCantidad.length} productos`} con cantidad 0. Ingrese una cantidad válida antes de continuar.`);
+      return false;
+    }
+    return true;
+  }, [cart]);
+
   // Submit sale
   const handleSubmit = async (cobrar: boolean) => {
+    if (saleSubmitBusy) {
+      message.info('La venta ya se está procesando');
+      return;
+    }
     if (cart.length === 0) {
       message.warning('Agregue al menos un producto');
       return;
     }
 
-    const itemsSinCantidad = cart.filter(item => !item.CANTIDAD || item.CANTIDAD <= 0);
-    if (itemsSinCantidad.length > 0) {
-      message.warning(`Hay ${itemsSinCantidad.length === 1 ? 'un producto' : `${itemsSinCantidad.length} productos`} con cantidad 0. Ingrese una cantidad válida antes de continuar.`);
-      return;
-    }
+    if (!ensureCantidadesValidas()) return;
 
     if (!ensureDepositoParaVenta()) return;
 
@@ -1191,7 +1264,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       ...(pedido ? { PEDIDO_ID: pedido.PEDIDO_ID, MESA_ID: pedido.MESA_ID } : {}),
       ...(selectedRemitoIds.length > 0 ? { REMITO_IDS: selectedRemitoIds } : {}),
     };
-    createMutation.mutate(input);
+    submitSale(input);
   };
 
   // Payment step logic
@@ -1216,7 +1289,12 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   }, [selectedMetodos, totalRecibido, total, soloEfectivo, soloDigital, hayEfectivo]);
 
   const handleConfirmCobro = () => {
+    if (saleSubmitBusy) {
+      message.info('La venta ya se está procesando');
+      return;
+    }
     if (!pagoValido) return;
+    if (!ensureCantidadesValidas()) return;
     if (!ensureDepositoParaVenta()) return;
 
     const vueltoFinal = vuelto;
@@ -1259,7 +1337,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       ...(pedido ? { PEDIDO_ID: pedido.PEDIDO_ID, MESA_ID: pedido.MESA_ID } : {}),
       ...(selectedRemitoIds.length > 0 ? { REMITO_IDS: selectedRemitoIds } : {}),
     };
-    createMutation.mutate(input);
+    submitSale(input);
   };
 
   // When a single method is selected, auto-fill total to it
@@ -1744,8 +1822,12 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
             type="editable-card"
             size="small"
             activeKey={activeDraftId ?? undefined}
-            onChange={(key) => setActiveDraft(key)}
+            onChange={(key) => {
+              if (saleSubmitBusy) return;
+              setActiveDraft(key);
+            }}
             onEdit={(targetKey, action) => {
+              if (saleSubmitBusy) return;
               if (action === 'add') {
                 if (drafts.length >= 10) {
                   message.warning('Máximo 10 borradores simultáneos');
@@ -1772,7 +1854,8 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                     )}
                   </span>
                 ),
-                closable: true,
+                closable: !saleSubmitBusy,
+                disabled: saleSubmitBusy,
               };
             })}
             tabBarStyle={{ margin: 0, paddingLeft: 12, paddingRight: 12 }}
@@ -2005,6 +2088,9 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                   <span className="nsm-switch-label" style={{ opacity: clienteTieneCtaCte ? 1 : 0.45 }}>
                     <SwapOutlined style={{ marginRight: 6 }} />
                     Cuenta Corriente
+                    <Tooltip title="Si el cliente no tiene cuenta corriente, se creará automáticamente al finalizar la operación.">
+                      <QuestionCircleOutlined style={{ marginLeft: 6, color: '#8c8c8c', cursor: 'help' }} />
+                    </Tooltip>
                   </span>
                 </div>
               </div>
@@ -2126,8 +2212,8 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                       block
                       size="large"
                       onClick={() => handleSubmit(false)}
-                      loading={createMutation.isPending || checkingSaldo}
-                      disabled={cart.length === 0}
+                      loading={saleSubmitBusy || checkingSaldo}
+                      disabled={cart.length === 0 || saleSubmitBusy}
                       style={{ height: 48 }}
                     >
                       Guardar (Cobro Pendiente)
@@ -2141,8 +2227,8 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                     size="large"
                     className="btn-gold nsm-btn-cobrar"
                     onClick={() => handleSubmit(true)}
-                    loading={createMutation.isPending}
-                    disabled={cart.length === 0}
+                    loading={saleSubmitBusy}
+                    disabled={cart.length === 0 || saleSubmitBusy}
                     icon={<ShoppingCartOutlined />}
                   >
                     Cobrar {fmtMoney(total)}
@@ -2354,8 +2440,8 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                   size="large"
                   className="btn-gold nsm-btn-cobrar"
                   onClick={handleConfirmCobro}
-                  loading={createMutation.isPending || facturando}
-                  disabled={!pagoValido}
+                  loading={saleSubmitBusy}
+                  disabled={!pagoValido || saleSubmitBusy}
                   icon={<CheckCircleOutlined />}
                 >
                   Confirmar Cobro
@@ -2499,7 +2585,8 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
           <Button
             type="primary"
             onClick={doSaveCtaCte}
-            loading={createMutation.isPending}
+            loading={saleSubmitBusy}
+            disabled={saleSubmitBusy}
             icon={<CheckCircleOutlined />}
           >
             Confirmar

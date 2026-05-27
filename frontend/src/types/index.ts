@@ -429,6 +429,7 @@ export interface VentaItemInput {
 
 export interface VentaInput {
   CLIENTE_ID: number;
+  CLIENT_REQUEST_ID?: string;
   FECHA_VENTA?: string;
   TIPO_COMPROBANTE?: string;
   PUNTO_VENTA_ID: number;
@@ -576,6 +577,7 @@ export interface CajaDetalle extends Caja {
     digital: number;
     ingresos: number;
     egresos: number;
+    fondoInicial: number;
   };
 }
 
@@ -622,10 +624,31 @@ export interface CajaCentralTotales {
   totalEgresos: number;
   balance: number;
   efectivo: number;
+  efectivoOperativo?: number;
+  ajusteFondoCambio?: number;
+  totalMetodos?: number;
+  diferenciaMetodosBalance?: number;
+  fondoCambioSaldo?: number;
   digital: number;
   cheques?: number;
   chequesEnCartera?: number;
   chequesEnCarteraCantidad?: number;
+}
+
+export interface CajaCentralCierreDetalle {
+  caja: Caja;
+  cierre: MovimientoCaja | null;
+  movimientos: MovimientoCaja[];
+  totales: {
+    fondoInicial: number;
+    efectivoReal: number;
+    efectivoTotal: number;
+    digital: number;
+    cantidadItems: number;
+    totalOperativo: number;
+    reintegroFondo: number;
+    depositoFondo: number;
+  };
 }
 
 export interface NuevoMovimientoInput {

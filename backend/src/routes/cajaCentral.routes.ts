@@ -71,6 +71,17 @@ router.get('/desglose-metodos', async (req: AuthRequest, res: Response, next: Ne
   } catch (err) { next(err); }
 });
 
+// ── GET /api/caja-central/cierre-caja/:cajaId/detalle ──
+router.get('/cierre-caja/:cajaId/detalle', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const data = await cajaCentralService.getDetalleCierreCaja(Number(req.params.cajaId));
+    res.json(data);
+  } catch (err: any) {
+    if (err.name === 'ValidationError') { res.status(err.status || 400).json({ error: err.message }); return; }
+    next(err);
+  }
+});
+
 // ── POST /api/caja-central/movimiento — new manual movement ──
 router.post('/movimiento', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

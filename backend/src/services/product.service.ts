@@ -82,19 +82,27 @@ export const productService = {
 
     let where = 'WHERE 1=1';
     const params: { name: string; type: any; value: any }[] = [];
+    let joinCodBarras = false;
 
     if (filter.activo !== undefined) {
       where += ' AND p.ACTIVO = @activo';
       params.push({ name: 'activo', type: sql.Bit, value: filter.activo ? 1 : 0 });
     }
     if (filter.search) {
-      const tokens = filter.search.trim().split(/\s+/).filter(t => t.length > 0);
-      tokens.forEach((token, i) => {
-        where += ` AND (p.NOMBRE LIKE @t${i} OR p.CODIGOPARTICULAR LIKE @t${i}
-                    OR p.DESCRIPCION LIKE @t${i} OR cb.CODIGO_BARRAS LIKE @t${i}
-                    OR c.NOMBRE LIKE @t${i} OR m.NOMBRE LIKE @t${i})`;
-        params.push({ name: `t${i}`, type: sql.NVarChar, value: `%${token}%` });
-      });
+      const searchTrim = filter.search.trim();
+      // Auto-detección de código de barras / código de balanza (solo dígitos, ≥ 6)
+      if (/^\d{6,}$/.test(searchTrim)) {
+        joinCodBarras = true;
+        where += ' AND (p.CODIGOPARTICULAR = @searchCode OR cb.CODIGO_BARRAS = @searchCode)';
+        params.push({ name: 'searchCode', type: sql.NVarChar, value: searchTrim });
+      } else {
+        // Solo busca en NOMBRE (sin joins → mucho más rápido)
+        const tokens = searchTrim.split(/\s+/).filter(t => t.length > 0);
+        tokens.forEach((token, i) => {
+          where += ` AND p.NOMBRE LIKE @t${i}`;
+          params.push({ name: `t${i}`, type: sql.NVarChar, value: `%${token}%` });
+        });
+      }
     }
     if (filter.categoriaId) {
       where += ' AND p.CATEGORIA_ID = @categoriaId';
@@ -121,52 +129,67 @@ export const productService = {
       return req;
     };
 
-    const countReq = bind(pool.request());
-    const countResult = await countReq.query(`
-      SELECT COUNT(DISTINCT p.PRODUCTO_ID) as total
-      FROM PRODUCTOS p
-      LEFT JOIN CATEGORIAS c ON p.CATEGORIA_ID = c.CATEGORIA_ID
-      LEFT JOIN MARCAS m ON p.MARCA_ID = m.MARCA_ID
-      LEFT JOIN PRODUCTOS_COD_BARRAS cb ON p.PRODUCTO_ID = cb.PRODUCTO_ID
-      ${where}
-    `);
-    const total = countResult.recordset[0].total;
-
     const validCols: Record<string, string> = {
+      id: 'p.PRODUCTO_ID',
       nombre: 'p.NOMBRE', codigo: 'p.CODIGOPARTICULAR', categoria: 'c.NOMBRE',
       marca: 'm.NOMBRE', precio: 'p.PRECIO_COMPRA', lista1: 'p.LISTA_1', stock: '(SELECT ISNULL(SUM(sd2.CANTIDAD),0) FROM STOCK_DEPOSITOS sd2 WHERE sd2.PRODUCTO_ID = p.PRODUCTO_ID)',
     };
-    const orderCol = validCols[(filter.orderBy || 'nombre').toLowerCase()] || 'p.NOMBRE';
+    const orderByKey = (filter.orderBy || 'nombre').toLowerCase();
+    const orderCol = validCols[orderByKey] || 'p.NOMBRE';
     const orderDir = filter.orderDir === 'DESC' ? 'DESC' : 'ASC';
 
-    const dataReq = bind(pool.request());
-    dataReq.input('offset', sql.Int, offset);
-    dataReq.input('pageSize', sql.Int, pageSize);
+    // Joins condicionales — solo cuando son estrictamente necesarios
+    const joinCategoria = orderByKey === 'categoria';
+    const joinMarca = orderByKey === 'marca';
+    const codBarrasJoin = joinCodBarras ? 'LEFT JOIN PRODUCTOS_COD_BARRAS cb ON p.PRODUCTO_ID = cb.PRODUCTO_ID' : '';
+    const categoriaJoin = joinCategoria ? 'LEFT JOIN CATEGORIAS c ON p.CATEGORIA_ID = c.CATEGORIA_ID' : '';
+    const marcaJoin = joinMarca ? 'LEFT JOIN MARCAS m ON p.MARCA_ID = m.MARCA_ID' : '';
+    // DISTINCT solo cuando un join 1-a-N (cb) puede inflar filas
+    const distinct = joinCodBarras ? 'DISTINCT' : '';
+    const countExpr = joinCodBarras ? 'COUNT(DISTINCT p.PRODUCTO_ID)' : 'COUNT(*)';
 
-    const dataResult = await dataReq.query(`
-      SELECT DISTINCT
-        p.PRODUCTO_ID, p.CODIGOPARTICULAR, p.NOMBRE, p.DESCRIPCION,
-        (SELECT ISNULL(SUM(sd2.CANTIDAD),0) FROM STOCK_DEPOSITOS sd2 WHERE sd2.PRODUCTO_ID = p.PRODUCTO_ID) AS CANTIDAD,
-        p.CATEGORIA_ID, p.PRECIO_COMPRA, p.MARCA_ID,
-        p.STOCK_MINIMO, p.UNIDAD_ID, p.ACTIVO,
-        p.LISTA_1, p.LISTA_2, p.LISTA_3, p.LISTA_4, p.LISTA_5,
-        p.LISTA_DEFECTO, p.COSTO_USD, p.TASA_IVA_ID,
-        p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, p.PRECIO_COMPRA_BASE, p.IMP_INT,
-        p.FECHA_VENCIMIENTO, p.MARGEN_INDIVIDUAL,
-        ISNULL(p.VENTA_WEB, 0) AS VENTA_WEB,
-        c.NOMBRE AS CATEGORIA_NOMBRE,
-        m.NOMBRE AS MARCA_NOMBRE,
-        u.NOMBRE AS UNIDAD_NOMBRE,
-        u.ABREVIACION AS UNIDAD_ABREVIACION
-      FROM PRODUCTOS p
-      LEFT JOIN CATEGORIAS c ON p.CATEGORIA_ID = c.CATEGORIA_ID
-      LEFT JOIN MARCAS m ON p.MARCA_ID = m.MARCA_ID
-      LEFT JOIN UNIDADES_MEDIDA u ON p.UNIDAD_ID = u.UNIDAD_ID
-      LEFT JOIN PRODUCTOS_COD_BARRAS cb ON p.PRODUCTO_ID = cb.PRODUCTO_ID
-      ${where}
-      ORDER BY ${orderCol} ${orderDir}
-      OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
-    `);
+    // Ejecutar count + data en paralelo (latencia ≈ la mayor de las dos)
+    const [countResult, dataResult] = await Promise.all([
+      bind(pool.request()).query(`
+        SELECT ${countExpr} as total
+        FROM PRODUCTOS p
+        ${codBarrasJoin}
+        ${where}
+        OPTION (RECOMPILE)
+      `),
+      (() => {
+        const dataReq = bind(pool.request());
+        dataReq.input('offset', sql.Int, offset);
+        dataReq.input('pageSize', sql.Int, pageSize);
+        return dataReq.query(`
+          SELECT ${distinct}
+            p.PRODUCTO_ID, p.CODIGOPARTICULAR, p.NOMBRE, p.DESCRIPCION,
+            (SELECT ISNULL(SUM(sd2.CANTIDAD),0) FROM STOCK_DEPOSITOS sd2 WHERE sd2.PRODUCTO_ID = p.PRODUCTO_ID) AS CANTIDAD,
+            p.CATEGORIA_ID, p.PRECIO_COMPRA, p.MARCA_ID,
+            p.STOCK_MINIMO, p.UNIDAD_ID, p.ACTIVO,
+            p.LISTA_1, p.LISTA_2, p.LISTA_3, p.LISTA_4, p.LISTA_5,
+            p.LISTA_DEFECTO, p.COSTO_USD, p.TASA_IVA_ID,
+            p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, p.PRECIO_COMPRA_BASE, p.IMP_INT,
+            p.FECHA_VENCIMIENTO, p.MARGEN_INDIVIDUAL,
+            ISNULL(p.VENTA_WEB, 0) AS VENTA_WEB,
+            (SELECT TOP 1 NOMBRE FROM CATEGORIAS WHERE CATEGORIA_ID = p.CATEGORIA_ID) AS CATEGORIA_NOMBRE,
+            (SELECT TOP 1 NOMBRE FROM MARCAS WHERE MARCA_ID = p.MARCA_ID) AS MARCA_NOMBRE,
+            u.NOMBRE AS UNIDAD_NOMBRE,
+            u.ABREVIACION AS UNIDAD_ABREVIACION
+          FROM PRODUCTOS p
+          LEFT JOIN UNIDADES_MEDIDA u ON p.UNIDAD_ID = u.UNIDAD_ID
+          ${categoriaJoin}
+          ${marcaJoin}
+          ${codBarrasJoin}
+          ${where}
+          ORDER BY ${orderCol} ${orderDir}
+          OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
+          OPTION (RECOMPILE)
+        `);
+      })(),
+    ]);
+
+    const total = countResult.recordset[0].total;
 
     return { data: dataResult.recordset, total, page, pageSize };
   },

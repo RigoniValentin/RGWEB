@@ -34,10 +34,12 @@ export function IntegracionesPage() {
   const [tab, setTab] = useState<'keys' | 'config' | 'logs'>('keys');
 
   return (
-    <div style={{ padding: 16 }}>
-      <Title level={3} style={{ marginTop: 0 }}>
-        <LinkOutlined /> Integraciones Externas
-      </Title>
+    <div className="page-enter" style={{ padding: 16 }}>
+      <div className="page-header">
+        <Title level={3}>
+          <LinkOutlined /> Integraciones Externas
+        </Title>
+      </div>
       <Paragraph type="secondary">
         Exponé el sistema vía API segura para sincronizar stock y pedidos con la tienda online
         y la app móvil. La conexión se realiza a través de Cloudflare Tunnel.

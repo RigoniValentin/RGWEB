@@ -402,6 +402,7 @@ export function ProductsPage() {
         <table className="rg-detail-table">
           <tbody>
             {[
+              ['ID', d.PRODUCTO_ID],
               ['Código', d.CODIGOPARTICULAR],
               ['Nombre', d.NOMBRE],
               ['Descripción', d.DESCRIPCION || '-'],

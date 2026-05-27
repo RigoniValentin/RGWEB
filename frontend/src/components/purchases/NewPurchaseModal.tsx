@@ -1,14 +1,14 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Modal, Input, Select, Button, InputNumber, Table, Space, Typography,
-  Divider, message, Tag, Checkbox, Segmented, Badge, Switch, DatePicker,
+  Divider, message, Tag, Checkbox, Segmented, Badge, Switch, DatePicker, Tooltip,
 } from 'antd';
 import {
   SearchOutlined, DeleteOutlined, ShoppingCartOutlined,
   ShopOutlined, FileTextOutlined, SwapOutlined,
   ArrowLeftOutlined, CheckCircleOutlined,
   DollarOutlined, CreditCardOutlined, WalletOutlined,
-  BankOutlined, InboxOutlined, CalendarOutlined,
+  BankOutlined, InboxOutlined, CalendarOutlined, QuestionCircleOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
@@ -46,6 +46,10 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onSuccess: (result?: { compraId: number; actualizoCostos: boolean }) => void;
+}
+
+function hasItemsWithInvalidCantidad<T extends { CANTIDAD: number }>(items: T[]) {
+  return items.filter(item => !item.CANTIDAD || item.CANTIDAD <= 0);
 }
 
 export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
@@ -690,6 +694,12 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       return;
     }
 
+    const itemsSinCantidad = hasItemsWithInvalidCantidad(cart);
+    if (itemsSinCantidad.length > 0) {
+      message.warning(`Hay ${itemsSinCantidad.length === 1 ? 'un producto' : `${itemsSinCantidad.length} productos`} con cantidad 0. Ingrese una cantidad válida antes de continuar.`);
+      return;
+    }
+
     if (!esCtaCorriente && !pagoValido) return;
 
     const vueltoFinal = vuelto;
@@ -1199,6 +1209,9 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                   <span className="nsm-switch-label">
                     <SwapOutlined style={{ marginRight: 6 }} />
                     Cuenta Corriente
+                    <Tooltip title="Si el proveedor no tiene cuenta corriente, se creará automáticamente al finalizar la operación.">
+                      <QuestionCircleOutlined style={{ marginLeft: 6, color: '#8c8c8c', cursor: 'help' }} />
+                    </Tooltip>
                   </span>
                 </div>
               </div>

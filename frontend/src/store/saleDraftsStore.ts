@@ -32,6 +32,7 @@ export type ModalStep = 'cart' | 'cobro';
 
 export interface SaleDraft {
   id: string;
+  clientRequestId: string;
   createdAt: number;
   label: string;
 
@@ -78,6 +79,7 @@ function createEmptyDraft(): SaleDraft {
   const label = `Venta ${draftCounter++}`;
   return {
     id,
+    clientRequestId: crypto.randomUUID(),
     createdAt: Date.now(),
     label,
     cart: [],
@@ -163,8 +165,9 @@ export const useSaleDraftsStore = create<SaleDraftsState>()(
           return get().activeDraftId || '';
         }
         const draft = { ...createEmptyDraft(), ...partial };
-        // Ensure id is always fresh
+        // Ensure identifiers are always fresh
         draft.id = crypto.randomUUID();
+        draft.clientRequestId = crypto.randomUUID();
         draft.createdAt = Date.now();
         set({ drafts: [...drafts, draft], activeDraftId: draft.id });
         return draft.id;
@@ -222,7 +225,7 @@ export const useSaleDraftsStore = create<SaleDraftsState>()(
     }),
     {
       name: 'rg-sale-drafts',
-      version: 2,
+      version: 3,
       migrate: (persistedState: any, version) => {
         // v1 → v2: add per-draft search state fields
         if (persistedState && Array.isArray(persistedState.drafts) && version < 2) {
@@ -231,6 +234,15 @@ export const useSaleDraftsStore = create<SaleDraftsState>()(
             productSearchOpen: false,
             productSearchInitial: '',
             ...d,
+          }));
+        }
+        // v2 → v3: add stable idempotency key per sale draft
+        if (persistedState && Array.isArray(persistedState.drafts) && version < 3) {
+          persistedState.drafts = persistedState.drafts.map((d: any) => ({
+            ...d,
+            clientRequestId: typeof d.clientRequestId === 'string' && d.clientRequestId
+              ? d.clientRequestId
+              : crypto.randomUUID(),
           }));
         }
         return persistedState;
@@ -243,16 +255,30 @@ export const useSaleDraftsStore = create<SaleDraftsState>()(
         // After rehydration, restore the counter to avoid label collisions
         return (state: SaleDraftsState | undefined) => {
           if (state?.drafts?.length) {
+            let changed = false;
             // Reset transient UI flags so a refresh doesn't leave the
             // advanced search modal open.
             for (const d of state.drafts) {
+              if (!d.clientRequestId) {
+                d.clientRequestId = crypto.randomUUID();
+                changed = true;
+              }
               d.productSearchOpen = false;
+            }
+            if (!state.activeDraftId || !state.drafts.some(d => d.id === state.activeDraftId)) {
+              state.activeDraftId = state.drafts[0]!.id;
+              changed = true;
             }
             const maxNum = state.drafts.reduce((max: number, d: SaleDraft) => {
               const match = d.label.match(/^Venta (\d+)$/);
               return match ? Math.max(max, parseInt(match[1]!, 10)) : max;
             }, 0);
             draftCounter = maxNum + 1;
+            if (changed) {
+              queueMicrotask(() => {
+                useSaleDraftsStore.setState({ drafts: state.drafts, activeDraftId: state.activeDraftId });
+              });
+            }
           }
         };
       },

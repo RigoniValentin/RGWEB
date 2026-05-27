@@ -548,6 +548,11 @@ async function searchProductos(search: string, puntoVentaId?: number): Promise<a
 }
 
 // ── Búsqueda avanzada de productos para pedido ──
+// Optimizado: por defecto busca SOLO en p.NOMBRE (sin joins → máxima velocidad).
+// Si el texto en `search` parece código de barras (≥ 6 dígitos), se enruta
+// automáticamente al lookup por código (con join a PRODUCTOS_COD_BARRAS).
+// Los joins a MARCAS / CATEGORIAS / PRODUCTOS_COD_BARRAS solo se agregan
+// cuando el usuario aplica esos filtros específicos.
 async function searchProductosAdvanced(params: {
   search?: string;
   marca?: string;
@@ -575,6 +580,9 @@ async function searchProductosAdvanced(params: {
 
   const conditions: string[] = [];
   const req = pool.request();
+  let joinMarca = false;
+  let joinCategoria = false;
+  let joinCodBarras = false;
 
   if (params.soloActivos !== false) {
     conditions.push('p.ACTIVO = 1');
@@ -585,23 +593,28 @@ async function searchProductosAdvanced(params: {
   }
 
   if (params.search) {
-    const tokens = params.search.trim().split(/\s+/).filter(t => t.length > 0);
-    tokens.forEach((token, i) => {
-      conditions.push(
-        `(p.NOMBRE LIKE @t${i} OR p.CODIGOPARTICULAR LIKE @t${i}
-          OR p.DESCRIPCION LIKE @t${i} OR cb.CODIGO_BARRAS LIKE @t${i}
-          OR c.NOMBRE LIKE @t${i} OR m.NOMBRE LIKE @t${i})`
-      );
-      req.input(`t${i}`, sql.NVarChar, `%${token}%`);
-    });
+    const searchTrim = params.search.trim();
+    if (/^\d{6,}$/.test(searchTrim)) {
+      joinCodBarras = true;
+      conditions.push('(p.CODIGOPARTICULAR = @searchCode OR cb.CODIGO_BARRAS = @searchCode)');
+      req.input('searchCode', sql.NVarChar, searchTrim);
+    } else {
+      const tokens = searchTrim.split(/\s+/).filter(t => t.length > 0);
+      tokens.forEach((token, i) => {
+        conditions.push(`p.NOMBRE LIKE @t${i}`);
+        req.input(`t${i}`, sql.NVarChar, `%${token}%`);
+      });
+    }
   }
 
-  if (params.marca) {
+  if (params.marca && params.marca.trim()) {
+    joinMarca = true;
     conditions.push('m.NOMBRE LIKE @marca');
     req.input('marca', sql.NVarChar, `%${params.marca.trim()}%`);
   }
 
-  if (params.categoria) {
+  if (params.categoria && params.categoria.trim()) {
+    joinCategoria = true;
     conditions.push('c.NOMBRE LIKE @categoria');
     req.input('categoria', sql.NVarChar, `%${params.categoria.trim()}%`);
   }
@@ -609,9 +622,11 @@ async function searchProductosAdvanced(params: {
   if (params.codigo) {
     const codigo = params.codigo.trim();
     if (/^\d{6,}$/.test(codigo)) {
-      conditions.push('cb.CODIGO_BARRAS = @codExact');
+      joinCodBarras = true;
+      conditions.push('(p.CODIGOPARTICULAR = @codExact OR cb.CODIGO_BARRAS = @codExact)');
       req.input('codExact', sql.NVarChar, codigo);
     } else {
+      joinCodBarras = true;
       conditions.push('(p.CODIGOPARTICULAR LIKE @cod OR cb.CODIGO_BARRAS LIKE @cod)');
       req.input('cod', sql.NVarChar, `%${codigo}%`);
     }
@@ -623,11 +638,16 @@ async function searchProductosAdvanced(params: {
 
   req.input('limit', sql.Int, limit);
 
+  const distinctClause = joinCodBarras ? 'DISTINCT' : '';
+  const joinMarcaSql = joinMarca ? 'LEFT JOIN MARCAS m ON p.MARCA_ID = m.MARCA_ID' : '';
+  const joinCategoriaSql = joinCategoria ? 'LEFT JOIN CATEGORIAS c ON p.CATEGORIA_ID = c.CATEGORIA_ID' : '';
+  const joinCodBarrasSql = joinCodBarras ? 'LEFT JOIN PRODUCTOS_COD_BARRAS cb ON p.PRODUCTO_ID = cb.PRODUCTO_ID' : '';
+
   const result = await req.query(`
-      SELECT DISTINCT TOP (@limit)
+      SELECT ${distinctClause} TOP (@limit)
         p.PRODUCTO_ID, p.CODIGOPARTICULAR, p.NOMBRE,
-        ISNULL(m.NOMBRE, '') AS MARCA,
-        ISNULL(c.NOMBRE, '') AS CATEGORIA,
+        ISNULL((SELECT TOP 1 NOMBRE FROM MARCAS WHERE MARCA_ID = p.MARCA_ID), '') AS MARCA,
+        ISNULL((SELECT TOP 1 NOMBRE FROM CATEGORIAS WHERE CATEGORIA_ID = p.CATEGORIA_ID), '') AS CATEGORIA,
         ${precioExpr} AS PRECIO_VENTA,
         ISNULL(p.LISTA_DEFECTO, 1) AS LISTA_DEFECTO,
         p.PRECIO_COMPRA, p.CANTIDAD AS STOCK,
@@ -640,11 +660,12 @@ async function searchProductosAdvanced(params: {
       FROM PRODUCTOS p
       LEFT JOIN UNIDADES_MEDIDA u ON p.UNIDAD_ID = u.UNIDAD_ID
       LEFT JOIN TASAS_IMPUESTOS ti ON p.TASA_IVA_ID = ti.TASA_ID
-      LEFT JOIN PRODUCTOS_COD_BARRAS cb ON p.PRODUCTO_ID = cb.PRODUCTO_ID
-      LEFT JOIN CATEGORIAS c ON p.CATEGORIA_ID = c.CATEGORIA_ID
-      LEFT JOIN MARCAS m ON p.MARCA_ID = m.MARCA_ID
+      ${joinCodBarrasSql}
+      ${joinCategoriaSql}
+      ${joinMarcaSql}
       ${whereClause}
       ORDER BY p.NOMBRE
+      OPTION (RECOMPILE)
     `);
 
   return result.recordset;

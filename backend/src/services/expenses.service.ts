@@ -181,6 +181,7 @@ async function registrarEgresoCajaCentral(
   metodosPago: MetodoPagoItem[],
   usuarioId: number,
   puntoVentaId: number | null,
+  fecha: Date,
 ): Promise<number> {
   const totalEgreso = r2(efectivo + digital + cheques);
   const movResult = await tx.request()
@@ -193,10 +194,11 @@ async function registrarEgresoCajaCentral(
     .input('cheques', sql.Decimal(18, 2), -cheques)
     .input('total', sql.Decimal(18, 2), -totalEgreso)
     .input('pvId', sql.Int, puntoVentaId)
+    .input('fecha', sql.DateTime, fecha)
     .query(`
-      INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+      INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, FECHA, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
       OUTPUT INSERTED.ID
-      VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, @cheques, 0, @total, @pvId, 0)
+      VALUES (@idEntidad, @fecha, @tipoEntidad, @movimiento, @uid, @efectivo, @digital, @cheques, 0, @total, @pvId, 0)
     `);
   const movId = movResult.recordset[0].ID;
 
@@ -475,7 +477,7 @@ export const expensesService = {
       // 3) Register egreso in MOVIMIENTOS_CAJA (Caja Central)
       const descEgreso = `Gasto #${gastoId} - ${input.ENTIDAD.trim()}`;
       const movId = await registrarEgresoCajaCentral(
-        tx, gastoId, descEgreso, efectivo, digital, cheques, metodosValidos, usuarioId, pvId,
+        tx, gastoId, descEgreso, efectivo, digital, cheques, metodosValidos, usuarioId, pvId, new Date(input.FECHA),
       );
 
       // 4) Save MOVIMIENTO_CAJA_ID for traceability back from gasto detail
@@ -594,7 +596,7 @@ export const expensesService = {
       const pvId = input.puntoVentaId ?? exists.recordset[0].PUNTO_VENTA_ID ?? null;
       const descEgreso = `Gasto #${gastoId} - ${input.ENTIDAD.trim()}`;
       const movId = await registrarEgresoCajaCentral(
-        tx, gastoId, descEgreso, efectivo, digital, cheques, metodosValidos, usuarioId, pvId,
+        tx, gastoId, descEgreso, efectivo, digital, cheques, metodosValidos, usuarioId, pvId, new Date(input.FECHA),
       );
 
       await tx.request()

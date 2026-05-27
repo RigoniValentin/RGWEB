@@ -269,7 +269,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const result = await salesService.create(req.body, usuarioId);
     res.status(201).json(result);
   } catch (err: any) {
-    const status = err.name === 'ValidationError' ? 400 : 500;
+    const status = err.name === 'ValidationError' ? 400 : err.name === 'ConflictError' ? 409 : 500;
     res.status(status).json({ error: err.message });
   }
 });

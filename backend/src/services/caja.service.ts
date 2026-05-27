@@ -136,12 +136,15 @@ export const cajaService = {
     const caja = cajaResult.recordset[0];
 
     // Calculate totals from items
-    const totals = { efectivo: 0, digital: 0, ingresos: 0, egresos: 0 };
+    // fondoInicial = cash placed from Fondo de Cambio at apertura; excluded from ingresos
+    const totals = { efectivo: 0, digital: 0, ingresos: 0, egresos: 0, fondoInicial: 0 };
     for (const item of itemsResult.recordset) {
       const ef = item.MONTO_EFECTIVO || 0;
       const dg = item.MONTO_DIGITAL || 0;
       if (item.ORIGEN_TIPO === 'EGRESO') {
         totals.egresos += ef + dg;
+      } else if (item.ORIGEN_TIPO === 'FONDO_CAMBIO' && ef > 0) {
+        totals.fondoInicial += ef;
       } else {
         totals.ingresos += ef + dg;
       }
@@ -613,7 +616,7 @@ export const cajaService = {
             .input('movimiento', sql.NVarChar(500), observaciones || 'Ingreso desde Fondo de Cambio')
             .input('uid', sql.Int, usuarioId)
             .input('efectivo', sql.Decimal(18, 2), monto)
-            .input('total', sql.Decimal(18, 2), monto)
+            .input('total', sql.Decimal(18, 2), 0)
             .input('pvId', sql.Int, puntoVentaId || null)
             .query(`
               INSERT INTO MOVIMIENTOS_CAJA (CAJA_ID, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
@@ -670,7 +673,7 @@ export const cajaService = {
             .input('movimiento', sql.NVarChar(500), observaciones || 'Egreso hacia Fondo de Cambio')
             .input('uid', sql.Int, usuarioId)
             .input('efectivo', sql.Decimal(18, 2), -monto)
-            .input('total', sql.Decimal(18, 2), -monto)
+            .input('total', sql.Decimal(18, 2), 0)
             .input('pvId', sql.Int, puntoVentaId || null)
             .query(`
               INSERT INTO MOVIMIENTOS_CAJA (CAJA_ID, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
