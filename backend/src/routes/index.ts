@@ -37,6 +37,7 @@ import bancoRoutes from './banco.routes.js';
 import reportsRoutes from './reports.routes.js';
 import integracionesRoutes from './integraciones.routes.js';
 import externalRoutes from './external.routes.js';
+import tiendaOrdersRoutes from './tiendaOrders.routes.js';
 
 const router = Router();
 
@@ -78,5 +79,6 @@ router.use('/bancos', bancoRoutes);
 router.use('/reports', reportsRoutes);
 router.use('/integraciones', integracionesRoutes);
 router.use('/external', externalRoutes);
+router.use('/tienda-orders', tiendaOrdersRoutes);
 
 export default router;

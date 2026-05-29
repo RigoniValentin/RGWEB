@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { externalAuthMiddleware, ExternalRequest } from '../middleware/externalAuth.js';
 import { integracionesService } from '../services/integraciones.service.js';
 import { salesService, VentaInput, VentaItemInput } from '../services/sales.service.js';
+import { tiendaOrdersService } from '../services/tiendaOrders.service.js';
 import { getPool, sql } from '../database/connection.js';
 
 // ═══════════════════════════════════════════════════
@@ -194,6 +195,105 @@ router.post('/orders', async (req: ExternalRequest, res: Response, next: NextFun
     });
   } catch (err) {
     await logInbound(req, 'order.received', 'ERROR', 500, Date.now() - started, parsedBody, (err as Error).message);
+    next(err);
+  }
+});
+
+// ── POST /api/external/tienda-orders ───────────────────
+//   Buzón de pedidos: persiste el pedido en TIENDA_ORDERS (estado=pendiente).
+//   No crea Venta inmediatamente; el operador la procesa desde el panel.
+//   Idempotente por (tiendaOrigen, externalOrderId).
+//
+//   Este es el contrato ESTÁNDAR para integrar cualquier tienda online
+//   con RG WEB; ver docs/TIENDA_ORDERS_CONTRACT.md.
+const tiendaOrderItemSchema = z.object({
+  productoId: z.number().int().positive().optional(),
+  sku: z.string().max(60).optional(),
+  nombre: z.string().max(300).optional(),
+  cantidad: z.number().positive(),
+  precioUnitario: z.number().nonnegative(),
+  descuento: z.number().min(0).max(100).optional(),
+  subtotal: z.number().nonnegative().optional(),
+});
+
+const tiendaOrderSchema = z.object({
+  externalOrderId: z.string().min(1).max(120),
+  tiendaOrigen: z.string().min(1).max(60),
+  fechaPedido: z.string().datetime().optional(),
+  cliente: z
+    .object({
+      nombre: z.string().max(200).optional(),
+      documento: z.string().max(50).optional(),
+      tipoDocumento: z.string().max(20).optional(),
+      email: z.string().email().max(200).optional(),
+      telefono: z.string().max(50).optional(),
+      direccion: z.string().max(500).optional(),
+      localidad: z.string().max(120).optional(),
+      provincia: z.string().max(120).optional(),
+      cp: z.string().max(20).optional(),
+    })
+    .optional(),
+  items: z.array(tiendaOrderItemSchema).min(1).max(200),
+  pago: z
+    .object({
+      metodo: z.string().max(60).optional(),
+      estado: z.string().max(30).optional(),
+      referencia: z.string().max(200).optional(),
+    })
+    .optional(),
+  envio: z
+    .object({
+      metodo: z.enum(['retiro', 'envio']).optional(),
+      direccion: z.string().max(500).optional(),
+      costo: z.number().nonnegative().optional(),
+    })
+    .optional(),
+  totales: z
+    .object({
+      subtotal: z.number().nonnegative().optional(),
+      descuentos: z.number().nonnegative().optional(),
+      envio: z.number().nonnegative().optional(),
+      total: z.number().nonnegative().optional(),
+    })
+    .optional(),
+  observaciones: z.string().max(1000).optional(),
+});
+
+router.post('/tienda-orders', async (req: ExternalRequest, res: Response, next: NextFunction) => {
+  const started = Date.now();
+  let parsedBody: z.infer<typeof tiendaOrderSchema> | undefined;
+  try {
+    const parsed = tiendaOrderSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const message = parsed.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join('; ');
+      await logInbound(req, 'tienda.order.received', 'ERROR', 400, Date.now() - started, req.body, message);
+      res.status(400).json({ error: 'Datos inválidos', detalles: parsed.error.errors });
+      return;
+    }
+    parsedBody = parsed.data;
+
+    const result = await tiendaOrdersService.receiveOrder(parsedBody, req.external?.apiKeyId ?? null);
+
+    res.status(result.duplicate ? 200 : 201).json({
+      status: result.duplicate ? 'duplicate' : 'received',
+      tiendaOrderId: result.tiendaOrderId,
+      estado: result.estado,
+    });
+    await logInbound(
+      req,
+      'tienda.order.received',
+      'SUCCESS',
+      result.duplicate ? 200 : 201,
+      Date.now() - started,
+      {
+        externalOrderId: parsedBody.externalOrderId,
+        tiendaOrigen: parsedBody.tiendaOrigen,
+        items: parsedBody.items.length,
+        duplicate: result.duplicate,
+      },
+    );
+  } catch (err) {
+    await logInbound(req, 'tienda.order.received', 'ERROR', 500, Date.now() - started, parsedBody, (err as Error).message);
     next(err);
   }
 });

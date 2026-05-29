@@ -85,6 +85,7 @@ import { PuntosVentaPage } from '../pages/PuntosVentaPage';
 import { BackupsPage } from '../pages/BackupsPage';
 import { ListadoProductosPage } from '../pages/ListadoProductosPage';
 import { IntegracionesPage } from '../pages/IntegracionesPage';
+import { PedidosTiendaPage } from '../pages/PedidosTiendaPage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -132,6 +133,7 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/settings/pos':     { label: 'Puntos de Venta',  icon: <EnvironmentOutlined />, component: PuntosVentaPage,   closable: true },
   '/settings/backups': { label: 'Backups',          icon: <DatabaseOutlined />,    component: BackupsPage,       closable: true },
   '/settings/integraciones': { label: 'Integraciones', icon: <LinkOutlined />,    component: IntegracionesPage, closable: true },
+  '/tienda-orders':          { label: 'Pedidos Tienda', icon: <ShoppingCartOutlined />, component: PedidosTiendaPage, closable: true },
 };
 
 /** Icon map for TabBar */
@@ -174,6 +176,7 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
   '/settings/pos':        'configuracion.ver',
   '/settings/backups':    'backups.administrar',
   '/settings/integraciones': 'integraciones.ver',
+  '/tienda-orders':       'tienda_orders.ver',
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -235,6 +238,7 @@ const menuItems = [
     children: [
       { type: 'group' as const, label: 'Movimientos', className: 'rg-popup-group-title', children: [
         { key: '/sales', icon: <DollarOutlined />, label: 'Ventas' },
+        { key: '/tienda-orders', icon: <ShoppingOutlined />, label: 'Pedidos Tienda' },
         { key: '/purchases', icon: <ShoppingCartOutlined />, label: 'Compras' },
         { key: '/remitos', icon: <FileTextOutlined />, label: 'Remitos' },
         { key: '/cashregisters', icon: <BankOutlined />, label: 'Cajas' },
