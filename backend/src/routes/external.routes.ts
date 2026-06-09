@@ -4,6 +4,14 @@ import { externalAuthMiddleware, ExternalRequest } from '../middleware/externalA
 import { integracionesService } from '../services/integraciones.service.js';
 import { salesService, VentaInput, VentaItemInput } from '../services/sales.service.js';
 import { tiendaOrdersService } from '../services/tiendaOrders.service.js';
+import {
+  TIPOS_DOCUMENTO_AR,
+  CONDICIONES_IVA_AR,
+  METODOS_PAGO,
+  ESTADOS_PAGO,
+  METODOS_ENVIO,
+  MONEDAS,
+} from '../types/tiendaOrders.js';
 import { getPool, sql } from '../database/connection.js';
 
 // ═══════════════════════════════════════════════════
@@ -47,7 +55,7 @@ router.get('/health', (req: ExternalRequest, res: Response) => {
 
 // ── GET /api/external/sync-stock ───────────────────────
 //   Devuelve el catálogo de productos marcados como VENTA_WEB
-//   con stock consolidado y precio de lista 1.
+//   con stock consolidado y el precio de la lista por defecto.
 router.get('/sync-stock', async (req: ExternalRequest, res: Response, next: NextFunction) => {
   const started = Date.now();
   try {
@@ -129,12 +137,20 @@ router.post('/orders', async (req: ExternalRequest, res: Response, next: NextFun
       return;
     }
 
-    // Resolver precios faltantes leyendo LISTA_1 desde DB
+    // Resolver precios faltantes leyendo la lista por defecto desde DB
     const prodIds = parsedBody.items.map((i) => i.productoId);
     const reqDb = pool.request();
     prodIds.forEach((id, i) => reqDb.input(`p${i}`, sql.Int, id));
     const prodResult = await reqDb.query(`
-      SELECT PRODUCTO_ID, ISNULL(LISTA_1, 0) AS PRECIO,
+      SELECT PRODUCTO_ID,
+             CASE ISNULL(LISTA_DEFECTO, 1)
+               WHEN 1 THEN ISNULL(LISTA_1, 0)
+               WHEN 2 THEN ISNULL(LISTA_2, 0)
+               WHEN 3 THEN ISNULL(LISTA_3, 0)
+               WHEN 4 THEN ISNULL(LISTA_4, 0)
+               WHEN 5 THEN ISNULL(LISTA_5, 0)
+               ELSE ISNULL(LISTA_1, 0)
+             END AS PRECIO,
              ISNULL(PRECIO_COMPRA, 0) AS PRECIO_COMPRA,
              VENTA_WEB, ACTIVO
       FROM PRODUCTOS
@@ -200,64 +216,90 @@ router.post('/orders', async (req: ExternalRequest, res: Response, next: NextFun
 });
 
 // ── POST /api/external/tienda-orders ───────────────────
-//   Buzón de pedidos: persiste el pedido en TIENDA_ORDERS (estado=pendiente).
-//   No crea Venta inmediatamente; el operador la procesa desde el panel.
-//   Idempotente por (tiendaOrigen, externalOrderId).
+//   Buzón estándar de pedidos de tienda online. Persiste el pedido en
+//   TIENDA_ORDERS con estado PENDIENTE; no crea Venta inmediatamente
+//   (eso lo hace el operador desde el panel admin).
 //
-//   Este es el contrato ESTÁNDAR para integrar cualquier tienda online
-//   con RG WEB; ver docs/TIENDA_ORDERS_CONTRACT.md.
-const tiendaOrderItemSchema = z.object({
-  productoId: z.number().int().positive().optional(),
-  sku: z.string().max(60).optional(),
-  nombre: z.string().max(300).optional(),
-  cantidad: z.number().positive(),
-  precioUnitario: z.number().nonnegative(),
-  descuento: z.number().min(0).max(100).optional(),
-  subtotal: z.number().nonnegative().optional(),
-});
+//   Seguridad: x-api-key validado por `externalAuthMiddleware`
+//   (bcrypt en INTEGRACIONES_API_KEYS, scopes y rate-limit incluidos).
+//   El valor "config simple" `tienda_orders_api_key` de INTEGRACIONES_CONFIG
+//   queda disponible como fallback heredado para integraciones legacy.
+//
+//   Idempotencia: clave única (tiendaOrigen, externalOrderId).
+//     · 201 Created  + status='RECEIVED'  → primer ingreso
+//     · 200 OK       + status='DUPLICATE' → ya existía (devuelve el actual)
+//
+//   Contrato completo: docs/TIENDA_ORDERS_CONTRACT.md
 
-const tiendaOrderSchema = z.object({
-  externalOrderId: z.string().min(1).max(120),
-  tiendaOrigen: z.string().min(1).max(60),
-  fechaPedido: z.string().datetime().optional(),
-  cliente: z
-    .object({
-      nombre: z.string().max(200).optional(),
-      documento: z.string().max(50).optional(),
-      tipoDocumento: z.string().max(20).optional(),
-      email: z.string().email().max(200).optional(),
-      telefono: z.string().max(50).optional(),
-      direccion: z.string().max(500).optional(),
-      localidad: z.string().max(120).optional(),
-      provincia: z.string().max(120).optional(),
-      cp: z.string().max(20).optional(),
-    })
-    .optional(),
-  items: z.array(tiendaOrderItemSchema).min(1).max(200),
-  pago: z
-    .object({
-      metodo: z.string().max(60).optional(),
-      estado: z.string().max(30).optional(),
-      referencia: z.string().max(200).optional(),
-    })
-    .optional(),
-  envio: z
-    .object({
-      metodo: z.enum(['retiro', 'envio']).optional(),
-      direccion: z.string().max(500).optional(),
-      costo: z.number().nonnegative().optional(),
-    })
-    .optional(),
-  totales: z
-    .object({
-      subtotal: z.number().nonnegative().optional(),
-      descuentos: z.number().nonnegative().optional(),
-      envio: z.number().nonnegative().optional(),
-      total: z.number().nonnegative().optional(),
-    })
-    .optional(),
-  observaciones: z.string().max(1000).optional(),
-});
+const tiendaOrderItemSchema = z
+  .object({
+    productoId: z.number().int().positive().optional(),
+    sku: z.string().min(1).max(60).optional(),
+    nombre: z.string().max(300).optional(),
+    cantidad: z.number().positive(),
+    precioUnitario: z.number().nonnegative(),
+    descuento: z.number().min(0).max(100).optional(),
+    ivaAlicuota: z.number().min(0).max(100).optional(),
+    subtotal: z.number().nonnegative().optional(),
+  })
+  .refine((it) => it.productoId !== undefined || (it.sku && it.sku.length > 0), {
+    message: 'Cada ítem requiere productoId o sku',
+  });
+
+const tiendaOrderSchema = z
+  .object({
+    externalOrderId: z.string().trim().min(1).max(120),
+    tiendaOrigen: z.string().trim().min(1).max(60),
+    fechaPedido: z.string().datetime({ offset: true }).optional(),
+    moneda: z.enum(MONEDAS).optional(),
+    cliente: z
+      .object({
+        nombre: z.string().max(200).optional(),
+        tipoDocumento: z.enum(TIPOS_DOCUMENTO_AR).optional(),
+        documento: z.string().max(20).regex(/^[A-Za-z0-9]*$/, 'Documento sin separadores').optional(),
+        condicionIva: z.enum(CONDICIONES_IVA_AR).optional(),
+        email: z.string().email().max(200).optional(),
+        telefono: z.string().max(50).optional(),
+        direccion: z.string().max(500).optional(),
+        localidad: z.string().max(120).optional(),
+        provincia: z.string().max(120).optional(),
+        cp: z.string().max(20).optional(),
+        pais: z.string().length(2).optional(),
+      })
+      .strict()
+      .optional(),
+    items: z.array(tiendaOrderItemSchema).min(1).max(200),
+    pago: z
+      .object({
+        metodo: z.enum(METODOS_PAGO).optional(),
+        estado: z.enum(ESTADOS_PAGO).optional(),
+        referencia: z.string().max(200).optional(),
+        fechaAprobacion: z.string().datetime({ offset: true }).optional(),
+      })
+      .strict()
+      .optional(),
+    envio: z
+      .object({
+        metodo: z.enum(METODOS_ENVIO).optional(),
+        direccion: z.string().max(500).optional(),
+        transporte: z.string().max(80).optional(),
+        tracking: z.string().max(120).optional(),
+      })
+      .strict()
+      .optional(),
+    totales: z
+      .object({
+        subtotal: z.number().nonnegative().optional(),
+        descuentos: z.number().nonnegative().optional(),
+        costoEnvio: z.number().nonnegative().optional(),
+        ivaTotal: z.number().nonnegative().optional(),
+        total: z.number().nonnegative().optional(),
+      })
+      .strict()
+      .optional(),
+    observaciones: z.string().max(1000).optional(),
+  })
+  .strict();
 
 router.post('/tienda-orders', async (req: ExternalRequest, res: Response, next: NextFunction) => {
   const started = Date.now();
@@ -265,35 +307,49 @@ router.post('/tienda-orders', async (req: ExternalRequest, res: Response, next: 
   try {
     const parsed = tiendaOrderSchema.safeParse(req.body);
     if (!parsed.success) {
-      const message = parsed.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join('; ');
-      await logInbound(req, 'tienda.order.received', 'ERROR', 400, Date.now() - started, req.body, message);
-      res.status(400).json({ error: 'Datos inválidos', detalles: parsed.error.errors });
+      const detalles = parsed.error.errors.map((e) => ({
+        path: e.path.join('.'),
+        message: e.message,
+      }));
+      const summary = detalles.map((d) => `${d.path}: ${d.message}`).join('; ');
+      await logInbound(req, 'tienda.order.received', 'ERROR', 400, Date.now() - started, req.body, summary);
+      res.status(400).json({
+        status: 'INVALID',
+        error: 'Datos inválidos',
+        detalles,
+      });
       return;
     }
     parsedBody = parsed.data;
 
     const result = await tiendaOrdersService.receiveOrder(parsedBody, req.external?.apiKeyId ?? null);
 
-    res.status(result.duplicate ? 200 : 201).json({
-      status: result.duplicate ? 'duplicate' : 'received',
+    const isDuplicate = result.status === 'DUPLICATE';
+    const httpStatus = isDuplicate ? 200 : 201;
+
+    res.status(httpStatus).json({
+      status: result.status,
       tiendaOrderId: result.tiendaOrderId,
       estado: result.estado,
     });
-    await logInbound(
-      req,
-      'tienda.order.received',
-      'SUCCESS',
-      result.duplicate ? 200 : 201,
-      Date.now() - started,
-      {
-        externalOrderId: parsedBody.externalOrderId,
-        tiendaOrigen: parsedBody.tiendaOrigen,
-        items: parsedBody.items.length,
-        duplicate: result.duplicate,
-      },
-    );
+
+    await logInbound(req, 'tienda.order.received', 'SUCCESS', httpStatus, Date.now() - started, {
+      externalOrderId: parsedBody.externalOrderId,
+      tiendaOrigen: parsedBody.tiendaOrigen,
+      itemsCount: parsedBody.items.length,
+      total: parsedBody.totales?.total ?? null,
+      status: result.status,
+      tiendaOrderId: result.tiendaOrderId,
+    });
   } catch (err) {
-    await logInbound(req, 'tienda.order.received', 'ERROR', 500, Date.now() - started, parsedBody, (err as Error).message);
+    const e = err as Error & { name?: string };
+    const isValidation = e.name === 'ValidationError';
+    const status = isValidation ? 422 : 500;
+    await logInbound(req, 'tienda.order.received', 'ERROR', status, Date.now() - started, parsedBody, e.message);
+    if (isValidation) {
+      res.status(status).json({ status: 'ERROR', error: e.message });
+      return;
+    }
     next(err);
   }
 });

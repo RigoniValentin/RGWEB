@@ -80,7 +80,7 @@ export const salesApi = {
     api.get<ProductoSearch[]>('/sales/search-products', { params: { search, listaId }, signal }).then(r => r.data),
 
   searchProductsAdvanced: (params: {
-    search?: string; marca?: string; categoria?: string; codigo?: string;
+    search?: string; marca?: string; marcaIds?: number[]; categoria?: string; codigo?: string;
     soloActivos?: boolean; soloConStock?: boolean; listaId?: number; limit?: number;
   }, signal?: AbortSignal) =>
     api.get<ProductoSearch[]>('/sales/search-products-advanced', { params, signal }).then(r => r.data),

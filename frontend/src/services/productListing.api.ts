@@ -18,6 +18,7 @@ export interface ProductListingItem {
   STOCK: number;
   PRECIO: number;
   LISTA_DEFECTO: number | null;
+  UNIDAD_ABREVIACION: string | null;
 }
 
 function buildParams(filter: ProductListingFilter) {

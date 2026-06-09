@@ -7,17 +7,21 @@ import {
   ShoppingOutlined, DollarOutlined,
   WarningOutlined, RiseOutlined, FallOutlined,
   BankOutlined, TrophyOutlined,
-  CalendarOutlined, ClockCircleOutlined, UserOutlined,
-  BarChartOutlined, FundOutlined, PercentageOutlined, StarOutlined,
-  ArrowDownOutlined, ArrowUpOutlined,  CreditCardOutlined, WalletOutlined,
-  UnorderedListOutlined, FileProtectOutlined, ReloadOutlined,
+  ClockCircleOutlined, ArrowUpOutlined, ArrowDownOutlined,
+  UserOutlined, CalendarOutlined, ReloadOutlined,
+  PercentageOutlined, FundOutlined, BarChartOutlined,
+  WalletOutlined, UnorderedListOutlined, CreditCardOutlined,
+  FileProtectOutlined, StarOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
+import dayjs, { type Dayjs } from 'dayjs';
 import { dashboardApi } from '../services/dashboard.api';
+import { settingsApi } from '../services/settings.api';
 import { cajaCentralApi } from '../services/cajaCentral.api';
 import { useAuthStore } from '../store/authStore';
 import { fmtMoney, statFormatter } from '../utils/format';
 import type { DesgloseMetodo, DashboardGranularity, DashboardSeriesPoint } from '../types';
+import { DateFilterPopover, type DateFilterOption } from '../components/DateFilterPopover';
 import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
 import { RGLogo } from '../components/RGLogo';
 import { CajeroDashboardPage } from './CajeroDashboardPage';
@@ -67,30 +71,77 @@ function LiveClock() {
 
 type PeriodPreset = 'today' | '7d' | '30d' | 'mtd' | 'ytd';
 
-function periodRange(preset: PeriodPreset): { from: string; to: string; granularity: DashboardGranularity } {
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+const PERIOD_PRESET_LABELS: Record<PeriodPreset, string> = {
+  today: 'Hoy',
+  '7d': '7 días',
+  '30d': '30 días',
+  mtd: 'Mes',
+  ytd: 'Año',
+};
+
+const PERIOD_PRESET_OPTIONS: DateFilterOption<PeriodPreset>[] = [
+  { label: 'Hoy', value: 'today' },
+  { label: '7 días', value: '7d' },
+  { label: '30 días', value: '30d' },
+  { label: 'Mes', value: 'mtd' },
+  { label: 'Año', value: 'ytd' },
+];
+
+function getAutoGranularity(from: string, to: string): DashboardGranularity {
+  const days = Math.max(dayjs(to).startOf('day').diff(dayjs(from).startOf('day'), 'day') + 1, 1);
+  if (days <= 1) return 'hour';
+  if (days <= 62) return 'day';
+  if (days <= 180) return 'week';
+  return 'month';
+}
+
+function getPresetRange(preset: PeriodPreset): { from: string; to: string; granularity: DashboardGranularity } {
+  const today = dayjs().startOf('day');
+  const fmt = (date: Dayjs) => date.format('YYYY-MM-DD');
   const toStr = fmt(today);
   switch (preset) {
     case 'today':
       return { from: toStr, to: toStr, granularity: 'hour' };
     case '7d': {
-      const d = new Date(today); d.setDate(d.getDate() - 6);
-      return { from: fmt(d), to: toStr, granularity: 'day' };
+      const from = fmt(today.subtract(6, 'day'));
+      return { from, to: toStr, granularity: 'day' };
     }
     case '30d': {
-      const d = new Date(today); d.setDate(d.getDate() - 29);
-      return { from: fmt(d), to: toStr, granularity: 'day' };
+      const from = fmt(today.subtract(29, 'day'));
+      return { from, to: toStr, granularity: 'day' };
     }
     case 'mtd': {
-      const d = new Date(today.getFullYear(), today.getMonth(), 1);
-      return { from: fmt(d), to: toStr, granularity: 'day' };
+      const from = fmt(today.startOf('month'));
+      return { from, to: toStr, granularity: 'day' };
     }
     case 'ytd': {
-      const d = new Date(today.getFullYear(), 0, 1);
-      return { from: fmt(d), to: toStr, granularity: 'month' };
+      const from = fmt(today.startOf('year'));
+      return { from, to: toStr, granularity: 'month' };
     }
   }
+}
+
+function getDashboardRange(
+  preset: PeriodPreset | undefined,
+  from?: string,
+  to?: string,
+): { from: string; to: string; granularity: DashboardGranularity } {
+  if (preset) return getPresetRange(preset);
+  const today = dayjs().format('YYYY-MM-DD');
+  const safeFrom = from ?? today;
+  const safeTo = to ?? safeFrom;
+  return { from: safeFrom, to: safeTo, granularity: getAutoGranularity(safeFrom, safeTo) };
+}
+
+function formatPeriodLabel(preset: PeriodPreset | undefined, from: string, to: string): string {
+  if (preset === 'today') return 'Hoy';
+  if (preset === '7d') return 'Últimos 7 días';
+  if (preset === '30d') return 'Últimos 30 días';
+  if (preset === 'mtd') return 'Mes en curso';
+  if (preset === 'ytd') return 'Año en curso';
+  const fromLabel = dayjs(from).format('DD/MM/YYYY');
+  const toLabel = dayjs(to).format('DD/MM/YYYY');
+  return from === to ? fromLabel : `${fromLabel} - ${toLabel}`;
 }
 
 function formatBucket(bucket: string, g: DashboardGranularity): string {
@@ -139,19 +190,22 @@ export function DashboardPage() {
   const isDashboardActive = useTabStore((s) => s.activeKey === '/dashboard');
 
   const [pvFilter, setPvFilter] = useState<number | undefined>(() => puntoVentaActivo ?? undefined);
-  const [period, setPeriod] = useState<PeriodPreset>('today');
+  const initialPeriod = getPresetRange('today');
+  const [period, setPeriod] = useState<PeriodPreset | undefined>('today');
+  const [fechaDesde, setFechaDesde] = useState<string | undefined>(initialPeriod.from);
+  const [fechaHasta, setFechaHasta] = useState<string | undefined>(initialPeriod.to);
   const [granularity, setGranularity] = useState<DashboardGranularity | 'auto'>('auto');
   const [desgloseModalOpen, setDesgloseModalOpen] = useState(false);
   const [desgloseData, setDesgloseData] = useState<DesgloseMetodo[]>([]);
   const [heatmapModalOpen, setHeatmapModalOpen] = useState(false);
   const [ccDesgloseOpen, setCcDesgloseOpen] = useState<null | 'EFECTIVO' | 'DIGITAL'>(null);
 
-  const periodRng = useMemo(() => periodRange(period), [period]);
+  const periodRng = useMemo(() => getDashboardRange(period, fechaDesde, fechaHasta), [period, fechaDesde, fechaHasta]);
   const effGranularity: DashboardGranularity = granularity === 'auto' ? periodRng.granularity : granularity;
 
   const { data: logoUrl } = useQuery({
     queryKey: ['empresa-logo'],
-    queryFn: () => dashboardApi.getLogo(),
+    queryFn: () => settingsApi.getLogo(),
     staleTime: Infinity,
     retry: false,
   });
@@ -177,7 +231,7 @@ export function DashboardPage() {
       fechaHasta: periodRng.to,
       puntoVentaIds: pvFilter ? String(pvFilter) : undefined,
     }),
-    enabled: ccDesgloseOpen !== null,
+    enabled: !cajero && isDashboardActive,
     staleTime: 60_000,
   });
 
@@ -257,13 +311,7 @@ export function DashboardPage() {
     [analytics]
   );
 
-  const periodLabel = (() => {
-    if (period === 'today') return 'Hoy';
-    if (period === '7d') return 'Últimos 7 días';
-    if (period === '30d') return 'Últimos 30 días';
-    if (period === 'mtd') return 'Mes en curso';
-    return 'Año en curso';
-  })();
+  const periodLabel = formatPeriodLabel(period, periodRng.from, periodRng.to);
 
   const granLabel = effGranularity === 'hour' ? 'hora'
     : effGranularity === 'day' ? 'día'
@@ -322,16 +370,26 @@ export function DashboardPage() {
           <Col flex="auto">
             <Space size={6} wrap>
               <Text strong style={{ marginRight: 4 }}>Período:</Text>
-              <Segmented
-                value={period}
-                onChange={(v) => setPeriod(v as PeriodPreset)}
-                options={[
-                  { label: 'Hoy', value: 'today' },
-                  { label: '7 días', value: '7d' },
-                  { label: '30 días', value: '30d' },
-                  { label: 'Mes', value: 'mtd' },
-                  { label: 'Año', value: 'ytd' },
-                ]}
+              <DateFilterPopover<PeriodPreset>
+                preset={period}
+                fechaDesde={fechaDesde}
+                fechaHasta={fechaHasta}
+                presetLabels={PERIOD_PRESET_LABELS}
+                presetOptions={PERIOD_PRESET_OPTIONS}
+                getPresetRange={(value) => {
+                  const next = getPresetRange(value);
+                  return [next.from, next.to];
+                }}
+                onPresetChange={(value, desde, hasta) => {
+                  setPeriod(value);
+                  setFechaDesde(desde);
+                  setFechaHasta(hasta);
+                }}
+                onRangeChange={(desde, hasta) => {
+                  setPeriod(undefined);
+                  setFechaDesde(desde);
+                  setFechaHasta(hasta);
+                }}
               />
             </Space>
           </Col>
@@ -552,7 +610,7 @@ export function DashboardPage() {
                           </Tooltip>
                         </Col>
                         <Col xs={12}>
-                          <Tooltip title="Saldo neto en efectivo (incluye transferencias FC). Click en el ícono para ver desglose por método.">
+                          <Tooltip title="Efectivo operativo del período, sin transferencias internas de Fondo de Cambio. Click en el ícono para ver desglose por método.">
                             <div className="rg-cc-tile rg-cc-tile-cash rg-cc-tile-clickable" onClick={() => setCcDesgloseOpen('EFECTIVO')}>
                               <div className="rg-cc-tile-label">
                                 <WalletOutlined /> Efectivo

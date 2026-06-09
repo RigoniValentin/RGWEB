@@ -852,6 +852,7 @@ export interface CompraInput {
   PERCEPCION_IVA?: number;
   PERCEPCION_IIBB?: number;
   IVA_TOTAL?: number;
+  DTO_GRAL?: number;
   ACTUALIZAR_COSTOS?: boolean;
   ACTUALIZAR_PRECIOS?: boolean;
   ACTUALIZAR_STOCK?: boolean;
@@ -869,6 +870,7 @@ export interface ProveedorCompra {
   CTA_CORRIENTE: boolean;
   TIPO_DOCUMENTO: string | null;
   NUMERO_DOC: string | null;
+  CONDICION_IVA?: string | null;
 }
 
 export interface ProductoSearchCompra {

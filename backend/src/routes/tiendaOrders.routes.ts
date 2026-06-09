@@ -18,7 +18,7 @@ router.use(authMiddleware);
 router.get('/', requirePermiso('tienda_orders.ver'), async (req: AuthRequest, res: Response) => {
   try {
     const filters: TiendaOrderListFilters = {
-      estado: req.query.estado as TiendaOrderEstado | 'todos' | undefined,
+      estado: req.query.estado as TiendaOrderEstado | 'TODOS' | undefined,
       tienda: req.query.tienda as string | undefined,
       search: req.query.search as string | undefined,
       desde: req.query.desde as string | undefined,
@@ -66,7 +66,16 @@ router.get('/:id', requirePermiso('tienda_orders.ver'), async (req: AuthRequest,
 const procesarSchema = z.object({
   clienteId: z.number().int().positive().optional(),
   puntoVentaId: z.number().int().positive().optional(),
+  depositoId: z.number().int().positive().optional(),
   metodoPago: z.enum(['EFECTIVO', 'DIGITAL', 'CTA_CORRIENTE']).optional(),
+  metodos_pago: z
+    .array(
+      z.object({
+        METODO_PAGO_ID: z.number().int().positive(),
+        MONTO: z.number().positive(),
+      }),
+    )
+    .optional(),
   itemsOverride: z
     .array(
       z.object({

@@ -67,8 +67,8 @@ export function BarChart({ data, height = 280, showSecondary = true, emptyLabel 
 
   return (
     <div className="rg-chart-wrap">
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="auto" role="img"
-        style={{ display: 'block', maxHeight: H }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img"
+        style={{ display: 'block', maxHeight: H, height: 'auto' }}>
         {/* Y grid + labels */}
         {tickLabels.map((t, i) => (
           <g key={i}>

@@ -142,7 +142,7 @@ export function ListadoProductosPage() {
         dataIndex: 'STOCK',
         width: 115,
         align: 'center',
-        render: (value: number) => <Text>{fmtNum(toNumber(value))}</Text>,
+        render: (value: number, record) => <Text>{fmtNum(toNumber(value))}{record.UNIDAD_ABREVIACION ? ` ${record.UNIDAD_ABREVIACION}` : ''}</Text>,
         sorter: (a, b) => toNumber(a.STOCK) - toNumber(b.STOCK),
       });
     }
@@ -176,7 +176,7 @@ export function ListadoProductosPage() {
       const values: string[] = [];
       if (mostrarCodigo) values.push(row.CODIGOPARTICULAR || '');
       values.push(row.NOMBRE, row.MARCA, row.CATEGORIA);
-      if (mostrarStock) values.push(fmtNum(toNumber(row.STOCK)));
+      if (mostrarStock) values.push(`${fmtNum(toNumber(row.STOCK))}${row.UNIDAD_ABREVIACION ? ` ${row.UNIDAD_ABREVIACION}` : ''}`);
       values.push(fmtNum(toNumber(row.PRECIO)));
       return values;
     });
@@ -280,7 +280,7 @@ export function ListadoProductosPage() {
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
           <Input.Search
             allowClear
-            placeholder="Buscar producto, código, marca o categoría"
+            placeholder="Buscar producto, código, ID, marca o categoría"
             value={searchText}
             onChange={event => {
               setSearchText(event.target.value);

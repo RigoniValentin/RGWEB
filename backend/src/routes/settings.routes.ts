@@ -2,6 +2,8 @@ import { Router, Response } from 'express';
 import express from 'express';
 import { settingsService } from '../services/settings.service.js';
 import { authMiddleware, requirePermiso, AuthRequest } from '../middleware/auth.js';
+import { getPool, sql } from '../database/connection.js';
+import { config } from '../config/index.js';
 
 const router = Router();
 
@@ -147,6 +149,61 @@ router.delete('/logo', requirePermiso('configuracion.editar'), async (_req: Auth
     res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/settings/test-wsp — Diagnostica y prueba WhatsApp (admin) ──
+router.post('/test-wsp', requirePermiso('configuracion.editar'), async (_req: AuthRequest, res: Response) => {
+  const diag: Record<string, any> = {};
+  try {
+    // 1. Config values
+    diag.ipWsp = config.integrations.ipWsp || '(vacío)';
+    diag.telefonoCliente = config.app.telefonoCliente || '(vacío)';
+
+    // 2. DB parameter
+    const pool = await getPool();
+    const paramRes = await pool.request().query(`
+      SELECT p.PARAMETRO_ID, p.CLAVE, p.VALOR_DEFECTO, p.ACTIVO,
+             cg.VALOR AS VALOR_GLOBAL
+      FROM CONFIG_PARAMETROS p
+      LEFT JOIN CONFIG_GLOBAL cg ON cg.PARAMETRO_ID = p.PARAMETRO_ID
+      WHERE p.CLAVE = 'alerta_stock_login_wsp'
+    `);
+    if (paramRes.recordset.length === 0) {
+      diag.parametro = 'NO EXISTE en CONFIG_PARAMETROS — ejecutar migrate-alerta-stock-login.sql';
+    } else {
+      const row = paramRes.recordset[0];
+      diag.parametro = {
+        activo: row.ACTIVO,
+        valorDefecto: row.VALOR_DEFECTO,
+        valorGlobal: row.VALOR_GLOBAL ?? '(no sobrescrito)',
+        valorEfectivo: row.VALOR_GLOBAL ?? row.VALOR_DEFECTO,
+      };
+    }
+
+    // 3. Send test message if config looks ok
+    if (config.integrations.ipWsp && config.app.telefonoCliente) {
+      let phone = config.app.telefonoCliente.replace(/\D/g, '');
+      if (phone.length === 10) phone = `549${phone}`;
+      const url = `${config.integrations.ipWsp}/send-message`;
+      try {
+        const wsRes = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ numero: phone, mensaje: '✅ *Río Gestión* — Prueba de conexión WhatsApp OK.' }),
+        });
+        const body = await wsRes.text().catch(() => '');
+        diag.envioTest = { status: wsRes.status, ok: wsRes.ok, body };
+      } catch (err: any) {
+        diag.envioTest = { error: err.message };
+      }
+    } else {
+      diag.envioTest = 'omitido — ipWsp o telefonoCliente vacíos';
+    }
+
+    res.json({ ok: true, diagnostico: diag });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message, diagnostico: diag });
   }
 });
 

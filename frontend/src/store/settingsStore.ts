@@ -29,6 +29,9 @@ interface SettingsState {
   /** Save user-level settings and refresh */
   saveUserSettings: (items: SaveSettingInput[]) => Promise<void>;
 
+  /** Save global settings (admin) and refresh */
+  saveGlobalSettings: (items: SaveSettingInput[]) => Promise<void>;
+
   /** Reset one setting to default and refresh */
   resetSetting: (parametroId: number) => Promise<void>;
 
@@ -86,6 +89,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   saveUserSettings: async (items) => {
     await settingsApi.saveUser(items);
+    await get().fetchSettings();
+  },
+
+  saveGlobalSettings: async (items) => {
+    await settingsApi.saveGlobal(items);
     await get().fetchSettings();
   },
 

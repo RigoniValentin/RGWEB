@@ -1,5 +1,6 @@
 import { sql } from '../database/connection.js';
 import { webhookDispatcher } from './webhook.dispatcher.js';
+import { stockAlertService } from './stockAlert.service.js';
 
 // ═══════════════════════════════════════════════════
 //  Stock History Helper — Shared utility for logging
@@ -55,6 +56,18 @@ export async function registrarHistorialStock(
   // El worker filtra por VENTA_WEB=1 y envía el snapshot fuera del hilo principal.
   try {
     webhookDispatcher.notifyStockChange(params.productoId);
+  } catch {
+    // no-op
+  }
+
+  try {
+    await stockAlertService.notifyIfEnteredLowStock(
+      tx,
+      params.productoId,
+      params.cantidadAnterior,
+      params.cantidadNueva,
+      params.referenciaDetalle ?? params.tipoOperacion,
+    );
   } catch {
     // no-op
   }

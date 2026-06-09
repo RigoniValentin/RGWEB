@@ -73,6 +73,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const [actualizarStock, setActualizarStock] = useState(true);
   const [percepcionIva, setPercepcionIva] = useState(0);
   const [percepcionIibb, setPercepcionIibb] = useState(0);
+  const [dtoGral, setDtoGral] = useState(0);
   const [tipoCarga, setTipoCarga] = useState<'simple' | 'detallada'>('detallada');
   const [impIntGravaIva, setImpIntGravaIva] = useState(false);
   const [searchText, setSearchText] = useState('');
@@ -507,9 +508,21 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     } else {
       if (isFacturaA && !ivaIncluido) t += ivaManual;
     }
+    // General discount % applied on subtotal + IVA (before perceptions)
+    if (dtoGral > 0) {
+      t = t * (1 - dtoGral / 100);
+    }
     t += percepcionIva + percepcionIibb;
     return Math.round(t * 100) / 100;
-  }, [subtotal, isDetallada, isFacturaA, ivaIncluido, ivaManual, ivaCalculado, impInternoCalculado, percepcionIva, percepcionIibb]);
+  }, [subtotal, isDetallada, isFacturaA, ivaIncluido, ivaManual, ivaCalculado, impInternoCalculado, percepcionIva, percepcionIibb, dtoGral]);
+
+  const descuentoGralImporte = useMemo(() => {
+    if (dtoGral <= 0) return 0;
+    let base = subtotal;
+    if (isDetallada) base += ivaCalculado + impInternoCalculado;
+    else if (isFacturaA && !ivaIncluido) base += ivaManual;
+    return Math.round(base * (dtoGral / 100) * 100) / 100;
+  }, [dtoGral, subtotal, isDetallada, isFacturaA, ivaIncluido, ivaManual, ivaCalculado, impInternoCalculado]);
 
   const vuelto = useMemo(() => {
     if (esCtaCorriente) return 0;
@@ -622,6 +635,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     setActualizarStock(true);
     setPercepcionIva(0);
     setPercepcionIibb(0);
+    setDtoGral(0);
     setTipoCarga('detallada');
     setImpIntGravaIva(false);
     setSearchText('');
@@ -748,6 +762,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       PERCEPCION_IVA: percepcionIva,
       PERCEPCION_IIBB: percepcionIibb,
       IVA_TOTAL: isDetallada && isFacturaA ? r2(ivaCalculado) : (isFacturaA ? ivaManual : 0),
+      DTO_GRAL: dtoGral > 0 ? dtoGral : undefined,
       ACTUALIZAR_COSTOS: actualizarCostos,
       ACTUALIZAR_PRECIOS: actualizarPrecios,
       ACTUALIZAR_STOCK: actualizarStock,
@@ -1082,6 +1097,31 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                     label: `${p.CODIGOPARTICULAR} - ${p.NOMBRE}`,
                   }))}
                 />
+                {(() => {
+                  const prov = proveedores.find(p => p.PROVEEDOR_ID === proveedorId);
+                  if (!prov) return null;
+                  const cond = (prov.CONDICION_IVA || '').toUpperCase();
+                  const esMono = cond.includes('MONOTRIBUT');
+                  const esExento = cond.includes('EXENT') || cond.includes('CONSUMIDOR');
+                  const noDiscrimina = esMono || esExento;
+                  if (!cond) return null;
+                  return (
+                    <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <Tag color={noDiscrimina ? 'orange' : 'blue'} style={{ margin: 0, fontSize: 11 }}>
+                        {prov.CONDICION_IVA}
+                      </Tag>
+                      {noDiscrimina && (
+                        <Tooltip
+                          title="Este proveedor no discrimina IVA en sus comprobantes. Por lo tanto, el costo sin impuestos coincidirá con el costo con impuestos al cargar la compra."
+                        >
+                          <Text type="warning" style={{ fontSize: 11 }}>
+                            ⓘ No discrimina IVA
+                          </Text>
+                        </Tooltip>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Depósito */}
@@ -1261,6 +1301,22 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                 </div>
               </div>
 
+              {/* Descuento general (%) */}
+              <div className="nsm-field-group">
+                <label className="nsm-label">Descuento General %</label>
+                <InputNumber
+                  size="small"
+                  value={dtoGral}
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  onChange={val => setDtoGral(val || 0)}
+                  style={{ width: '100%' }}
+                  suffix="%"
+                  controls={false}
+                />
+              </div>
+
               {/* Actualizar costos / precios / stock */}
               <div className="nsm-field-group" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <Checkbox checked={actualizarStock} onChange={e => setActualizarStock(e.target.checked)}>
@@ -1331,6 +1387,12 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                   <div className="nsm-total-line">
                     <Text type="secondary">Perc. IIBB</Text>
                     <Text>{fmtMoney(percepcionIibb)}</Text>
+                  </div>
+                )}
+                {dtoGral > 0 && (
+                  <div className="nsm-total-line">
+                    <Text type="secondary">Dto. Gral. ({dtoGral}%)</Text>
+                    <Text style={{ color: '#cf1322' }}>− {fmtMoney(descuentoGralImporte)}</Text>
                   </div>
                 )}
                 <Divider style={{ margin: '8px 0' }} />
@@ -1678,7 +1740,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     >
       <div style={{ marginTop: 12 }}>
         <Text type="secondary" style={{ fontSize: 12, marginBottom: 12, display: 'block' }}>
-          Seleccione uno o más métodos. Si elige varios, podrá distribuir los montos.
+          Haga click para seleccionar un método. Mantenga Ctrl presionado para seleccionar varios.
         </Text>
         <div ref={paymentMethodKeyboard.gridRef} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12, padding: 6 }}>
           {metodosPagoOrdenados.map(m => {
@@ -1687,13 +1749,19 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
             return (
               <div
                 key={m.METODO_PAGO_ID}
-                onClick={() => {
+                onClick={(e: React.MouseEvent) => {
                   paymentMethodKeyboard.setActiveId(m.METODO_PAGO_ID);
-                  setMetodoModalSelection(prev =>
-                    isSelected
-                      ? prev.filter(id => id !== m.METODO_PAGO_ID)
-                      : [...prev, m.METODO_PAGO_ID]
-                  );
+                  if (e.ctrlKey || e.metaKey) {
+                    // Ctrl+Click: toggle individual (multi-select)
+                    setMetodoModalSelection(prev =>
+                      isSelected
+                        ? prev.filter(id => id !== m.METODO_PAGO_ID)
+                        : [...prev, m.METODO_PAGO_ID]
+                    );
+                  } else {
+                    // Plain click: select only this one
+                    setMetodoModalSelection([m.METODO_PAGO_ID]);
+                  }
                 }}
                 style={{
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
@@ -1827,6 +1895,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       }}
       initialSearch={productSearchInitial}
       searchFn={purchasesApi.searchProductsAdvanced}
+      priceMode="compra"
     />
 
     <ChequePicker

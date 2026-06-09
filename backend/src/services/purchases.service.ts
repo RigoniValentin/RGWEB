@@ -51,6 +51,7 @@ export interface CompraInput {
   PERCEPCION_IVA?: number;
   PERCEPCION_IIBB?: number;
   IVA_TOTAL?: number;
+  DTO_GRAL?: number;
   ACTUALIZAR_COSTOS?: boolean;
   ACTUALIZAR_PRECIOS?: boolean;
   ACTUALIZAR_STOCK?: boolean;
@@ -98,6 +99,21 @@ async function ensureMovCajaMetodosPagoTable(poolOrTx: any): Promise<void> {
 // ── COMPRAS_METODOS_PAGO table helper ────────────
 
 let _comprasMetodosPagoTableReady = false;
+
+let _comprasDtoGralColumnReady = false;
+async function ensureComprasDtoGralColumn(pool: any): Promise<void> {
+  if (_comprasDtoGralColumnReady) return;
+  await pool.request().query(`
+    IF NOT EXISTS (
+      SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_NAME = 'COMPRAS' AND COLUMN_NAME = 'DTO_GRAL'
+    )
+    BEGIN
+      ALTER TABLE COMPRAS ADD DTO_GRAL DECIMAL(5,2) NULL;
+    END
+  `);
+  _comprasDtoGralColumnReady = true;
+}
 
 async function ensureComprasMetodosPagoTable(pool: any): Promise<void> {
   if (_comprasMetodosPagoTableReady) return;
@@ -660,8 +676,8 @@ export const purchasesService = {
     };
 
     const countResult = await bind(pool.request()).query(`
-      SELECT COUNT(*) as total FROM COMPRAS c
-      INNER JOIN PROVEEDORES p ON c.PROVEEDOR_ID = p.PROVEEDOR_ID
+      SELECT COUNT(*) as total FROM COMPRAS c WITH (NOLOCK)
+      INNER JOIN PROVEEDORES p WITH (NOLOCK) ON c.PROVEEDOR_ID = p.PROVEEDOR_ID
       ${where}
     `);
     const total = countResult.recordset[0].total;
@@ -696,8 +712,8 @@ export const purchasesService = {
         ISNULL(c.IMP_INT_GRAVA_IVA, 0) AS IMP_INT_GRAVA_IVA,
         p.NOMBRE AS PROVEEDOR_NOMBRE,
         p.CODIGOPARTICULAR AS PROVEEDOR_CODIGO
-      FROM COMPRAS c
-      INNER JOIN PROVEEDORES p ON c.PROVEEDOR_ID = p.PROVEEDOR_ID
+      FROM COMPRAS c WITH (NOLOCK)
+      INNER JOIN PROVEEDORES p WITH (NOLOCK) ON c.PROVEEDOR_ID = p.PROVEEDOR_ID
       ${where}
       ORDER BY ${orderCol} ${orderDir}
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
@@ -784,6 +800,7 @@ export const purchasesService = {
   // ── Create purchase ────────────────────────────
   async create(input: CompraInput, usuarioId: number) {
     const pool = await getPool();
+    await ensureComprasDtoGralColumn(pool);
     const tx = pool.transaction();
     await tx.begin();
 
@@ -832,6 +849,7 @@ export const purchasesService = {
       let montoChequesAporte = 0;
       const vuelto = input.VUELTO || 0;
       let montoAnticipo = 0;
+      let ctaCteId: number | null = null;
 
       // If metodos_pago provided, derive category totals from methods
       if (input.metodos_pago && input.metodos_pago.length > 0) {
@@ -843,29 +861,23 @@ export const purchasesService = {
 
       // ── 2. CTA CTE: Check saldo and apply anticipo if available ──
       if (input.ES_CTA_CORRIENTE) {
-        const ctaCheck = await tx.request()
-          .input('pid', sql.Int, input.PROVEEDOR_ID)
-          .query(`SELECT CTA_CORRIENTE_ID FROM CTA_CORRIENTE_P WHERE PROVEEDOR_ID = @pid`);
+        ctaCteId = await ensureCtaCorrienteP(tx, input.PROVEEDOR_ID);
+        const saldoResult = await tx.request()
+          .input('ctaId', sql.Int, ctaCteId)
+          .query(`SELECT ISNULL(SUM(DEBE - HABER), 0) AS SALDO FROM COMPRAS_CTA_CORRIENTE WHERE CTA_CORRIENTE_ID = @ctaId`);
+        const saldo = saldoResult.recordset[0]?.SALDO || 0;
 
-        if (ctaCheck.recordset.length > 0) {
-          const ctaIdForSaldo = ctaCheck.recordset[0].CTA_CORRIENTE_ID;
-          const saldoResult = await tx.request()
-            .input('ctaId', sql.Int, ctaIdForSaldo)
-            .query(`SELECT ISNULL(SUM(DEBE - HABER), 0) AS SALDO FROM COMPRAS_CTA_CORRIENTE WHERE CTA_CORRIENTE_ID = @ctaId`);
-          const saldo = saldoResult.recordset[0]?.SALDO || 0;
-
-          // saldo < 0 means supplier has credit (HABER > DEBE) — overpayment / anticipo available
-          if (saldo < 0) {
-            const creditoDisponible = Math.abs(saldo);
-            if (creditoDisponible >= r2(total)) {
-              // Full coverage: purchase is fully paid via anticipo
-              montoAnticipo = r2(total);
-              cobrada = true;
-            } else {
-              // Partial coverage: use all available credit
-              montoAnticipo = r2(creditoDisponible);
-              cobrada = false;
-            }
+        // saldo < 0 means supplier has credit (HABER > DEBE) — overpayment / anticipo available
+        if (saldo < 0) {
+          const creditoDisponible = Math.abs(saldo);
+          if (creditoDisponible >= r2(total)) {
+            // Full coverage: purchase is fully paid via anticipo
+            montoAnticipo = r2(total);
+            cobrada = true;
+          } else {
+            // Partial coverage: use all available credit
+            montoAnticipo = r2(creditoDisponible);
+            cobrada = false;
           }
         }
       }
@@ -874,6 +886,7 @@ export const purchasesService = {
       const nextIdResult = await tx.request()
         .query(`SELECT ISNULL(MAX(COMPRA_ID), 0) + 1 AS NEXT_ID FROM COMPRAS WITH (UPDLOCK, HOLDLOCK)`);
       const compraId = nextIdResult.recordset[0].NEXT_ID;
+      const dtoGral = input.DTO_GRAL || 0;
 
       // ── 3. INSERT into COMPRAS ──
       await tx.request()
@@ -897,19 +910,22 @@ export const purchasesService = {
         .input('bonifTotal', sql.Decimal(18, 2), r2(bonifTotal))
         .input('fechaCompra', sql.DateTime, fechaCompra)
         .input('montoAnticipo', sql.Decimal(18, 2), montoAnticipo)
+        .input('dtoGral', sql.Decimal(5, 2), dtoGral)
         .query(`
           INSERT INTO COMPRAS (
             COMPRA_ID, PROVEEDOR_ID, FECHA_COMPRA, TOTAL, ES_CTA_CORRIENTE,
             MONTO_EFECTIVO, MONTO_DIGITAL, VUELTO, TIPO_COMPROBANTE,
             COBRADA, PTO_VTA, NRO_COMPROBANTE, PRECIOS_SIN_IVA,
             IMP_INT_GRAVA_IVA, PERCEPCION_IVA, PERCEPCION_IIBB,
-            IMPUESTO_INTERNO, IVA_TOTAL, BONIFICACION_TOTAL, MONTO_ANTICIPO
+            IMPUESTO_INTERNO, IVA_TOTAL, BONIFICACION_TOTAL, MONTO_ANTICIPO,
+            DTO_GRAL
           ) VALUES (
             @compraId, @proveedorId, @fechaCompra, @total, @esCtaCorriente,
             @montoEfectivo, @montoDigital, @vuelto, @tipoComprobante,
             @cobrada, @ptoVta, @nroComprobante, @preciosSinIva,
             @impIntGravaIva, @percIVA, @percIIBB,
-            @impInterno, @ivaTotal, @bonifTotal, @montoAnticipo
+            @impInterno, @ivaTotal, @bonifTotal, @montoAnticipo,
+            @dtoGral
           );
         `);
 
@@ -992,7 +1008,9 @@ export const purchasesService = {
 
       // ── 4. CTA_CORRIENTE_P (if cuenta corriente purchase) ──
       if (input.ES_CTA_CORRIENTE) {
-        const ctaCteId = await ensureCtaCorrienteP(tx, input.PROVEEDOR_ID);
+        if (!ctaCteId) {
+          ctaCteId = await ensureCtaCorrienteP(tx, input.PROVEEDOR_ID);
+        }
         const ptoVta = input.PTO_VTA || '0000';
         const nroComp = input.NRO_COMPROBANTE || '00000000';
         const tipoComp = input.TIPO_COMPROBANTE || 'FB';
@@ -1198,6 +1216,7 @@ export const purchasesService = {
   // ── Update purchase ────────────────────────────
   async update(id: number, input: CompraInput, usuarioId: number) {
     const pool = await getPool();
+    await ensureComprasDtoGralColumn(pool);
     const tx = pool.transaction();
     await tx.begin();
 
@@ -1243,9 +1262,15 @@ export const purchasesService = {
         .query(`DELETE FROM COMPRAS_ITEMS WHERE COMPRA_ID = @compraId`);
 
       // ── 3. Remove old CTA_CORRIENTE records ──
+      // Filter by purchase-comprobante TIPOs so we don't accidentally wipe an
+      // unrelated orden-de-pago HABER row (TIPO_COMPROBANTE='PA') whose PAGO_ID
+      // collides with this COMPRA_ID (COMPRA_ID is a manual MAX+1 sequence,
+      // independent from PAGOS_CTA_CORRIENTE_P.PAGO_ID identity).
       if (oldCompra.ES_CTA_CORRIENTE) {
         await tx.request().input('comprobanteId', sql.Int, id)
-          .query(`DELETE FROM COMPRAS_CTA_CORRIENTE WHERE COMPROBANTE_ID = @comprobanteId`);
+          .query(`DELETE FROM COMPRAS_CTA_CORRIENTE
+                  WHERE COMPROBANTE_ID = @comprobanteId
+                    AND TIPO_COMPROBANTE IN ('FA','FB','FC','Fa.A','Fa.B','Fa.C','Nd.A','Nd.B','Nd.C','X','R','COMPRA')`);
       }
 
       // ── 3b. Remove old egreso records ──
@@ -1292,10 +1317,18 @@ export const purchasesService = {
 
       const percIVA = input.PERCEPCION_IVA || 0;
       const percIIBB = input.PERCEPCION_IIBB || 0;
+      const dtoGral = input.DTO_GRAL || 0;
 
       // Use manual IVA total if provided (Factura A)
       if (input.IVA_TOTAL !== undefined && input.IVA_TOTAL !== null) {
         ivaTotal = input.IVA_TOTAL;
+      }
+
+      // ── Apply general discount (DTO_GRAL %) on neto + IVA ──
+      if (dtoGral > 0) {
+        const factor = 1 - dtoGral / 100;
+        netoTotal = r2(netoTotal * factor);
+        ivaTotal = r2(ivaTotal * factor);
       }
 
       let total = r2(netoTotal + ivaTotal + impInternoTotal + percIVA + percIIBB);
@@ -1334,6 +1367,7 @@ export const purchasesService = {
         .input('impInterno', sql.Decimal(18, 2), r2(impInternoTotal))
         .input('ivaTotal', sql.Decimal(18, 2), r2(ivaTotal))
         .input('bonifTotal', sql.Decimal(18, 2), r2(bonifTotal))
+        .input('dtoGral', sql.Decimal(5, 2), dtoGral)
         .query(`
           UPDATE COMPRAS SET
             PROVEEDOR_ID=@proveedorId, FECHA_COMPRA=@fechaCompra, TOTAL=@total,
@@ -1344,7 +1378,8 @@ export const purchasesService = {
             PRECIOS_SIN_IVA=@preciosSinIva, IMP_INT_GRAVA_IVA=@impIntGravaIva,
             PERCEPCION_IVA=@percIVA, PERCEPCION_IIBB=@percIIBB,
             IMPUESTO_INTERNO=@impInterno, IVA_TOTAL=@ivaTotal,
-            BONIFICACION_TOTAL=@bonifTotal
+            BONIFICACION_TOTAL=@bonifTotal,
+            DTO_GRAL=@dtoGral
           WHERE COMPRA_ID = @id
         `);
 
@@ -1661,7 +1696,9 @@ export const purchasesService = {
           .query('DELETE FROM IMPUTACIONES_PAGOS_P WHERE COMPRA_ID = @compraId');
 
         await tx.request().input('comprobanteId', sql.Int, id)
-          .query(`DELETE FROM COMPRAS_CTA_CORRIENTE WHERE COMPROBANTE_ID = @comprobanteId`);
+          .query(`DELETE FROM COMPRAS_CTA_CORRIENTE
+                  WHERE COMPROBANTE_ID = @comprobanteId
+                    AND TIPO_COMPROBANTE IN ('FA','FB','FC','Fa.A','Fa.B','Fa.C','Nd.A','Nd.B','Nd.C','X','R','COMPRA')`);
 
         // Check if it was the only record and remove CTA_CORRIENTE_P if empty
         const ctaP = await tx.request()
@@ -1887,7 +1924,7 @@ export const purchasesService = {
     const pool = await getPool();
     const result = await pool.request().query(`
       SELECT PROVEEDOR_ID, CODIGOPARTICULAR, NOMBRE,
-             CTA_CORRIENTE, TIPO_DOCUMENTO, NUMERO_DOC
+             CTA_CORRIENTE, TIPO_DOCUMENTO, NUMERO_DOC, CONDICION_IVA
       FROM PROVEEDORES WHERE ACTIVO = 1 ORDER BY NOMBRE
     `);
     return result.recordset;
@@ -1965,6 +2002,7 @@ export const purchasesService = {
           p.LISTA_3,
           p.LISTA_4,
           p.LISTA_5,
+          p.LISTA_DEFECTO,
           CASE WHEN pm.PRODUCTO_ID IS NOT NULL THEN 1 ELSE 0 END AS TIENE_MARGENES_INDIV
         FROM PRODUCTOS p
         LEFT JOIN TASAS_IMPUESTOS ti ON p.TASA_IVA_ID = ti.TASA_ID

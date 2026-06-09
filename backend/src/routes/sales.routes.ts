@@ -215,9 +215,16 @@ router.get('/search-products', async (req: Request, res: Response) => {
 // GET /api/sales/search-products-advanced
 router.get('/search-products-advanced', async (req: Request, res: Response) => {
   try {
+    const rawMarcaIds = req.query.marcaIds;
+    const marcaIds = Array.isArray(rawMarcaIds)
+      ? rawMarcaIds.map(value => parseInt(String(value).trim(), 10)).filter(Number.isFinite)
+      : typeof rawMarcaIds === 'string' && rawMarcaIds.trim()
+        ? rawMarcaIds.split(',').map(value => parseInt(value.trim(), 10)).filter(Number.isFinite)
+        : undefined;
     const data = await salesService.searchProductsAdvanced({
       search: req.query.search as string | undefined,
       marca: req.query.marca as string | undefined,
+      marcaIds,
       categoria: req.query.categoria as string | undefined,
       codigo: req.query.codigo as string | undefined,
       soloActivos: req.query.soloActivos !== 'false',

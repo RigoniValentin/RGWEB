@@ -946,7 +946,9 @@ export const ctaCorrienteProvService = {
     fecha: Date,
     usuarioId: number,
   ): Promise<void> {
-    // Get pending purchases ordered oldest first
+    // Get pending purchases ordered oldest first.
+    // SALDO_PENDIENTE = DEBE − IMPUTACIONES_PAGOS_P sum − HABER 'PAGO' rows on same compra
+    // (the latter cover direct-payment / markAsPaid flows that bypass orden-de-pago imputation).
     const pending = await tx.request()
       .input('ctaId', sql.Int, ctaCorrienteId)
       .query(`
@@ -955,7 +957,11 @@ export const ctaCorrienteProvService = {
             - ISNULL((SELECT SUM(MONTO_IMPUTADO) 
                       FROM IMPUTACIONES_PAGOS_P 
                       WHERE COMPRA_ID = v.COMPROBANTE_ID 
-                      AND TIPO_COMPROBANTE = v.TIPO_COMPROBANTE), 0) AS SALDO_PENDIENTE
+                      AND TIPO_COMPROBANTE = v.TIPO_COMPROBANTE), 0)
+            - ISNULL((SELECT SUM(HABER)
+                      FROM COMPRAS_CTA_CORRIENTE
+                      WHERE COMPROBANTE_ID = v.COMPROBANTE_ID
+                      AND TIPO_COMPROBANTE = 'PAGO'), 0) AS SALDO_PENDIENTE
         FROM COMPRAS_CTA_CORRIENTE v
         WHERE v.CTA_CORRIENTE_ID = @ctaId
           AND v.TIPO_COMPROBANTE IN ('FA', 'FB', 'FC', 'Fa.A', 'Fa.B', 'Fa.C', 'Nd.A', 'Nd.B', 'Nd.C', 'X', 'R')
@@ -964,6 +970,10 @@ export const ctaCorrienteProvService = {
                                FROM IMPUTACIONES_PAGOS_P 
                                WHERE COMPRA_ID = v.COMPROBANTE_ID 
                                AND TIPO_COMPROBANTE = v.TIPO_COMPROBANTE), 0)
+                       + ISNULL((SELECT SUM(HABER)
+                                 FROM COMPRAS_CTA_CORRIENTE
+                                 WHERE COMPROBANTE_ID = v.COMPROBANTE_ID
+                                 AND TIPO_COMPROBANTE = 'PAGO'), 0)
         ORDER BY v.FECHA, v.COMPROBANTE_ID
       `);
 
@@ -989,7 +999,7 @@ export const ctaCorrienteProvService = {
             VALUES (@pagoId, @compraId, @tipoComp, @monto, @fecha, @usuarioId)
           `);
 
-        if (Math.abs(montoAImputar - compra.SALDO_PENDIENTE) < 0.01) {
+        if (Math.abs(montoAImputar - compra.SALDO_PENDIENTE) <= 0.01) {
           comprasPagadas.push(compra.COMPROBANTE_ID);
         }
       }
@@ -1020,13 +1030,14 @@ export const ctaCorrienteProvService = {
         `);
     }
 
-    // Update COBRADA status for all cta corriente purchases
+    // Update COBRADA status for all cta corriente purchases.
+    // Counts BOTH imputaciones AND HABER 'PAGO' rows on the same compra.
     await tx.request()
       .input('ctaId', sql.Int, ctaCorrienteId)
       .query(`
         UPDATE v
         SET v.COBRADA = CASE 
-          WHEN vc.DEBE <= ISNULL(ip.TOTAL_IMPUTADO, 0) THEN 1
+          WHEN vc.DEBE <= ISNULL(ip.TOTAL_IMPUTADO, 0) + ISNULL(pago.TOTAL_PAGO, 0) + 0.01 THEN 1
           ELSE 0
         END
         FROM COMPRAS v
@@ -1036,6 +1047,12 @@ export const ctaCorrienteProvService = {
           FROM IMPUTACIONES_PAGOS_P
           GROUP BY COMPRA_ID, TIPO_COMPROBANTE
         ) ip ON vc.COMPROBANTE_ID = ip.COMPRA_ID AND vc.TIPO_COMPROBANTE = ip.TIPO_COMPROBANTE
+        LEFT JOIN (
+          SELECT COMPROBANTE_ID, SUM(HABER) AS TOTAL_PAGO
+          FROM COMPRAS_CTA_CORRIENTE
+          WHERE TIPO_COMPROBANTE = 'PAGO'
+          GROUP BY COMPROBANTE_ID
+        ) pago ON pago.COMPROBANTE_ID = vc.COMPROBANTE_ID
         WHERE vc.CTA_CORRIENTE_ID = @ctaId
           AND vc.TIPO_COMPROBANTE IN ('FA', 'FB', 'FC', 'Fa.A', 'Fa.B', 'Fa.C', 'Nd.A', 'Nd.B', 'Nd.C', 'X', 'R')
           AND v.ES_CTA_CORRIENTE = 1
@@ -1072,7 +1089,7 @@ export const ctaCorrienteProvService = {
       .input('pagoId', sql.Int, pagoId)
       .query('DELETE FROM ANTICIPOS_PROVEEDORES WHERE PAGO_ID = @pagoId');
 
-    // Update COBRADA for affected purchases
+    // Update COBRADA for affected purchases (counts imputaciones + direct-payment HABER).
     if (compraIds.length > 0) {
       const ids = compraIds.join(',');
       await tx.request().query(`
@@ -1080,7 +1097,11 @@ export const ctaCorrienteProvService = {
         SET v.COBRADA = CASE 
           WHEN vc.DEBE <= ISNULL((SELECT SUM(MONTO_IMPUTADO) 
                                   FROM IMPUTACIONES_PAGOS_P 
-                                  WHERE COMPRA_ID = v.COMPRA_ID), 0) THEN 1
+                                  WHERE COMPRA_ID = v.COMPRA_ID), 0)
+                       + ISNULL((SELECT SUM(HABER)
+                                 FROM COMPRAS_CTA_CORRIENTE
+                                 WHERE COMPROBANTE_ID = v.COMPRA_ID
+                                 AND TIPO_COMPROBANTE = 'PAGO'), 0) + 0.01 THEN 1
           ELSE 0
         END
         FROM COMPRAS v

@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Modal, Input, Table, Button, Space, Checkbox, Tag, Typography,
+  Modal, Input, Select, Table, Button, Space, Checkbox, Tag, Typography,
 } from 'antd';
 import { SearchOutlined, FilterOutlined } from '@ant-design/icons';
-import type { ProductoSearch } from '../types';
+import type { ProductoSearch, Marca } from '../types';
 import { fmtMoney } from '../utils/format';
 
 const { Text } = Typography;
@@ -11,6 +11,7 @@ const { Text } = Typography;
 export interface ProductSearchParams {
   search?: string;
   marca?: string;
+  marcaIds?: number[];
   categoria?: string;
   codigo?: string;
   soloActivos?: boolean;
@@ -27,14 +28,19 @@ interface Props {
   searchFn: (params: ProductSearchParams) => Promise<ProductoSearch[]>;
   multiSelect?: boolean;
   onBarcodeBalanza?: (code: string) => void;
+  priceMode?: 'venta' | 'compra';
+  marcaOptions?: Marca[];
 }
 
 export function ProductSearchModal({
   open, onClose, onSelect, initialSearch = '', searchFn, multiSelect = true,
   onBarcodeBalanza,
+  priceMode = 'venta',
+  marcaOptions,
 }: Props) {
   const [keywords, setKeywords] = useState('');
   const [marca, setMarca] = useState('');
+  const [marcaIds, setMarcaIds] = useState<number[]>([]);
   const [categoria, setCategoria] = useState('');
   const [codigo, setCodigo] = useState('');
   const [soloActivos, setSoloActivos] = useState(true);
@@ -44,6 +50,8 @@ export function ProductSearchModal({
   const [loading, setLoading] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [activeRowIndex, setActiveRowIndex] = useState<number>(-1);
+  const priceField = priceMode === 'compra' ? 'PRECIO_COMPRA' : 'PRECIO_VENTA';
+  const priceTitle = priceMode === 'compra' ? 'Costo' : 'Precio';
 
   const keywordsRef = useRef<any>(null);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -58,6 +66,7 @@ export function ProductSearchModal({
     if (open) {
       setKeywords(initialSearch);
       setMarca('');
+      setMarcaIds([]);
       setCategoria('');
       setCodigo('');
       setSoloActivos(true);
@@ -98,14 +107,18 @@ export function ProductSearchModal({
   const doSearch = useCallback(async (
     kw?: string, m?: string, cat?: string, cod?: string,
     activos?: boolean, conStock?: boolean,
+    marcaIdsOverride?: number[],
   ) => {
     setLoading(true);
     setSelectedRowKeys([]);
     setActiveRowIndex(-1);
     try {
+      const activeMarcaIds = marcaIdsOverride ?? marcaIds;
+      const hasMarcaIdsFilter = activeMarcaIds.length > 0;
       const data = await searchFn({
         search: kw ?? keywords,
-        marca: m ?? marca,
+        marca: hasMarcaIdsFilter ? undefined : (m ?? marca),
+        marcaIds: hasMarcaIdsFilter ? activeMarcaIds : undefined,
         categoria: cat ?? categoria,
         codigo: cod ?? codigo,
         soloActivos: activos ?? soloActivos,
@@ -123,9 +136,21 @@ export function ProductSearchModal({
     } finally {
       setLoading(false);
     }
-  }, [keywords, marca, categoria, codigo, soloActivos, soloConStock, searchFn]);
+  }, [keywords, marca, marcaIds, categoria, codigo, soloActivos, soloConStock, searchFn]);
 
   const handleSearchClick = () => doSearch();
+
+  const handleMarcaIdsChange = (nextMarcaIds: number[]) => {
+    setMarcaIds(nextMarcaIds);
+    void doSearch(undefined, undefined, undefined, undefined, undefined, undefined, nextMarcaIds);
+  };
+
+  const handleAdvancedFilterKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      doSearch();
+    }
+  };
 
   const confirmSelection = useCallback(() => {
     const selected = results.filter(r => selectedRowKeys.includes(r.PRODUCTO_ID));
@@ -284,12 +309,15 @@ export function ProductSearchModal({
       },
     },
     {
-      title: 'Precio',
-      dataIndex: 'PRECIO_VENTA',
-      key: 'PRECIO_VENTA',
+      title: priceTitle,
+      dataIndex: priceField,
+      key: priceField,
       width: 150,
       align: 'center' as const,
-      render: (v: number) => <Text strong>{fmtMoney(v)}</Text>,
+      render: (_: number, record: ProductoSearch) => {
+        const value = record[priceField] ?? 0;
+        return <Text strong>{fmtMoney(value)}</Text>;
+      },
     },
   ];
 
@@ -322,7 +350,7 @@ export function ProductSearchModal({
           <Input
             ref={keywordsRef}
             prefix={<SearchOutlined />}
-            placeholder="Nombre del producto o código de barras"
+            placeholder="Nombre del producto, código de barras o ID"
             value={keywords}
             onChange={e => { setKeywords(e.target.value); keywordsDirty.current = true; }}
             onKeyDown={handleFilterKeyDown}
@@ -339,7 +367,7 @@ export function ProductSearchModal({
             onClick={() => setShowAdvancedFilters(v => !v)}
           >
             {showAdvancedFilters ? 'Ocultar filtros' : 'Más filtros'}
-            {(marca || categoria || codigo || soloConStock) && !showAdvancedFilters && (
+            {(marca || marcaIds.length > 0 || categoria || codigo || soloConStock) && !showAdvancedFilters && (
               <Tag color="blue" style={{ marginLeft: 6 }}>activos</Tag>
             )}
           </Button>
@@ -347,19 +375,38 @@ export function ProductSearchModal({
 
         {showAdvancedFilters && (
           <Space wrap style={{ width: '100%', marginBottom: 12 }}>
-            <Input
-              placeholder="Marca"
-              value={marca}
-              onChange={e => setMarca(e.target.value)}
-              onKeyDown={handleFilterKeyDown}
-              style={{ width: 160 }}
-              allowClear
-            />
+            {marcaOptions && marcaOptions.length > 0 ? (
+              <Select
+                mode="multiple"
+                placeholder="Marcas"
+                value={marcaIds}
+                onChange={handleMarcaIdsChange}
+                onKeyDown={handleAdvancedFilterKeyDown}
+                style={{ width: 260 }}
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                maxTagCount="responsive"
+                options={marcaOptions.map(m => ({
+                  value: m.MARCA_ID,
+                  label: m.NOMBRE,
+                }))}
+              />
+            ) : (
+              <Input
+                placeholder="Marca"
+                value={marca}
+                onChange={e => setMarca(e.target.value)}
+                onKeyDown={handleAdvancedFilterKeyDown}
+                style={{ width: 160 }}
+                allowClear
+              />
+            )}
             <Input
               placeholder="Categoría"
               value={categoria}
               onChange={e => setCategoria(e.target.value)}
-              onKeyDown={handleFilterKeyDown}
+              onKeyDown={handleAdvancedFilterKeyDown}
               style={{ width: 160 }}
               allowClear
             />
@@ -367,7 +414,7 @@ export function ProductSearchModal({
               placeholder="Código / Cod.Barras"
               value={codigo}
               onChange={e => setCodigo(e.target.value)}
-              onKeyDown={handleFilterKeyDown}
+              onKeyDown={handleAdvancedFilterKeyDown}
               style={{ width: 180 }}
               allowClear
             />

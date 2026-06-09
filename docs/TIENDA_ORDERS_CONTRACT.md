@@ -12,18 +12,18 @@ Tienda Online (front)                RG WEB Backend                       Operad
 1. Checkout finaliza
    POST /api/external/                ──► Valida payload (Zod)
        tienda-orders                      Persiste en TIENDA_ORDERS
-       x-api-key                          estado=pendiente
+       x-api-key                          estado=PENDIENTE
                                         ◄── 201 { tiendaOrderId, estado }
                                                                           2. Ve "Pedidos Tienda"
                                                                              Click "Procesar"
                                             POST /tienda-orders/:id/procesar
                                             ► salesService.create()
-                                            estado=procesado, VENTA_ID asignado
+                                            estado=PROCESADO, VENTA_ID asignado
                                                                           3. (opcional) "Facturar"
                                             POST /tienda-orders/:id/facturar
                                             ► facturacionService.emitirFactura()
                                             ► sendComprobanteEmail(stub)
-                                            estado=facturado, CAE asignado
+                                            estado=FACTURADO, CAE asignado
 ```
 
 ## Endpoint público
@@ -44,16 +44,24 @@ Idempotente por `(tiendaOrigen, externalOrderId)`. Reintentar es seguro.
 | `externalOrderId`     | string     | sí        | ID único del pedido en la tienda (máx. 120 chars).     |
 | `tiendaOrigen`        | string     | sí        | Slug de la tienda (`tricarios`, `cliente-x`, etc.).    |
 | `fechaPedido`         | ISO date   | no        | Default: `now` del backend.                            |
+| `moneda`              | enum       | no        | `ARS` (default) o `USD`.                               |
 | `cliente`             | objeto     | no        | Snapshot del comprador. Ver tabla abajo.               |
 | `items`               | array(1+)  | sí        | Líneas de productos. Ver tabla abajo.                  |
 | `pago`                | objeto     | no        | Método/estado/referencia del pago.                     |
-| `envio`               | objeto     | no        | `metodo: retiro|envio`, `direccion`, `costo`.          |
-| `totales`             | objeto     | no        | `subtotal`, `descuentos`, `envio`, `total`.            |
+| `envio`               | objeto     | no        | `metodo: RETIRO\|ENVIO`, `transporte`, `tracking`.     |
+| `totales`             | objeto     | no        | `subtotal`, `descuentos`, `costoEnvio`, `ivaTotal`, `total`. |
 | `observaciones`       | string     | no        | Hasta 1000 chars.                                      |
 
 **`cliente`** — todos opcionales:
-`nombre`, `documento`, `tipoDocumento` (DNI|CUIT|CF), `email`, `telefono`,
-`direccion`, `localidad`, `provincia`, `cp`.
+`nombre`, `tipoDocumento` (`DNI`\|`CUIT`\|`CUIL`\|`CF`\|`PASAPORTE`\|`LE`\|`LC`),
+`documento` (solo alfanumérico, sin separadores), `condicionIva`
+(`RESPONSABLE INSCRIPTO`\|`MONOTRIBUTO`\|`CONSUMIDOR FINAL`\|`EXENTO`\|`NO RESPONSABLE`),
+`email`, `telefono`, `direccion`, `localidad`, `provincia`, `cp`,
+`pais` (ISO 3166-1 alpha-2, default `AR`).
+
+**`pago`** — `metodo` (`EFECTIVO`\|`MERCADOPAGO`\|`TRANSFERENCIA`\|`TARJETA`\|`OTRO`),
+`estado` (`PENDIENTE`\|`APROBADO`\|`RECHAZADO`\|`REEMBOLSADO`),
+`referencia`, `fechaAprobacion` (ISO).
 
 **`items[]`**:
 
@@ -71,13 +79,13 @@ Idempotente por `(tiendaOrigen, externalOrderId)`. Reintentar es seguro.
 
 ```jsonc
 // 201 — primera vez
-{ "status": "received", "tiendaOrderId": 17, "estado": "pendiente" }
+{ "status": "RECEIVED", "tiendaOrderId": 17, "estado": "PENDIENTE" }
 
 // 200 — duplicado (mismo externalOrderId + tiendaOrigen)
-{ "status": "duplicate", "tiendaOrderId": 17, "estado": "pendiente" }
+{ "status": "DUPLICATE", "tiendaOrderId": 17, "estado": "PENDIENTE" }
 
 // 400 — datos inválidos (Zod)
-{ "error": "Datos inválidos", "detalles": [{ "path": ["items", 0, "cantidad"], "message": "..." }] }
+{ "status": "INVALID", "error": "Datos inválidos", "detalles": [{ "path": "items.0.cantidad", "message": "..." }] }
 
 // 401 — api-key inválida
 { "error": "API key inválida" }
@@ -103,10 +111,10 @@ Prefijo: `/api/tienda-orders` — Auth: JWT del panel + permisos `tienda_orders.
 
 | Estado       | Significado                                                                    |
 | ------------ | ------------------------------------------------------------------------------ |
-| `pendiente`  | Recién recibido. Visible en la bandeja. Único estado que admite "Procesar".    |
-| `procesado`  | Convertido en `VENTAS` (`VENTA_ID` asignado). Listo para facturar.             |
-| `facturado`  | Tiene CAE/comprobante. El email queda registrado en `EMAIL_ENVIADO_AT`.        |
-| `cancelado`  | Descartado por el operador. No se puede facturar después; emitir NC si aplica. |
+| `PENDIENTE`  | Recién recibido. Visible en la bandeja. Único estado que admite "Procesar".    |
+| `PROCESADO`  | Convertido en `VENTAS` (`VENTA_ID` asignado). Listo para facturar.             |
+| `FACTURADO`  | Tiene CAE/comprobante. El email queda registrado en `EMAIL_ENVIADO_AT`.        |
+| `CANCELADO`  | Descartado por el operador. No se puede facturar después; emitir NC si aplica. |
 
 ## Tablas DB
 

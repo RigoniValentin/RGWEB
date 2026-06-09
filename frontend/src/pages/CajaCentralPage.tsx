@@ -30,7 +30,6 @@ const metodoVisual = (categoria: string) => {
   if (categoria === 'CHEQUES') return { tag: 'orange', background: 'rgba(250,140,22,0.07)', border: '#ffd591' };
   return { tag: 'blue', background: 'rgba(22,119,255,0.06)', border: '#91caff' };
 };
-
 export function CajaCentralPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -125,7 +124,6 @@ export function CajaCentralPage() {
 
   const chequesEnCartera = displayTotales.chequesEnCartera ?? displayTotales.cheques ?? 0;
   const chequesEnCarteraCantidad = displayTotales.chequesEnCarteraCantidad ?? 0;
-  const totalMetodos = displayTotales.totalMetodos ?? ((displayTotales.efectivo || 0) + (displayTotales.digital || 0) + (displayTotales.cheques || 0));
   const desgloseParams = balanceHistorico
     ? { puntoVentaIds: pvIdsParam }
     : { fechaDesde, fechaHasta, puntoVentaIds: pvIdsParam };
@@ -143,7 +141,6 @@ export function CajaCentralPage() {
       message.error(err.response?.data?.error || 'Error al cargar el detalle de cierre');
     }
   };
-
   // ── Mutations ──────────────────────────────────
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['caja-central-mov'] });
@@ -153,8 +150,6 @@ export function CajaCentralPage() {
     queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
     queryClient.invalidateQueries({ queryKey: ['cheques-cartera'] });
     queryClient.invalidateQueries({ queryKey: ['fc-modal'] });
-    queryClient.invalidateQueries({ queryKey: ['cc-desglose'] });
-    queryClient.invalidateQueries({ queryKey: ['dashboard-analytics'] });
   };
 
   const crearMutation = useMutation({
@@ -166,7 +161,7 @@ export function CajaCentralPage() {
         tipo: nuevoTipo,
         descripcion: nuevoDesc,
         puntoVentaId: nuevoPvId,
-        metodos_pago: metodos_pago.length > 0 ? metodos_pago : undefined,
+        metodos_pago,
       });
     },
     onSuccess: () => {
@@ -394,86 +389,95 @@ export function CajaCentralPage() {
 
       {/* ── Totals cards ───────────────────────── */}
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-        <Col xs={12} sm={8} md={4}>
-          <Card size="small" className="rg-card">
-            <Statistic
-              title={<span>Ingresos&nbsp;<Tooltip title="Total de ingresos operativos del período. No incluye movimientos de Fondo de Cambio."><QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 11 }} /></Tooltip></span>}
-              value={displayTotales.totalIngresos}
-              formatter={statFormatter} prefix="$"
-              valueStyle={{ color: '#52c41a', fontSize: 16 }}
-            />
-          </Card>
+        <Col xs={24} md={16}>
+          <Row gutter={[12, 12]}>
+            <Col xs={24} sm={8}>
+              <Card size="small" className="rg-card">
+                <Statistic
+                  title={<span>Ingresos&nbsp;<Tooltip title="Total de ingresos operativos del período. No incluye movimientos de Fondo de Cambio."><QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 11 }} /></Tooltip></span>}
+                  value={displayTotales.totalIngresos}
+                  formatter={statFormatter} prefix="$"
+                  valueStyle={{ color: '#52c41a', fontSize: 16 }}
+                />
+              </Card>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Card size="small" className="rg-card">
+                <Statistic
+                  title={<span>Egresos&nbsp;<Tooltip title="Total de egresos operativos del período. No incluye movimientos de Fondo de Cambio."><QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 11 }} /></Tooltip></span>}
+                  value={displayTotales.totalEgresos}
+                  formatter={statFormatter} prefix="$"
+                  valueStyle={{ color: '#ff4d4f', fontSize: 16 }}
+                />
+              </Card>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Card size="small" className="rg-card">
+                <Statistic
+                  title={<span>{balanceHistorico ? 'Balance Histórico' : 'Balance'}&nbsp;<Tooltip title={balanceHistorico ? 'Total acumulado del período filtrado. El desglose muestra cómo se compone por método de pago.' : 'Resultado neto del período filtrado. El desglose muestra cómo se compone por método de pago.'}><QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 11 }} /></Tooltip></span>}
+                  value={displayTotales.balance}
+                  formatter={statFormatter} prefix="$"
+                  valueStyle={{ color: displayTotales.balance >= 0 ? '#52c41a' : '#ff4d4f', fontSize: 16, fontWeight: 'bold' }}
+                />
+                <Button
+                  type="link"
+                  size="small"
+                  style={{ paddingInline: 0, height: 'auto', marginTop: 6 }}
+                  onClick={() => {
+                    cajaCentralApi.getDesgloseMetodos(desgloseParams).then(data => {
+                      setDesgloseData(data);
+                      setDesgloseModalOpen(true);
+                    });
+                  }}
+                >
+                  Ver desglose
+                </Button>
+              </Card>
+            </Col>
+          </Row>
         </Col>
-        <Col xs={12} sm={8} md={4}>
-          <Card size="small" className="rg-card">
-            <Statistic
-              title={<span>Egresos&nbsp;<Tooltip title="Total de egresos operativos del período. No incluye movimientos de Fondo de Cambio."><QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 11 }} /></Tooltip></span>}
-              value={displayTotales.totalEgresos}
-              formatter={statFormatter} prefix="$"
-              valueStyle={{ color: '#ff4d4f', fontSize: 16 }}
-            />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={4}>
-          <Card size="small" className="rg-card">
-            <Statistic
-              title={<span>{balanceHistorico ? 'Balance Histórico' : 'Balance'}&nbsp;<Tooltip title={balanceHistorico ? 'Balance total acumulado, excluyendo movimientos de Fondo de Cambio. Con fondo en $0 y sin cajas abiertas debería coincidir con Métodos.' : 'Diferencia entre ingresos y egresos operativos del período. No incluye movimientos de Fondo de Cambio. Puede diferir de Métodos si hay traslados al fondo en el período.'}><QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 11 }} /></Tooltip></span>}
-              value={displayTotales.balance}
-              formatter={statFormatter} prefix="$"
-              valueStyle={{ color: displayTotales.balance >= 0 ? '#52c41a' : '#ff4d4f', fontSize: 16, fontWeight: 'bold' }}
-            />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={4}>
-          <Card size="small" className="rg-card" hoverable
-            onClick={() => {
-              cajaCentralApi.getDesgloseMetodos(desgloseParams).then(data => {
-                setDesgloseData(data);
-                setDesgloseModalOpen(true);
-              });
-            }}
-          >
-            <Statistic title={<span>Métodos CC ▸&nbsp;<Tooltip title="Distribución del balance por método de pago. Incluye el efectivo movido hacia/desde el Fondo de Cambio. En filtros parciales puede diferir del Balance; en Histórico con fondo en $0 deberían coincidir."><QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 11 }} /></Tooltip></span>} value={totalMetodos} formatter={statFormatter} prefix="$" valueStyle={{ fontSize: 14, color: '#1677ff' }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={4}>
-          <Card
-            size="small"
-            className="rg-card"
-            hoverable
-            onClick={() => {
-              openTab({ key: '/cheques', label: 'Cheques', closable: true });
-              navigate('/cheques');
-            }}
-          >
-            <Statistic
-              title={<span><FileProtectOutlined /> Cheques cartera&nbsp;<Tooltip title="Importe total de cheques en estado EN_CARTERA. No afecta el Balance. Clic para ir a Cheques."><QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 11 }} /></Tooltip></span>}
-              value={chequesEnCartera}
-              formatter={statFormatter} prefix="$"
-              valueStyle={{ color: '#fa8c16', fontSize: 14 }}
-            />
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              {chequesEnCarteraCantidad} cheque{chequesEnCarteraCantidad === 1 ? '' : 's'}
-            </Text>
-          </Card>
-        </Col>
-        <Col xs={12} sm={8} md={4}>
-          <Card size="small" className="rg-card">
-            <Statistic
-              title={<span>Fondo Cambio&nbsp;<Tooltip title="Efectivo apartado como fondo operativo. No forma parte del Balance ni de Métodos; se registra como movimiento interno al transferir."><QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 11 }} /></Tooltip></span>}
-              value={fondoData?.saldo ?? 0}
-              formatter={statFormatter} prefix="$"
-              valueStyle={{ color: '#EABD23', fontSize: 14 }}
-            />
-            <Button
-              size="small"
-              icon={<SwapOutlined />}
-              onClick={() => setFondoModalOpen(true)}
-              style={{ marginTop: 4 }}
-            >
-              Transferir
-            </Button>
-          </Card>
+        <Col xs={24} md={8}>
+          <Row gutter={[12, 12]} justify="end">
+            <Col xs={24} sm={12}>
+              <Card
+                size="small"
+                className="rg-card"
+                hoverable
+                onClick={() => {
+                  openTab({ key: '/cheques', label: 'Cheques', closable: true });
+                  navigate('/cheques');
+                }}
+              >
+                <Statistic
+                  title={<span><FileProtectOutlined /> Cheques cartera&nbsp;<Tooltip title="Importe total de cheques en estado EN_CARTERA. No afecta el Balance. Clic para ir a Cheques."><QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 11 }} /></Tooltip></span>}
+                  value={chequesEnCartera}
+                  formatter={statFormatter} prefix="$"
+                  valueStyle={{ color: '#fa8c16', fontSize: 14 }}
+                />
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  {chequesEnCarteraCantidad} cheque{chequesEnCarteraCantidad === 1 ? '' : 's'}
+                </Text>
+              </Card>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Card size="small" className="rg-card">
+                <Statistic
+                  title={<span>Fondo Cambio&nbsp;<Tooltip title="Efectivo apartado como fondo operativo. No forma parte del Balance ni de Métodos; se registra como movimiento interno al transferir."><QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 11 }} /></Tooltip></span>}
+                  value={fondoData?.saldo ?? 0}
+                  formatter={statFormatter} prefix="$"
+                  valueStyle={{ color: '#EABD23', fontSize: 14 }}
+                />
+                <Button
+                  size="small"
+                  icon={<SwapOutlined />}
+                  onClick={() => setFondoModalOpen(true)}
+                  style={{ marginTop: 4 }}
+                >
+                  Transferir
+                </Button>
+              </Card>
+            </Col>
+          </Row>
         </Col>
       </Row>
 

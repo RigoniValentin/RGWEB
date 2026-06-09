@@ -27,11 +27,12 @@ const MODULE_META: Record<string, { label: string; description: string; icon: Re
 };
 
 const SUBMODULE_LABELS: Record<string, string> = {
-  nueva_venta:  'Nueva Venta',
-  nueva_compra: 'Nueva Compra',
-  general:      'General',
-  listado:      'Listado',
-  _general:     'General',
+  nueva_venta:    'Nueva Venta',
+  nueva_compra:   'Nueva Compra',
+  general:        'General',
+  listado:        'Listado',
+  _general:       'General',
+  notificaciones: 'Notificaciones',
 };
 
 // ── Logo upload section ──────────────────────────
@@ -341,7 +342,7 @@ function SettingRow({
 //  SettingsPage — Main component
 // ═══════════════════════════════════════════════════
 export function SettingsPage() {
-  const { settings, loaded, loading, fetchSettings, saveUserSettings, resetAll, resetModule } = useSettingsStore();
+  const { settings, loaded, loading, fetchSettings, saveUserSettings, saveGlobalSettings, resetAll, resetModule } = useSettingsStore();
   const [localValues, setLocalValues] = useState<Record<number, string>>({});
   const [saving, setSaving] = useState(false);
   const [activeModule, setActiveModule] = useState<string | null>(null);
@@ -384,10 +385,22 @@ export function SettingsPage() {
         })
         .map(s => ({ PARAMETRO_ID: s.PARAMETRO_ID, VALOR: localValues[s.PARAMETRO_ID]! }));
 
-      if (changed.length > 0) {
-        await saveUserSettings(changed);
-        msgApi.success(`${changed.length} configuración(es) guardada(s)`);
-      }
+      if (changed.length === 0) return;
+
+      // Submodules that are system-wide must be saved globally, not per user
+      const GLOBAL_SUBMODULES = new Set(['notificaciones']);
+      const globalSettings = changed.filter(s => {
+        const param = settings.find(p => p.PARAMETRO_ID === s.PARAMETRO_ID);
+        return param && GLOBAL_SUBMODULES.has(param.SUBMODULO ?? '');
+      });
+      const userSettings = changed.filter(s => !globalSettings.includes(s));
+
+      const saves: Promise<void>[] = [];
+      if (globalSettings.length > 0) saves.push(saveGlobalSettings(globalSettings));
+      if (userSettings.length > 0) saves.push(saveUserSettings(userSettings));
+      await Promise.all(saves);
+
+      msgApi.success(`${changed.length} configuración(es) guardada(s)`);
     } catch {
       msgApi.error('Error al guardar la configuración');
     } finally {

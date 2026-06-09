@@ -1,4 +1,5 @@
 import { getPool, sql } from '../database/connection.js';
+import { registrarHistorialStock } from './stockHistorial.helper.js';
 
 // ═══════════════════════════════════════════════════
 //  Stock Service — Stock management by deposit
@@ -261,24 +262,17 @@ export const stockService = {
         .input('prodId', sql.Int, input.PRODUCTO_ID)
         .query(`UPDATE PRODUCTOS SET CANTIDAD = (SELECT ISNULL(SUM(CANTIDAD),0) FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @prodId) WHERE PRODUCTO_ID = @prodId`);
 
-      // Log in STOCK_HISTORIAL
       const diferencia = input.CANTIDAD_NUEVA - cantidadAnterior;
-      await tx.request()
-        .input('prodId', sql.Int, input.PRODUCTO_ID)
-        .input('depId', sql.Int, input.DEPOSITO_ID)
-        .input('cantAnt', sql.Decimal(18, 4), cantidadAnterior)
-        .input('cantNueva', sql.Decimal(18, 4), input.CANTIDAD_NUEVA)
-        .input('dif', sql.Decimal(18, 4), diferencia)
-        .input('tipo', sql.VarChar, 'AJUSTE_MANUAL')
-        .input('detalle', sql.VarChar, 'Ajuste manual de stock')
-        .input('userId', sql.Int, usuarioId || null)
-        .input('obs', sql.VarChar, input.OBSERVACIONES || null)
-        .query(`
-          INSERT INTO STOCK_HISTORIAL
-            (PRODUCTO_ID, DEPOSITO_ID, CANTIDAD_ANTERIOR, CANTIDAD_NUEVA, DIFERENCIA, TIPO_OPERACION, REFERENCIA_DETALLE, USUARIO_ID, OBSERVACIONES)
-          VALUES
-            (@prodId, @depId, @cantAnt, @cantNueva, @dif, @tipo, @detalle, @userId, @obs)
-        `);
+      await registrarHistorialStock(tx, {
+        productoId: input.PRODUCTO_ID,
+        depositoId: input.DEPOSITO_ID,
+        cantidadAnterior,
+        cantidadNueva: input.CANTIDAD_NUEVA,
+        tipoOperacion: 'AJUSTE_MANUAL',
+        referenciaDetalle: 'Ajuste manual de stock',
+        usuarioId: usuarioId || null,
+        observaciones: input.OBSERVACIONES || null,
+      });
 
       await tx.commit();
       return { ok: true, cantidadAnterior, cantidadNueva: input.CANTIDAD_NUEVA, diferencia };

@@ -90,16 +90,17 @@ export const productService = {
     }
     if (filter.search) {
       const searchTrim = filter.search.trim();
-      // Auto-detección de código de barras / código de balanza (solo dígitos, ≥ 6)
-      if (/^\d{6,}$/.test(searchTrim)) {
+      // Auto-detección de PRODUCTO_ID / código de barras / código de balanza
+      if (/^\d+$/.test(searchTrim)) {
         joinCodBarras = true;
-        where += ' AND (p.CODIGOPARTICULAR = @searchCode OR cb.CODIGO_BARRAS = @searchCode)';
+        where += ' AND (p.PRODUCTO_ID = @searchProductId OR p.CODIGOPARTICULAR = @searchCode OR cb.CODIGO_BARRAS = @searchCode)';
+        params.push({ name: 'searchProductId', type: sql.Int, value: Number(searchTrim) });
         params.push({ name: 'searchCode', type: sql.NVarChar, value: searchTrim });
       } else {
         // Solo busca en NOMBRE (sin joins → mucho más rápido)
         const tokens = searchTrim.split(/\s+/).filter(t => t.length > 0);
         tokens.forEach((token, i) => {
-          where += ` AND p.NOMBRE LIKE @t${i}`;
+          where += ` AND (p.NOMBRE LIKE @t${i} OR p.CODIGOPARTICULAR LIKE @t${i})`;
           params.push({ name: `t${i}`, type: sql.NVarChar, value: `%${token}%` });
         });
       }

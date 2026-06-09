@@ -121,14 +121,9 @@ IF NOT EXISTS (SELECT 1 FROM CONFIG_PARAMETROS WHERE CLAVE = 'atajo_busqueda_rap
   INSERT INTO CONFIG_PARAMETROS (MODULO, SUBMODULO, CLAVE, DESCRIPCION, TIPO, VALOR_DEFECTO, ORDEN)
   VALUES ('caja', NULL, 'atajo_busqueda_rapida_producto', 'Atajo de teclado para búsqueda rápida de producto por código de barras', 'shortcut', 'F7', 20);
 
--- ── General ──────────────────────────────────────────────────────────────────
-IF NOT EXISTS (SELECT 1 FROM CONFIG_PARAMETROS WHERE CLAVE = 'tema_oscuro')
+IF NOT EXISTS (SELECT 1 FROM CONFIG_PARAMETROS WHERE CLAVE = 'alerta_stock_login_wsp')
   INSERT INTO CONFIG_PARAMETROS (MODULO, SUBMODULO, CLAVE, DESCRIPCION, TIPO, VALOR_DEFECTO, ORDEN)
-  VALUES ('general', NULL, 'tema_oscuro', 'Usar tema oscuro', 'boolean', 'false', 10);
-
-IF NOT EXISTS (SELECT 1 FROM CONFIG_PARAMETROS WHERE CLAVE = 'sonido_notificaciones')
-  INSERT INTO CONFIG_PARAMETROS (MODULO, SUBMODULO, CLAVE, DESCRIPCION, TIPO, VALOR_DEFECTO, ORDEN)
-  VALUES ('general', NULL, 'sonido_notificaciones', 'Reproducir sonido en notificaciones', 'boolean', 'true', 20);
+  VALUES ('general', 'notificaciones', 'alerta_stock_login_wsp', 'Enviar alerta de stock bajo por WhatsApp', 'boolean', 'false', 30);
 
 PRINT '✅ Seed parameters inserted';
 GO

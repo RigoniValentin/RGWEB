@@ -1119,8 +1119,11 @@ export const ctaCorrienteService = {
     fecha: Date,
     usuarioId: number,
   ): Promise<void> {
-    // Get pending sales ordered oldest first
-    // IMPUTACIONES_PAGOS already tracks anticipo consumption, so no need to subtract MONTO_ANTICIPO
+    // Get pending sales ordered oldest first.
+    // SALDO_PENDIENTE = DEBE
+    //   − IMPUTACIONES_PAGOS for this comprobante (other cobranzas / anticipos consumidos)
+    //   − HABER from direct payments registered against this same venta (markAsPaid creates
+    //     a 'PAGO' HABER row on VENTAS_CTA_CORRIENTE without writing IMPUTACIONES_PAGOS).
     const pending = await tx.request()
       .input('ctaId', sql.Int, ctaCorrienteId)
       .query(`
@@ -1129,7 +1132,11 @@ export const ctaCorrienteService = {
             - ISNULL((SELECT SUM(MONTO_IMPUTADO) 
                       FROM IMPUTACIONES_PAGOS 
                       WHERE VENTA_ID = v.COMPROBANTE_ID 
-                      AND TIPO_COMPROBANTE = v.TIPO_COMPROBANTE), 0) AS SALDO_PENDIENTE
+                      AND TIPO_COMPROBANTE = v.TIPO_COMPROBANTE), 0)
+            - ISNULL((SELECT SUM(HABER)
+                      FROM VENTAS_CTA_CORRIENTE
+                      WHERE COMPROBANTE_ID = v.COMPROBANTE_ID
+                      AND TIPO_COMPROBANTE = 'PAGO'), 0) AS SALDO_PENDIENTE
         FROM VENTAS_CTA_CORRIENTE v
         WHERE v.CTA_CORRIENTE_ID = @ctaId
           AND v.TIPO_COMPROBANTE IN ('Fa.A', 'Fa.B', 'Fa.C', 'Nd.A', 'Nd.B', 'Nd.C')
@@ -1138,6 +1145,10 @@ export const ctaCorrienteService = {
                                FROM IMPUTACIONES_PAGOS 
                                WHERE VENTA_ID = v.COMPROBANTE_ID 
                                AND TIPO_COMPROBANTE = v.TIPO_COMPROBANTE), 0)
+                       + ISNULL((SELECT SUM(HABER)
+                                 FROM VENTAS_CTA_CORRIENTE
+                                 WHERE COMPROBANTE_ID = v.COMPROBANTE_ID
+                                 AND TIPO_COMPROBANTE = 'PAGO'), 0)
         ORDER BY v.FECHA, v.COMPROBANTE_ID
       `);
 
@@ -1163,7 +1174,7 @@ export const ctaCorrienteService = {
             VALUES (@pagoId, @ventaId, @tipoComp, @monto, @fecha, @usuarioId)
           `);
 
-        if (Math.abs(montoAImputar - venta.SALDO_PENDIENTE) < 0.01) {
+        if (Math.abs(montoAImputar - venta.SALDO_PENDIENTE) <= 0.01) {
           ventasPagadas.push(venta.COMPROBANTE_ID);
         }
       }
@@ -1195,13 +1206,15 @@ export const ctaCorrienteService = {
     }
 
     // Update COBRADA status for all cta corriente sales
-    // IMPUTACIONES_PAGOS already includes anticipo consumption records
+    // IMPUTACIONES_PAGOS already includes anticipo consumption records.
+    // HABER from 'PAGO' rows (markAsPaid — direct full/partial payment without going
+    // through a cobranza) is also counted as settled amount.
     await tx.request()
       .input('ctaId', sql.Int, ctaCorrienteId)
       .query(`
         UPDATE v
         SET v.COBRADA = CASE 
-          WHEN vc.DEBE <= ISNULL(ip.TOTAL_IMPUTADO, 0) THEN 1
+          WHEN vc.DEBE <= ISNULL(ip.TOTAL_IMPUTADO, 0) + ISNULL(pago.TOTAL_PAGO, 0) + 0.01 THEN 1
           ELSE 0
         END
         FROM VENTAS v
@@ -1211,6 +1224,12 @@ export const ctaCorrienteService = {
           FROM IMPUTACIONES_PAGOS
           GROUP BY VENTA_ID, TIPO_COMPROBANTE
         ) ip ON vc.COMPROBANTE_ID = ip.VENTA_ID AND vc.TIPO_COMPROBANTE = ip.TIPO_COMPROBANTE
+        LEFT JOIN (
+          SELECT COMPROBANTE_ID, SUM(HABER) AS TOTAL_PAGO
+          FROM VENTAS_CTA_CORRIENTE
+          WHERE TIPO_COMPROBANTE = 'PAGO'
+          GROUP BY COMPROBANTE_ID
+        ) pago ON pago.COMPROBANTE_ID = vc.COMPROBANTE_ID
         WHERE vc.CTA_CORRIENTE_ID = @ctaId
           AND vc.TIPO_COMPROBANTE IN ('Fa.A', 'Fa.B', 'Fa.C', 'Nd.A', 'Nd.B', 'Nd.C')
           AND v.ES_CTA_CORRIENTE = 1
@@ -1237,8 +1256,9 @@ export const ctaCorrienteService = {
       .query('DELETE FROM ANTICIPOS_CLIENTES WHERE PAGO_ID = @pagoId');
 
     // Update COBRADA for affected sales
+    // Counts BOTH IMPUTACIONES_PAGOS sum AND HABER from 'PAGO' rows (markAsPaid).
     // NOTE: MONTO_ANTICIPO is a historical field set at sale creation time and must not be
-    // modified here. Fully-consumed anticipos are deleted from ANTICIPOS_CLIENTES, so any
+    // referenced here. Fully-consumed anticipos are deleted from ANTICIPOS_CLIENTES, so any
     // join against that table would incorrectly zero out MONTO_ANTICIPO for sales whose
     // anticipo source has been fully spent. COBRADA is the authoritative settlement flag.
     if (ventaIds.length > 0) {
@@ -1248,7 +1268,11 @@ export const ctaCorrienteService = {
         SET v.COBRADA = CASE 
           WHEN vc.DEBE <= ISNULL((SELECT SUM(MONTO_IMPUTADO) 
                                   FROM IMPUTACIONES_PAGOS 
-                                  WHERE VENTA_ID = v.VENTA_ID), 0) THEN 1
+                                  WHERE VENTA_ID = v.VENTA_ID), 0)
+                       + ISNULL((SELECT SUM(HABER)
+                                 FROM VENTAS_CTA_CORRIENTE
+                                 WHERE COMPROBANTE_ID = v.VENTA_ID
+                                 AND TIPO_COMPROBANTE = 'PAGO'), 0) + 0.01 THEN 1
           ELSE 0
         END
         FROM VENTAS v

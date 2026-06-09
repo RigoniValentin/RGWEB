@@ -88,6 +88,12 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const selectedRemitoIds = activeDraft?.selectedRemitoIds ?? [];
   const searchText = activeDraft?.searchText ?? '';
   const productSearchOpen = activeDraft?.productSearchOpen ?? false;
+
+  const { data: marcas } = useQuery({
+    queryKey: ['marcas'],
+    queryFn: () => catalogApi.getMarcas(),
+    staleTime: 300000,
+  });
   const productSearchInitial = activeDraft?.productSearchInitial ?? '';
 
   // Helper: update a field on the active draft.
@@ -2723,6 +2729,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       }}
       initialSearch={productSearchInitial}
       searchFn={salesApi.searchProductsAdvanced}
+      marcaOptions={marcas}
       onBarcodeBalanza={(code) => {
         salesApi.getBalanzaProduct(code).then(data => {
           if (data && data.product) {

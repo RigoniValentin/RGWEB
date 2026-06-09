@@ -902,14 +902,20 @@ body {
   box-shadow: 0 0 0 2px rgba(234, 189, 35, 0.15) !important;
 }
 
-/* AutoComplete / Select dropdown — gold highlight on hover & active */
+/* AutoComplete / Select dropdown — gold highlight on hover & active (alto contraste) */
 .ant-select-dropdown .ant-select-item-option-active,
 .ant-select-dropdown .ant-select-item-option:hover {
-  background-color: rgba(234, 189, 35, 0.15) !important;
+  background-color: rgba(234, 189, 35, 0.30) !important;
 }
-.ant-select-dropdown .ant-select-item-option-selected {
-  background-color: rgba(234, 189, 35, 0.25) !important;
-  font-weight: 600;
+.ant-select-dropdown .ant-select-item-option-selected,
+.ant-select-dropdown .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background-color: rgba(234, 189, 35, 0.65) !important;
+  color: #1a1a1a !important;
+  font-weight: 700 !important;
+  border-left: 3px solid var(--rg-gold) !important;
+}
+.ant-select-dropdown .ant-select-item-option-selected .ant-select-item-option-state {
+  color: var(--rg-black) !important;
 }
 
 .ant-pagination-item-active {

@@ -67,6 +67,14 @@ export function SalesPage() {
   // NC asociadas modal
   const [ncModalOpen, setNCModalOpen] = useState(false);
 
+  const cobradoDetalle = (detail?: VentaDetalle | null) => {
+    if (!detail) return 0;
+    if (detail.metodos_pago && detail.metodos_pago.length > 0) {
+      return detail.metodos_pago.reduce((sum, metodo) => sum + Number(metodo.TOTAL ?? 0), 0);
+    }
+    return (detail.MONTO_EFECTIVO ?? 0) + (detail.MONTO_DIGITAL ?? 0);
+  };
+
   // WhatsApp resend state
   const [wspModalOpen, setWspModalOpen] = useState(false);
   const [wspTelefono, setWspTelefono] = useState('');
@@ -660,10 +668,10 @@ export function SalesPage() {
                     style={{ fontWeight: 'bold', color: '#EABD23', cursor: 'pointer' }}
                     onClick={() => setDesgloseModalOpen(true)}
                   >
-                    {fmtMoney((detail.MONTO_EFECTIVO ?? 0) + (detail.MONTO_DIGITAL ?? 0))} ▸
+                    {fmtMoney(cobradoDetalle(detail))} ▸
                   </span>
                 ) : (
-                  fmtMoney((detail.MONTO_EFECTIVO ?? 0) + (detail.MONTO_DIGITAL ?? 0))
+                  fmtMoney(cobradoDetalle(detail))
                 )}
               </Descriptions.Item>
               <Descriptions.Item label="Vuelto">

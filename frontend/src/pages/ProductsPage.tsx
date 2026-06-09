@@ -345,7 +345,8 @@ export function ProductsPage() {
       render: (v: number, record: Producto) => {
         if (record.ES_SERVICIO) return <Tag color="blue">Servicio</Tag>;
         const low = record.STOCK_MINIMO != null && v <= record.STOCK_MINIMO;
-        return <Text type={low ? 'danger' : undefined} strong={low}>{v}</Text>;
+        const unidad = record.UNIDAD_ABREVIACION ? ` ${record.UNIDAD_ABREVIACION}` : '';
+        return <Text type={low ? 'danger' : undefined} strong={low}>{v}{unidad}</Text>;
       },
     },
     {
@@ -474,7 +475,7 @@ export function ProductsPage() {
         <Title level={3} style={{ margin: 0 }}>Productos</Title>
         <Space wrap size="small">
           <Input
-            placeholder="Buscar código, nombre, barras..."
+            placeholder="Buscar código, nombre, barras o ID..."
             prefix={<SearchOutlined />}
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}

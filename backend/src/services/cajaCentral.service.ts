@@ -149,14 +149,14 @@ export const cajaCentralService = {
       ${whereOperativos}
     `);
 
-    // Query 2: Efectivo operativo, before internal FC cash transfers.
+    // Query 2: Efectivo operativo, excluding internal FC cash transfers.
     const efectivoResult = await bind(pool.request()).query(`
       SELECT ISNULL(SUM(EFECTIVO), 0) AS efectivo
       FROM MOVIMIENTOS_CAJA m
       ${whereOperativos}
     `);
 
-    // Query 3: FC cash movements adjust Métodos but not Balance.
+    // Query 3: FC cash movements are tracked separately for traceability.
     const fondoCambioResult = await bind(pool.request()).query(`
       SELECT ISNULL(SUM(EFECTIVO), 0) AS ajusteFondoCambio
       FROM MOVIMIENTOS_CAJA m
@@ -167,11 +167,11 @@ export const cajaCentralService = {
     const row = totalesResult.recordset[0] || {};
     const efectivoOperativo = Number(efectivoResult.recordset[0]?.efectivo) || 0;
     const ajusteFondoCambio = Number(fondoCambioResult.recordset[0]?.ajusteFondoCambio) || 0;
-    const efectivo = efectivoOperativo + ajusteFondoCambio;
+    const efectivo = efectivoOperativo;
     const digital = Number(row.digital) || 0;
     const cheques = Number(row.cheques) || 0;
     const balance = Number(row.balance) || 0;
-    const totalMetodos = efectivo + digital + cheques;
+    const totalMetodos = efectivoOperativo + digital + cheques;
     const fondoCambioSaldo = Number(await this.getSaldoFondoCambio(filter.puntoVentaIds)) || 0;
 
     return {

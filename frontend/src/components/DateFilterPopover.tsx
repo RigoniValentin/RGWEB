@@ -6,6 +6,10 @@ import dayjs from 'dayjs';
 const { RangePicker } = DatePicker;
 
 export type DatePreset = 'hoy' | 'semana' | 'mes' | 'mesAnterior' | 'todas';
+export interface DateFilterOption<TPreset extends string = DatePreset> {
+  label: string;
+  value: TPreset;
+}
 
 const PRESET_LABELS: Record<DatePreset, string> = {
   hoy: 'Hoy',
@@ -15,7 +19,7 @@ const PRESET_LABELS: Record<DatePreset, string> = {
   todas: 'Todas',
 };
 
-const PRESET_OPTIONS: { label: string; value: DatePreset }[] = [
+const PRESET_OPTIONS: DateFilterOption<DatePreset>[] = [
   { label: 'Hoy', value: 'hoy' },
   { label: 'Esta semana', value: 'semana' },
   { label: 'Este mes', value: 'mes' },
@@ -41,23 +45,32 @@ export function getPresetRange(preset: DatePreset): [string, string] | [undefine
   }
 }
 
-interface DateFilterPopoverProps {
-  preset: DatePreset | undefined;
+interface DateFilterPopoverProps<TPreset extends string = DatePreset> {
+  preset: TPreset | undefined;
   fechaDesde: string | undefined;
   fechaHasta: string | undefined;
-  onPresetChange: (preset: DatePreset, desde: string | undefined, hasta: string | undefined) => void;
+  onPresetChange: (preset: TPreset, desde: string | undefined, hasta: string | undefined) => void;
   onRangeChange: (desde: string | undefined, hasta: string | undefined) => void;
   disabled?: boolean;
+  presetLabels?: Partial<Record<TPreset, string>>;
+  presetOptions?: DateFilterOption<TPreset>[];
+  getPresetRange?: (preset: TPreset) => [string | undefined, string | undefined];
+  emptyLabel?: string;
 }
 
-export function DateFilterPopover({
+export function DateFilterPopover<TPreset extends string = DatePreset>({
   preset, fechaDesde, fechaHasta,
   onPresetChange, onRangeChange, disabled,
-}: DateFilterPopoverProps) {
+  presetLabels, presetOptions, getPresetRange: resolvePresetRange, emptyLabel = 'Fechas',
+}: DateFilterPopoverProps<TPreset>) {
   const [open, setOpen] = useState(false);
 
-  const handlePreset = (value: DatePreset) => {
-    const [desde, hasta] = getPresetRange(value);
+  const labels = (presetLabels ?? PRESET_LABELS) as Partial<Record<TPreset, string>>;
+  const options = (presetOptions ?? PRESET_OPTIONS) as DateFilterOption<TPreset>[];
+  const getRange = resolvePresetRange ?? ((value: TPreset) => getPresetRange(value as DatePreset));
+
+  const handlePreset = (value: TPreset) => {
+    const [desde, hasta] = getRange(value);
     onPresetChange(value, desde, hasta);
     setOpen(false);
   };
@@ -71,10 +84,10 @@ export function DateFilterPopover({
   };
 
   const buttonLabel = preset
-    ? PRESET_LABELS[preset]
+    ? labels[preset] ?? emptyLabel
     : fechaDesde && fechaHasta
       ? `${dayjs(fechaDesde).format('DD/MM')} – ${dayjs(fechaHasta).format('DD/MM')}`
-      : 'Fechas';
+      : emptyLabel;
 
   return (
     <Popover
@@ -84,7 +97,7 @@ export function DateFilterPopover({
       placement="bottomRight"
       content={
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 220 }}>
-          {PRESET_OPTIONS.map(opt => (
+          {options.map(opt => (
             <Button
               key={opt.value}
               type={preset === opt.value ? 'primary' : 'text'}

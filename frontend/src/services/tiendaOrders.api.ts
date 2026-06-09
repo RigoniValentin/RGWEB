@@ -1,14 +1,15 @@
 import api from './api';
+import type { MetodoPagoItem } from '../types';
 
 // ═══════════════════════════════════════════════════
 //  Cliente API — Pedidos de Tienda Online
 // ═══════════════════════════════════════════════════
 
 export type TiendaOrderEstado =
-  | 'pendiente'
-  | 'procesado'
-  | 'facturado'
-  | 'cancelado';
+  | 'PENDIENTE'
+  | 'PROCESADO'
+  | 'FACTURADO'
+  | 'CANCELADO';
 
 export interface TiendaOrder {
   TIENDA_ORDER_ID: number;
@@ -72,7 +73,7 @@ export interface TiendaOrderWithItems extends TiendaOrder {
 }
 
 export interface TiendaOrderListFilters {
-  estado?: TiendaOrderEstado | 'todos';
+  estado?: TiendaOrderEstado | 'TODOS';
   tienda?: string;
   search?: string;
   desde?: string;
@@ -96,7 +97,9 @@ export interface TiendaOrderCounts {
 export interface ProcesarOrderInput {
   clienteId?: number;
   puntoVentaId?: number;
+  depositoId?: number;
   metodoPago?: 'EFECTIVO' | 'DIGITAL' | 'CTA_CORRIENTE';
+  metodos_pago?: MetodoPagoItem[];
   itemsOverride?: Array<{
     productoId: number;
     cantidad: number;

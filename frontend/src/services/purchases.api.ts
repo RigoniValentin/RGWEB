@@ -21,6 +21,7 @@ export interface PriceCheckProduct {
   LISTA_3: number;
   LISTA_4: number;
   LISTA_5: number;
+  LISTA_DEFECTO: number | null;
   TIENE_MARGENES_INDIV: boolean | number;
 }
 

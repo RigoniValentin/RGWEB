@@ -748,9 +748,9 @@ export const salesService = {
     };
 
     const countResult = await bind(pool.request()).query(`
-      SELECT COUNT(*) as total FROM VENTAS v
-      LEFT JOIN CLIENTES c ON v.CLIENTE_ID = c.CLIENTE_ID
-      LEFT JOIN USUARIOS u ON v.USUARIO_ID = u.USUARIO_ID
+      SELECT COUNT(*) as total FROM VENTAS v WITH (NOLOCK)
+      LEFT JOIN CLIENTES c WITH (NOLOCK) ON v.CLIENTE_ID = c.CLIENTE_ID
+      LEFT JOIN USUARIOS u WITH (NOLOCK) ON v.USUARIO_ID = u.USUARIO_ID
       ${where}
     `);
     const total = countResult.recordset[0].total;
@@ -777,13 +777,13 @@ export const salesService = {
         v.ERROR_FE, v.ERRORES,
         c.NOMBRE AS CLIENTE_NOMBRE,
         u.NOMBRE AS USUARIO_NOMBRE
-      FROM VENTAS v
-      LEFT JOIN CLIENTES c ON v.CLIENTE_ID = c.CLIENTE_ID
-      LEFT JOIN USUARIOS u ON v.USUARIO_ID = u.USUARIO_ID
+      FROM VENTAS v WITH (NOLOCK)
+      LEFT JOIN CLIENTES c WITH (NOLOCK) ON v.CLIENTE_ID = c.CLIENTE_ID
+      LEFT JOIN USUARIOS u WITH (NOLOCK) ON v.USUARIO_ID = u.USUARIO_ID
       ${where}
       ORDER BY ${orderCol} ${orderDir}
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
-    `);
+    `);;
 
     return { data: dataResult.recordset, total, page, pageSize };
   },
@@ -1010,6 +1010,7 @@ export const salesService = {
       const vuelto = input.VUELTO || 0;
       let montoAnticipo = 0;
       let montoChequesAporte = 0;
+      let ctaCteId: number | null = null;
 
       // If metodos_pago provided, derive category totals from methods
       if (input.metodos_pago && input.metodos_pago.length > 0) {
@@ -1021,29 +1022,23 @@ export const salesService = {
 
       // ── 2. CTA CTE: Check saldo and apply anticipo if available ──
       if (input.ES_CTA_CORRIENTE) {
-        const ctaCheck = await tx.request()
-          .input('cid', sql.Int, input.CLIENTE_ID)
-          .query(`SELECT CTA_CORRIENTE_ID FROM CTA_CORRIENTE_C WHERE CLIENTE_ID = @cid`);
+        ctaCteId = await ensureCtaCorriente(tx, input.CLIENTE_ID);
+        const saldoResult = await tx.request()
+          .input('ctaId', sql.Int, ctaCteId)
+          .query(`SELECT ISNULL(SUM(DEBE - HABER), 0) AS SALDO FROM VENTAS_CTA_CORRIENTE WHERE CTA_CORRIENTE_ID = @ctaId`);
+        const saldo = saldoResult.recordset[0]?.SALDO || 0;
 
-        if (ctaCheck.recordset.length > 0) {
-          const ctaIdForSaldo = ctaCheck.recordset[0].CTA_CORRIENTE_ID;
-          const saldoResult = await tx.request()
-            .input('ctaId', sql.Int, ctaIdForSaldo)
-            .query(`SELECT ISNULL(SUM(DEBE - HABER), 0) AS SALDO FROM VENTAS_CTA_CORRIENTE WHERE CTA_CORRIENTE_ID = @ctaId`);
-          const saldo = saldoResult.recordset[0]?.SALDO || 0;
-
-          // saldo < 0 means client has credit (HABER > DEBE)
-          if (saldo < 0) {
-            const creditoDisponible = Math.abs(saldo);
-            if (creditoDisponible >= r2(total)) {
-              // Full coverage: sale is fully paid via anticipo
-              montoAnticipo = r2(total);
-              cobrada = true;
-            } else {
-              // Partial coverage: use all available credit
-              montoAnticipo = r2(creditoDisponible);
-              cobrada = false;
-            }
+        // saldo < 0 means client has credit (HABER > DEBE)
+        if (saldo < 0) {
+          const creditoDisponible = Math.abs(saldo);
+          if (creditoDisponible >= r2(total)) {
+            // Full coverage: sale is fully paid via anticipo
+            montoAnticipo = r2(total);
+            cobrada = true;
+          } else {
+            // Partial coverage: use all available credit
+            montoAnticipo = r2(creditoDisponible);
+            cobrada = false;
           }
         }
       }
@@ -1189,17 +1184,9 @@ export const salesService = {
 
       // ── 6. CTA_CORRIENTE (if cuenta corriente sale) ──
       if (input.ES_CTA_CORRIENTE) {
-        // Validate customer has CTA_CORRIENTE enabled
-        const clienteCheck = await tx.request()
-          .input('cid2', sql.Int, input.CLIENTE_ID)
-          .query(`SELECT CTA_CORRIENTE FROM CLIENTES WHERE CLIENTE_ID = @cid2`);
-        if (!clienteCheck.recordset[0]?.CTA_CORRIENTE) {
-          throw Object.assign(
-            new Error('El cliente no tiene habilitada la cuenta corriente'),
-            { name: 'ValidationError' }
-          );
+        if (!ctaCteId) {
+          ctaCteId = await ensureCtaCorriente(tx, input.CLIENTE_ID);
         }
-        const ctaCteId = await ensureCtaCorriente(tx, input.CLIENTE_ID);
         const tipoCompCtaCte = input.TIPO_COMPROBANTE || 'Fa.C';
         const fechaVenta = input.FECHA_VENTA ? new Date(input.FECHA_VENTA) : new Date();
 
@@ -1387,9 +1374,16 @@ export const salesService = {
         .query(`DELETE FROM VENTAS_METODOS_PAGO WHERE VENTA_ID = @ventaId`);
 
       // ── 4. Remove old CTA_CORRIENTE records ──
+      // NOTE: `create` inserts the sale row with TIPO_COMPROBANTE = input.TIPO_COMPROBANTE || 'Fa.C'
+      // (e.g. 'Fa.A' / 'Fa.B' / 'Fa.C' / 'Nd.A' / 'Nd.B' / 'Nd.C'). We must delete those rows here,
+      // not literal 'VENTA' (which would never match and leave duplicated DEBE entries).
+      // 'VENTA' is included in the filter to clean up legacy rows produced by the previous bug.
+      // We deliberately keep TIPO_COMPROBANTE = 'PAGO' rows (created by markAsPaid) intact.
       if (oldVenta.ES_CTA_CORRIENTE) {
         await tx.request().input('comprobanteId', sql.Int, id)
-          .query(`DELETE FROM VENTAS_CTA_CORRIENTE WHERE COMPROBANTE_ID = @comprobanteId AND TIPO_COMPROBANTE = 'VENTA'`);
+          .query(`DELETE FROM VENTAS_CTA_CORRIENTE
+                  WHERE COMPROBANTE_ID = @comprobanteId
+                    AND TIPO_COMPROBANTE IN ('Fa.A','Fa.B','Fa.C','Nd.A','Nd.B','Nd.C','VENTA')`);
       }
 
       const itemsVenta = await normalizarItemsDepositoVenta(
@@ -1576,14 +1570,17 @@ export const salesService = {
       }
 
       // ── 9. Re-create CTA_CORRIENTE if applicable ──
+      // Use the same TIPO_COMPROBANTE that `create` uses, so cobranza imputation
+      // (which filters by Fa.A/B/C, Nd.A/B/C) can match this row.
       if (input.ES_CTA_CORRIENTE) {
         const ctaCteId = await ensureCtaCorriente(tx, input.CLIENTE_ID);
+        const tipoCompCtaCteUpd = input.TIPO_COMPROBANTE || 'Fa.C';
         await tx.request()
           .input('comprobanteId', sql.Int, id)
           .input('ctaCteId', sql.Int, ctaCteId)
           .input('fecha', sql.DateTime, input.FECHA_VENTA ? new Date(input.FECHA_VENTA) : new Date())
-          .input('concepto', sql.NVarChar(255), `Venta #${id}`)
-          .input('tipoComp', sql.NVarChar(50), 'VENTA')
+          .input('concepto', sql.NVarChar(255), `Venta ${tipoCompCtaCteUpd} - ${id}`)
+          .input('tipoComp', sql.NVarChar(50), tipoCompCtaCteUpd)
           .input('debe', sql.Decimal(18, 2), r2(total))
           .input('haber', sql.Decimal(18, 2), 0)
           .query(`
@@ -1709,7 +1706,9 @@ export const salesService = {
           .query('DELETE FROM IMPUTACIONES_PAGOS WHERE VENTA_ID = @ventaId');
 
         await tx.request().input('comprobanteId', sql.Int, id)
-          .query(`DELETE FROM VENTAS_CTA_CORRIENTE WHERE COMPROBANTE_ID = @comprobanteId`);
+          .query(`DELETE FROM VENTAS_CTA_CORRIENTE
+                  WHERE COMPROBANTE_ID = @comprobanteId
+                    AND TIPO_COMPROBANTE IN ('Fa.A','Fa.B','Fa.C','Nd.A','Nd.B','Nd.C','VENTA','PAGO')`);
       }
 
       // ── 4. Delete metodos_pago, items, then sale ──
@@ -2047,6 +2046,7 @@ export const salesService = {
   async searchProductsAdvanced(params: {
     search?: string;
     marca?: string;
+    marcaIds?: number[];
     categoria?: string;
     codigo?: string;
     soloActivos?: boolean;
@@ -2104,6 +2104,16 @@ export const salesService = {
       joinMarca = true;
       conditions.push('m.NOMBRE LIKE @marca');
       req.input('marca', sql.NVarChar, `%${params.marca.trim()}%`);
+    }
+
+    if (params.marcaIds && params.marcaIds.length > 0) {
+      const marcaIds = params.marcaIds.filter((value): value is number => Number.isFinite(value));
+      if (marcaIds.length > 0) {
+        conditions.push(`p.MARCA_ID IN (${marcaIds.map((_, index) => `@marcaId${index}`).join(', ')})`);
+        marcaIds.forEach((marcaId, index) => {
+          req.input(`marcaId${index}`, sql.Int, marcaId);
+        });
+      }
     }
 
     if (params.categoria && params.categoria.trim()) {
@@ -2490,7 +2500,7 @@ export const salesService = {
   },
 
   // ── Get aggregated payment method breakdown for caja central period ─
-  // Subtracts Fondo de Cambio deposits from EFECTIVO-category methods proportionally
+  // Clean balance split: only actual method amounts for the filtered period.
   async getDesgloseMetodosCajaCentral(filter: { fechaDesde?: string; fechaHasta?: string; puntoVentaIds?: number[] }) {
     const pool = await getPool();
     await ensureVentasMetodosPagoTable(pool);
@@ -2571,54 +2581,15 @@ export const salesService = {
           SELECT * FROM MovimientosConMetodosPago
         ) t
         GROUP BY METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64
-      ),
-      AjusteEfectivo AS (
-        SELECT ISNULL(SUM(mc.EFECTIVO), 0) AS NETO
-        FROM MOVIMIENTOS_CAJA mc
-        WHERE mc.TIPO_ENTIDAD NOT IN ('CIERRE_CAJA') ${commonWhere}
-          AND (mc.ES_MANUAL = 0 OR mc.TIPO_ENTIDAD IN ('TRANSFERENCIA_FC', 'REINTEGRO_FONDO', 'DEPOSITO_FONDO'))
-          AND NOT EXISTS (
-            SELECT 1
-            FROM MOVIMIENTOS_CAJA_METODOS_PAGO mcmp
-            WHERE mcmp.MOVIMIENTO_ID = mc.ID
-          )
-      ),
-      Resumen AS (
-        SELECT
-          ISNULL(SUM(CASE WHEN CATEGORIA = 'EFECTIVO' THEN TOTAL ELSE 0 END), 0) AS TOTAL_EF,
-          COUNT(CASE WHEN CATEGORIA = 'EFECTIVO' THEN 1 END) AS CANT_EF
-        FROM MetodoTotales
-      ),
-      DefaultEfectivo AS (
-        SELECT TOP 1 METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64
-        FROM METODOS_PAGO
-        WHERE CATEGORIA = 'EFECTIVO' AND ACTIVA = 1
-        ORDER BY POR_DEFECTO DESC, METODO_PAGO_ID
-      ),
-      AllMetodos AS (
-        SELECT METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64, TOTAL FROM MetodoTotales
-        UNION ALL
-        SELECT de.METODO_PAGO_ID, de.NOMBRE, de.CATEGORIA, de.IMAGEN_BASE64, CAST(0 AS DECIMAL(18,2))
-        FROM DefaultEfectivo de
-        WHERE (SELECT CANT_EF FROM Resumen) = 0
-          AND (SELECT NETO FROM AjusteEfectivo) != 0
-          AND de.METODO_PAGO_ID NOT IN (SELECT METODO_PAGO_ID FROM MetodoTotales)
       )
-      SELECT am.METODO_PAGO_ID, am.NOMBRE, am.CATEGORIA, am.IMAGEN_BASE64,
-             CASE
-               WHEN am.CATEGORIA = 'EFECTIVO' AND (SELECT TOTAL_EF FROM Resumen) > 0
-               THEN am.TOTAL + ((SELECT NETO FROM AjusteEfectivo) * am.TOTAL / (SELECT TOTAL_EF FROM Resumen))
-               WHEN am.CATEGORIA = 'EFECTIVO' AND (SELECT TOTAL_EF FROM Resumen) = 0
-               THEN (SELECT NETO FROM AjusteEfectivo)
-               ELSE am.TOTAL
-             END AS TOTAL
-      FROM AllMetodos am
+      SELECT METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64, TOTAL
+      FROM MetodoTotales
       ORDER BY
         CASE
-          WHEN am.CATEGORIA = 'EFECTIVO' THEN 0
+          WHEN CATEGORIA = 'EFECTIVO' THEN 0
           ELSE 1
         END,
-        am.NOMBRE
+        NOMBRE
     `);
     return result.recordset;
   },

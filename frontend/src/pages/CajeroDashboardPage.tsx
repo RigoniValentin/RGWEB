@@ -18,7 +18,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../store/authStore';
 import { useTabStore } from '../store/tabStore';
 import { useSettingsStore } from '../store/settingsStore';
-import { dashboardApi } from '../services/dashboard.api';
+import { settingsApi } from '../services/settings.api';
 import { RGLogo } from '../components/RGLogo';
 
 const { Title, Text } = Typography;
@@ -176,7 +176,7 @@ export function CajeroDashboardPage() {
 
   const { data: logoUrl } = useQuery({
     queryKey: ['empresa-logo'],
-    queryFn: () => dashboardApi.getLogo(),
+    queryFn: () => settingsApi.getLogo(),
     staleTime: Infinity,
     retry: false,
   });

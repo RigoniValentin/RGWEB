@@ -67,7 +67,14 @@ export const mobileService = {
           p.PRODUCTO_ID AS id,
           p.NOMBRE      AS name,
           ISNULL((SELECT SUM(sd.CANTIDAD) FROM STOCK_DEPOSITOS sd WHERE sd.PRODUCTO_ID = p.PRODUCTO_ID), 0) AS stock,
-          ISNULL(p.LISTA_1, 0) AS price
+          CASE ISNULL(p.LISTA_DEFECTO, 1)
+            WHEN 1 THEN ISNULL(p.LISTA_1, 0)
+            WHEN 2 THEN ISNULL(p.LISTA_2, 0)
+            WHEN 3 THEN ISNULL(p.LISTA_3, 0)
+            WHEN 4 THEN ISNULL(p.LISTA_4, 0)
+            WHEN 5 THEN ISNULL(p.LISTA_5, 0)
+            ELSE ISNULL(p.LISTA_1, 0)
+          END AS price
         FROM PRODUCTOS p
         INNER JOIN PRODUCTOS_COD_BARRAS cb ON cb.PRODUCTO_ID = p.PRODUCTO_ID
         WHERE cb.CODIGO_BARRAS = @barcode

@@ -18,6 +18,7 @@ export interface ProductListingItem {
   STOCK: number;
   PRECIO: number;
   LISTA_DEFECTO: number | null;
+  UNIDAD_ABREVIACION: string | null;
 }
 
 function getPrecioExpression(listaPrecio: number): string {
@@ -59,12 +60,19 @@ export const productListingService = {
     }
 
     if (filter.search?.trim()) {
-      const tokens = filter.search.trim().split(/\s+/).filter(Boolean);
-      tokens.forEach((token, i) => {
-        where += ` AND (p.NOMBRE LIKE @search${i} OR p.CODIGOPARTICULAR LIKE @search${i}
+      const searchTrim = filter.search.trim();
+      if (/^\d+$/.test(searchTrim)) {
+        where += ' AND (p.PRODUCTO_ID = @searchProductId OR p.CODIGOPARTICULAR = @searchCode)';
+        params.push({ name: 'searchProductId', type: sql.Int, value: Number(searchTrim) });
+        params.push({ name: 'searchCode', type: sql.NVarChar, value: searchTrim });
+      } else {
+        const tokens = searchTrim.split(/\s+/).filter(Boolean);
+        tokens.forEach((token, i) => {
+          where += ` AND (p.NOMBRE LIKE @search${i} OR p.CODIGOPARTICULAR LIKE @search${i}
                     OR c.NOMBRE LIKE @search${i} OR m.NOMBRE LIKE @search${i})`;
-        params.push({ name: `search${i}`, type: sql.NVarChar, value: `%${token}%` });
-      });
+          params.push({ name: `search${i}`, type: sql.NVarChar, value: `%${token}%` });
+        });
+      }
     }
 
     const stockExpression = `CASE
@@ -89,10 +97,12 @@ export const productListingService = {
         ISNULL(c.NOMBRE, 'Sin Categoría') AS CATEGORIA,
         CAST(${stockExpression} AS DECIMAL(18, 2)) AS STOCK,
         CAST(${precioExpression} AS DECIMAL(18, 2)) AS PRECIO,
-        p.LISTA_DEFECTO
+        p.LISTA_DEFECTO,
+        u.ABREVIACION AS UNIDAD_ABREVIACION
       FROM PRODUCTOS p
       LEFT JOIN MARCAS m ON p.MARCA_ID = m.MARCA_ID
       LEFT JOIN CATEGORIAS c ON p.CATEGORIA_ID = c.CATEGORIA_ID
+      LEFT JOIN UNIDADES u ON p.UNIDAD_ID = u.UNIDAD_ID
       ${where}
       ORDER BY p.NOMBRE
     `);

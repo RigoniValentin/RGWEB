@@ -5,7 +5,7 @@ import {
 } from 'antd';
 import {
   SaveOutlined, ReloadOutlined, UndoOutlined,
-  PercentageOutlined,
+  PercentageOutlined, StarFilled,
 } from '@ant-design/icons';
 import type { PriceCheckProduct } from '../../services/purchases.api';
 import { fmtMoney, fmtNum } from '../../utils/format';
@@ -43,6 +43,11 @@ export function ProductPriceEditorModal({
   const [prices, setPrices] = useState<PriceState>({ LISTA_1: 0, LISTA_2: 0, LISTA_3: 0, LISTA_4: 0, LISTA_5: 0 });
   const [origPrices, setOrigPrices] = useState<PriceState>({ LISTA_1: 0, LISTA_2: 0, LISTA_3: 0, LISTA_4: 0, LISTA_5: 0 });
   const [marginSource, setMarginSource] = useState<MarginSource>('individual');
+  // Per-row margin overrides (when user edits the margin input directly).
+  // null = use configured (product or list). Number = override.
+  const [editedMargins, setEditedMargins] = useState<Record<number, number | null>>({
+    1: null, 2: null, 3: null, 4: null, 5: null,
+  });
 
   useEffect(() => {
     if (product && open) {
@@ -56,6 +61,7 @@ export function ProductPriceEditorModal({
       setPrices(p);
       setOrigPrices(p);
       setMarginSource(product.TIENE_MARGENES_INDIV ? 'individual' : 'lista');
+      setEditedMargins({ 1: null, 2: null, 3: null, 4: null, 5: null });
     }
   }, [product, open]);
 
@@ -65,14 +71,16 @@ export function ProductPriceEditorModal({
     return product.COSTO;
   }, [product]);
 
-  // Get the margin for a list depending on source
+  // Get the margin for a list depending on source (or per-row override)
   const getConfiguredMargin = useCallback((listNum: number): number => {
     if (!product) return 0;
+    const override = editedMargins[listNum];
+    if (override != null) return override;
     if (marginSource === 'individual') {
       return (product as any)[`MARGEN_${listNum}`] || 0;
     }
     return listMargins[listNum] || 0;
-  }, [product, marginSource, listMargins]);
+  }, [product, marginSource, listMargins, editedMargins]);
 
   // Calculate actual margin from current price (based on cost without IVA)
   const getActualMargin = useCallback((listNum: number): number => {
@@ -107,6 +115,13 @@ export function ProductPriceEditorModal({
 
   const updatePrice = (listNum: number, value: number) => {
     setPrices(prev => ({ ...prev, [`LISTA_${listNum}`]: r2(value) }));
+  };
+
+  // Edit the configured margin directly → recalculates the price
+  const updateMargin = (listNum: number, margin: number) => {
+    setEditedMargins(prev => ({ ...prev, [listNum]: margin }));
+    const newPrice = r2(costoMargenBase * (1 + margin / 100));
+    setPrices(prev => ({ ...prev, [`LISTA_${listNum}`]: newPrice }));
   };
 
   const roundPrice = (listNum: number, multiple: number) => {
@@ -226,6 +241,16 @@ export function ProductPriceEditorModal({
           const currPrice = (prices as any)[`LISTA_${i}`] || 0;
           const changed = Math.abs(currPrice - origPrice) > 0.01;
           const marginDiff = Math.abs(actualMargin - configMargin) > 0.5;
+          const isDefault = product.LISTA_DEFECTO === i;
+
+          // Background/border priority: default list > changed > normal
+          let bgColor = '#fafafa';
+          let borderStyle = '1px solid #f0f0f0';
+          if (changed) { bgColor = '#f6ffed'; borderStyle = '1px solid #b7eb8f'; }
+          if (isDefault) {
+            bgColor = changed ? '#fffbe6' : 'rgba(234, 189, 35, 0.10)';
+            borderStyle = '2px solid var(--rg-gold, #EABD23)';
+          }
 
           return (
             <div
@@ -233,25 +258,43 @@ export function ProductPriceEditorModal({
               style={{
                 display: 'flex', alignItems: 'center', gap: 8,
                 padding: '8px 12px', borderRadius: 8,
-                backgroundColor: changed ? '#f6ffed' : '#fafafa',
-                border: `1px solid ${changed ? '#b7eb8f' : '#f0f0f0'}`,
+                backgroundColor: bgColor,
+                border: borderStyle,
+                boxShadow: isDefault ? '0 0 0 2px rgba(234,189,35,0.20)' : 'none',
+                position: 'relative',
               }}
             >
               <div style={{ flex: 1, minWidth: 0 }}>
-                <Text strong style={{ fontSize: 13 }}>{name}</Text>
-                <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
-                  <Tooltip title="Margen configurado">
-                    <Tag
-                      color={configMargin < 5 ? 'red' : configMargin < 15 ? 'orange' : 'green'}
-                      style={{ margin: 0, fontSize: 11 }}
-                    >
-                      <PercentageOutlined /> {fmtNum(configMargin)}%
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Text strong style={{ fontSize: 13 }}>{name}</Text>
+                  {isDefault && (
+                    <Tag color="gold" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 6px' }}>
+                      <StarFilled style={{ fontSize: 10 }} /> Lista por defecto
                     </Tag>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 4, alignItems: 'center' }}>
+                  <Tooltip title="Margen configurado — editable: cambia el precio automáticamente">
+                    <InputNumber
+                      value={configMargin}
+                      min={-99}
+                      max={1000}
+                      step={0.5}
+                      controls={false}
+                      size="small"
+                      suffix="%"
+                      prefix={<PercentageOutlined style={{ fontSize: 10, color: configMargin < 5 ? '#cf1322' : configMargin < 15 ? '#d46b08' : '#389e0d' }} />}
+                      onChange={v => {
+                        const m = v ?? 0;
+                        updateMargin(i, m);
+                      }}
+                      style={{ width: 95, fontSize: 12 }}
+                    />
                   </Tooltip>
                   {marginDiff && (
-                    <Tooltip title="Margen actual (según precio editado)">
+                    <Tooltip title="Margen real según precio actual (difiere del configurado)">
                       <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>
-                        → {fmtNum(actualMargin)}%
+                        actual: {fmtNum(actualMargin)}%
                       </Tag>
                     </Tooltip>
                   )}

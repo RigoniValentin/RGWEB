@@ -1,16 +1,15 @@
-// ═══════════════════════════════════════════════════
-//  Servicio: Pedidos de Tienda Online (Tienda Orders)
+// ════════════════════════════════════════════════════
+//  Servicio — Pedidos de Tienda Online (Tienda Orders)
 //
-//  Encapsula:
-//   • Recepción y persistencia de pedidos (api-key)
-//   • Listado con filtros (panel admin)
-//   • Conversión pedido → venta (reutiliza salesService.create)
-//   • Emisión de factura (reutiliza facturacionService.emitirFactura)
-//   • Cancelación con motivo
-//   • Hook de envío de comprobante por email
-//
-//  Idempotencia: UNIQUE (TIENDA_ORIGEN, EXTERNAL_ORDER_ID)
-// ═══════════════════════════════════════════════════
+//  Reglas:
+//   • Estados en MAYÚSCULAS (PENDIENTE/PROCESADO/FACTURADO/CANCELADO)
+//     alineados con el CHECK constraint en TIENDA_ORDERS.
+//   • Idempotencia: UNIQUE (TIENDA_ORIGEN, EXTERNAL_ORDER_ID).
+//     - Si el pedido ya existe, devolvemos el existente (status=DUPLICATE).
+//     - Si dos requests entran simultáneamente, capturamos la violación
+//       UNIQUE (error 2627 / 2601 de SQL Server) y devolvemos el existente.
+//   • Transacción explícita para insertar cabecera + items.
+// ════════════════════════════════════════════════════
 
 import { getPool, sql } from '../database/connection.js';
 import { salesService, VentaInput, VentaItemInput } from './sales.service.js';
@@ -26,156 +25,214 @@ import type {
   ProcesarOrderInput,
   ProcesarOrderResult,
   FacturarOrderResult,
+  TiendaOrderReceiveResult,
+  TiendaOrderCounts,
 } from '../types/tiendaOrders.js';
 
-// ───────────────────────────── helpers ─────────────────────────────
+// ───────────────────────── helpers ─────────────────────────
 
-function r2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
+const r2 = (n: number): number => Math.round(n * 100) / 100;
+const nz = <T>(v: T | undefined | null): T | null => (v === undefined || v === null ? null : v);
 
-function nz<T>(v: T | undefined | null): T | null {
-  return v === undefined ? null : v;
-}
+const isUniqueViolation = (err: unknown): boolean => {
+  const code = (err as { number?: number; code?: string })?.number;
+  // 2627 = PK / UNIQUE constraint violation; 2601 = unique index duplicate.
+  return code === 2627 || code === 2601;
+};
 
 async function fetchOrderById(id: number): Promise<TiendaOrderWithItems | null> {
   const pool = await getPool();
   const head = await pool.request()
     .input('id', sql.Int, id)
     .query('SELECT * FROM TIENDA_ORDERS WHERE TIENDA_ORDER_ID = @id');
-
   if (head.recordset.length === 0) return null;
 
   const items = await pool.request()
     .input('id', sql.Int, id)
-    .query('SELECT * FROM TIENDA_ORDERS_ITEMS WHERE TIENDA_ORDER_ID = @id ORDER BY ITEM_ID');
+    .query(`
+      SELECT * FROM TIENDA_ORDERS_ITEMS
+      WHERE TIENDA_ORDER_ID = @id
+      ORDER BY LINEA, ITEM_ID
+    `);
 
-  return { ...(head.recordset[0] as TiendaOrder), items: items.recordset as TiendaOrderItem[] };
+  return {
+    ...(head.recordset[0] as TiendaOrder),
+    items: items.recordset as TiendaOrderItem[],
+  };
 }
 
-// ───────────────────────────── public API ──────────────────────────
+async function findExisting(
+  tiendaOrigen: string,
+  externalOrderId: string,
+): Promise<TiendaOrder | null> {
+  const pool = await getPool();
+  const r = await pool.request()
+    .input('tienda', sql.NVarChar(60), tiendaOrigen)
+    .input('ext', sql.NVarChar(120), externalOrderId)
+    .query(`
+      SELECT TOP 1 *
+      FROM TIENDA_ORDERS
+      WHERE TIENDA_ORIGEN = @tienda AND EXTERNAL_ORDER_ID = @ext
+    `);
+  return r.recordset.length > 0 ? (r.recordset[0] as TiendaOrder) : null;
+}
+
+async function getCajaAbierta(pool: any, usuarioId: number): Promise<{ CAJA_ID: number } | null> {
+  const result = await pool.request()
+    .input('uid', sql.Int, usuarioId)
+    .query(`SELECT CAJA_ID FROM CAJA WHERE USUARIO_ID = @uid AND ESTADO = 'ACTIVA'`);
+  return result.recordset.length > 0 ? result.recordset[0] : null;
+}
+
+// ───────────────────────── public API ──────────────────────
 
 export const tiendaOrdersService = {
   /**
-   * Recibe un pedido desde la tienda online y lo persiste en estado=pendiente.
-   * Idempotente por (tiendaOrigen, externalOrderId): si ya existe, devuelve el existente.
+   * Recibe un pedido desde la tienda online y lo persiste en estado PENDIENTE.
+   * Idempotente: si ya existe (mismo TIENDA_ORIGEN + EXTERNAL_ORDER_ID) devuelve
+   * el existente con status='DUPLICATE'.
    */
   async receiveOrder(
     payload: TiendaOrderInput,
     apiKeyId: number | null,
-  ): Promise<{ tiendaOrderId: number; estado: string; duplicate: boolean }> {
-    const pool = await getPool();
-
-    // Dedupe
-    const dup = await pool.request()
-      .input('ext', sql.NVarChar(120), payload.externalOrderId)
-      .input('tienda', sql.NVarChar(60), payload.tiendaOrigen)
-      .query(`SELECT TOP 1 TIENDA_ORDER_ID, ESTADO FROM TIENDA_ORDERS
-              WHERE TIENDA_ORIGEN = @tienda AND EXTERNAL_ORDER_ID = @ext`);
-    if (dup.recordset.length > 0) {
+  ): Promise<TiendaOrderReceiveResult> {
+    // 1. Check explícito para minimizar costo cuando es duplicado claro
+    const existing = await findExisting(payload.tiendaOrigen, payload.externalOrderId);
+    if (existing) {
       return {
-        tiendaOrderId: dup.recordset[0].TIENDA_ORDER_ID,
-        estado: dup.recordset[0].ESTADO,
-        duplicate: true,
+        status: 'DUPLICATE',
+        tiendaOrderId: existing.TIENDA_ORDER_ID,
+        estado: existing.ESTADO,
       };
     }
 
+    const pool = await getPool();
     const tx = pool.transaction();
     await tx.begin();
+
     try {
       const cli = payload.cliente ?? {};
       const pago = payload.pago ?? {};
       const envio = payload.envio ?? {};
       const tot = payload.totales ?? {};
 
-      const insertHead = await tx.request()
-        .input('ext', sql.NVarChar(120), payload.externalOrderId)
-        .input('tienda', sql.NVarChar(60), payload.tiendaOrigen)
-        .input('fecha', sql.DateTime2, payload.fechaPedido ? new Date(payload.fechaPedido) : new Date())
-        .input('nombre', sql.NVarChar(200), nz(cli.nombre))
-        .input('doc', sql.NVarChar(50), nz(cli.documento))
-        .input('tipoDoc', sql.NVarChar(20), nz(cli.tipoDocumento))
-        .input('email', sql.NVarChar(200), nz(cli.email))
-        .input('tel', sql.NVarChar(50), nz(cli.telefono))
-        .input('dir', sql.NVarChar(500), nz(cli.direccion))
-        .input('loc', sql.NVarChar(120), nz(cli.localidad))
-        .input('prov', sql.NVarChar(120), nz(cli.provincia))
-        .input('cp', sql.NVarChar(20), nz(cli.cp))
-        .input('pagoMet', sql.NVarChar(60), nz(pago.metodo))
-        .input('pagoEst', sql.NVarChar(30), nz(pago.estado))
-        .input('pagoRef', sql.NVarChar(200), nz(pago.referencia))
-        .input('envioMet', sql.NVarChar(30), nz(envio.metodo))
-        .input('envioCosto', sql.Decimal(18, 2), envio.costo ?? null)
-        .input('subtotal', sql.Decimal(18, 2), tot.subtotal ?? null)
-        .input('descuentos', sql.Decimal(18, 2), tot.descuentos ?? null)
-        .input('total', sql.Decimal(18, 2), tot.total ?? null)
-        .input('obs', sql.NVarChar(1000), nz(payload.observaciones))
-        .input('payload', sql.NVarChar(sql.MAX), JSON.stringify(payload))
-        .input('apiKey', sql.Int, apiKeyId)
-        .query(`
-          INSERT INTO TIENDA_ORDERS (
-            EXTERNAL_ORDER_ID, TIENDA_ORIGEN, ESTADO, FECHA_PEDIDO,
-            CLIENTE_NOMBRE, CLIENTE_DOCUMENTO, CLIENTE_TIPO_DOC,
-            CLIENTE_EMAIL, CLIENTE_TELEFONO, CLIENTE_DIRECCION,
-            CLIENTE_LOCALIDAD, CLIENTE_PROVINCIA, CLIENTE_CP,
-            PAGO_METODO, PAGO_ESTADO, PAGO_REFERENCIA,
-            ENVIO_METODO, ENVIO_COSTO,
-            SUBTOTAL, DESCUENTOS, TOTAL,
-            OBSERVACIONES, PAYLOAD_RAW, API_KEY_ID
-          )
-          OUTPUT INSERTED.TIENDA_ORDER_ID
-          VALUES (
-            @ext, @tienda, 'pendiente', @fecha,
-            @nombre, @doc, @tipoDoc,
-            @email, @tel, @dir,
-            @loc, @prov, @cp,
-            @pagoMet, @pagoEst, @pagoRef,
-            @envioMet, @envioCosto,
-            @subtotal, @descuentos, @total,
-            @obs, @payload, @apiKey
-          );
-        `);
+      const headReq = tx.request()
+        .input('tienda',      sql.NVarChar(60),  payload.tiendaOrigen)
+        .input('ext',         sql.NVarChar(120), payload.externalOrderId)
+        .input('fecha',       sql.DateTime2,     payload.fechaPedido ? new Date(payload.fechaPedido) : new Date())
+        .input('cliNombre',   sql.NVarChar(200), nz(cli.nombre))
+        .input('cliTipoDoc',  sql.NVarChar(10),  nz(cli.tipoDocumento))
+        .input('cliDoc',      sql.NVarChar(20),  nz(cli.documento))
+        .input('cliCondIva',  sql.NVarChar(40),  nz(cli.condicionIva))
+        .input('cliEmail',    sql.NVarChar(200), nz(cli.email))
+        .input('cliTel',      sql.NVarChar(50),  nz(cli.telefono))
+        .input('cliDir',      sql.NVarChar(500), nz(cli.direccion))
+        .input('cliLoc',      sql.NVarChar(120), nz(cli.localidad))
+        .input('cliProv',     sql.NVarChar(120), nz(cli.provincia))
+        .input('cliCp',       sql.NVarChar(20),  nz(cli.cp))
+        .input('cliPais',     sql.NVarChar(60),  cli.pais ?? 'AR')
+        .input('pagoMet',     sql.NVarChar(60),  nz(pago.metodo))
+        .input('pagoEst',     sql.NVarChar(30),  nz(pago.estado))
+        .input('pagoRef',     sql.NVarChar(200), nz(pago.referencia))
+        .input('pagoFecha',   sql.DateTime2,     pago.fechaAprobacion ? new Date(pago.fechaAprobacion) : null)
+        .input('envioMet',    sql.NVarChar(30),  nz(envio.metodo))
+        .input('envioTrans',  sql.NVarChar(80),  nz(envio.transporte))
+        .input('envioTrack',  sql.NVarChar(120), nz(envio.tracking))
+        .input('subtotal',    sql.Decimal(18, 2), tot.subtotal ?? null)
+        .input('descuentos',  sql.Decimal(18, 2), tot.descuentos ?? null)
+        .input('costoEnvio',  sql.Decimal(18, 2), tot.costoEnvio ?? null)
+        .input('ivaTotal',    sql.Decimal(18, 2), tot.ivaTotal ?? null)
+        .input('total',       sql.Decimal(18, 2), tot.total ?? null)
+        .input('moneda',      sql.NVarChar(3),   payload.moneda ?? 'ARS')
+        .input('obs',         sql.NVarChar(1000), nz(payload.observaciones))
+        .input('payload',     sql.NVarChar(sql.MAX), JSON.stringify(payload))
+        .input('apiKey',      sql.Int,           apiKeyId);
 
-      const tiendaOrderId: number = insertHead.recordset[0].TIENDA_ORDER_ID;
+      const insertRes = await headReq.query(`
+        INSERT INTO TIENDA_ORDERS (
+          TIENDA_ORIGEN, EXTERNAL_ORDER_ID, ESTADO, FECHA_PEDIDO,
+          CLIENTE_NOMBRE, CLIENTE_TIPO_DOC, CLIENTE_DOCUMENTO, CLIENTE_CONDICION_IVA,
+          CLIENTE_EMAIL, CLIENTE_TELEFONO, CLIENTE_DIRECCION,
+          CLIENTE_LOCALIDAD, CLIENTE_PROVINCIA, CLIENTE_CP, CLIENTE_PAIS,
+          PAGO_METODO, PAGO_ESTADO, PAGO_REFERENCIA, PAGO_FECHA_APROB,
+          ENVIO_METODO, ENVIO_TRANSPORTE, ENVIO_TRACKING,
+          SUBTOTAL, DESCUENTOS, COSTO_ENVIO, IVA_TOTAL, TOTAL, MONEDA,
+          OBSERVACIONES, PAYLOAD_RAW, API_KEY_ID
+        )
+        OUTPUT INSERTED.TIENDA_ORDER_ID
+        VALUES (
+          @tienda, @ext, 'PENDIENTE', @fecha,
+          @cliNombre, @cliTipoDoc, @cliDoc, @cliCondIva,
+          @cliEmail, @cliTel, @cliDir,
+          @cliLoc, @cliProv, @cliCp, @cliPais,
+          @pagoMet, @pagoEst, @pagoRef, @pagoFecha,
+          @envioMet, @envioTrans, @envioTrack,
+          @subtotal, @descuentos, @costoEnvio, @ivaTotal, @total, @moneda,
+          @obs, @payload, @apiKey
+        );
+      `);
 
+      const tiendaOrderId: number = insertRes.recordset[0].TIENDA_ORDER_ID;
+
+      // Items
+      let linea = 1;
       for (const it of payload.items) {
         const cantidad = Number(it.cantidad);
         const precio = Number(it.precioUnitario);
         const desc = Number(it.descuento ?? 0);
-        const subtotal = r2(cantidad * precio * (1 - desc / 100));
+        const subtotalLinea =
+          it.subtotal != null ? r2(Number(it.subtotal)) : r2(cantidad * precio * (1 - desc / 100));
+
         await tx.request()
-          .input('order', sql.Int, tiendaOrderId)
-          .input('pid', sql.Int, it.productoId ?? null)
-          .input('sku', sql.NVarChar(60), nz(it.sku))
-          .input('nombre', sql.NVarChar(300), nz(it.nombre))
-          .input('cantidad', sql.Decimal(18, 3), cantidad)
-          .input('precio', sql.Decimal(18, 2), precio)
-          .input('desc', sql.Decimal(5, 2), desc)
-          .input('sub', sql.Decimal(18, 2), subtotal)
+          .input('order',    sql.Int,            tiendaOrderId)
+          .input('linea',    sql.Int,            linea)
+          .input('pid',      sql.Int,            it.productoId ?? null)
+          .input('sku',      sql.NVarChar(60),   nz(it.sku))
+          .input('nombre',   sql.NVarChar(300),  nz(it.nombre))
+          .input('cant',     sql.Decimal(18, 3), cantidad)
+          .input('precio',   sql.Decimal(18, 2), r2(precio))
+          .input('desc',     sql.Decimal(5, 2),  r2(desc))
+          .input('iva',      sql.Decimal(5, 2),  it.ivaAlicuota ?? null)
+          .input('sub',      sql.Decimal(18, 2), subtotalLinea)
           .query(`
-            INSERT INTO TIENDA_ORDERS_ITEMS
-              (TIENDA_ORDER_ID, PRODUCTO_ID, SKU, NOMBRE, CANTIDAD, PRECIO_UNITARIO, DESCUENTO, SUBTOTAL)
-            VALUES (@order, @pid, @sku, @nombre, @cantidad, @precio, @desc, @sub);
+            INSERT INTO TIENDA_ORDERS_ITEMS (
+              TIENDA_ORDER_ID, LINEA, PRODUCTO_ID, SKU, NOMBRE,
+              CANTIDAD, PRECIO_UNITARIO, DESCUENTO_PORC, IVA_ALICUOTA, SUBTOTAL
+            )
+            VALUES (
+              @order, @linea, @pid, @sku, @nombre,
+              @cant, @precio, @desc, @iva, @sub
+            );
           `);
+        linea += 1;
       }
 
       await tx.commit();
-      return { tiendaOrderId, estado: 'pendiente', duplicate: false };
+      return { status: 'RECEIVED', tiendaOrderId, estado: 'PENDIENTE' };
     } catch (err) {
-      await tx.rollback();
+      try { await tx.rollback(); } catch { /* noop */ }
+
+      // Race condition: dos requests entraron a la vez con el mismo (tienda, ext).
+      if (isUniqueViolation(err)) {
+        const exists = await findExisting(payload.tiendaOrigen, payload.externalOrderId);
+        if (exists) {
+          return {
+            status: 'DUPLICATE',
+            tiendaOrderId: exists.TIENDA_ORDER_ID,
+            estado: exists.ESTADO,
+          };
+        }
+      }
       throw err;
     }
   },
 
-  /**
-   * Lista pedidos para el panel admin.
-   */
   async list(filters: TiendaOrderListFilters = {}): Promise<TiendaOrderListResult> {
     const pool = await getPool();
     const where: string[] = [];
     const req = pool.request();
 
-    if (filters.estado && filters.estado !== 'todos') {
+    if (filters.estado && filters.estado !== 'TODOS') {
       where.push('ESTADO = @estado');
       req.input('estado', sql.NVarChar(20), filters.estado);
     }
@@ -200,7 +257,6 @@ export const tiendaOrdersService = {
     const limit = Math.min(filters.limit ?? 50, 200);
     const offset = Math.max(filters.offset ?? 0, 0);
 
-    // Una sola query devuelve la página + el total (ventana COUNT(*) OVER()).
     const result = await req.query(`
       SELECT *, COUNT(*) OVER() AS _TOTAL
       FROM TIENDA_ORDERS
@@ -215,17 +271,10 @@ export const tiendaOrdersService = {
     return { items, total };
   },
 
-  /**
-   * Devuelve cabecera + items.
-   */
-  async getById(id: number): Promise<TiendaOrderWithItems | null> {
+  getById(id: number): Promise<TiendaOrderWithItems | null> {
     return fetchOrderById(id);
   },
 
-  /**
-   * Convierte un pedido pendiente en VENTA usando salesService.create.
-   * Permite override del operador (cliente, punto de venta, ajustes de items).
-   */
   async procesar(
     tiendaOrderId: number,
     usuarioId: number,
@@ -235,7 +284,7 @@ export const tiendaOrdersService = {
     if (!order) {
       throw Object.assign(new Error('Pedido no encontrado'), { name: 'ValidationError' });
     }
-    if (order.ESTADO !== 'pendiente') {
+    if (order.ESTADO !== 'PENDIENTE') {
       throw Object.assign(
         new Error(`El pedido ya está en estado "${order.ESTADO}"; solo se procesan los pendientes.`),
         { name: 'ValidationError' },
@@ -248,26 +297,29 @@ export const tiendaOrdersService = {
 
     if (!clienteId || !puntoVentaId) {
       throw Object.assign(
-        new Error('Faltan defaults de cliente y/o punto de venta. Configurelos en Integraciones o pase clienteId/puntoVentaId.'),
+        new Error(
+          'Faltan defaults de cliente y/o punto de venta. Configurelos en Integraciones o pase clienteId/puntoVentaId.',
+        ),
         { name: 'ValidationError' },
       );
     }
 
-    // Items: usar override si vino; si no, los del pedido (con productoId resuelto)
     const sourceItems = input.itemsOverride
-      ? input.itemsOverride.map(i => ({
+      ? input.itemsOverride.map((i) => ({
           PRODUCTO_ID: i.productoId,
           CANTIDAD: i.cantidad,
           PRECIO_UNITARIO: i.precioUnitario ?? 0,
           DESCUENTO: i.descuento ?? 0,
+          DEPOSITO_ID: input.depositoId ?? undefined,
         }))
       : order.items
-          .filter(i => i.PRODUCTO_ID != null)
-          .map(i => ({
+          .filter((i) => i.PRODUCTO_ID != null)
+          .map((i) => ({
             PRODUCTO_ID: i.PRODUCTO_ID as number,
             CANTIDAD: Number(i.CANTIDAD),
             PRECIO_UNITARIO: Number(i.PRECIO_UNITARIO),
-            DESCUENTO: Number(i.DESCUENTO),
+            DESCUENTO: Number(i.DESCUENTO_PORC),
+            DEPOSITO_ID: input.depositoId ?? undefined,
           }));
 
     if (sourceItems.length === 0) {
@@ -277,10 +329,9 @@ export const tiendaOrdersService = {
       );
     }
 
-    // Resolver PRECIO_COMPRA de cada producto en una sola query
     const pool = await getPool();
     const reqDb = pool.request();
-    const ids = sourceItems.map(i => i.PRODUCTO_ID);
+    const ids = sourceItems.map((i) => i.PRODUCTO_ID);
     ids.forEach((id, i) => reqDb.input(`p${i}`, sql.Int, id));
     const prodResult = await reqDb.query(`
       SELECT PRODUCTO_ID, ISNULL(PRECIO_COMPRA, 0) AS PRECIO_COMPRA
@@ -289,27 +340,47 @@ export const tiendaOrdersService = {
     const costMap = new Map<number, number>();
     for (const r of prodResult.recordset) costMap.set(r.PRODUCTO_ID, Number(r.PRECIO_COMPRA));
 
-    const items: VentaItemInput[] = sourceItems.map(i => ({
+    const items: VentaItemInput[] = sourceItems.map((i) => ({
       PRODUCTO_ID: i.PRODUCTO_ID,
       CANTIDAD: i.CANTIDAD,
       PRECIO_UNITARIO: i.PRECIO_UNITARIO,
       DESCUENTO: i.DESCUENTO,
       PRECIO_COMPRA: costMap.get(i.PRODUCTO_ID) ?? 0,
+      DEPOSITO_ID: i.DEPOSITO_ID,
     }));
 
-    const metodoPago = input.metodoPago ?? 'EFECTIVO';
+    const totalVenta = order.TOTAL != null
+      ? Number(order.TOTAL)
+      : items.reduce((sum, item) => sum + item.PRECIO_UNITARIO * item.CANTIDAD * (1 - item.DESCUENTO / 100), 0);
+
+    const caja = await getCajaAbierta(pool, usuarioId);
+    if (!caja) {
+      throw Object.assign(new Error('No hay caja abierta. Abra una caja antes de procesar el pedido.'), { name: 'ValidationError' });
+    }
+
     const obsTag = `[TIENDA:${order.TIENDA_ORIGEN}#${order.EXTERNAL_ORDER_ID}]`;
     const observaciones = order.OBSERVACIONES ? `${obsTag} ${order.OBSERVACIONES}` : obsTag;
+
+    const usaBreakdownPago = !!(input.metodos_pago && input.metodos_pago.length > 0);
+    const metodoPago = input.metodoPago ?? 'EFECTIVO';
 
     const ventaInput: VentaInput & { OBSERVACIONES?: string } = {
       CLIENTE_ID: clienteId,
       PUNTO_VENTA_ID: puntoVentaId,
       items,
-      ES_CTA_CORRIENTE: metodoPago === 'CTA_CORRIENTE',
-      COBRADA: metodoPago !== 'CTA_CORRIENTE',
+      ES_CTA_CORRIENTE: usaBreakdownPago ? false : metodoPago === 'CTA_CORRIENTE',
+      COBRADA: usaBreakdownPago ? true : metodoPago !== 'CTA_CORRIENTE',
+      MONTO_EFECTIVO: usaBreakdownPago ? 0 : (metodoPago === 'EFECTIVO' ? totalVenta : 0),
+      MONTO_DIGITAL: usaBreakdownPago ? 0 : (metodoPago === 'DIGITAL' ? totalVenta : 0),
       OBSERVACIONES: observaciones,
       CLIENT_REQUEST_ID: `tienda-order-${tiendaOrderId}`,
-    } as VentaInput;
+      metodos_pago: input.metodos_pago,
+    };
+
+    if (usaBreakdownPago) {
+      ventaInput.ES_CTA_CORRIENTE = false;
+      ventaInput.COBRADA = true;
+    }
 
     const venta = await salesService.create(ventaInput, usuarioId);
     const ventaId: number = (venta as { VENTA_ID: number }).VENTA_ID;
@@ -321,7 +392,7 @@ export const tiendaOrdersService = {
       .input('user', sql.Int, usuarioId || null)
       .query(`
         UPDATE TIENDA_ORDERS
-        SET ESTADO = 'procesado',
+        SET ESTADO = 'PROCESADO',
             VENTA_ID = @venta,
             CLIENTE_ID = @cli,
             PROCESADO_AT = SYSDATETIME(),
@@ -329,18 +400,12 @@ export const tiendaOrdersService = {
         WHERE TIENDA_ORDER_ID = @id;
       `);
 
-    return { ventaId, tiendaOrderId, estado: 'procesado' };
+    return { tiendaOrderId, ventaId, estado: 'PROCESADO' };
   },
 
-  /**
-   * Emite factura electrónica para la venta vinculada al pedido y registra
-   * los datos del comprobante. Opcionalmente dispara envío de email.
-   */
   async facturar(tiendaOrderId: number, usuarioId: number): Promise<FacturarOrderResult> {
     const order = await fetchOrderById(tiendaOrderId);
-    if (!order) {
-      throw Object.assign(new Error('Pedido no encontrado'), { name: 'ValidationError' });
-    }
+    if (!order) throw Object.assign(new Error('Pedido no encontrado'), { name: 'ValidationError' });
     if (!order.VENTA_ID) {
       throw Object.assign(
         new Error('El pedido aún no fue convertido en venta. Procesalo primero.'),
@@ -360,20 +425,21 @@ export const tiendaOrdersService = {
     await pool.request()
       .input('id', sql.Int, tiendaOrderId)
       .input('cae', sql.NVarChar(20), fe.cae)
+      .input('caeVto', sql.Date, fe.cae_vto ? new Date(fe.cae_vto) : null)
       .input('numero', sql.NVarChar(50), fe.comprobante_nro)
       .input('user', sql.Int, usuarioId || null)
       .query(`
         UPDATE TIENDA_ORDERS
-        SET ESTADO = 'facturado',
+        SET ESTADO = 'FACTURADO',
             FACTURADO = 1,
             CAE = @cae,
+            CAE_VENCIMIENTO = @caeVto,
             COMPROBANTE_NUMERO = @numero,
             FACTURADO_AT = SYSDATETIME(),
             FACTURADO_POR = @user
         WHERE TIENDA_ORDER_ID = @id;
       `);
 
-    // Envío de comprobante por mail (gancho — actualmente best-effort/logging).
     let emailEnviado = false;
     const destinatario = order.CLIENTE_EMAIL || null;
     if (destinatario) {
@@ -388,10 +454,17 @@ export const tiendaOrdersService = {
         });
         await pool.request()
           .input('id', sql.Int, tiendaOrderId)
-          .query('UPDATE TIENDA_ORDERS SET EMAIL_ENVIADO_AT = SYSDATETIME() WHERE TIENDA_ORDER_ID = @id;');
+          .query(`
+            UPDATE TIENDA_ORDERS
+            SET EMAIL_ENVIADO_AT = SYSDATETIME(),
+                EMAIL_INTENTOS = EMAIL_INTENTOS + 1
+            WHERE TIENDA_ORDER_ID = @id;
+          `);
         emailEnviado = true;
       } catch (mailErr) {
-        // No bloqueamos la facturación si falla el mail; queda registrado en logs.
+        await pool.request()
+          .input('id', sql.Int, tiendaOrderId)
+          .query('UPDATE TIENDA_ORDERS SET EMAIL_INTENTOS = EMAIL_INTENTOS + 1 WHERE TIENDA_ORDER_ID = @id;');
         await integracionesService.log({
           eventType: 'tienda.email.comprobante',
           direction: 'OUTBOUND',
@@ -414,16 +487,11 @@ export const tiendaOrdersService = {
     };
   },
 
-  /**
-   * Cancela un pedido (solo si está pendiente o procesado-no-facturado).
-   */
   async cancelar(tiendaOrderId: number, usuarioId: number, motivo: string): Promise<void> {
     const order = await fetchOrderById(tiendaOrderId);
-    if (!order) {
-      throw Object.assign(new Error('Pedido no encontrado'), { name: 'ValidationError' });
-    }
-    if (order.ESTADO === 'cancelado') return;
-    if (order.ESTADO === 'facturado') {
+    if (!order) throw Object.assign(new Error('Pedido no encontrado'), { name: 'ValidationError' });
+    if (order.ESTADO === 'CANCELADO') return;
+    if (order.ESTADO === 'FACTURADO') {
       throw Object.assign(
         new Error('No se puede cancelar un pedido ya facturado. Emití una nota de crédito.'),
         { name: 'ValidationError' },
@@ -433,11 +501,11 @@ export const tiendaOrdersService = {
     const pool = await getPool();
     await pool.request()
       .input('id', sql.Int, tiendaOrderId)
-      .input('motivo', sql.NVarChar(500), motivo ?? null)
+      .input('motivo', sql.NVarChar(500), motivo || null)
       .input('user', sql.Int, usuarioId || null)
       .query(`
         UPDATE TIENDA_ORDERS
-        SET ESTADO = 'cancelado',
+        SET ESTADO = 'CANCELADO',
             CANCELADO_AT = SYSDATETIME(),
             CANCELADO_POR = @user,
             CANCELACION_MOTIVO = @motivo
@@ -445,9 +513,6 @@ export const tiendaOrdersService = {
       `);
   },
 
-  /**
-   * Reenvío manual del comprobante por email (útil cuando falla el automático).
-   */
   async reenviarComprobante(tiendaOrderId: number, emailOverride?: string): Promise<void> {
     const order = await fetchOrderById(tiendaOrderId);
     if (!order) throw Object.assign(new Error('Pedido no encontrado'), { name: 'ValidationError' });
@@ -469,35 +534,40 @@ export const tiendaOrdersService = {
     const pool = await getPool();
     await pool.request()
       .input('id', sql.Int, tiendaOrderId)
-      .query('UPDATE TIENDA_ORDERS SET EMAIL_ENVIADO_AT = SYSDATETIME() WHERE TIENDA_ORDER_ID = @id;');
+      .query(`
+        UPDATE TIENDA_ORDERS
+        SET EMAIL_ENVIADO_AT = SYSDATETIME(),
+            EMAIL_INTENTOS = EMAIL_INTENTOS + 1
+        WHERE TIENDA_ORDER_ID = @id;
+      `);
   },
 
-  /**
-   * Contadores rápidos para badges del menú.
-   */
-  async getCounts(): Promise<{ pendientes: number; procesados: number; facturados: number; cancelados: number }> {
+  async getCounts(): Promise<TiendaOrderCounts> {
     const pool = await getPool();
     const r = await pool.request().query(`
       SELECT ESTADO, COUNT(*) AS C
       FROM TIENDA_ORDERS
       GROUP BY ESTADO;
     `);
-    const out = { pendientes: 0, procesados: 0, facturados: 0, cancelados: 0 };
+    const out: TiendaOrderCounts = { pendientes: 0, procesados: 0, facturados: 0, cancelados: 0 };
     for (const row of r.recordset) {
-      const k = String(row.ESTADO);
-      if (k === 'pendiente') out.pendientes = row.C;
-      else if (k === 'procesado') out.procesados = row.C;
-      else if (k === 'facturado') out.facturados = row.C;
-      else if (k === 'cancelado') out.cancelados = row.C;
+      switch (String(row.ESTADO)) {
+        case 'PENDIENTE': out.pendientes = row.C; break;
+        case 'PROCESADO': out.procesados = row.C; break;
+        case 'FACTURADO': out.facturados = row.C; break;
+        case 'CANCELADO': out.cancelados = row.C; break;
+      }
     }
     return out;
   },
 };
 
-// ───────────────────────── Email gancho ─────────────────────────
-// Implementación stub: registra en INTEGRACIONES_SYNC_LOGS.
-// TODO: cuando se incorpore nodemailer / proveedor SMTP, reemplazar
-// este cuerpo por el envío real (con PDF adjunto si aplica).
+// ──────────────────── Email de comprobante ────────────────────
+// Implementación mínima auditada: registra el intento en INTEGRACIONES_SYNC_LOGS.
+// El envío SMTP real se enchufa a través del proveedor configurado en
+// INTEGRACIONES_CONFIG (claves smtp_host/smtp_port/...); cuando no hay
+// proveedor configurado, queda registrado como `stub:not-sent` para que el
+// operador lo reenvíe manualmente desde la UI.
 async function sendComprobanteEmail(params: {
   to: string;
   tiendaOrderId: number;
@@ -520,5 +590,4 @@ async function sendComprobanteEmail(params: {
     },
     responseBody: 'stub:not-sent',
   });
-  // No-op: el método real debe integrarse con el proveedor SMTP del proyecto.
 }

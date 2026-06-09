@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { config } from '../config/index.js';
 import { licenseService } from './license.service.js';
+import { stockAlertService } from './stockAlert.service.js';
 
 export interface LoginInput {
   username: string;
@@ -225,6 +226,9 @@ export const authService = {
     );
 
     await logAudit(pool, { usuarioId: user.USUARIO_ID, actorNombre: username, evento: 'LOGIN_OK', ip, userAgent });
+
+    // Fire-and-forget: send stock alert via WhatsApp if enabled
+    stockAlertService.sendLoginStockAlert(pool).catch(() => {});
 
     return {
       user: {
