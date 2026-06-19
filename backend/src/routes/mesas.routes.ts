@@ -214,6 +214,7 @@ router.get('/search-products-advanced', async (req: AuthRequest, res: Response, 
       soloConStock: req.query.soloConStock === 'true',
       listaId: req.query.listaId ? Number(req.query.listaId) : undefined,
       limit: req.query.limit ? Number(req.query.limit) : 50,
+      busquedaMultiEntidad: req.query.busquedaMultiEntidad === 'true',
     });
     res.json(results);
   } catch (err) { next(err); }

@@ -1,5 +1,20 @@
 import api from './api';
 
+export interface ArcaComprobanteConsulta {
+  FeCabResp?: {
+    Cuit?: string;
+    PtoVta?: number;
+    CbteTipo?: number;
+    FchProceso?: string;
+    CantReg?: number;
+    Resultado?: string;
+  };
+  FeDetResp?: any;
+  Errors?: { Code?: string; Msg?: string }[] | { Code?: string; Msg?: string };
+  Events?: { Code?: string; Msg?: string }[] | { Code?: string; Msg?: string };
+  [key: string]: any;
+}
+
 export interface CuitLookupResult {
   /** Razón social or Apellido, Nombre (title case, normalized from AFIP all-caps) */
   razonSocial: string;
@@ -18,6 +33,9 @@ export interface CuitLookupResult {
 }
 
 export const afipApi = {
+  consultarComprobante: (cbteTipo: number, ptoVta: number, cbteNro: number) =>
+    api.get<ArcaComprobanteConsulta>('/afip/comprobante', { params: { cbteTipo, ptoVta, cbteNro } }).then(r => r.data),
+
   /**
    * Consult ARCA Padrón for a CUIT. Accepts with or without dashes.
    * Backend caches the WSAA Token de Acceso — no extra login per query.

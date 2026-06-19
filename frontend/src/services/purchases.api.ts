@@ -63,7 +63,7 @@ export const purchasesApi = {
 
   searchProductsAdvanced: (params: {
     search?: string; marca?: string; categoria?: string; codigo?: string;
-    soloActivos?: boolean; soloConStock?: boolean; limit?: number;
+    soloActivos?: boolean; soloConStock?: boolean; limit?: number; busquedaMultiEntidad?: boolean;
   }) =>
     api.get<ProductoSearch[]>('/purchases/search-products-advanced', { params }).then(r => r.data),
 

@@ -68,7 +68,8 @@ router.get('/analytics', async (req: Request, res: Response) => {
     const puntoVentaId = req.query.puntoVentaId
       ? parseInt(req.query.puntoVentaId as string)
       : undefined;
-    const data = await dashboardService.getAnalytics({ from, to, granularity, puntoVentaId });
+    const soloFiscal = req.query.soloFiscal === 'true';
+    const data = await dashboardService.getAnalytics({ from, to, granularity, puntoVentaId, soloFiscal });
     res.json(data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

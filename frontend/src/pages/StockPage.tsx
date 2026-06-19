@@ -192,6 +192,14 @@ export function StockPage() {
       ),
     },
     {
+      title: 'Marca',
+      dataIndex: 'MARCA_NOMBRE',
+      key: 'MARCA_NOMBRE',
+      width: 150,
+      ellipsis: true,
+      render: (v: string | null) => v || <Text type="secondary">—</Text>,
+    },
+    {
       title: 'Categoría',
       dataIndex: 'CATEGORIA_NOMBRE',
       key: 'CATEGORIA_NOMBRE',

@@ -162,9 +162,10 @@ export const dashboardService = {
     to: string;            // YYYY-MM-DD (inclusive)
     granularity: 'hour' | 'day' | 'week' | 'month';
     puntoVentaId?: number;
+    soloFiscal?: boolean;
   }) {
     const pool = await getPool();
-    const { from, to, granularity, puntoVentaId } = opts;
+    const { from, to, granularity, puntoVentaId, soloFiscal } = opts;
 
     // Compute previous equivalent period (same length, immediately before "from")
     const fromDate = new Date(from + 'T00:00:00');
@@ -184,7 +185,8 @@ export const dashboardService = {
       return r;
     };
     const pvFilter = puntoVentaId ? ' AND v.PUNTO_VENTA_ID = @pvId' : '';
-    const dateFilter = ` v.FECHA_VENTA >= @from AND v.FECHA_VENTA <= @to ${pvFilter} `;
+    const fiscalFilter = soloFiscal ? " AND v.NUMERO_FISCAL IS NOT NULL AND LTRIM(RTRIM(v.NUMERO_FISCAL)) <> ''" : '';
+    const dateFilter = ` v.FECHA_VENTA >= @from AND v.FECHA_VENTA <= @to ${pvFilter} ${fiscalFilter} `;
 
     // ── KPIs (current + previous period) ──────────────────────────
     const kpiSql = (where: string) => `
@@ -238,6 +240,40 @@ export const dashboardService = {
       GROUP BY ${bucketExpr}
       ORDER BY bucket
     `);
+
+    // ── Fiscal breakdown ────────────────────────────────────────
+    let comprobantesPorTipo: any[] = [];
+    let ultimaVentaFiscal: any = null;
+    if (soloFiscal) {
+      const fiscalTipoRes = await buildReq(from, to).query(`
+        SELECT
+          ISNULL(v.TIPO_COMPROBANTE, 'Sin tipo') AS TIPO_COMPROBANTE,
+          COUNT(*) AS cantidad,
+          ISNULL(SUM(v.TOTAL), 0) AS total
+        FROM VENTAS v
+        WHERE ${dateFilter}
+        GROUP BY v.TIPO_COMPROBANTE
+        ORDER BY total DESC
+      `);
+      comprobantesPorTipo = fiscalTipoRes.recordset;
+
+      const lastFiscalRes = await buildReq(from, to).query(`
+        SELECT TOP 1
+          v.VENTA_ID,
+          v.FECHA_VENTA,
+          v.TOTAL,
+          v.NUMERO_FISCAL,
+          v.CAE,
+          v.PUNTO_VENTA,
+          v.TIPO_COMPROBANTE,
+          c.NOMBRE AS CLIENTE_NOMBRE
+        FROM VENTAS v
+        LEFT JOIN CLIENTES c ON v.CLIENTE_ID = c.CLIENTE_ID
+        WHERE ${dateFilter}
+        ORDER BY v.FECHA_VENTA DESC, v.VENTA_ID DESC
+      `);
+      ultimaVentaFiscal = lastFiscalRes.recordset[0] || null;
+    }
 
     // ── Métodos de Pago breakdown ─────────────────────────────────
     let metodosPago: any[] = [];
@@ -362,6 +398,8 @@ export const dashboardService = {
       kpis,
       prev,
       series: seriesRes.recordset,
+      comprobantesPorTipo,
+      ultimaVentaFiscal,
       metodosPago,
       topProductos,
       topClientes,

@@ -2,6 +2,7 @@ import { getPool, sql } from '../database/connection.js';
 import type { Compra, CompraItem, PaginatedResult } from '../types/index.js';
 import { registrarHistorialStock, getCurrentStock, insertStockDeposito } from './stockHistorial.helper.js';
 import { marcarChequesEgresados, revertirEgresoCheques } from './cheques.service.js';
+import { buildAdvancedProductSearch } from './productSearch.helper.js';
 
 // ═══════════════════════════════════════════════════
 //  Purchases Service — Full CRUD + Stock/Cost Update
@@ -506,34 +507,43 @@ async function ensureCtaCorrienteP(tx: any, proveedorId: number): Promise<number
 async function actualizarPrecioCompra(
   tx: any,
   productoId: number,
-  precioNetoUnitario: number,
+  precioUnitarioIngresado: number,
   impIntUnitario: number = 0,
   ivaAlicuota: number = 0,
   impIntGravaIva: boolean = false,
   preciosSinIva: boolean = false
 ) {
-  const precioCompraBase = r2(precioNetoUnitario);
+  const precioIngresado = r2(precioUnitarioIngresado);
 
+  let precioCompraBase: number;
   let precioCompra: number;
+
   if (preciosSinIva) {
-    // Prices without IVA — both fields are the same
-    precioCompra = precioCompraBase;
-  } else {
-    // Calculate full purchase price with IVA + internal taxes
-    let baseParaIva: number;
+    // The entered price is net of IVA, so compute the full cost from it.
+    precioCompraBase = precioIngresado;
     if (impIntGravaIva) {
-      // Internal taxes already included in base → subtract to get IVA base
-      baseParaIva = Math.max(0, precioCompraBase - impIntUnitario);
-    } else {
-      baseParaIva = precioCompraBase;
-    }
-    const montoIva = r2(baseParaIva * ivaAlicuota);
-    if (impIntGravaIva) {
-      // II already in base, just add IVA
+      const baseParaIva = Math.max(0, precioCompraBase - impIntUnitario);
+      const montoIva = r2(baseParaIva * ivaAlicuota);
       precioCompra = r2(precioCompraBase + montoIva);
     } else {
-      // Add both II and IVA
+      const montoIva = r2(precioCompraBase * ivaAlicuota);
       precioCompra = r2(precioCompraBase + impIntUnitario + montoIva);
+    }
+  } else {
+    // The entered price already includes IVA, so recover the net base.
+    precioCompra = precioIngresado;
+    if (ivaAlicuota > 0) {
+      if (impIntGravaIva) {
+        // Gross = base + IVA(base - impInt) => base = (gross + IVA * impInt) / (1 + IVA)
+        precioCompraBase = r2((precioCompra + (ivaAlicuota * impIntUnitario)) / (1 + ivaAlicuota));
+      } else {
+        // Gross = base + impInt + IVA(base) => base = (gross - impInt) / (1 + IVA)
+        precioCompraBase = r2(Math.max(0, (precioCompra - impIntUnitario) / (1 + ivaAlicuota)));
+      }
+    } else {
+      precioCompraBase = impIntGravaIva
+        ? precioCompra
+        : r2(Math.max(0, precioCompra - impIntUnitario));
     }
   }
 
@@ -984,18 +994,18 @@ export const purchasesService = {
 
         // Update costs if requested
         if (input.ACTUALIZAR_COSTOS) {
-          const precioNetoUnitario = precioNeto; // net after discount, before IVA
+            const precioUnitarioIngresado = precioNeto;
           const impIntUnit = (item.IMP_INTERNOS || 0);
-          const ivaAliCost = discriminaIva ? (item.IVA_ALICUOTA || 0) : 0;
+          const ivaAliCost = item.IVA_ALICUOTA || 0;
           await actualizarPrecioCompra(
-            tx, item.PRODUCTO_ID, precioNetoUnitario,
+              tx, item.PRODUCTO_ID, precioUnitarioIngresado,
             impIntUnit, ivaAliCost,
             input.IMP_INT_GRAVA_IVA || false,
             input.PRECIOS_SIN_IVA || false
           );
 
           if (input.ACTUALIZAR_PRECIOS) {
-            await actualizarPreciosVenta(tx, item.PRODUCTO_ID, precioNetoUnitario);
+              await actualizarPreciosVenta(tx, item.PRODUCTO_ID, precioUnitarioIngresado);
           }
         }
       }
@@ -1820,15 +1830,17 @@ export const purchasesService = {
     soloActivos?: boolean;
     soloConStock?: boolean;
     limit?: number;
+    busquedaMultiEntidad?: boolean;
   }) {
     const pool = await getPool();
     const limit = params.limit || 50;
 
-    const conditions: string[] = [];
     const req = pool.request();
-    let joinMarca = false;
-    let joinCategoria = false;
-    let joinCodBarras = false;
+    const searchState = buildAdvancedProductSearch(req, params);
+    const conditions = searchState.conditions;
+    let joinMarca = searchState.joinMarca;
+    let joinCategoria = searchState.joinCategoria;
+    let joinCodBarras = searchState.joinCodBarras;
 
     if (params.soloActivos !== false) {
       conditions.push('p.ACTIVO = 1');
@@ -1836,46 +1848,6 @@ export const purchasesService = {
 
     if (params.soloConStock) {
       conditions.push('ISNULL(p.CANTIDAD, 0) > 0');
-    }
-
-    if (params.search) {
-      const searchTrim = params.search.trim();
-      if (/^\d{6,}$/.test(searchTrim)) {
-        joinCodBarras = true;
-        conditions.push('(p.CODIGOPARTICULAR = @searchCode OR cb.CODIGO_BARRAS = @searchCode)');
-        req.input('searchCode', sql.NVarChar, searchTrim);
-      } else {
-        const tokens = searchTrim.split(/\s+/).filter(t => t.length > 0);
-        tokens.forEach((token, i) => {
-          conditions.push(`p.NOMBRE LIKE @t${i}`);
-          req.input(`t${i}`, sql.NVarChar, `%${token}%`);
-        });
-      }
-    }
-
-    if (params.marca && params.marca.trim()) {
-      joinMarca = true;
-      conditions.push('m.NOMBRE LIKE @marca');
-      req.input('marca', sql.NVarChar, `%${params.marca.trim()}%`);
-    }
-
-    if (params.categoria && params.categoria.trim()) {
-      joinCategoria = true;
-      conditions.push('c.NOMBRE LIKE @categoria');
-      req.input('categoria', sql.NVarChar, `%${params.categoria.trim()}%`);
-    }
-
-    if (params.codigo) {
-      const codigo = params.codigo.trim();
-      if (/^\d{6,}$/.test(codigo)) {
-        joinCodBarras = true;
-        conditions.push('(p.CODIGOPARTICULAR = @codExact OR cb.CODIGO_BARRAS = @codExact)');
-        req.input('codExact', sql.NVarChar, codigo);
-      } else {
-        joinCodBarras = true;
-        conditions.push('(p.CODIGOPARTICULAR LIKE @cod OR cb.CODIGO_BARRAS LIKE @cod)');
-        req.input('cod', sql.NVarChar, `%${codigo}%`);
-      }
     }
 
     const whereClause = conditions.length > 0

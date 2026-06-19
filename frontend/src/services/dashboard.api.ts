@@ -19,6 +19,7 @@ export const dashboardApi = {
     to: string;
     granularity: DashboardGranularity;
     puntoVentaId?: number;
+    soloFiscal?: boolean;
   }) =>
     api.get<DashboardAnalytics>('/dashboard/analytics', { params }).then(r => r.data),
 

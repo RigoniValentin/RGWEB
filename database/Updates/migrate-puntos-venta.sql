@@ -1,0 +1,78 @@
+-- ════════════════════════════════════════════════════════════════════════
+-- migrate-puntos-venta.sql
+--   Idempotent creation of Puntos de Venta and their relationships:
+--     - PUNTO_VENTAS              (master)
+--     - PUNTOS_VENTA_DEPOSITOS    (PV ↔ DEPÓSITOS)
+--     - USUARIOS_PUNTOS_VENTA     (USUARIO ↔ PV)
+--   Seeds default PV "CASA CENTRAL" (ID = 1) and links it to all deposits
+--   without an assignment.
+-- ════════════════════════════════════════════════════════════════════════
+
+SET NOCOUNT ON;
+
+-- ── PUNTO_VENTAS ────────────────────────────────────────────────────────
+IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'PUNTO_VENTAS')
+BEGIN
+    CREATE TABLE PUNTO_VENTAS (
+        PUNTO_VENTA_ID  INT             NOT NULL PRIMARY KEY,
+        NOMBRE          NVARCHAR(100)   NOT NULL,
+        [DIRECCIÓN]     NVARCHAR(200)   NULL,
+        COMENTARIOS     NVARCHAR(500)   NULL,
+        ACTIVO          BIT             NOT NULL DEFAULT 1
+    );
+END
+GO
+
+-- Add ACTIVO column if missing (legacy installations)
+IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+               WHERE TABLE_NAME = 'PUNTO_VENTAS' AND COLUMN_NAME = 'ACTIVO')
+    ALTER TABLE PUNTO_VENTAS ADD ACTIVO BIT NOT NULL DEFAULT 1;
+GO
+
+-- ── PUNTOS_VENTA_DEPOSITOS (junction PV ↔ DEPÓSITO) ────────────────────
+IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'PUNTOS_VENTA_DEPOSITOS')
+BEGIN
+    CREATE TABLE PUNTOS_VENTA_DEPOSITOS (
+        PUNTO_VENTA_ID  INT NOT NULL,
+        DEPOSITO_ID     INT NOT NULL,
+        ES_PREFERIDO    BIT NOT NULL DEFAULT 0,
+        CONSTRAINT PK_PUNTOS_VENTA_DEPOSITOS PRIMARY KEY (PUNTO_VENTA_ID, DEPOSITO_ID)
+    );
+    CREATE INDEX IX_PVD_DEPOSITO ON PUNTOS_VENTA_DEPOSITOS (DEPOSITO_ID);
+END
+GO
+
+-- ── USUARIOS_PUNTOS_VENTA (junction USUARIO ↔ PV) ──────────────────────
+IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'USUARIOS_PUNTOS_VENTA')
+BEGIN
+    CREATE TABLE USUARIOS_PUNTOS_VENTA (
+        USUARIO_ID      INT NOT NULL,
+        PUNTO_VENTA_ID  INT NOT NULL,
+        ES_PREFERIDO    BIT NOT NULL DEFAULT 0,
+        CONSTRAINT PK_USUARIOS_PUNTOS_VENTA PRIMARY KEY (USUARIO_ID, PUNTO_VENTA_ID)
+    );
+    CREATE INDEX IX_UPV_PV ON USUARIOS_PUNTOS_VENTA (PUNTO_VENTA_ID);
+END
+GO
+
+-- ── Default Punto de Venta ──────────────────────────────────────────────
+IF NOT EXISTS (SELECT 1 FROM PUNTO_VENTAS WHERE PUNTO_VENTA_ID = 1)
+BEGIN
+    INSERT INTO PUNTO_VENTAS (PUNTO_VENTA_ID, NOMBRE, [DIRECCIÓN], COMENTARIOS, ACTIVO)
+    VALUES (1, N'CASA CENTRAL', NULL, NULL, 1);
+END
+GO
+
+-- ── Link orphan deposits to default PV ──────────────────────────────────
+INSERT INTO PUNTOS_VENTA_DEPOSITOS (PUNTO_VENTA_ID, DEPOSITO_ID, ES_PREFERIDO)
+SELECT 1, d.DEPOSITO_ID,
+       CASE WHEN d.DEPOSITO_ID = 1 THEN 1 ELSE 0 END
+FROM DEPOSITOS d
+WHERE NOT EXISTS (
+    SELECT 1 FROM PUNTOS_VENTA_DEPOSITOS pvd
+    WHERE pvd.DEPOSITO_ID = d.DEPOSITO_ID
+);
+GO
+
+PRINT 'migrate-puntos-venta.sql executed OK';
+GO

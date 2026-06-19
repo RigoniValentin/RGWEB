@@ -1,6 +1,7 @@
 import { getPool, sql } from '../database/connection.js';
 import type { PaginatedResult } from '../types/index.js';
 import { registrarHistorialStock, getCurrentStock } from './stockHistorial.helper.js';
+import { buildAdvancedProductSearch } from './productSearch.helper.js';
 
 // ═══════════════════════════════════════════════════
 //  Remitos Service — Delivery Notes (Entrada/Salida)
@@ -711,15 +712,17 @@ export const remitosService = {
     soloActivos?: boolean;
     soloConStock?: boolean;
     limit?: number;
+    busquedaMultiEntidad?: boolean;
   }) {
     const pool = await getPool();
     const limit = params.limit || 50;
 
-    const conditions: string[] = [];
     const req = pool.request();
-    let joinMarca = false;
-    let joinCategoria = false;
-    let joinCodBarras = false;
+    const searchState = buildAdvancedProductSearch(req, params);
+    const conditions = searchState.conditions;
+    let joinMarca = searchState.joinMarca;
+    let joinCategoria = searchState.joinCategoria;
+    let joinCodBarras = searchState.joinCodBarras;
 
     if (params.soloActivos !== false) {
       conditions.push('p.ACTIVO = 1');
@@ -727,46 +730,6 @@ export const remitosService = {
 
     if (params.soloConStock) {
       conditions.push('ISNULL(p.CANTIDAD, 0) > 0');
-    }
-
-    if (params.search) {
-      const searchTrim = params.search.trim();
-      if (/^\d{6,}$/.test(searchTrim)) {
-        joinCodBarras = true;
-        conditions.push('(p.CODIGOPARTICULAR = @searchCode OR cb.CODIGO_BARRAS = @searchCode)');
-        req.input('searchCode', sql.NVarChar, searchTrim);
-      } else {
-        const tokens = searchTrim.split(/\s+/).filter(t => t.length > 0);
-        tokens.forEach((token, i) => {
-          conditions.push(`p.NOMBRE LIKE @t${i}`);
-          req.input(`t${i}`, sql.NVarChar, `%${token}%`);
-        });
-      }
-    }
-
-    if (params.marca && params.marca.trim()) {
-      joinMarca = true;
-      conditions.push('m.NOMBRE LIKE @marca');
-      req.input('marca', sql.NVarChar, `%${params.marca.trim()}%`);
-    }
-
-    if (params.categoria && params.categoria.trim()) {
-      joinCategoria = true;
-      conditions.push('c.NOMBRE LIKE @categoria');
-      req.input('categoria', sql.NVarChar, `%${params.categoria.trim()}%`);
-    }
-
-    if (params.codigo) {
-      const codigo = params.codigo.trim();
-      if (/^\d{6,}$/.test(codigo)) {
-        joinCodBarras = true;
-        conditions.push('(p.CODIGOPARTICULAR = @codExact OR cb.CODIGO_BARRAS = @codExact)');
-        req.input('codExact', sql.NVarChar, codigo);
-      } else {
-        joinCodBarras = true;
-        conditions.push('(p.CODIGOPARTICULAR LIKE @cod OR cb.CODIGO_BARRAS LIKE @cod)');
-        req.input('cod', sql.NVarChar, `%${codigo}%`);
-      }
     }
 
     const whereClause = conditions.length > 0

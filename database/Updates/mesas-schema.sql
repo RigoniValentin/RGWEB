@@ -1,0 +1,55 @@
+-- ═══════════════════════════════════════════════════
+--  Gestión de Mesas — Schema (tables already exist in SesamoDB)
+--  This file documents the existing tables used by the web module.
+--  The desktop app creates these tables; the web module only reads/writes.
+-- ═══════════════════════════════════════════════════
+
+-- SECTORES: areas/zones in a restaurant
+-- CREATE TABLE SECTORES (
+--   SECTOR_ID    INT IDENTITY(1,1) PRIMARY KEY,
+--   NOMBRE       VARCHAR(100) NOT NULL,
+--   ACTIVO       BIT DEFAULT 1,
+--   PUNTO_VENTA_ID INT NULL
+-- );
+
+-- MESAS: individual tables within sectors
+-- CREATE TABLE MESAS (
+--   MESA_ID      INT IDENTITY(1,1) PRIMARY KEY,
+--   NUMERO_MESA  VARCHAR(20) NOT NULL,
+--   SECTOR_ID    INT NOT NULL REFERENCES SECTORES(SECTOR_ID),
+--   CAPACIDAD    INT DEFAULT 4,
+--   ESTADO       VARCHAR(20) DEFAULT 'LIBRE',  -- LIBRE, OCUPADA, RESERVADA
+--   ACTIVO       BIT DEFAULT 1,
+--   POSICION_X   INT DEFAULT 0,
+--   POSICION_Y   INT DEFAULT 0,
+--   PUNTO_VENTA_ID INT NULL
+-- );
+
+-- MOZOS: waiters (stored in PERSONAL table)
+-- Uses existing PERSONAL table with ROL = 'MOZO'
+
+-- PEDIDOS: orders placed at tables
+-- CREATE TABLE PEDIDOS (
+--   PEDIDO_ID      INT IDENTITY(1,1) PRIMARY KEY,
+--   MESA_ID        INT NULL REFERENCES MESAS(MESA_ID),
+--   MOZO_ID        INT NULL,
+--   ESTADO         VARCHAR(20) DEFAULT 'ABIERTO', -- ABIERTO, EN_PREPARACION, CERRADO
+--   FECHA_CREACION DATETIME DEFAULT GETDATE(),
+--   FECHA_CIERRE   DATETIME NULL,
+--   TOTAL          DECIMAL(18,2) DEFAULT 0,
+--   PUNTO_VENTA_ID INT NULL,
+--   USUARIO_ID     INT NULL
+-- );
+
+-- PEDIDO_ITEMS: line items within an order
+-- CREATE TABLE PEDIDO_ITEMS (
+--   PEDIDO_ITEM_ID         INT IDENTITY(1,1) PRIMARY KEY,
+--   PEDIDO_ID              INT NOT NULL REFERENCES PEDIDOS(PEDIDO_ID),
+--   PRODUCTO_ID            INT NULL,
+--   PROMOCION_ID           INT NULL,
+--   CANTIDAD               DECIMAL(18,3) DEFAULT 1,
+--   PRECIO_UNITARIO        DECIMAL(18,2) DEFAULT 0,
+--   PUNTO_VENTA_ID         INT NULL,
+--   TIPO_SERVICIO_ID       INT NULL,
+--   LISTA_PRECIO_SELECCIONADA INT DEFAULT 1
+-- );

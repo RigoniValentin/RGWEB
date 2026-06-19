@@ -122,6 +122,7 @@ router.get('/search-products-advanced', async (req: Request, res: Response) => {
       soloActivos: req.query.soloActivos !== 'false',
       soloConStock: req.query.soloConStock === 'true',
       limit: parseInt(req.query.limit as string) || 50,
+      busquedaMultiEntidad: req.query.busquedaMultiEntidad === 'true',
     });
     res.json(data);
   } catch (err: any) {

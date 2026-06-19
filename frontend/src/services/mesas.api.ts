@@ -88,7 +88,7 @@ export const searchProductosMesa = (search: string, puntoVentaId?: number) =>
 
 export const searchProductosMesaAdvanced = (params: {
   search?: string; marca?: string; categoria?: string; codigo?: string;
-  soloActivos?: boolean; soloConStock?: boolean; listaId?: number; limit?: number;
+  soloActivos?: boolean; soloConStock?: boolean; listaId?: number; limit?: number; busquedaMultiEntidad?: boolean;
 }) =>
   api.get<ProductoSearch[]>(`${BASE}/search-products-advanced`, { params }).then(r => r.data);
 

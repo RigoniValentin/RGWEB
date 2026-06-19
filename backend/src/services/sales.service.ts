@@ -3,6 +3,7 @@ import { config } from '../config/index.js';
 import type { Venta, VentaItem, VentaMetodoPago, PaginatedResult } from '../types/index.js';
 import { registrarHistorialStock, getCurrentStock, insertStockDeposito } from './stockHistorial.helper.js';
 import { crearChequeEnCartera } from './cheques.service.js';
+import { buildAdvancedProductSearch } from './productSearch.helper.js';
 
 // ═══════════════════════════════════════════════════
 //  Sales Service — Full CRUD + Payment Management
@@ -18,6 +19,7 @@ export interface VentaFilter {
   puntoVentaId?: number;
   cobrada?: boolean;
   usuarioId?: number;
+  soloFiscal?: boolean;
   orderBy?: string;
   orderDir?: 'ASC' | 'DESC';
 }
@@ -734,6 +736,9 @@ export const salesService = {
     if (filter.cobrada !== undefined) {
       where += ' AND v.COBRADA = @cobrada';
       params.push({ name: 'cobrada', type: sql.Bit, value: filter.cobrada ? 1 : 0 });
+    }
+    if (filter.soloFiscal) {
+      where += " AND v.NUMERO_FISCAL IS NOT NULL AND LTRIM(RTRIM(v.NUMERO_FISCAL)) <> ''";
     }
     if (filter.search) {
       where += ` AND (c.NOMBRE LIKE @search OR v.NUMERO_FISCAL LIKE @search 
@@ -2053,6 +2058,7 @@ export const salesService = {
     soloConStock?: boolean;
     listaId?: number;
     limit?: number;
+    busquedaMultiEntidad?: boolean;
   }) {
     const pool = await getPool();
     const limit = params.limit || 50;
@@ -2069,11 +2075,12 @@ export const salesService = {
            ELSE p.LISTA_1
          END`;
 
-    const conditions: string[] = [];
     const req = pool.request();
-    let joinMarca = false;
-    let joinCategoria = false;
-    let joinCodBarras = false;
+    const searchState = buildAdvancedProductSearch(req, params);
+    const conditions = searchState.conditions;
+    let joinMarca = searchState.joinMarca;
+    let joinCategoria = searchState.joinCategoria;
+    let joinCodBarras = searchState.joinCodBarras;
 
     if (params.soloActivos !== false) {
       conditions.push('p.ACTIVO = 1');
@@ -2083,29 +2090,6 @@ export const salesService = {
       conditions.push('ISNULL(p.CANTIDAD, 0) > 0');
     }
 
-    if (params.search) {
-      const searchTrim = params.search.trim();
-      // Auto-detección de código de barras / código de balanza (solo dígitos, ≥ 6)
-      if (/^\d{6,}$/.test(searchTrim)) {
-        joinCodBarras = true;
-        conditions.push('(p.CODIGOPARTICULAR = @searchCode OR cb.CODIGO_BARRAS = @searchCode)');
-        req.input('searchCode', sql.NVarChar, searchTrim);
-      } else {
-        // Solo busca en NOMBRE (sin joins → mucho más rápido)
-        const tokens = searchTrim.split(/\s+/).filter(t => t.length > 0);
-        tokens.forEach((token, i) => {
-          conditions.push(`p.NOMBRE LIKE @t${i}`);
-          req.input(`t${i}`, sql.NVarChar, `%${token}%`);
-        });
-      }
-    }
-
-    if (params.marca && params.marca.trim()) {
-      joinMarca = true;
-      conditions.push('m.NOMBRE LIKE @marca');
-      req.input('marca', sql.NVarChar, `%${params.marca.trim()}%`);
-    }
-
     if (params.marcaIds && params.marcaIds.length > 0) {
       const marcaIds = params.marcaIds.filter((value): value is number => Number.isFinite(value));
       if (marcaIds.length > 0) {
@@ -2113,25 +2097,6 @@ export const salesService = {
         marcaIds.forEach((marcaId, index) => {
           req.input(`marcaId${index}`, sql.Int, marcaId);
         });
-      }
-    }
-
-    if (params.categoria && params.categoria.trim()) {
-      joinCategoria = true;
-      conditions.push('c.NOMBRE LIKE @categoria');
-      req.input('categoria', sql.NVarChar, `%${params.categoria.trim()}%`);
-    }
-
-    if (params.codigo) {
-      const codigo = params.codigo.trim();
-      if (/^\d{6,}$/.test(codigo)) {
-        joinCodBarras = true;
-        conditions.push('(p.CODIGOPARTICULAR = @codExact OR cb.CODIGO_BARRAS = @codExact)');
-        req.input('codExact', sql.NVarChar, codigo);
-      } else {
-        joinCodBarras = true;
-        conditions.push('(p.CODIGOPARTICULAR LIKE @cod OR cb.CODIGO_BARRAS LIKE @cod)');
-        req.input('cod', sql.NVarChar, `%${codigo}%`);
       }
     }
 

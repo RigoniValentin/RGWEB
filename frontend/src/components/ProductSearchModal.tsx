@@ -5,6 +5,7 @@ import {
 import { SearchOutlined, FilterOutlined } from '@ant-design/icons';
 import type { ProductoSearch, Marca } from '../types';
 import { fmtMoney } from '../utils/format';
+import { useSettingsStore } from '../store/settingsStore';
 
 const { Text } = Typography;
 
@@ -18,6 +19,7 @@ export interface ProductSearchParams {
   soloConStock?: boolean;
   listaId?: number;
   limit?: number;
+  busquedaMultiEntidad?: boolean;
 }
 
 interface Props {
@@ -52,6 +54,7 @@ export function ProductSearchModal({
   const [activeRowIndex, setActiveRowIndex] = useState<number>(-1);
   const priceField = priceMode === 'compra' ? 'PRECIO_COMPRA' : 'PRECIO_VENTA';
   const priceTitle = priceMode === 'compra' ? 'Costo' : 'Precio';
+  const busquedaMultiEntidad = useSettingsStore(s => s.getBool('busqueda_producto_multientidad'));
 
   const keywordsRef = useRef<any>(null);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -124,6 +127,7 @@ export function ProductSearchModal({
         soloActivos: activos ?? soloActivos,
         soloConStock: conStock ?? soloConStock,
         limit: 50,
+        busquedaMultiEntidad,
       });
       setResults(data);
       keywordsDirty.current = false;

@@ -1,11 +1,39 @@
 import { Router, Request, Response } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
+import { facturacionService } from '../services/facturacion.service.js';
 import { consultarCuit } from '../services/arca/wsPadron.js';
 import { consultarConstancia } from '../services/arca/wsConstancia.js';
 import { config } from '../config/index.js';
 
 const router = Router();
 router.use(authMiddleware);
+
+/**
+ * GET /api/afip/comprobante
+ *
+ * Consults an already issued comprobante in ARCA by type + point of sale + number.
+ */
+router.get('/comprobante', async (req: Request, res: Response) => {
+  const cbteTipo = parseInt(req.query.cbteTipo as string, 10);
+  const ptoVta = parseInt(req.query.ptoVta as string, 10);
+  const cbteNro = parseInt(req.query.cbteNro as string, 10);
+
+  if (!Number.isFinite(cbteTipo) || !Number.isFinite(ptoVta) || !Number.isFinite(cbteNro)) {
+    return res.status(400).json({ error: 'cbteTipo, ptoVta y cbteNro son obligatorios' });
+  }
+
+  if (!config.arca.cuit || !config.arca.certPath || !config.arca.keyPath) {
+    return res.status(503).json({ error: 'ARCA no está configurado en este sistema' });
+  }
+
+  try {
+    const data = await facturacionService.consultarComprobante(cbteTipo, ptoVta, cbteNro);
+    res.json(data);
+  } catch (err: any) {
+    const status = err.name === 'WSFEv1Error' ? 502 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
 
 /**
  * GET /api/afip/cuit/:cuit

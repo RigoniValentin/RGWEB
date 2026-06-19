@@ -102,7 +102,7 @@ export const productListingService = {
       FROM PRODUCTOS p
       LEFT JOIN MARCAS m ON p.MARCA_ID = m.MARCA_ID
       LEFT JOIN CATEGORIAS c ON p.CATEGORIA_ID = c.CATEGORIA_ID
-      LEFT JOIN UNIDADES u ON p.UNIDAD_ID = u.UNIDAD_ID
+      LEFT JOIN UNIDADES_MEDIDA u ON p.UNIDAD_ID = u.UNIDAD_ID
       ${where}
       ORDER BY p.NOMBRE
     `);

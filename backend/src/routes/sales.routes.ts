@@ -24,6 +24,10 @@ router.use(authMiddleware);
 // GET /api/sales
 router.get('/', async (req: Request, res: Response) => {
   try {
+    const soloFiscal = req.query.soloFiscal !== undefined
+      ? req.query.soloFiscal === 'true'
+      : undefined;
+
     const result = await salesService.getAll({
       page: parseInt(req.query.page as string) || 1,
       pageSize: parseInt(req.query.pageSize as string) || 20,
@@ -34,6 +38,7 @@ router.get('/', async (req: Request, res: Response) => {
       puntoVentaId: req.query.puntoVentaId ? parseInt(req.query.puntoVentaId as string) : undefined,
       cobrada: req.query.cobrada !== undefined ? req.query.cobrada === 'true' : undefined,
       usuarioId: req.query.usuarioId ? parseInt(req.query.usuarioId as string) : undefined,
+      soloFiscal,
     });
     res.json(result);
   } catch (err: any) {
@@ -231,6 +236,7 @@ router.get('/search-products-advanced', async (req: Request, res: Response) => {
       soloConStock: req.query.soloConStock === 'true',
       listaId: parseInt(req.query.listaId as string) || 0,
       limit: parseInt(req.query.limit as string) || 50,
+      busquedaMultiEntidad: req.query.busquedaMultiEntidad === 'true',
     });
     res.json(data);
   } catch (err: any) {

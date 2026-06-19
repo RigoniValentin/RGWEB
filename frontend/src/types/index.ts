@@ -772,6 +772,21 @@ export interface DashboardAnalytics {
   cajaCentral: DashboardCajaCentral;
   productosStockBajo: DashboardStats['productosStockBajo'];
   cajasAbiertas: DashboardStats['cajasAbiertas'];
+  comprobantesPorTipo?: Array<{
+    TIPO_COMPROBANTE: string;
+    cantidad: number;
+    total: number;
+  }>;
+  ultimaVentaFiscal?: {
+    VENTA_ID: number;
+    FECHA_VENTA: string;
+    TOTAL: number;
+    NUMERO_FISCAL: string;
+    CAE: string | null;
+    PUNTO_VENTA: string | null;
+    TIPO_COMPROBANTE: string | null;
+    CLIENTE_NOMBRE: string | null;
+  } | null;
 }
 
 // ── Compras ──────────────────────────────────────

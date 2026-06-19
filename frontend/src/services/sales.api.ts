@@ -81,7 +81,7 @@ export const salesApi = {
 
   searchProductsAdvanced: (params: {
     search?: string; marca?: string; marcaIds?: number[]; categoria?: string; codigo?: string;
-    soloActivos?: boolean; soloConStock?: boolean; listaId?: number; limit?: number;
+    soloActivos?: boolean; soloConStock?: boolean; listaId?: number; limit?: number; busquedaMultiEntidad?: boolean;
   }, signal?: AbortSignal) =>
     api.get<ProductoSearch[]>('/sales/search-products-advanced', { params, signal }).then(r => r.data),
 

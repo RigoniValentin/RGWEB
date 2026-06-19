@@ -757,7 +757,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       MONTO_DIGITAL: esCtaCorriente ? 0 : digitalFinal,
       VUELTO: vueltoFinal,
       COBRADA: !esCtaCorriente,
-      PRECIOS_SIN_IVA: isDetallada ? true : (isFacturaA ? !ivaIncluido : true),
+      PRECIOS_SIN_IVA: isFacturaA,
       IMP_INT_GRAVA_IVA: isDetallada ? impIntGravaIva : false,
       PERCEPCION_IVA: percepcionIva,
       PERCEPCION_IIBB: percepcionIibb,
@@ -777,8 +777,8 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
         DEPOSITO_ID: item.DEPOSITO_ID,
         BONIFICACION: isDetallada ? item.BONIFICACION : 0,
         IMP_INTERNOS: isDetallada ? item.IMP_INTERNOS : 0,
-        IVA_ALICUOTA: isFacturaA ? item.IVA_ALICUOTA : 0,
-        TASA_IVA_ID: isFacturaA ? item.TASA_IVA_ID : null,
+        IVA_ALICUOTA: item.IVA_ALICUOTA,
+        TASA_IVA_ID: item.TASA_IVA_ID,
       })),
     };
 
