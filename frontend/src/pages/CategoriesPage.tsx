@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Input, Typography, Tag, Select, Button, Modal, App,
@@ -12,6 +12,8 @@ import {
 import { categoryApi, type CategoriaInput } from '../services/category.api';
 import { useTabStore } from '../store/tabStore';
 import type { Categoria } from '../types';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
 
 const { Title } = Typography;
 
@@ -183,25 +185,20 @@ export function CategoriesPage() {
       width: 95,
       render: (v: boolean) => <Tag color={v ? 'green' : 'red'}>{v ? 'Activa' : 'Inactiva'}</Tag>,
     },
-    {
-      title: '',
-      key: 'actions',
-      width: 100,
-      fixed: 'right',
-      render: (_: unknown, record: Categoria) => (
-        <Space size={4}>
-          <Tooltip title="Editar">
-            <Button type="text" size="small" icon={<EditOutlined />}
-              onClick={() => handleEdit(record)} style={{ color: '#EABD23' }} />
-          </Tooltip>
-          <Tooltip title="Eliminar">
-            <Button type="text" size="small" danger icon={<DeleteOutlined />}
-              onClick={() => handleDelete(record)} />
-          </Tooltip>
-        </Space>
-      ),
-    },
   ];
+
+  // ── Row interactions (active row + context menu) ─
+  const contextMenuActions = useMemo<RowAction<Categoria>[]>(() => [
+    { key: 'edit', label: 'Editar', icon: <EditOutlined />, onClick: handleEdit },
+    { type: 'divider' },
+    { key: 'delete', label: 'Eliminar', icon: <DeleteOutlined />, danger: true, onClick: handleDelete },
+  ], []);
+
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<Categoria>({
+    getRowId: (r) => r.CATEGORIA_ID,
+    primaryAction: handleEdit,
+    actions: contextMenuActions,
+  });
 
   return (
     <div className="page-enter">
@@ -251,6 +248,8 @@ export function CategoriesPage() {
         rowKey="CATEGORIA_ID"
         loading={isLoading}
         onChange={handleTableChange}
+        onRow={onRow}
+        rowClassName={rowClassName}
         pagination={{
           current: page,
           pageSize,
@@ -262,6 +261,13 @@ export function CategoriesPage() {
         }}
         size="middle"
         scroll={{ x: 600 }}
+      />
+
+      <RowContextMenu
+        open={contextMenu !== null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        items={contextMenuItems}
+        onClose={closeContextMenu}
       />
 
       {/* ── Form Modal (New / Edit) ───────────── */}

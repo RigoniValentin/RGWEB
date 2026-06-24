@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Card, Row, Col,
-  Statistic, Button, Input, InputNumber, Popconfirm, message,
+  Statistic, Button, Input, InputNumber, message,
   Modal, Form, Select, Switch, Tabs, Tooltip, Descriptions, Divider,
 } from 'antd';
 import {
@@ -22,6 +22,10 @@ import { FondoCambioModal } from '../components/FondoCambioModal';
 import { fmtMoney, fmtMoneyAbs, statFormatter } from '../utils/format';
 import { useTabStore } from '../store/tabStore';
 import type { MovimientoCaja, CajaCentralTotales, CajaCentralCierreDetalle, DesgloseMetodo, MetodoPago } from '../types';
+import { ExportButtons, type ExportColumn } from '../components/ExportButtons';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
+
 
 const { Title, Text } = Typography;
 
@@ -210,6 +214,45 @@ export function CajaCentralPage() {
   const nuevoMetodosTotal = Object.values(nuevoMontosPorMetodo).reduce((s, v) => s + (v || 0), 0);
   const nuevoTotal = nuevoMetodosTotal;
 
+  // ── Export columns (compartidos entre ingresos y egresos) ──
+  const exportColumns: ExportColumn<MovimientoCaja>[] = [
+    { title: 'ID', dataIndex: 'ID', align: 'center', width: 8 },
+    {
+      title: 'Tipo', dataIndex: 'TIPO_ENTIDAD',
+      render: (v: string) => v === 'TRANSFERENCIA_FC' ? 'FC' : v === 'CIERRE_CAJA' ? 'Cierre Caja' : v,
+      width: 14,
+    },
+    { title: 'Caja', dataIndex: 'CAJA_ID', align: 'center', render: (v: number | null) => v ? `#${v}` : '-', width: 10 },
+    {
+      title: 'Fecha', dataIndex: 'FECHA',
+      render: (v: string) => v ? new Date(v).toLocaleString('es-AR') : '-',
+      width: 22,
+    },
+    { title: 'Movimiento', dataIndex: 'MOVIMIENTO', width: 30 },
+    { title: 'Usuario', dataIndex: 'USUARIO_NOMBRE', width: 18 },
+    {
+      title: 'Total', dataIndex: 'TOTAL', numeric: true, money: true, align: 'right', width: 18,
+      render: (v: number, r: MovimientoCaja) => {
+        const isFondoCambio = ['TRANSFERENCIA_FC', 'REINTEGRO_FONDO', 'DEPOSITO_FONDO'].includes(r.TIPO_ENTIDAD);
+        return fmtMoneyAbs(isFondoCambio ? r.EFECTIVO : v);
+      },
+    },
+  ];
+
+  const exportMetaParts: string[] = [];
+  if (balanceHistorico) exportMetaParts.push('Balance histórico');
+  else if (fechaDesde && fechaHasta) exportMetaParts.push(`Período: ${fechaDesde} → ${fechaHasta}`);
+  if (pvFilter) {
+    const pv = allPuntosVenta?.find(p => p.PUNTO_VENTA_ID === pvFilter) ?? puntosVenta.find(p => p.PUNTO_VENTA_ID === pvFilter);
+    if (pv) exportMetaParts.push(`Punto de Venta: ${pv.NOMBRE}`);
+  }
+  if (cajaIdFilter) exportMetaParts.push(`Caja ID: ${cajaIdFilter}`);
+  const exportMeta = exportMetaParts.length > 0 ? `Filtros: ${exportMetaParts.join(' · ')}` : undefined;
+
+  const ingresosArr = movimientos?.ingresos ?? [];
+  const egresosArr = movimientos?.egresos ?? [];
+
+
   // ── Movement columns ───────────────────────────
   const movColumns = [
     { title: 'ID', dataIndex: 'ID', key: 'id', width: 70,align: 'center' as const },
@@ -264,86 +307,88 @@ export function CajaCentralPage() {
         return <Text strong>{fmtMoneyAbs(displayValue)}</Text>;
       },
     },
-    {
-      title: '', key: 'actions', width: 60, align: 'center' as const,
-      render: (_: unknown, record: MovimientoCaja) => {
-        // Extract NC ID from description pattern "NC Venta #123 - ..." or "NC Compra #123 - ..."
-        const ncMatch = record.MOVIMIENTO?.match(/^NC (?:Venta|Compra)(?: [^ ]+)? #(\d+)/);
-        const ncId = ncMatch ? Number(ncMatch[1]) : null;
-        const isNCVenta = record.TIPO_ENTIDAD === 'NC_VENTA';
-        const isNCCompra = record.TIPO_ENTIDAD === 'NC_COMPRA';
+  ];
 
-        return (
-          <Space size={4}>
-            {record.TIPO_ENTIDAD === 'CIERRE_CAJA' && record.CAJA_ID && (
-              <Tooltip title={`Ver Caja #${record.CAJA_ID}`}>
-                <EyeOutlined
-                  style={{ cursor: 'pointer', color: '#EABD23', fontSize: 16 }}
-                  onClick={() => {
-                    openTab({ key: '/cashregisters', label: 'Cajas', closable: true });
-                    navigate('/cashregisters', { state: { openCajaId: record.CAJA_ID } });
-                  }}
-                />
-              </Tooltip>
-            )}
-            {isNCVenta && (
-              <Tooltip title="Ver NC Venta">
-                <EyeOutlined
-                  style={{ cursor: 'pointer', color: '#EABD23', fontSize: 16 }}
-                  onClick={() => {
-                    openTab({ key: '/nc-ventas', label: 'NC Ventas', closable: true });
-                    navigate('/nc-ventas', { state: { openNCId: ncId } });
-                  }}
-                />
-              </Tooltip>
-            )}
-            {isNCCompra && (
-              <Tooltip title="Ver NC Compra">
-                <EyeOutlined
-                  style={{ cursor: 'pointer', color: '#EABD23', fontSize: 16 }}
-                  onClick={() => {
-                    openTab({ key: '/nc-compras', label: 'NC Compras', closable: true });
-                    navigate('/nc-compras', { state: { openNCId: ncId } });
-                  }}
-                />
-              </Tooltip>
-            )}
-            {record.TIPO_ENTIDAD === 'GASTO' && record.ID_ENTIDAD && (
-              <Tooltip title="Ver detalle del Gasto">
-                <EyeOutlined
-                  style={{ cursor: 'pointer', color: '#EABD23', fontSize: 16 }}
-                  onClick={() => {
-                    openTab({ key: '/expenses', label: 'Gastos y Servicios', closable: true });
-                    navigate('/expenses', { state: { openGastoId: record.ID_ENTIDAD } });
-                  }}
-                />
-              </Tooltip>
-            )}
-            {record.TIPO_ENTIDAD === 'ORDEN_PAGO' && record.ID_ENTIDAD && (
-              <Tooltip title="Ver Orden de Pago">
-                <EyeOutlined
-                  style={{ cursor: 'pointer', color: '#EABD23', fontSize: 16 }}
-                  onClick={() => {
-                    openTab({ key: '/ordenes-pago', label: 'Órdenes de Pago', closable: true });
-                    navigate('/ordenes-pago', { state: { openOPId: record.ID_ENTIDAD } });
-                  }}
-                />
-              </Tooltip>
-            )}
-            {record.ES_MANUAL && record.TIPO_ENTIDAD !== 'TRANSFERENCIA_FC' && (
-              <Popconfirm
-                title="¿Eliminar este movimiento manual?"
-                onConfirm={() => eliminarMutation.mutate(record.ID)}
-                okText="Sí" cancelText="No" okButtonProps={{ danger: true }}
-              >
-                <DeleteOutlined style={{ cursor: 'pointer', color: '#ff4d4f' }} />
-              </Popconfirm>
-            )}
-          </Space>
-        );
+  // ── Row interactions (active row + context menu) ─
+  const extractNCId = (movimiento: string | undefined): number | null => {
+    const m = movimiento?.match(/^NC (?:Venta|Compra)(?: [^ ]+)? #(\d+)/);
+    return m ? Number(m[1]) : null;
+  };
+
+  const goToCierreCaja = (record: MovimientoCaja) => {
+    if (!record.CAJA_ID) return;
+    openTab({ key: '/cashregisters', label: 'Cajas', closable: true });
+    navigate('/cashregisters', { state: { openCajaId: record.CAJA_ID } });
+  };
+
+  const goToNCVenta = (record: MovimientoCaja) => {
+    const ncId = extractNCId(record.MOVIMIENTO);
+    openTab({ key: '/nc-ventas', label: 'NC Ventas', closable: true });
+    navigate('/nc-ventas', { state: { openNCId: ncId } });
+  };
+
+  const goToNCCompra = (record: MovimientoCaja) => {
+    const ncId = extractNCId(record.MOVIMIENTO);
+    openTab({ key: '/nc-compras', label: 'NC Compras', closable: true });
+    navigate('/nc-compras', { state: { openNCId: ncId } });
+  };
+
+  const goToGasto = (record: MovimientoCaja) => {
+    if (!record.ID_ENTIDAD) return;
+    openTab({ key: '/expenses', label: 'Gastos y Servicios', closable: true });
+    navigate('/expenses', { state: { openGastoId: record.ID_ENTIDAD } });
+  };
+
+  const goToOrdenPago = (record: MovimientoCaja) => {
+    if (!record.ID_ENTIDAD) return;
+    openTab({ key: '/ordenes-pago', label: 'Órdenes de Pago', closable: true });
+    navigate('/ordenes-pago', { state: { openOPId: record.ID_ENTIDAD } });
+  };
+
+  const navigateFromMovimiento = (record: MovimientoCaja) => {
+    switch (record.TIPO_ENTIDAD) {
+      case 'CIERRE_CAJA': goToCierreCaja(record); break;
+      case 'NC_VENTA': goToNCVenta(record); break;
+      case 'NC_COMPRA': goToNCCompra(record); break;
+      case 'GASTO': goToGasto(record); break;
+      case 'ORDEN_PAGO': goToOrdenPago(record); break;
+    }
+  };
+
+  const contextMenuActions = useMemo<RowAction<MovimientoCaja>[]>(() => [
+    {
+      key: 'view',
+      label: 'Ver detalle',
+      icon: <EyeOutlined />,
+      disabled: (r) => !['CIERRE_CAJA', 'NC_VENTA', 'NC_COMPRA', 'GASTO', 'ORDEN_PAGO'].includes(r.TIPO_ENTIDAD)
+        || (r.TIPO_ENTIDAD === 'CIERRE_CAJA' && !r.CAJA_ID)
+        || ((r.TIPO_ENTIDAD === 'GASTO' || r.TIPO_ENTIDAD === 'ORDEN_PAGO') && !r.ID_ENTIDAD),
+      onClick: navigateFromMovimiento,
+    },
+    { type: 'divider' },
+    {
+      key: 'delete',
+      label: 'Eliminar',
+      icon: <DeleteOutlined />,
+      danger: true,
+      disabled: (r) => !(r.ES_MANUAL && r.TIPO_ENTIDAD !== 'TRANSFERENCIA_FC'),
+      onClick: (r) => {
+        Modal.confirm({
+          title: '¿Eliminar este movimiento manual?',
+          okText: 'Sí',
+          cancelText: 'No',
+          okButtonProps: { danger: true },
+          onOk: () => eliminarMutation.mutateAsync(r.ID),
+        });
       },
     },
-  ];
+  ], [eliminarMutation]);
+
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<MovimientoCaja>({
+    getRowId: (r) => r.ID,
+    primaryAction: navigateFromMovimiento,
+    actions: contextMenuActions,
+  });
 
   return (
     <div className="page-enter">
@@ -384,6 +429,16 @@ export function CajaCentralPage() {
             Nuevo Movimiento
           </Button>
           <Button icon={<ReloadOutlined />} onClick={() => invalidateAll()} />
+          <ExportButtons
+            data={activeTab === 'ingresos' ? ingresosArr : egresosArr}
+            showQuantitySelector
+            columns={exportColumns}
+            title={`Caja Central — ${activeTab === 'ingresos' ? 'Ingresos' : 'Egresos'}`}
+            subtitle="Movimientos operativos"
+            meta={exportMeta}
+            fileName={`caja-central-${activeTab}`}
+            sheetName={activeTab === 'ingresos' ? 'Ingresos' : 'Egresos'}
+          />
         </Space>
       </div>
 
@@ -502,6 +557,8 @@ export function CajaCentralPage() {
                 rowKey="ID"
                 loading={isLoading}
                 size="small"
+                onRow={onRow}
+                rowClassName={rowClassName}
                 pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '25', '50', '100'], showTotal: t => `${t} movimientos` }}
                 scroll={{ x: 1100 }}
               />
@@ -523,12 +580,21 @@ export function CajaCentralPage() {
                 rowKey="ID"
                 loading={isLoading}
                 size="small"
+                onRow={onRow}
+                rowClassName={rowClassName}
                 pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '25', '50', '100'], showTotal: t => `${t} movimientos` }}
                 scroll={{ x: 1100 }}
               />
             ),
           },
         ]}
+      />
+
+      <RowContextMenu
+        open={contextMenu !== null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        items={contextMenuItems}
+        onClose={closeContextMenu}
       />
 
       {/* ── Nuevo Movimiento Modal ────────────── */}

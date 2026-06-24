@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Modal, Input, Select, Button, InputNumber, Table, Space, Typography,
   Divider, message, Tag, Checkbox, Segmented, Badge, Switch, DatePicker, Tooltip,
+  Collapse,
 } from 'antd';
 import {
   SearchOutlined, DeleteOutlined, ShoppingCartOutlined,
@@ -1445,227 +1446,243 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                 </Text>
               </div>
 
-              <Divider style={{ margin: '16px 0' }} />
-
-              {/* Selected payment methods summary */}
-              <div className="nsm-field-group">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <label className="nsm-label" style={{ margin: 0 }}>Método de pago</label>
-                  <Button type="link" size="small" onClick={() => {
-                    setMetodoModalSelection([...selectedMetodos]);
-                    setMetodoModalOpen(true);
-                  }}>Cambiar</Button>
-                </div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {selectedMetodos.map(id => {
-                    const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
-                    if (!m) return null;
-                    return (
-                      <Tag key={id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', fontSize: 13 }}>
-                        {m.IMAGEN_BASE64 ? (
-                          <img src={m.IMAGEN_BASE64} alt={m.NOMBRE} style={{ width: 16, height: 16, objectFit: 'contain', borderRadius: 2 }} />
-                        ) : (
-                          m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined /> : <CreditCardOutlined />
-                        )}
-                        {m.NOMBRE}
-                      </Tag>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Amount inputs per selected method */}
-              {selectedMetodos.length > 1 && selectedMetodos.map(id => {
-                const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
-                if (!m) return null;
-                if (m.CATEGORIA === 'CHEQUES') {
-                  return (
-                    <div className="nsm-field-group" key={id}>
-                      <label className="nsm-label">
-                        <BankOutlined style={{ marginRight: 6 }} />
-                        {m.NOMBRE} — Cheques de cartera
-                      </label>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <Button
-                          icon={<BankOutlined />}
-                          onClick={() => setChequePickerOpen(true)}
-                          style={{ flex: 1 }}
-                        >
-                          {chequesIds.length > 0
-                            ? `${chequesIds.length} cheque${chequesIds.length === 1 ? '' : 's'} — ${fmtMoney(chequesTotal)}`
-                            : 'Seleccionar cheques de cartera'}
-                        </Button>
-                        {chequesIds.length > 0 && (
-                          <Button
-                            danger
-                            icon={<DeleteOutlined />}
-                            onClick={() => { setChequesIds([]); setChequesTotal(0); }}
-                          />
-                        )}
-                      </div>
-                      {chequesTotal > 0 && (
-                        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
-                          Los cheques saldrán de cartera al confirmar la compra.
-                        </Text>
-                      )}
-                    </div>
-                  );
-                }
-                return (
-                  <div className="nsm-field-group" key={id}>
-                    <label className="nsm-label">
-                      {m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined style={{ marginRight: 6 }} /> : <CreditCardOutlined style={{ marginRight: 6 }} />}
-                      {m.NOMBRE}
-                    </label>
-                    <InputNumber
-                      value={montosPorMetodo[id] || 0}
-                      min={0}
-                      step={100}
-                      size="large"
-                      style={{ width: '100%' }}
-                      formatter={v => `$ ${v}`}
-                      onChange={v => setMontosPorMetodo(prev => ({ ...prev, [id]: v || 0 }))}
-                    />
-                  </div>
-                );
-              })}
-
-              {/* Single method selected: one editable input (or picker if CHEQUES) */}
-              {selectedMetodos.length === 1 && (() => {
-                const id = selectedMetodos[0]!;
-                const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
-                if (!m) return null;
-                if (m.CATEGORIA === 'CHEQUES') {
-                  return (
-                    <div className="nsm-field-group">
-                      <label className="nsm-label">
-                        <BankOutlined style={{ marginRight: 6 }} />
-                        Cheques de cartera
-                      </label>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <Button
-                          icon={<BankOutlined />}
-                          onClick={() => setChequePickerOpen(true)}
-                          style={{ flex: 1 }}
-                          size="large"
-                        >
-                          {chequesIds.length > 0
-                            ? `${chequesIds.length} cheque${chequesIds.length === 1 ? '' : 's'} — ${fmtMoney(chequesTotal)}`
-                            : 'Seleccionar cheques de cartera'}
-                        </Button>
-                        {chequesIds.length > 0 && (
-                          <Button
-                            danger
-                            icon={<DeleteOutlined />}
-                            onClick={() => { setChequesIds([]); setChequesTotal(0); }}
-                            size="large"
-                          />
-                        )}
-                      </div>
-                      <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
-                        Los cheques saldrán de cartera al confirmar la compra.
-                      </Text>
-                    </div>
-                  );
-                }
-                return (
-                  <div className="nsm-field-group">
-                    <label className="nsm-label">
-                      {m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined style={{ marginRight: 6 }} /> : <CreditCardOutlined style={{ marginRight: 6 }} />}
-                      Monto {m.NOMBRE}
-                    </label>
-                    <InputNumber
-                      ref={efectivoRef}
-                      value={montosPorMetodo[id] || 0}
-                      min={0}
-                      step={100}
-                      size="large"
-                      style={{ width: '100%' }}
-                      formatter={v => `$ ${v}`}
-                      onChange={v => setMontosPorMetodo(prev => ({ ...prev, [id]: v || 0 }))}
-                      autoFocus
-                      onPressEnter={() => {
-                        if (pagoValido) handleSubmit();
-                      }}
-                    />
-                    {m.CATEGORIA === 'EFECTIVO' && (
-                      <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
-                        Puede ingresar un monto mayor — se calculará el vuelto
-                      </Text>
-                    )}
-                    {m.CATEGORIA === 'DIGITAL' && (
-                      <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
-                        El monto debe ser exacto
-                      </Text>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {/* Payment destination */}
-              <div className="nsm-field-group">
-                <label className="nsm-label">Origen del pago</label>
-                <Segmented
-                  value={destinoPago}
-                  onChange={val => setDestinoPago(val as 'CAJA_CENTRAL' | 'CAJA')}
-                  options={[
-                    {
-                      value: 'CAJA_CENTRAL',
-                      label: (
-                        <Space>
-                          <BankOutlined />
-                          <span>Caja Central</span>
-                        </Space>
-                      ),
-                    },
-                    ...(miCaja ? [{
-                      value: 'CAJA',
-                      label: (
-                        <Space>
-                          <InboxOutlined />
-                          <span>Mi Caja</span>
-                        </Space>
-                      ),
-                    }] : []),
-                  ]}
-                  block
-                />
-                {!miCaja && (
-                  <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
-                    No tenés una caja abierta — el egreso se registra en Caja Central
-                  </Text>
-                )}
-              </div>
-
               <Divider style={{ margin: '12px 0' }} />
 
-              {/* Payment summary */}
-              <div className="nsm-cobro-summary">
-                <div className="nsm-cobro-line">
-                  <Text type="secondary">Total recibido</Text>
-                  <Text strong>{fmtMoney(totalRecibido)}</Text>
-                </div>
-                <div className="nsm-cobro-line">
-                  <Text type="secondary">Total a abonar</Text>
-                  <Text strong>{fmtMoney(total)}</Text>
-                </div>
-                {vuelto > 0 && (
-                  <div className="nsm-cobro-vuelto">
-                    <Text strong>Vuelto</Text>
-                    <Text strong className="nsm-cobro-vuelto-amount">{fmtMoney(vuelto)}</Text>
+              {/* Payment summary - always visible */}
+              <div style={{ marginBottom: 12 }}>
+                <div className="nsm-summary-grid">
+                  <div className="nsm-summary-mini-box accent-gold">
+                    <span className="mini-box-label">Total a pagar</span>
+                    <span className="mini-box-amount">{fmtMoney(total)}</span>
                   </div>
-                )}
-                {!soloEfectivo && totalRecibido > 0 && Math.abs(totalRecibido - total) >= 0.01 && (
-                  <div style={{ marginTop: 8 }}>
-                    <Text type="danger" style={{ fontSize: 12 }}>
-                      {totalRecibido < total
-                        ? `Faltan ${fmtMoney(total - totalRecibido)}`
-                        : `Exceso de ${fmtMoney(totalRecibido - total)} — el monto debe ser exacto`
-                      }
-                    </Text>
+                  <div className="nsm-summary-mini-box accent-blue">
+                    <span className="mini-box-label">Total abonado</span>
+                    <span className="mini-box-amount">{fmtMoney(totalRecibido)}</span>
+                  </div>
+                </div>
+
+                {vuelto > 0 ? (
+                  <div className="nsm-summary-status-box status-success">
+                    <span className="status-label">Vuelto a recibir</span>
+                    <span className="status-amount">{fmtMoney(vuelto)}</span>
+                  </div>
+                ) : totalRecibido < total ? (
+                  <div className="nsm-summary-status-box status-danger">
+                    <span className="status-label">Faltan abonar</span>
+                    <span className="status-amount">{fmtMoney(total - totalRecibido)}</span>
+                  </div>
+                ) : !soloEfectivo && totalRecibido > total ? (
+                  <div className="nsm-summary-status-box status-warning">
+                    <span className="status-label">Exceso (Monto debe ser exacto)</span>
+                    <span className="status-amount">{fmtMoney(totalRecibido - total)}</span>
+                  </div>
+                ) : (
+                  <div className="nsm-summary-status-box status-success">
+                    <span className="status-label">Estado del pago</span>
+                    <span className="status-amount" style={{ fontSize: 20 }}>PAGO EXACTO</span>
                   </div>
                 )}
               </div>
+
+              {/* Payment methods + destination - collapsible */}
+              <Collapse
+                ghost
+                className="nsm-collapse-panel"
+                items={[{
+                  key: 'metodos',
+                  label: (
+                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--rg-text-light)' }}>
+                      Método de pago
+                      <span style={{ marginLeft: 8 }}>
+                        {selectedMetodos.map(id => {
+                          const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+                          return m ? (
+                            <Tag key={id} style={{ marginRight: 4, padding: '2px 8px', fontSize: 11 }}>
+                              {m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined /> : m.CATEGORIA === 'CHEQUES' ? <BankOutlined /> : <CreditCardOutlined />}
+                              {' '}{m.NOMBRE}
+                            </Tag>
+                          ) : null;
+                        })}
+                      </span>
+                    </span>
+                  ),
+                  children: (
+                    <div>
+                      <div style={{ marginBottom: 8 }}>
+                        <Button type="link" size="small" onClick={() => {
+                          setMetodoModalSelection([...selectedMetodos]);
+                          setMetodoModalOpen(true);
+                        }}>Cambiar métodos</Button>
+                      </div>
+
+                      {/* Amount inputs per selected method (multi) */}
+                      {selectedMetodos.length > 1 && selectedMetodos.map(id => {
+                        const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+                        if (!m) return null;
+                        if (m.CATEGORIA === 'CHEQUES') {
+                          return (
+                            <div className="nsm-field-group" key={id}>
+                              <label className="nsm-label">
+                                <BankOutlined style={{ marginRight: 6 }} />
+                                {m.NOMBRE} — Cheques de cartera
+                              </label>
+                              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                <Button
+                                  icon={<BankOutlined />}
+                                  onClick={() => setChequePickerOpen(true)}
+                                  style={{ flex: 1 }}
+                                >
+                                  {chequesIds.length > 0
+                                    ? `${chequesIds.length} cheque${chequesIds.length === 1 ? '' : 's'} — ${fmtMoney(chequesTotal)}`
+                                    : 'Seleccionar cheques de cartera'}
+                                </Button>
+                                {chequesIds.length > 0 && (
+                                  <Button
+                                    danger
+                                    icon={<DeleteOutlined />}
+                                    onClick={() => { setChequesIds([]); setChequesTotal(0); }}
+                                  />
+                                )}
+                              </div>
+                              {chequesTotal > 0 && (
+                                <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+                                  Los cheques saldrán de cartera al confirmar la compra.
+                                </Text>
+                              )}
+                            </div>
+                          );
+                        }
+                        return (
+                          <div className="nsm-field-group" key={id}>
+                            <label className="nsm-label">
+                              {m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined style={{ marginRight: 6 }} /> : <CreditCardOutlined style={{ marginRight: 6 }} />}
+                              {m.NOMBRE}
+                            </label>
+                            <InputNumber
+                              value={montosPorMetodo[id] || 0}
+                              min={0}
+                              step={100}
+                              size="large"
+                              style={{ width: '100%' }}
+                              formatter={v => `$ ${v}`}
+                              onChange={v => setMontosPorMetodo(prev => ({ ...prev, [id]: v || 0 }))}
+                            />
+                          </div>
+                        );
+                      })}
+
+                      {/* Single method selected: one editable input (or picker if CHEQUES) */}
+                      {selectedMetodos.length === 1 && (() => {
+                        const id = selectedMetodos[0]!;
+                        const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+                        if (!m) return null;
+                        if (m.CATEGORIA === 'CHEQUES') {
+                          return (
+                            <div className="nsm-field-group">
+                              <label className="nsm-label">
+                                <BankOutlined style={{ marginRight: 6 }} />
+                                Cheques de cartera
+                              </label>
+                              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                <Button
+                                  icon={<BankOutlined />}
+                                  onClick={() => setChequePickerOpen(true)}
+                                  style={{ flex: 1 }}
+                                  size="large"
+                                >
+                                  {chequesIds.length > 0
+                                    ? `${chequesIds.length} cheque${chequesIds.length === 1 ? '' : 's'} — ${fmtMoney(chequesTotal)}`
+                                    : 'Seleccionar cheques de cartera'}
+                                </Button>
+                                {chequesIds.length > 0 && (
+                                  <Button
+                                    danger
+                                    icon={<DeleteOutlined />}
+                                    onClick={() => { setChequesIds([]); setChequesTotal(0); }}
+                                    size="large"
+                                  />
+                                )}
+                              </div>
+                              <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
+                                Los cheques saldrán de cartera al confirmar la compra.
+                              </Text>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div className="nsm-field-group">
+                            <label className="nsm-label">
+                              {m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined style={{ marginRight: 6 }} /> : <CreditCardOutlined style={{ marginRight: 6 }} />}
+                              Monto {m.NOMBRE}
+                            </label>
+                            <InputNumber
+                              ref={efectivoRef}
+                              value={montosPorMetodo[id] || 0}
+                              min={0}
+                              step={100}
+                              size="large"
+                              style={{ width: '100%' }}
+                              formatter={v => `$ ${v}`}
+                              onChange={v => setMontosPorMetodo(prev => ({ ...prev, [id]: v || 0 }))}
+                              autoFocus
+                              onPressEnter={() => {
+                                if (pagoValido) handleSubmit();
+                              }}
+                            />
+                            {m.CATEGORIA === 'EFECTIVO' && (
+                              <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
+                                Puede ingresar un monto mayor — se calculará el vuelto
+                              </Text>
+                            )}
+                            {m.CATEGORIA === 'DIGITAL' && (
+                              <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
+                                El monto debe ser exacto
+                              </Text>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Payment destination */}
+                      <div className="nsm-field-group" style={{ marginTop: 12 }}>
+                        <label className="nsm-label">Origen del pago</label>
+                        <Segmented
+                          value={destinoPago}
+                          onChange={val => setDestinoPago(val as 'CAJA_CENTRAL' | 'CAJA')}
+                          options={[
+                            {
+                              value: 'CAJA_CENTRAL',
+                              label: (
+                                <Space>
+                                  <BankOutlined />
+                                  <span>Caja Central</span>
+                                </Space>
+                              ),
+                            },
+                            ...(miCaja ? [{
+                              value: 'CAJA',
+                              label: (
+                                <Space>
+                                  <InboxOutlined />
+                                  <span>Mi Caja</span>
+                                </Space>
+                              ),
+                            }] : []),
+                          ]}
+                          block
+                        />
+                        {!miCaja && (
+                          <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
+                            No tenés una caja abierta — el egreso se registra en Caja Central
+                          </Text>
+                        )}
+                      </div>
+                    </div>
+                  ),
+                }]}
+              />
+
+              <Divider style={{ margin: '8px 0' }} />
               </div>{/* /npm-sidebar-scroll */}
 
               {/* Cobro action buttons */}

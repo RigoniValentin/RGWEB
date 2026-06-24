@@ -501,7 +501,6 @@ export interface ListaPrecio {
   DESCRIPCION: string | null;
   MARGEN: number;
   ACTIVA: boolean;
-  MARGEN_REAL: number | null;
 }
 
 export interface Deposito {

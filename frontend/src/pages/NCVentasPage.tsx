@@ -1,14 +1,14 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Drawer, Descriptions, Spin, Alert,
-  Button, Input, Dropdown, Popconfirm, message, Select, Statistic, Card, Row, Col,
+  Button, Input, Popconfirm, message, Select, Statistic, Card, Row, Col,
   Tooltip, Modal,
 } from 'antd';
 import {
   EyeOutlined, PlusOutlined, StopOutlined,
-  SearchOutlined, MoreOutlined, ReloadOutlined,
+  SearchOutlined, ReloadOutlined,
   FileExclamationOutlined, UndoOutlined, ThunderboltOutlined,
   BankOutlined,
 } from '@ant-design/icons';
@@ -20,6 +20,8 @@ import { NewNCVentaModal } from '../components/sales/NewNCVentaModal.js';
 import { useTabStore } from '../store/tabStore';
 import { useNavigationStore } from '../store/navigationStore';
 import { fmtMoney, fmtNum, statFormatter } from '../utils/format';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
 
 const { Title, Text } = Typography;
 
@@ -167,26 +169,27 @@ export function NCVentasPage() {
   const totalActivas = notas?.filter(n => !n.ANULADA).length ?? 0;
   const totalAnuladas = notas?.filter(n => n.ANULADA).length ?? 0;
 
-  // ── Action menu ────────────────────────────────
-  const getRowActions = (record: NCVenta) => {
-    const items: any[] = [
-      { key: 'detail', label: 'Ver detalle', icon: <EyeOutlined />, onClick: () => openDetail(record) },
-    ];
-    if (!record.ANULADA) {
-      if (utilizaFE && !record.EMITIDA_FISCAL && record.NUMERO_FISCAL === null) {
-        items.push({
-          key: 'emitir-fiscal',
-          label: 'Emitir NC Fiscal',
-          icon: <ThunderboltOutlined />,
-        });
-      }
-      items.push(
-        { type: 'divider' as const },
-        { key: 'anular', label: 'Anular NC', icon: <StopOutlined />, danger: true },
-      );
-    }
-    return items;
-  };
+  // ── Context menu actions ─────────────────────────
+  const contextMenuActions = useMemo<RowAction<NCVenta>[]>(() => [
+    { key: 'view', label: 'Ver detalle', icon: <EyeOutlined />, onClick: openDetail },
+    {
+      key: 'emitir-fiscal', label: 'Emitir NC Fiscal', icon: <ThunderboltOutlined />,
+      onClick: (r) => emitirFiscalMutation.mutate(r.NC_ID),
+      disabled: (r) => r.ANULADA || !utilizaFE || r.EMITIDA_FISCAL || r.NUMERO_FISCAL !== null,
+    },
+    { type: 'divider' },
+    {
+      key: 'anular', label: 'Anular NC', icon: <StopOutlined />, danger: true,
+      onClick: (r) => openDetail(r),
+      disabled: (r) => r.ANULADA,
+    },
+  ], [utilizaFE]);
+
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<NCVenta>({
+    getRowId: (r) => r.NC_ID,
+    primaryAction: openDetail,
+    actions: contextMenuActions,
+  });
 
   // ── Columns ────────────────────────────────────
   const columns = [
@@ -243,33 +246,6 @@ export function NCVentasPage() {
       title: 'Estado', key: 'estado', width: 100, align: 'center' as const,
       render: (_: unknown, record: NCVenta) => (
         <Tag color={record.ANULADA ? 'red' : 'green'}>{record.ANULADA ? 'Anulada' : 'Activa'}</Tag>
-      ),
-    },
-    {
-      title: '', key: 'actions', width: 80, fixed: 'right' as const,
-      render: (_: unknown, record: NCVenta) => (
-        <Space size={4}>
-          <EyeOutlined
-            style={{ cursor: 'pointer', color: '#EABD23', fontSize: 16 }}
-            onClick={() => openDetail(record)}
-          />
-          <Dropdown
-            menu={{
-              items: getRowActions(record),
-              onClick: ({ key }) => {
-                if (key === 'anular') {
-                  openDetail(record);
-                } else if (key === 'emitir-fiscal') {
-                  emitirFiscalMutation.mutate(record.NC_ID);
-                }
-              },
-            }}
-            trigger={['click']}
-            placement="bottomRight"
-          >
-            <MoreOutlined style={{ cursor: 'pointer', fontSize: 16, padding: 4 }} />
-          </Dropdown>
-        </Space>
       ),
     },
   ];
@@ -379,10 +355,15 @@ export function NCVentasPage() {
         }}
         size="small"
         scroll={{ x: 1000 }}
-        onRow={(record) => ({
-          onDoubleClick: () => openDetail(record),
-          style: record.ANULADA ? { opacity: 0.5 } : undefined,
-        })}
+        onRow={onRow}
+        rowClassName={(r) => `${rowClassName(r)} ${r.ANULADA ? 'rg-row-anulada' : ''}`}
+      />
+
+      <RowContextMenu
+        open={contextMenu !== null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        items={contextMenuItems}
+        onClose={closeContextMenu}
       />
 
       {/* ── Detail Drawer ─────────────────────── */}

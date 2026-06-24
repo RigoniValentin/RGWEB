@@ -1,12 +1,12 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Drawer, Descriptions, Spin,
-  Button, Input, Dropdown, Popconfirm, message, Checkbox, Modal, Tooltip, Badge,
+  Button, Input, Popconfirm, message, Checkbox, Modal, Tooltip, Badge,
 } from 'antd';
 import {
   EyeOutlined, PlusOutlined, DeleteOutlined, DollarOutlined,
-  SearchOutlined, MoreOutlined, WalletOutlined, CloseCircleOutlined, ReloadOutlined,
+  SearchOutlined, WalletOutlined, CloseCircleOutlined, ReloadOutlined,
   PrinterOutlined, WhatsAppOutlined, SendOutlined, UserOutlined,
   FileTextOutlined, FilePdfOutlined, SwapOutlined, BankOutlined,
   FileExclamationOutlined,
@@ -32,6 +32,9 @@ import { printFacturaTicket } from '../components/sales/facturaTicket';
 import { NewNCVentaModal } from '../components/sales/NewNCVentaModal';
 import { settingsApi } from '../services/settings.api';
 import type { Venta, VentaDetalle } from '../types';
+import { ExportButtons, type ExportColumn } from '../components/ExportButtons';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
 
 const { Title, Text } = Typography;
 
@@ -123,6 +126,19 @@ export function SalesPage() {
       cobrada: filterCobrada,
       puntoVentaId: pvFilter,
     }),
+  });
+
+  // Query para exportar TODAS las ventas (sin paginación, con los mismos filtros)
+  const { data: allSalesData } = useQuery({
+    queryKey: ['sales-all', searchDebounced, fechaDesde, fechaHasta, filterCobrada, pvFilter],
+    queryFn: () => salesApi.getAll({
+      page: 1, pageSize: 999999,
+      search: searchDebounced || undefined,
+      fechaDesde, fechaHasta,
+      cobrada: filterCobrada,
+      puntoVentaId: pvFilter,
+    }),
+    staleTime: 30 * 1000,
   });
 
   // ── Detail query ───────────────────────────────
@@ -339,77 +355,122 @@ export function SalesPage() {
     }
   };
 
-  const getRowActions = (record: Venta) => {
-    const items: any[] = [
-      { key: 'detail', label: 'Ver detalle', icon: <EyeOutlined />, onClick: () => openDetail(record) },
-    ];
+  // ── Export columns ───────────────────────────
+  const exportColumns: ExportColumn<Venta>[] = [
+    { title: '#', dataIndex: 'VENTA_ID', align: 'center', width: 8 },
+    {
+      title: 'Fecha', dataIndex: 'FECHA_VENTA',
+      render: (v: string) => v ? new Date(v).toLocaleString('es-AR') : '-',
+      width: 20,
+    },
+    { title: 'Cliente', dataIndex: 'CLIENTE_NOMBRE', width: 28 },
+    { title: 'Vendedor', dataIndex: 'USUARIO_NOMBRE', width: 18 },
+    {
+      title: 'Comprobante', dataIndex: 'TIPO_COMPROBANTE',
+      render: (v: string) => v || '-', align: 'center', width: 14,
+    },
+    {
+      title: 'Nro. Fiscal', dataIndex: 'NUMERO_FISCAL',
+      render: (v: string | null) => v || '-', align: 'center', width: 16,
+    },
+    {
+      title: 'Total', dataIndex: 'TOTAL', numeric: true, money: true,
+      align: 'right', width: 18,
+    },
+    {
+      title: 'Cobrada', dataIndex: 'COBRADA',
+      render: (v: boolean) => v ? 'Sí' : 'No', align: 'center', width: 10,
+    },
+  ];
 
-    if (!record.COBRADA) {
-      items.push(
-        { key: 'pay-total', label: 'Cobro total', icon: <WalletOutlined />, onClick: () => openPayment(record, 'total') },
-        { key: 'pay-partial', label: 'Cobro parcial', icon: <DollarOutlined />, onClick: () => openPayment(record, 'parcial') },
-      );
-    } else {
-      items.push(
-        { key: 'unpay', label: 'Quitar cobro', icon: <CloseCircleOutlined />, danger: true, onClick: () => unpayMutation.mutate(record.VENTA_ID) },
-      );
-    }
+  const exportMeta = (() => {
+    const parts: string[] = [];
+    if (searchDebounced) parts.push(`Búsqueda: "${searchDebounced}"`);
+    if (fechaDesde && fechaHasta) parts.push(`Período: ${fechaDesde} → ${fechaHasta}`);
+    if (filterCobrada === false) parts.push('Sólo cobro pendiente');
+    if (pvFilter) parts.push(`PV ID: ${pvFilter}`);
+    return parts.length > 0 ? `Filtros: ${parts.join(' · ')}` : undefined;
+  })();
 
-    if (!record.NUMERO_FISCAL) {
-      if (utilizaFE) {
-        items.push(
-          { type: 'divider' as const },
-          { key: 'facturar', label: 'Emitir Factura Electrónica', icon: <FileTextOutlined />, onClick: () => handleFacturar(record.VENTA_ID) },
-        );
-      }
-      items.push(
-        { type: 'divider' as const },
-        { key: 'delete', label: 'Eliminar', icon: <DeleteOutlined />, danger: true, onClick: () => deleteMutation.mutate(record.VENTA_ID) },
-      );
-    } else {
-      items.push(
-        { type: 'divider' as const },
-        { key: 'fe-pdf', label: 'Descargar PDF', icon: <FilePdfOutlined />, onClick: () => handleFacturaPdf(record.VENTA_ID) },
-        { key: 'fe-pdf-dup', label: 'PDF Original + Duplicado', icon: <FilePdfOutlined />, onClick: () => handleFacturaPdf(record.VENTA_ID, 'original-duplicado') },
-        { key: 'fe-ticket', label: 'Imprimir ticket 80mm', icon: <PrinterOutlined />, onClick: () => handleFacturaTicket(record.VENTA_ID) },
-      );
-    }
+  const exportData = data?.data ?? [];
+  const exportSummary = exportData.length > 0 ? [[
+    '', '', '', '', '', 'TOTALES',
+    fmtMoney(exportData.reduce((s, r) => s + (r.TOTAL ?? 0), 0)),
+    '',
+  ]] : undefined;
 
-    // Nota de Crédito
-    if (record.COBRADA) {
-      items.push(
-        { type: 'divider' as const },
-        {
-          key: 'nc-venta',
-          label: 'Nota de Crédito',
-          icon: <FileExclamationOutlined />,
-          onClick: () => {
-            setNCVentaPreselected({ ventaId: record.VENTA_ID, clienteId: record.CLIENTE_ID });
-            setNCVentaOpen(true);
-          },
-        },
-      );
-    }
+// ── Context menu actions ───────────────────────
+  const contextMenuActions = useMemo<RowAction<Venta>[]>(() => [
+    { key: 'view', label: 'Ver detalle', icon: <EyeOutlined />, onClick: openDetail },
+    { type: 'divider' },
+    {
+      key: 'pay-total', label: 'Cobro total', icon: <WalletOutlined />,
+      onClick: (r) => openPayment(r, 'total'),
+      disabled: (r) => r.COBRADA,
+    },
+    {
+      key: 'pay-partial', label: 'Cobro parcial', icon: <DollarOutlined />,
+      onClick: (r) => openPayment(r, 'parcial'),
+      disabled: (r) => r.COBRADA,
+    },
+    {
+      key: 'unpay', label: 'Quitar cobro', icon: <CloseCircleOutlined />, danger: true,
+      onClick: (r) => unpayMutation.mutate(r.VENTA_ID),
+      disabled: (r) => !r.COBRADA,
+    },
+    { type: 'divider' },
+    {
+      key: 'facturar', label: 'Emitir Factura Electrónica', icon: <FileTextOutlined />,
+      onClick: (r) => handleFacturar(r.VENTA_ID),
+      disabled: (r) => !!r.NUMERO_FISCAL || !utilizaFE,
+    },
+    {
+      key: 'delete', label: 'Eliminar', icon: <DeleteOutlined />, danger: true,
+      onClick: (r) => deleteMutation.mutate(r.VENTA_ID),
+      disabled: (r) => !!r.NUMERO_FISCAL,
+    },
+    { type: 'divider' },
+    {
+      key: 'fe-pdf', label: 'Descargar PDF', icon: <FilePdfOutlined />,
+      onClick: (r) => handleFacturaPdf(r.VENTA_ID),
+      disabled: (r) => !r.NUMERO_FISCAL,
+    },
+    {
+      key: 'fe-pdf-dup', label: 'PDF Original + Duplicado', icon: <FilePdfOutlined />,
+      onClick: (r) => handleFacturaPdf(r.VENTA_ID, 'original-duplicado'),
+      disabled: (r) => !r.NUMERO_FISCAL,
+    },
+    {
+      key: 'fe-ticket', label: 'Imprimir ticket 80mm', icon: <PrinterOutlined />,
+      onClick: (r) => handleFacturaTicket(r.VENTA_ID),
+      disabled: (r) => !r.NUMERO_FISCAL,
+    },
+    { type: 'divider' },
+    {
+      key: 'nc-venta', label: 'Nota de Crédito', icon: <FileExclamationOutlined />,
+      onClick: (r) => {
+        setNCVentaPreselected({ ventaId: r.VENTA_ID, clienteId: r.CLIENTE_ID });
+        setNCVentaOpen(true);
+      },
+      disabled: (r) => !r.COBRADA,
+    },
+    { type: 'divider' },
+    {
+      key: 'cta-corriente', label: 'Ver Cta. Corriente', icon: <SwapOutlined />,
+      onClick: (r) => {
+        openTab({ key: '/cta-corriente', label: 'Cta. Corriente', closable: true });
+        navTo('/cta-corriente', { clienteId: r.CLIENTE_ID });
+        navigate('/cta-corriente');
+      },
+      disabled: (r) => !r.ES_CTA_CORRIENTE,
+    },
+  ], [utilizaFE]);
 
-    // Cta. Corriente — show for ES_CTA_CORRIENTE sales
-    if (record.ES_CTA_CORRIENTE) {
-      items.push(
-        { type: 'divider' as const },
-        {
-          key: 'cta-corriente',
-          label: 'Ver Cta. Corriente',
-          icon: <SwapOutlined />,
-          onClick: () => {
-            openTab({ key: '/cta-corriente', label: 'Cta. Corriente', closable: true });
-            navTo('/cta-corriente', { clienteId: record.CLIENTE_ID });
-            navigate('/cta-corriente');
-          },
-        },
-      );
-    }
-
-    return items;
-  };
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<Venta>({
+    getRowId: (r) => r.VENTA_ID,
+    primaryAction: openDetail,
+    actions: contextMenuActions,
+  });
 
   // ── Columns ────────────────────────────────────
   const columns = [
@@ -462,24 +523,6 @@ export function SalesPage() {
       title: 'Cobrada', dataIndex: 'COBRADA', key: 'paid', width: 100, align: 'center' as const,
       render: (v: boolean) => <Tag color={v ? 'green' : 'orange'}>{v ? 'Cobrada' : 'Pendiente'}</Tag>,
     },
-    {
-      title: '', key: 'actions', width: 80, fixed: 'right' as const,
-      render: (_: unknown, record: Venta) => (
-        <Space size={4}>
-          <EyeOutlined
-            style={{ cursor: 'pointer', color: '#EABD23', fontSize: 16 }}
-            onClick={() => openDetail(record)}
-          />
-          <Dropdown
-            menu={{ items: getRowActions(record) }}
-            trigger={['click']}
-            placement="bottomRight"
-          >
-            <MoreOutlined style={{ cursor: 'pointer', fontSize: 16, padding: 4 }} />
-          </Dropdown>
-        </Space>
-      ),
-    },
   ];
 
   return (
@@ -514,6 +557,18 @@ export function SalesPage() {
             Cobro pendiente
           </Checkbox>
           <Button icon={<ReloadOutlined />} onClick={() => refetch()} />
+          <ExportButtons
+            data={exportData}
+            allData={allSalesData?.data}
+            totalCount={allSalesData?.total}
+            columns={exportColumns}
+            title="Listado de Ventas"
+            subtitle="Ventas registradas"
+            meta={exportMeta}
+            footerSummary={exportSummary}
+            fileName="ventas"
+            sheetName="Ventas"
+          />
           {miCaja && (
             <Button
               icon={<BankOutlined />}
@@ -554,9 +609,15 @@ export function SalesPage() {
         }}
         size="middle"
         scroll={{ x: 800 }}
-        onRow={(record) => ({
-          onDoubleClick: () => openDetail(record),
-        })}
+        onRow={onRow}
+        rowClassName={rowClassName}
+      />
+
+      <RowContextMenu
+        open={contextMenu !== null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        items={contextMenuItems}
+        onClose={closeContextMenu}
       />
 
       {/* ── Detail Drawer ─────────────────────── */}

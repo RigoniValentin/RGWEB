@@ -22,6 +22,8 @@ import { fmtMoney } from '../utils/format';
 import { invalidateCashQueries } from '../utils/invalidateCashQueries';
 import { NuevaCobranzaModal } from '../components/ctaCorriente/NuevaCobranzaModal';
 import { useNavigationStore } from '../store/navigationStore';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -239,6 +241,16 @@ export function CtaCorrientePage() {
     },
   ];
 
+  // ── Row interactions (active row + context menu) ─
+  const contextMenuActions = useMemo<RowAction<CtaCorrienteListItem>[]>(() => [
+    { key: 'view', label: 'Ver detalle', icon: <EyeOutlined />, onClick: handleView },
+  ], []);
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<CtaCorrienteListItem>({
+    getRowId: (r) => r.CTA_CORRIENTE_ID,
+    primaryAction: handleView,
+    actions: contextMenuActions,
+  });
+
   // ── Movement columns ────────────────────────────
   const movColumns: TableColumnType<MovimientoCtaCte>[] = [
     {
@@ -415,16 +427,21 @@ export function CtaCorrientePage() {
       {/* Main table */}
       <Table<CtaCorrienteListItem>
         className="rg-table"
-        rowKey="CLIENTE_ID"
+        rowKey="CTA_CORRIENTE_ID"
         columns={columns}
         dataSource={clientes}
         loading={isLoading}
         size="small"
         pagination={{ pageSize: 25, showSizeChanger: true, showTotal: t => `${t} clientes` }}
-        onRow={(record) => ({
-          onDoubleClick: () => handleView(record),
-          style: { cursor: 'pointer' },
-        })}
+        onRow={onRow}
+        rowClassName={rowClassName}
+      />
+
+      <RowContextMenu
+        open={contextMenu !== null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        items={contextMenuItems}
+        onClose={closeContextMenu}
       />
 
       {/* Detail drawer */}

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card, Tabs, Table, Tag, Button, Modal, Drawer, Form, Input, InputNumber, Select,
-  Typography, Space, Popconfirm, App, Descriptions, Empty, Tooltip, Statistic, Row, Col,
+  Typography, Space, App, Descriptions, Empty, Tooltip, Statistic, Row, Col,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -22,6 +22,8 @@ import {
 import { salesApi } from '../services/sales.api';
 import { cajaApi } from '../services/caja.api';
 import type { Deposito, MetodoPago } from '../types';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -263,44 +265,63 @@ function OrdersTable({
         ? <Tooltip title={`CAE: ${row.CAE}`}><Tag color="green">{row.COMPROBANTE_NUMERO || 'OK'}</Tag></Tooltip>
         : <Text type="secondary">—</Text>,
     },
+  ], []);
+
+  // ── Row interactions (active row + context menu) ─
+  const openDetailFor = (row: TiendaOrder) => onOpenDetail(row.TIENDA_ORDER_ID);
+
+  const contextMenuActions = useMemo<RowAction<TiendaOrder>[]>(() => [
     {
-      title: 'Acciones',
-      width: 280,
-      fixed: 'right',
-      render: (_: any, row) => (
-        <Space size="small">
-          <Tooltip title="Ver detalle">
-            <Button size="small" icon={<EyeOutlined />} onClick={() => onOpenDetail(row.TIENDA_ORDER_ID)} />
-          </Tooltip>
-          {row.ESTADO === 'PENDIENTE' && (
-            <Button size="small" type="primary" icon={<CheckCircleOutlined />} onClick={() => setProcesarOpen(row)}>
-              Procesar
-            </Button>
-          )}
-          {row.ESTADO === 'PROCESADO' && !row.FACTURADO && (
-            <Popconfirm
-              title="Emitir factura electrónica"
-              description={`Se emitirá factura por la venta #${row.VENTA_ID} y se enviará por mail a ${row.CLIENTE_EMAIL || 'el cliente (si tiene mail)'}.`}
-              okText="Facturar"
-              onConfirm={() => facturarMut.mutate(row.TIENDA_ORDER_ID)}
-            >
-              <Button size="small" icon={<FileTextOutlined />} loading={facturarMut.isPending}>Facturar</Button>
-            </Popconfirm>
-          )}
-          {row.ESTADO === 'FACTURADO' && row.CLIENTE_EMAIL && (
-            <Tooltip title="Reenviar comprobante por mail">
-              <Button size="small" icon={<MailOutlined />} onClick={() => reenviarMut.mutate(row.TIENDA_ORDER_ID)} loading={reenviarMut.isPending} />
-            </Tooltip>
-          )}
-          {(row.ESTADO === 'PENDIENTE' || row.ESTADO === 'PROCESADO') && (
-            <Button size="small" danger icon={<CloseCircleOutlined />} onClick={() => setCancelarOpen(row)}>
-              Cancelar
-            </Button>
-          )}
-        </Space>
-      ),
+      key: 'view',
+      label: 'Ver detalle',
+      icon: <EyeOutlined />,
+      onClick: openDetailFor,
     },
-  ], [facturarMut, reenviarMut, onOpenDetail]);
+    {
+      key: 'procesar',
+      label: 'Procesar',
+      icon: <CheckCircleOutlined />,
+      disabled: (r) => r.ESTADO !== 'PENDIENTE',
+      onClick: (r) => setProcesarOpen(r),
+    },
+    {
+      key: 'facturar',
+      label: 'Facturar',
+      icon: <FileTextOutlined />,
+      disabled: (r) => !(r.ESTADO === 'PROCESADO' && !r.FACTURADO),
+      onClick: (r) => {
+        Modal.confirm({
+          title: 'Emitir factura electrónica',
+          content: `Se emitirá factura por la venta #${r.VENTA_ID} y se enviará por mail a ${r.CLIENTE_EMAIL || 'el cliente (si tiene mail)'}.`,
+          okText: 'Facturar',
+          cancelText: 'Cancelar',
+          onOk: () => facturarMut.mutateAsync(r.TIENDA_ORDER_ID),
+        });
+      },
+    },
+    {
+      key: 'reenviar',
+      label: 'Reenviar comprobante',
+      icon: <MailOutlined />,
+      disabled: (r) => !(r.ESTADO === 'FACTURADO' && r.CLIENTE_EMAIL),
+      onClick: (r) => reenviarMut.mutate(r.TIENDA_ORDER_ID),
+    },
+    { type: 'divider' },
+    {
+      key: 'cancelar',
+      label: 'Cancelar',
+      icon: <CloseCircleOutlined />,
+      danger: true,
+      disabled: (r) => !(r.ESTADO === 'PENDIENTE' || r.ESTADO === 'PROCESADO'),
+      onClick: (r) => setCancelarOpen(r),
+    },
+  ], [facturarMut, reenviarMut]);
+
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<TiendaOrder>({
+    getRowId: (r) => r.TIENDA_ORDER_ID,
+    primaryAction: openDetailFor,
+    actions: contextMenuActions,
+  });
 
   return (
     <>
@@ -317,7 +338,16 @@ function OrdersTable({
         columns={columns}
         pagination={{ pageSize: 20, showSizeChanger: false, total: data?.total ?? 0 }}
         scroll={{ x: 1100 }}
+        onRow={onRow}
+        rowClassName={rowClassName}
         locale={{ emptyText: <Empty description="No hay pedidos en este estado" /> }}
+      />
+
+      <RowContextMenu
+        open={contextMenu !== null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        items={contextMenuItems}
+        onClose={closeContextMenu}
       />
 
       {procesarOpen && (

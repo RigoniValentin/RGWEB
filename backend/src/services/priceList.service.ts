@@ -15,7 +15,6 @@ export interface PriceListInput {
   NOMBRE: string;
   DESCRIPCION?: string | null;
   MARGEN?: number;
-  MARGEN_REAL?: number | null;
   ACTIVA?: boolean;
 }
 
@@ -48,6 +47,7 @@ export interface ApplyPercentageInput {
   porcentaje: number;
   incluirInactivos?: boolean;
   redondeo?: 'ninguno' | 'entero' | '50' | '100';
+  actualizarMargen?: boolean;
 }
 
 function validateListId(listaId: number) {
@@ -128,7 +128,6 @@ export const priceListService = {
       CODIGOPARTICULAR: 'CODIGOPARTICULAR',
       NOMBRE: 'NOMBRE',
       MARGEN: 'MARGEN',
-      MARGEN_REAL: 'MARGEN_REAL',
     };
     const orderCol = validCols[filter.orderBy || 'LISTA_ID'] || 'LISTA_ID';
     const orderDir = filter.orderDir === 'DESC' ? 'DESC' : 'ASC';
@@ -136,7 +135,7 @@ export const priceListService = {
     dataReq.input('offset', sql.Int, offset);
     dataReq.input('pageSize', sql.Int, pageSize);
     const dataResult = await dataReq.query<ListaPrecio>(`
-      SELECT LISTA_ID, CODIGOPARTICULAR, NOMBRE, DESCRIPCION, MARGEN, ACTIVA, MARGEN_REAL
+      SELECT LISTA_ID, CODIGOPARTICULAR, NOMBRE, DESCRIPCION, MARGEN, ACTIVA
       FROM LISTA_PRECIOS
       ${where}
       ORDER BY ${orderCol} ${orderDir}
@@ -158,7 +157,7 @@ export const priceListService = {
     const result = await pool.request()
       .input('id', sql.Int, id)
       .query<ListaPrecio>(`
-        SELECT LISTA_ID, CODIGOPARTICULAR, NOMBRE, DESCRIPCION, MARGEN, ACTIVA, MARGEN_REAL
+        SELECT LISTA_ID, CODIGOPARTICULAR, NOMBRE, DESCRIPCION, MARGEN, ACTIVA
         FROM LISTA_PRECIOS
         WHERE LISTA_ID = @id
       `);
@@ -175,9 +174,6 @@ export const priceListService = {
     validateListId(id);
     if (!input.NOMBRE?.trim()) {
       throw Object.assign(new Error('El nombre es obligatorio'), { name: 'ValidationError' });
-    }
-    if (input.MARGEN_REAL != null && input.MARGEN != null && input.MARGEN_REAL > input.MARGEN) {
-      throw Object.assign(new Error('El margen real no puede ser mayor que el margen.'), { name: 'ValidationError' });
     }
 
     const pool = await getPool();
@@ -199,7 +195,6 @@ export const priceListService = {
       .input('nombre', sql.NVarChar, input.NOMBRE.trim())
       .input('descripcion', sql.NVarChar, input.DESCRIPCION?.trim() || null)
       .input('margen', sql.Decimal(18, 4), input.MARGEN ?? 0)
-      .input('margenReal', sql.Decimal(18, 4), input.MARGEN_REAL ?? input.MARGEN ?? 0)
       .input('activa', sql.Bit, input.ACTIVA !== false ? 1 : 0)
       .query(`
         UPDATE LISTA_PRECIOS SET
@@ -207,7 +202,6 @@ export const priceListService = {
           NOMBRE = @nombre,
           DESCRIPCION = @descripcion,
           MARGEN = @margen,
-          MARGEN_REAL = @margenReal,
           ACTIVA = @activa
         WHERE LISTA_ID = @id
       `);
@@ -373,12 +367,31 @@ export const priceListService = {
       `);
 
     await syncMarginsForList(listaId, whereSql);
+
+    let margenAnterior: number | null = null;
+    let margenNuevo: number | null = null;
+    if (input.actualizarMargen) {
+      const margenReq = pool.request().input('id', sql.Int, listaId);
+      const margenResult = await margenReq.query<{ MARGEN: number }>(`
+        SELECT MARGEN FROM LISTA_PRECIOS WHERE LISTA_ID = @id
+      `);
+      margenAnterior = margenResult.recordset[0]?.MARGEN ?? 0;
+      margenNuevo = Math.round(margenAnterior * (1 + porcentaje / 100) * 10000) / 10000;
+      await pool.request()
+        .input('id', sql.Int, listaId)
+        .input('margen', sql.Decimal(18, 4), margenNuevo)
+        .query(`UPDATE LISTA_PRECIOS SET MARGEN = @margen WHERE LISTA_ID = @id`);
+    }
+
     const after = await this.getStats(listaId);
 
     return {
       affected: result.rowsAffected[0] || 0,
       before,
       after,
+      margenAnterior,
+      margenNuevo,
+      margenActualizado: !!input.actualizarMargen,
     };
   },
 };

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -6,7 +6,7 @@ import {
   Button, Input, Dropdown, Popconfirm, message, Select, Statistic, Card, Row, Col,
 } from 'antd';
 import {
-  EyeOutlined, SearchOutlined, MoreOutlined, ReloadOutlined,
+  EyeOutlined, SearchOutlined, ReloadOutlined,
   StopOutlined, FilePdfOutlined,
   ImportOutlined, ExportOutlined,
 } from '@ant-design/icons';
@@ -21,6 +21,8 @@ import { generateRemitoPdf, type CopiasTipo } from '../components/remitos/remito
 import { useTabStore } from '../store/tabStore';
 import { useNavigationStore } from '../store/navigationStore';
 import { fmtMoney, fmtNum, statFormatter } from '../utils/format';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
 
 const { Title, Text } = Typography;
 
@@ -137,6 +139,37 @@ export function RemitosPage() {
   const totalEntradas = remitos.filter((r: Remito) => r.TIPO === 'ENTRADA' && !r.ANULADO).length;
   const totalSalidas = remitos.filter((r: Remito) => r.TIPO === 'SALIDA' && !r.ANULADO).length;
 
+  // ── Context menu actions ─────────────────────────
+  const contextMenuActions = useMemo<RowAction<Remito>[]>(() => [
+    { key: 'view', label: 'Ver detalle', icon: <EyeOutlined />, onClick: openDetail },
+    {
+      key: 'pdf-original', label: 'PDF Original', icon: <FilePdfOutlined />,
+      onClick: async (r) => {
+        const d = await remitosApi.getById(r.REMITO_ID);
+        handleGeneratePdf(d, 'original');
+      },
+    },
+    {
+      key: 'pdf-duplicado', label: 'PDF Original + Duplicado', icon: <FilePdfOutlined />,
+      onClick: async (r) => {
+        const d = await remitosApi.getById(r.REMITO_ID);
+        handleGeneratePdf(d, 'original-duplicado');
+      },
+    },
+    { type: 'divider' },
+    {
+      key: 'anular', label: 'Anular', icon: <StopOutlined />, danger: true,
+      onClick: (r) => anularMutation.mutate(r.REMITO_ID),
+      disabled: (r) => r.ANULADO,
+    },
+  ], []);
+
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<Remito>({
+    getRowId: (r) => r.REMITO_ID,
+    primaryAction: openDetail,
+    actions: contextMenuActions,
+  });
+
   // ── Table columns ─────────────────────────────
   const columns = [
     {
@@ -176,31 +209,6 @@ export function RemitosPage() {
       render: (_: any, r: Remito) => r.ANULADO
         ? <Tag color="red">Anulado</Tag>
         : <Tag color="green">Activo</Tag>,
-    },
-    {
-      title: '', width: 25, align: 'center' as const,
-      render: (_: any, record: Remito) => (
-        <Dropdown menu={{
-          items: [
-            { key: 'ver', icon: <EyeOutlined />, label: 'Ver detalle', onClick: () => openDetail(record) },
-            { key: 'pdf-original', icon: <FilePdfOutlined />, label: 'PDF Original', onClick: async () => {
-              const d = await remitosApi.getById(record.REMITO_ID);
-              handleGeneratePdf(d, 'original');
-            }},
-            { key: 'pdf-duplicado', icon: <FilePdfOutlined />, label: 'PDF Original + Duplicado', onClick: async () => {
-              const d = await remitosApi.getById(record.REMITO_ID);
-              handleGeneratePdf(d, 'original-duplicado');
-            }},
-            ...(record.ANULADO ? [] : [
-              { type: 'divider' as const },
-              { key: 'anular', icon: <StopOutlined />, label: 'Anular', danger: true,
-                onClick: () => anularMutation.mutate(record.REMITO_ID) },
-            ]),
-          ],
-        }} trigger={['click']}>
-          <Button type="text" size="small" icon={<MoreOutlined />} />
-        </Dropdown>
-      ),
     },
   ];
 
@@ -293,10 +301,15 @@ export function RemitosPage() {
           showTotal: (t) => `${t} remitos`,
           onChange: (p, ps) => { setPage(p); setPageSize(ps); },
         }}
-        onRow={(record) => ({
-          onDoubleClick: () => openDetail(record),
-          style: record.ANULADO ? { opacity: 0.5 } : undefined,
-        })}
+        onRow={onRow}
+        rowClassName={(r) => `${rowClassName(r)} ${r.ANULADO ? 'rg-row-anulada' : ''}`}
+      />
+
+      <RowContextMenu
+        open={contextMenu !== null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        items={contextMenuItems}
+        onClose={closeContextMenu}
       />
 
       {/* ── Detail Drawer ── */}

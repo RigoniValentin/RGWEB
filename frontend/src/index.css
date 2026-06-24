@@ -1,8 +1,8 @@
-/* ══════════════════════════════════════════════════
-   Río Gestión — Global Styles & Animations
-   ══════════════════════════════════════════════════ */
+/* â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�
+   RÃ­o GestiÃ³n â€” Global Styles & Animations
+   â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•� */
 
-/* ── CSS Variables ────────────────────────────── */
+/* â”€â”€ CSS Variables â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 :root {
   --rg-black: #1E1F22;
   --rg-black-light: #2A2B2F;
@@ -20,7 +20,7 @@
   --rg-transition: background-color 0.1s ease-out, color 0.1s ease-out, border-color 0.1s ease-out;
 }
 
-/* ── Reset & Base ─────────────────────────────── */
+/* â”€â”€ Reset & Base â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 * {
   margin: 0;
   padding: 0;
@@ -42,7 +42,7 @@ body {
   overflow: hidden;
 }
 
-/* ── Scrollbar ────────────────────────────────── */
+/* â”€â”€ Scrollbar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -58,7 +58,7 @@ body {
   background: var(--rg-gold-dark);
 }
 
-/* ── Animations ───────────────────────────────── */
+/* â”€â”€ Animations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -115,7 +115,7 @@ body {
 .animate-fade-up     { animation: fadeInUp 0.3s ease-out both; }
 .animate-scale-in    { animation: scaleIn 0.25s ease-out both; }
 
-/* Stagger children — delays cortos para no demorar la entrada */
+/* Stagger children â€” delays cortos para no demorar la entrada */
 .stagger > *:nth-child(1) { animation-delay: 0.02s; }
 .stagger > *:nth-child(2) { animation-delay: 0.05s; }
 .stagger > *:nth-child(3) { animation-delay: 0.08s; }
@@ -123,9 +123,9 @@ body {
 .stagger > *:nth-child(5) { animation-delay: 0.14s; }
 .stagger > *:nth-child(6) { animation-delay: 0.17s; }
 
-/* ── Page Transition Wrapper ──────────────────── */
+/* â”€â”€ Page Transition Wrapper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
-/* ── Header "Web" badge ───────────────────────── */
+/* â”€â”€ Header "Web" badge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 @keyframes webShimmer {
   0%, 100% { background-position: 100% 0; }
   50%      { background-position: 0% 0; }
@@ -157,7 +157,7 @@ body {
   animation: fadeIn 0.3s ease-out both;
 }
 
-/* ── Routed panels ───────────────────────────── */
+/* â”€â”€ Routed panels â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-tab-panel {
   display: none;
   height: 100%;
@@ -184,9 +184,9 @@ body {
   flex-shrink: 0;
 }
 
-/* ── Reduced motion (accesibilidad + dispositivos débiles) ──
+/* â”€â”€ Reduced motion (accesibilidad + dispositivos dÃ©biles) â”€â”€
    Usuarios con la preferencia OS "reducir movimiento" o equipos
-   con limitaciones de GPU obtienen una UI completamente estática. */
+   con limitaciones de GPU obtienen una UI completamente estÃ¡tica. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -198,11 +198,11 @@ body {
   }
 }
 
-/* ── Card Hover ───────────────────────────────── */
-/* Por defecto las tarjetas son ESTÁTICAS (sin lift, sin transición continua).
+/* â”€â”€ Card Hover â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Por defecto las tarjetas son ESTÃ�TICAS (sin lift, sin transiciÃ³n continua).
    El hover con transform+shadow se reserva para tarjetas declaradas como
-   clickeables (prop `hoverable` de Ant Design → clase .ant-card-hoverable).
-   También se acepta el opt-in manual con la clase `rg-card-hover`. */
+   clickeables (prop `hoverable` de Ant Design â†’ clase .ant-card-hoverable).
+   TambiÃ©n se acepta el opt-in manual con la clase `rg-card-hover`. */
 .rg-card {
   border: 1px solid transparent;
   border-radius: var(--rg-radius) !important;
@@ -220,16 +220,16 @@ body {
   border-color: var(--rg-gold);
 }
 
-/* ── Card flat (alias explícito) ──────────────── */
+/* â”€â”€ Card flat (alias explÃ­cito) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 /* Equivalente a .rg-card sin hover. Se mantiene para vistas que prefieren
-   declarar el "modo plano" de forma explícita (Libro IVA, listados densos). */
+   declarar el "modo plano" de forma explÃ­cita (Libro IVA, listados densos). */
 .rg-card-flat {
   border: 1px solid var(--rg-border);
   border-radius: var(--rg-radius) !important;
   overflow: hidden;
 }
 
-/* ── KPI Stat Card ────────────────────────────── */
+/* â”€â”€ KPI Stat Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 /* Mismo principio: hover solo si es clickeable. */
 .kpi-card {
   position: relative;
@@ -263,7 +263,7 @@ body {
   transform: scaleX(1);
 }
 
-/* ── Table Styling ────────────────────────────── */
+/* â”€â”€ Table Styling â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-tab-panel-active > .page-enter:has(> .page-header):has(.rg-table) > .ant-table-wrapper.rg-table,
 .rg-tab-panel-active > .page-enter:has(> .page-header):has(.rg-table) > .ant-card:has(.rg-table) {
   flex: 1 1 auto;
@@ -358,7 +358,7 @@ body {
 .rg-table .ant-table-tbody > tr:nth-child(even) > td {
   background: rgba(245, 245, 245, 0.5);
 }
-/* Libro IVA — NC/ND rows tinted red */
+/* Libro IVA â€” NC/ND rows tinted red */
 .rg-table .libro-iva-row-nc > td {
   background: rgba(255, 77, 79, 0.04) !important;
 }
@@ -366,8 +366,13 @@ body {
   background: rgba(255, 77, 79, 0.09) !important;
 }
 
-/* ── Sidebar ──────────────────────
-  bottom: 42px;────────────── */
+/* Anulada/anulado rows (NC, NC Compra, Remitos) */
+.rg-table .rg-row-anulada > td {
+  opacity: 0.5;
+}
+
+/* â”€â”€ Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  bottom: 42px;â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 /* Springy sider width transition (cubic-bezier for an organic feel) */
 .rg-sidebar.ant-layout-sider {
   transition:
@@ -413,7 +418,7 @@ body {
   color: var(--rg-black) !important;
 }
 
-/* ── Sidebar Submenu (Section headers) ────────── */
+/* â”€â”€ Sidebar Submenu (Section headers) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-sidebar .ant-menu-dark .ant-menu-submenu-title {
   margin: 2px 8px;
   border-radius: 8px;
@@ -447,7 +452,7 @@ body {
   color: rgba(234, 189, 35, 0.5) !important;
 }
 
-/* ── Collapse toggle buttons ──────────────────── */
+/* â”€â”€ Collapse toggle buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 /* Breathing logo animation in sidebar header */
 .rg-sidebar-header img {
   animation: breathe 4s ease-in-out infinite;
@@ -460,14 +465,14 @@ body {
 }
 
 
-/* ──────────────────────────────────────────────────
-   Collapsed Sidebar — Floating glass pills
-   • No more bordered "buttons": items are soft pills
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+   Collapsed Sidebar â€” Floating glass pills
+   â€¢ No more bordered "buttons": items are soft pills
      that breathe on hover and ride a fluid spring curve
-   • Active item gets a left-side gold accent bar that
+   â€¢ Active item gets a left-side gold accent bar that
      slides between selections
-   • Subtle inner glow on hover, full gold halo on active
-   ──────────────────────────────────────────────────── */
+   â€¢ Subtle inner glow on hover, full gold halo on active
+   â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-sidebar-collapsed .ant-menu-dark {
   display: flex;
   flex-direction: column;
@@ -490,14 +495,14 @@ body {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
-  /* Springy fluid transitions — same curve as sider for harmony */
+  /* Springy fluid transitions â€” same curve as sider for harmony */
   transition:
     background-color 200ms cubic-bezier(0.32, 0.72, 0, 1),
     transform 220ms cubic-bezier(0.32, 0.72, 0, 1),
     box-shadow 200ms cubic-bezier(0.32, 0.72, 0, 1) !important;
 }
 
-/* Sliding gold accent bar on the left edge — lives only on selected/active items */
+/* Sliding gold accent bar on the left edge â€” lives only on selected/active items */
 .rg-sidebar-collapsed .ant-menu-item::before,
 .rg-sidebar-collapsed .ant-menu-submenu-title::before {
   content: '';
@@ -525,7 +530,7 @@ body {
   transform: translateX(1px);
 }
 
-/* Icon styling — slightly larger, softer color, subtle scale on hover */
+/* Icon styling â€” slightly larger, softer color, subtle scale on hover */
 .rg-sidebar-collapsed .ant-menu-item .anticon,
 .rg-sidebar-collapsed .ant-menu-submenu-title .anticon {
   font-size: 20px !important;
@@ -615,7 +620,7 @@ body {
   filter: drop-shadow(0 0 4px rgba(234, 189, 35, 0.45));
 }
 
-/* Active press feedback — subtle squish */
+/* Active press feedback â€” subtle squish */
 .rg-sidebar-collapsed .ant-menu-item:active,
 .rg-sidebar-collapsed .ant-menu-submenu-title:active {
   transform: scale(0.94);
@@ -627,7 +632,7 @@ body {
   width: 0;
 }
 
-/* ── Header toggle (secondary) ────────────────── */
+/* â”€â”€ Header toggle (secondary) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-header-toggle {
   border-radius: 8px;
   transition: background-color 80ms ease-out, color 80ms ease-out;
@@ -637,7 +642,7 @@ body {
   color: var(--rg-gold) !important;
 }
 
-/* ── Sidebar Popup Menu (collapsed submenus hover) ── */
+/* â”€â”€ Sidebar Popup Menu (collapsed submenus hover) â”€â”€ */
 /* Ant Design 5 renders popups in a portal at body level.
    The popup wrapper uses .ant-menu-submenu-popup with child .ant-menu */
 :where(.ant-menu-submenu-popup) .ant-menu,
@@ -713,7 +718,7 @@ body {
 .ant-menu-submenu-popup .ant-menu-item-selected .anticon {
   color: var(--rg-black) !important;
 }
-/* Gold strip at the top of each popup — remove default pseudo-element */
+/* Gold strip at the top of each popup â€” remove default pseudo-element */
 :where(.ant-menu-submenu-popup) .ant-menu::before,
 .ant-menu-submenu-popup .ant-menu::before {
   display: none !important;
@@ -729,7 +734,7 @@ body {
   animation: rgSidebarPopupIn 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
-/* ── Popup Group Title (module name header) ─────── */
+/* â”€â”€ Popup Group Title (module name header) â”€â”€â”€â”€â”€â”€â”€ */
 :where(.ant-menu-submenu-popup) .ant-menu-item-group-title,
 .ant-menu-submenu-popup .ant-menu-item-group-title {
   color: var(--rg-gold) !important;
@@ -764,7 +769,7 @@ body {
   background: var(--rg-black) !important;
 }
 
-/* ── Drawer ───────────────────────────────────── */
+/* â”€â”€ Drawer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-drawer .ant-drawer-header {
   background: var(--rg-black);
   border-bottom: 2px solid var(--rg-gold);
@@ -780,7 +785,7 @@ body {
   color: var(--rg-gold);
 }
 
-/* ── Modal dark header (CRUD & general) ───────── */
+/* â”€â”€ Modal dark header (CRUD & general) â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-modal .ant-modal-header,
 .rg-drawer .ant-modal-header {
   background: var(--rg-black) !important;
@@ -822,7 +827,7 @@ body {
   margin-top: 0;
 }
 
-/* ── Page Header ──────────────────────────────── */
+/* â”€â”€ Page Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .page-header {
   display: flex;
   justify-content: space-between;
@@ -847,18 +852,100 @@ body {
   border-radius: 2px;
 }
 
-/* ── Price Lists ──────────────────────────────── */
-.price-list-row-selected > td {
+/* â”€â”€ Active Row (single selection highlight) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.rg-row-active > td {
   background: rgba(234, 189, 35, 0.18) !important;
 }
 
 @media (max-width: 860px) {
-  .price-list-row-selected > td {
+  .rg-row-active > td {
     background: rgba(234, 189, 35, 0.18) !important;
   }
 }
 
-/* ── Gold Button ──────────────────────────────── */
+/* â”€â”€ Row Context Menu (black/gold) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.rg-context-menu {
+  border-radius: var(--rg-radius) !important;
+  padding: 6px !important;
+  min-width: 190px;
+}
+.rg-context-menu .ant-menu-item {
+  border-radius: 6px !important;
+  margin: 0 !important;
+  padding: 8px 12px !important;
+  font-size: 13px;
+  font-weight: 500;
+  height: auto !important;
+  line-height: 1.4 !important;
+  background: transparent !important;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.rg-context-menu .ant-menu-item .ant-menu-item-icon {
+  margin-right: 4px;
+}
+.rg-context-menu .ant-menu-item-divider {
+  margin: 6px 4px !important;
+  height: 1px !important;
+}
+
+/* Dark variant */
+.rg-context-menu--dark {
+  background: var(--rg-black) !important;
+  color: var(--rg-white-smoke);
+  border: none !important;
+  border-top: 2px solid var(--rg-gold) !important;
+  box-shadow:
+    var(--rg-shadow-lg),
+    0 0 0 1px rgba(234, 189, 35, 0.18),
+    0 2px 0 rgba(234, 189, 35, 0.35) !important;
+}
+.rg-context-menu--dark .ant-menu-item { color: var(--rg-white-smoke) !important; }
+.rg-context-menu--dark .ant-menu-item:hover,
+.rg-context-menu--dark .ant-menu-item-active {
+  background: rgba(234, 189, 35, 0.14) !important;
+  color: var(--rg-gold) !important;
+}
+.rg-context-menu--dark .ant-menu-item .ant-menu-item-icon { color: var(--rg-gold) !important; }
+.rg-context-menu--dark .ant-menu-item:hover .ant-menu-item-icon { color: var(--rg-gold-light) !important; }
+.rg-context-menu--dark .ant-menu-item-divider { background: rgba(255, 255, 255, 0.08) !important; }
+.rg-context-menu--dark .ant-menu-item-danger { color: #ff7875 !important; }
+.rg-context-menu--dark .ant-menu-item-danger .ant-menu-item-icon { color: #ff7875 !important; }
+.rg-context-menu--dark .ant-menu-item-danger:hover,
+.rg-context-menu--dark .ant-menu-item-danger.ant-menu-item-active {
+  background: rgba(255, 77, 79, 0.14) !important;
+  color: #ff4d4f !important;
+}
+.rg-context-menu--dark .ant-menu-item-danger:hover .ant-menu-item-icon { color: #ff4d4f !important; }
+
+/* Light variant */
+.rg-context-menu--light {
+  background: var(--rg-white) !important;
+  color: var(--rg-black);
+  border: 1px solid var(--rg-border) !important;
+  border-top: 2px solid var(--rg-gold) !important;
+  box-shadow:
+    var(--rg-shadow-lg),
+    0 0 0 1px rgba(234, 189, 35, 0.22) !important;
+}
+.rg-context-menu--light .ant-menu-item { color: var(--rg-black) !important; }
+.rg-context-menu--light .ant-menu-item:hover,
+.rg-context-menu--light .ant-menu-item-active {
+  background: rgba(234, 189, 35, 0.12) !important;
+  color: var(--rg-black) !important;
+}
+.rg-context-menu--light .ant-menu-item .ant-menu-item-icon { color: var(--rg-gold-dark) !important; }
+.rg-context-menu--light .ant-menu-item:hover .ant-menu-item-icon { color: var(--rg-gold-dark) !important; }
+.rg-context-menu--light .ant-menu-item-divider { background: var(--rg-border) !important; }
+.rg-context-menu--light .ant-menu-item-danger { color: #ff4d4f !important; }
+.rg-context-menu--light .ant-menu-item-danger .ant-menu-item-icon { color: #ff4d4f !important; }
+.rg-context-menu--light .ant-menu-item-danger:hover,
+.rg-context-menu--light .ant-menu-item-danger.ant-menu-item-active {
+  background: rgba(255, 77, 79, 0.08) !important;
+  color: #ff4d4f !important;
+}
+.rg-context-menu--light .ant-menu-item-danger:hover .ant-menu-item-icon { color: #ff4d4f !important; }
+
+/* â”€â”€ Gold Button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .btn-gold {
   background: linear-gradient(135deg, var(--rg-gold), var(--rg-gold-dark)) !important;
   border: none !important;
@@ -873,7 +960,7 @@ body {
   background: linear-gradient(135deg, var(--rg-gold-light), var(--rg-gold)) !important;
 }
 
-/* ── Ant Overrides ────────────────────────────── */
+/* â”€â”€ Ant Overrides â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .ant-card {
   border-radius: var(--rg-radius);
   border: 1px solid var(--rg-border);
@@ -902,7 +989,7 @@ body {
   box-shadow: 0 0 0 2px rgba(234, 189, 35, 0.15) !important;
 }
 
-/* AutoComplete / Select dropdown — gold highlight on hover & active (alto contraste) */
+/* AutoComplete / Select dropdown â€” gold highlight on hover & active (alto contraste) */
 .ant-select-dropdown .ant-select-item-option-active,
 .ant-select-dropdown .ant-select-item-option:hover {
   background-color: rgba(234, 189, 35, 0.30) !important;
@@ -927,7 +1014,7 @@ body {
 .ant-spin-dot-item {
   background-color: var(--rg-gold) !important;
 }
-/* ── Sale detail Descriptions (drawer) ─────── */
+/* â”€â”€ Sale detail Descriptions (drawer) â”€â”€â”€â”€â”€â”€â”€ */
 .rg-drawer .ant-descriptions {
   border-radius: 10px;
   overflow: hidden;
@@ -982,7 +1069,7 @@ body {
   background: var(--rg-white-smoke);
 }
 
-/* ── Responsive adjustments ───────────────────── */
+/* â”€â”€ Responsive adjustments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 @media (max-width: 576px) {
   .page-header {
     flex-direction: column;
@@ -990,19 +1077,19 @@ body {
   }
 }
 
-/* ── Settings page row hover ──────────────────── */
+/* â”€â”€ Settings page row hover â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .setting-row:hover {
   background: rgba(234, 189, 35, 0.04) !important;
 }
 
-/* ── Loading skeleton shimmer ─────────────────── */
+/* â”€â”€ Loading skeleton shimmer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .skeleton-shimmer {
   background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
 }
 
-/* ── Stat prefix icon size in Dashboard ───────── */
+/* â”€â”€ Stat prefix icon size in Dashboard â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .kpi-card .ant-statistic-content-prefix {
   font-size: 22px;
   margin-right: 8px;
@@ -1013,13 +1100,13 @@ body {
   font-size: 13px;
 }
 
-/* ══════════════════════════════════════════════════
-   Header — Right-side decorative halo
-   • Diffuse gold radial glow anchored to right edge
-   • Fine 135° diagonal lines for texture
-   • 1px vertical gold accent at right edge
-   • mask-image fades decoration toward sidebar
-   ══════════════════════════════════════════════════ */
+/* â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�
+   Header â€” Right-side decorative halo
+   â€¢ Diffuse gold radial glow anchored to right edge
+   â€¢ Fine 135Â° diagonal lines for texture
+   â€¢ 1px vertical gold accent at right edge
+   â€¢ mask-image fades decoration toward sidebar
+   â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•� */
 .rg-header {
   position: sticky;
   overflow: hidden;
@@ -1065,13 +1152,13 @@ body {
   z-index: 2;
 }
 
-/* ══════════════════════════════════════════════════
-   TabBar — Modern fluid tab strip
-   • Springy cubic-bezier on every transition
-   • Active tab "lifts" with gold top accent + halo
-   • Hover grows a soft gold underline
-   • Close button morphs in with scale + opacity
-   ══════════════════════════════════════════════════ */
+/* â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�
+   TabBar â€” Modern fluid tab strip
+   â€¢ Springy cubic-bezier on every transition
+   â€¢ Active tab "lifts" with gold top accent + halo
+   â€¢ Hover grows a soft gold underline
+   â€¢ Close button morphs in with scale + opacity
+   â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•� */
 .rg-tabbar {
   display: flex;
   align-items: flex-end;
@@ -1106,13 +1193,13 @@ body {
   display: none;
 }
 
-/* ── TabBar right-side decoration ──────────────
-   • Gold radial halo anchored to right edge
-   • Fine 45° diagonal lines (differs from header's 135°)
-   • 1px vertical gold accent at right edge
-   • mask-image fades before the active-tab zone
-   • Respects border-bottom-right-radius: 20px
-   ──────────────────────────────────────────── */
+/* â”€â”€ TabBar right-side decoration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+   â€¢ Gold radial halo anchored to right edge
+   â€¢ Fine 45Â° diagonal lines (differs from header's 135Â°)
+   â€¢ 1px vertical gold accent at right edge
+   â€¢ mask-image fades before the active-tab zone
+   â€¢ Respects border-bottom-right-radius: 20px
+   â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-tabbar-deco {
   position: fixed;
   right: 0;
@@ -1157,7 +1244,7 @@ body {
   );
 }
 
-/* ── Individual tab ───────────────────────────── */
+/* â”€â”€ Individual tab â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-tab {
   display: flex;
   align-items: center;
@@ -1186,7 +1273,7 @@ body {
   overflow: hidden;
 }
 
-/* Hover underline — grows from center */
+/* Hover underline â€” grows from center */
 .rg-tab::after {
   content: '';
   position: absolute;
@@ -1213,7 +1300,7 @@ body {
   transition-duration: 90ms;
 }
 
-/* ── Active tab ───────────────────────────────── */
+/* â”€â”€ Active tab â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-tab-active {
   color: var(--rg-black) !important;
   background: var(--rg-white) !important;
@@ -1230,7 +1317,7 @@ body {
   width: 0 !important;
 }
 
-/* ── Gold top accent bar for active tab (replaces old underline) ── */
+/* â”€â”€ Gold top accent bar for active tab (replaces old underline) â”€â”€ */
 .rg-tab-indicator {
   position: absolute;
   top: 0;
@@ -1254,7 +1341,7 @@ body {
   to   { transform: translateX(-50%) scaleX(1);   opacity: 1; }
 }
 
-/* ── Tab icon ─────────────────────────────────── */
+/* â”€â”€ Tab icon â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-tab-icon {
   display: flex;
   align-items: center;
@@ -1275,7 +1362,7 @@ body {
   transform: scale(1);
 }
 
-/* ── Tab label ────────────────────────────────── */
+/* â”€â”€ Tab label â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-tab-label {
   max-width: 140px;
   overflow: hidden;
@@ -1283,7 +1370,7 @@ body {
   letter-spacing: 0.01em;
 }
 
-/* ── Tab close button ─────────────────────────── */
+/* â”€â”€ Tab close button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-tab-close {
   display: flex;
   align-items: center;
@@ -1328,7 +1415,7 @@ body {
   transform: scale(0.9) !important;
 }
 
-/* ── Drag & drop states ───────────────────────── */
+/* â”€â”€ Drag & drop states â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-tab-dragging {
   opacity: 0.4;
   transform: scale(0.94);
@@ -1355,12 +1442,12 @@ body {
   to   { opacity: 1;    transform: scaleY(1); }
 }
 
-/* ── Tab panel (content pane) ─────────────────── */
+/* â”€â”€ Tab panel (content pane) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-tab-panel {
   animation: fadeIn 0.25s ease-out both;
 }
 
-/* ── Sale modal footer / totals ───────────────── */
+/* â”€â”€ Sale modal footer / totals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .sale-footer {
   display: flex;
   justify-content: space-between;
@@ -1396,9 +1483,9 @@ body {
   color: var(--rg-gold);
 }
 
-/* ══════════════════════════════════════════════════
-   New Sale Modal — Premium POS-style layout
-   ══════════════════════════════════════════════════ */
+/* â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�
+   New Sale Modal â€” Premium POS-style layout
+   â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•� */
 .new-sale-modal .ant-modal-content {
   border-radius: 16px !important;
   overflow: hidden;
@@ -1429,7 +1516,7 @@ body {
   color: var(--rg-gold);
 }
 
-/* ── Draft tabs bar ─────────────────────────── */
+/* â”€â”€ Draft tabs bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .nsm-drafts-bar {
   background: #1E1F22;
   border-bottom: 1px solid #333;
@@ -1493,16 +1580,18 @@ body {
 /* Two-column body */
 .nsm-body {
   display: flex;
+  flex-direction: column;
   min-height: calc(100vh - 200px);
   max-height: calc(100vh - 140px);
 }
 
-/* Left: main area (search + cart) */
+/* Main: full-width top area (search + cart) */
 .nsm-main {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 20px 24px;
+  padding: 16px 24px 8px;
   overflow: hidden;
 }
 
@@ -1516,7 +1605,7 @@ body {
   background: linear-gradient(180deg, #ffffff 0%, #fafafa 40%, #f5f5f5 100%);
 }
 
-/* ── Embedded search inside cart ─────── */
+/* â”€â”€ Embedded search inside cart â”€â”€â”€â”€â”€â”€â”€ */
 .nsm-search-embedded {
   position: sticky;
   top: 0;
@@ -1593,7 +1682,7 @@ body {
   border-bottom: none !important;
   text-align: center !important;
 }
-/* PRODUCTO column fills — no centering */
+/* PRODUCTO column fills â€” no centering */
 .nsm-cart-table .ant-table-thead > tr > th:first-child {
   text-align: left !important;
 }
@@ -1627,22 +1716,162 @@ body {
   color: #e0e0e0;
 }
 
-/* Right sidebar */
+/* Bottom footer — full-width horizontal bar */
 .nsm-sidebar {
-  width: 320px;
-  min-width: 320px;
-  background: var(--rg-white-smoke);
-  border-left: 1px solid var(--rg-border);
+  flex-shrink: 0;
+  width: 100%;
+  background: linear-gradient(180deg, #fafafa 0%, #ffffff 100%);
+  border-top: 2px solid rgba(234, 189, 35, 0.25);
   padding: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.05);
 }
 .npm-sidebar-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding: 16px 20px;
+}
+
+/* ── Vertical layout footer content ── */
+.nsm-footer-content {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  padding: 12px 20px;
+  align-items: center;
+}
+.nsm-footer-zone {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.nsm-footer-zone-totals {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.nsm-footer-zone-actions {
+  justify-content: flex-end;
+}
+.nsm-footer-zone-config {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Compact footer summary boxes (reuse existing classes but inline) */
+.nsm-footer-summary-inline {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.nsm-footer-summary-inline .label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--rg-text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.nsm-footer-summary-inline .value {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--rg-text);
+  white-space: nowrap;
+}
+.nsm-footer-summary-inline.gold .value { color: #EABD23; }
+.nsm-footer-summary-inline.blue .value { color: #1677ff; }
+
+/* Footer status pill */
+.nsm-footer-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-weight: 700;
+  min-width: 120px;
+}
+.nsm-footer-status .status-label {
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  margin-bottom: 1px;
+}
+.nsm-footer-status .status-amount {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+.nsm-footer-status.status-success {
+  background: linear-gradient(135deg, rgba(82, 196, 26, 0.12) 0%, rgba(82, 196, 26, 0.04) 100%);
+  border: 1px dashed rgba(82, 196, 26, 0.4);
+}
+.nsm-footer-status.status-success .status-label,
+.nsm-footer-status.status-success .status-amount { color: #52c41a; }
+.nsm-footer-status.status-danger {
+  background: linear-gradient(135deg, rgba(255, 77, 79, 0.12) 0%, rgba(255, 77, 79, 0.04) 100%);
+  border: 1px dashed rgba(255, 77, 79, 0.4);
+}
+.nsm-footer-status.status-danger .status-label,
+.nsm-footer-status.status-danger .status-amount { color: #ff4d4f; }
+.nsm-footer-status.status-warning {
+  background: linear-gradient(135deg, rgba(250, 173, 20, 0.12) 0%, rgba(250, 173, 20, 0.04) 100%);
+  border: 1px dashed rgba(250, 173, 20, 0.4);
+}
+.nsm-footer-status.status-warning .status-label,
+.nsm-footer-status.status-warning .status-amount { color: #faad14; }
+
+/* ── Floating Config Popover (config fields) ── */
+.nsm-config-popover {
+  width: 380px;
+  max-width: 90vw;
+  padding: 4px;
+}
+.nsm-config-popover .nsm-field-group {
+  margin-bottom: 10px;
+}
+.nsm-config-popover .nsm-field-group:last-child {
+  margin-bottom: 0;
+}
+.nsm-config-popover .nsm-label {
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+/* ── Compact Cobro footer amount/method inline ── */
+.nsm-cobro-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.nsm-cobro-input-row .ant-input-number {
+  flex: 1;
+  min-width: 0;
+}
+.nsm-method-tags-inline {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  max-width: 320px;
+}
+.nsm-method-tags-inline .ant-tag {
+  margin: 0;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.nsm-method-tags-inline .ant-tag:hover {
+  opacity: 0.85;
+}
+.nsm-cobro-inline-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .nsm-field-group {
   margin-bottom: 14px;
@@ -1731,7 +1960,7 @@ body {
   letter-spacing: 0.3px;
 }
 
-/* ── Cobro step (NewSaleModal step 2) ─────── */
+/* â”€â”€ Cobro step (NewSaleModal step 2) â”€â”€â”€â”€â”€â”€â”€ */
 .nsm-cobro-total-box {
   text-align: center;
   padding: 18px 12px;
@@ -1747,7 +1976,7 @@ body {
   margin: 4px 0 2px;
 }
 
-/* ── Payment method grid — hover & keyboard-active styles ── */
+/* â”€â”€ Payment method grid â€” hover & keyboard-active styles â”€â”€ */
 [data-pm-grid] > div {
   transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.15s, outline 0.15s;
 }
@@ -1758,7 +1987,7 @@ body {
   transform: translateY(-1px);
 }
 
-/* ── Método de pago selector ─────── */
+/* â”€â”€ MÃ©todo de pago selector â”€â”€â”€â”€â”€â”€â”€ */
 .nsm-metodo-group {
   display: flex;
   gap: 8px;
@@ -1805,7 +2034,7 @@ body {
   color: var(--rg-text);
 }
 
-/* ── Cobro summary ─────── */
+/* â”€â”€ Cobro summary â”€â”€â”€â”€â”€â”€â”€ */
 .nsm-cobro-summary {
   display: flex;
   flex-direction: column;
@@ -1833,7 +2062,145 @@ body {
   color: #52c41a !important;
 }
 
-/* ── Segmented Gold (Cta Corriente tabs) ─────── */
+/* ── New Prominent Payment Summary Cards ── */
+.nsm-summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.nsm-summary-mini-box {
+  padding: 12px 10px;
+  background: #fff;
+  border: 1px solid var(--rg-border);
+  border-radius: 10px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+}
+.nsm-summary-mini-box .mini-box-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--rg-text-light);
+  letter-spacing: 0.3px;
+  font-weight: 600;
+}
+.nsm-summary-mini-box .mini-box-amount {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--rg-text);
+}
+.nsm-summary-mini-box.accent-gold {
+  background: linear-gradient(135deg, rgba(234, 189, 35, 0.08) 0%, rgba(234, 189, 35, 0.03) 100%);
+  border: 1px solid rgba(234, 189, 35, 0.3);
+}
+.nsm-summary-mini-box.accent-gold .mini-box-amount {
+  color: #EABD23;
+}
+.nsm-summary-mini-box.accent-blue {
+  background: linear-gradient(135deg, rgba(22, 119, 255, 0.08) 0%, rgba(22, 119, 255, 0.03) 100%);
+  border: 1px solid rgba(22, 119, 255, 0.25);
+}
+.nsm-summary-mini-box.accent-blue .mini-box-amount {
+  color: #1677ff;
+}
+
+/* Prominent Status Cards */
+.nsm-summary-status-box {
+  padding: 16px 14px;
+  border-radius: 12px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+}
+.nsm-summary-status-box.status-danger {
+  background: linear-gradient(135deg, rgba(255, 77, 79, 0.12) 0%, rgba(255, 77, 79, 0.04) 100%);
+  border: 1px dashed rgba(255, 77, 79, 0.4);
+}
+.nsm-summary-status-box.status-danger .status-label {
+  color: #ff4d4f;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+.nsm-summary-status-box.status-danger .status-amount {
+  color: #ff4d4f;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.nsm-summary-status-box.status-success {
+  background: linear-gradient(135deg, rgba(82, 196, 26, 0.12) 0%, rgba(82, 196, 26, 0.04) 100%);
+  border: 1px dashed rgba(82, 196, 26, 0.4);
+}
+.nsm-summary-status-box.status-success .status-label {
+  color: #52c41a;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+.nsm-summary-status-box.status-success .status-amount {
+  color: #52c41a;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.nsm-summary-status-box.status-warning {
+  background: linear-gradient(135deg, rgba(250, 173, 20, 0.12) 0%, rgba(250, 173, 20, 0.04) 100%);
+  border: 1px dashed rgba(250, 173, 20, 0.4);
+}
+.nsm-summary-status-box.status-warning .status-label {
+  color: #faad14;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+.nsm-summary-status-box.status-warning .status-amount {
+  color: #faad14;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+/* ── Compact Collapsible Sections for Sidebar ── */
+.nsm-collapse-panel {
+  margin-bottom: 8px;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.nsm-collapse-panel .ant-collapse-header {
+  padding: 10px 12px !important;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rg-text-light) !important;
+  background: var(--rg-white-smoke);
+  border-radius: 10px !important;
+}
+.nsm-collapse-panel .ant-collapse-header:hover {
+  color: var(--rg-text) !important;
+}
+.nsm-collapse-panel .ant-collapse-content-box {
+  padding: 10px 4px 4px !important;
+}
+.nsm-collapse-panel.ant-collapse-ghost > .ant-collapse-item > .ant-collapse-header {
+  background: transparent;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+.nsm-collapse-panel .ant-collapse-content {
+  border-top: none !important;
+}
+
+/* â”€â”€ Segmented Gold (Cta Corriente tabs) â”€â”€â”€â”€â”€â”€â”€ */
 .rg-segmented-gold.ant-segmented {
   background: var(--rg-black);
   border-radius: 10px;
@@ -1892,12 +2259,38 @@ body {
   }
 }
 
-/* ══════════════════════════════════════════════════════════════════════
-   NEW SALE MODAL — PREMIUM SEARCH + CART + GAMING ANIMATIONS
-   GPU-accelerated · CSS-only · Entry/Exit/Hover · 60fps
-   ══════════════════════════════════════════════════════════════════════ */
+/* Responsive: footer on narrow screens */
+@media (max-width: 768px) {
+  .nsm-footer-content {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 10px 14px;
+  }
+  .nsm-footer-zone {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+  .nsm-footer-zone-actions {
+    justify-content: stretch;
+  }
+  .nsm-footer-zone-actions .ant-btn {
+    flex: 1;
+    min-width: 0;
+  }
+  .nsm-footer-summary-inline .value {
+    font-size: 14px;
+  }
+  .nsm-footer-status .status-amount {
+    font-size: 16px;
+  }
+}
 
-/* ─── Keyframes ────────────────────────────────────────────────────── */
+/* â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�
+   NEW SALE MODAL â€” PREMIUM SEARCH + CART + GAMING ANIMATIONS
+   GPU-accelerated Â· CSS-only Â· Entry/Exit/Hover Â· 60fps
+   â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•� */
+
+/* â”€â”€â”€ Keyframes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 @keyframes nsm-shine {
   0%   { left: -80%; }
@@ -1910,10 +2303,10 @@ body {
 }
 
 
-/* ─── 1. MODAL ENTRANCE — uses Ant Design default transition ──────── */
+/* â”€â”€â”€ 1. MODAL ENTRANCE â€” uses Ant Design default transition â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 
-/* ─── 2. HEADER — Animated gold bar ───────────────────────────────── */
+/* â”€â”€â”€ 2. HEADER â€” Animated gold bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .nsm-header {
   position: relative;
@@ -1945,7 +2338,7 @@ body {
 }
 
 
-/* ─── 3. SEARCH DROPDOWN — Premium product cards ──────────────────── */
+/* â”€â”€â”€ 3. SEARCH DROPDOWN â€” Premium product cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .nsm-search-dropdown {
   border-radius: 14px !important;
@@ -2031,7 +2424,7 @@ body {
   border-color: rgba(255, 77, 79, 0.15);
 }
 
-/* ── Product Search Modal ─────────────────────── */
+/* â”€â”€ Product Search Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .psm-active-row td {
   background: rgba(234, 189, 35, 0.35) !important;
 }
@@ -2058,7 +2451,7 @@ body {
 }
 
 
-/* ─── 4. SEARCH INPUT — Enhanced focus ────────────────────────────── */
+/* â”€â”€â”€ 4. SEARCH INPUT â€” Enhanced focus â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .nsm-search-input {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
@@ -2072,7 +2465,7 @@ body {
 }
 
 
-/* ─── 5. CART PRODUCT COLUMN — Richer info ────────────────────────── */
+/* â”€â”€â”€ 5. CART PRODUCT COLUMN â€” Richer info â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .nsm-cart-product {
   padding: 6px 0;
@@ -2119,7 +2512,7 @@ body {
   color: #aaa;
 }
 
-/* ─── 6. CART INPUT FIELDS — Unified style ────────────────────────── */
+/* â”€â”€â”€ 6. CART INPUT FIELDS â€” Unified style â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .nsm-cart-input {
   border-radius: 8px !important;
@@ -2134,7 +2527,7 @@ body {
   animation: nsm-pulse-ring 0.5s ease-out;
 }
 
-/* ─── 7. QUANTITY +/- BUTTONS — Gaming tactile ────────────────────── */
+/* â”€â”€â”€ 7. QUANTITY +/- BUTTONS â€” Gaming tactile â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .nsm-qty-btn {
   border-radius: 6px !important;
@@ -2148,7 +2541,7 @@ body {
   box-shadow: 0 2px 8px rgba(234, 189, 35, 0.15);
 }
 
-/* ─── 8. CART DELETE BUTTON ────────────────────────────────────────── */
+/* â”€â”€â”€ 8. CART DELETE BUTTON â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .nsm-cart-delete {
   font-size: 16px !important;
@@ -2160,10 +2553,10 @@ body {
 }
 
 
-/* ─── 9. SIDEBAR ──────────────────────────────────────────────────── */
+/* â”€â”€â”€ 9. SIDEBAR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 
-/* ─── 10. SIDEBAR FIELDS — Subtle accent (no layout shift) ────────── */
+/* â”€â”€â”€ 10. SIDEBAR FIELDS â€” Subtle accent (no layout shift) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .nsm-label {
   transition: color 0.2s ease;
@@ -2173,7 +2566,7 @@ body {
 }
 
 
-/* ─── 11. SWITCH ROW — Micro-lift ─────────────────────────────────── */
+/* â”€â”€â”€ 11. SWITCH ROW â€” Micro-lift â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .nsm-switch-row {
   transition: border-color 0.2s ease;
@@ -2183,7 +2576,7 @@ body {
 }
 
 
-/* ─── 12. CART ROWS — Hover ───────────────────────────────────────── */
+/* â”€â”€â”€ 12. CART ROWS â€” Hover â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .nsm-cart-table .ant-table-tbody > tr {
   transition: background 0.2s ease;
@@ -2194,7 +2587,7 @@ body {
 }
 
 
-/* ─── 13. TOTALS BOX — Glow + amount pop ──────────────────────────── */
+/* â”€â”€â”€ 13. TOTALS BOX â€” Glow + amount pop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .nsm-totals-box {
   transition: border-color 0.3s ease;
@@ -2204,7 +2597,7 @@ body {
 }
 
 
-/* ─── 14. COBRAR BUTTON — Hero CTA ───────────────────────────────── */
+/* â”€â”€â”€ 14. COBRAR BUTTON â€” Hero CTA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .nsm-btn-cobrar {
   position: relative;
@@ -2237,7 +2630,7 @@ body {
 }
 
 
-/* ─── 15. MÉTODO DE PAGO — Lift + sweep ───────────────────────────── */
+/* â”€â”€â”€ 15. MÃ‰TODO DE PAGO â€” Lift + sweep â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .nsm-metodo-btn {
   position: relative;
@@ -2279,22 +2672,22 @@ body {
 }
 
 
-/* ─── 16. COBRO BOXES — Shimmer ───────────────────────────────────── */
+/* â”€â”€â”€ 16. COBRO BOXES â€” Shimmer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
-/* Cobro boxes — no hover shift */
-
-
-/* ─── 17. EMPTY CART ──────────────────────────────────────────────── */
+/* Cobro boxes â€” no hover shift */
 
 
-/* ─── 18. STATS — Scale on hover ──────────────────────────────────── */
+/* â”€â”€â”€ 17. EMPTY CART â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+
+
+/* â”€â”€â”€ 18. STATS â€” Scale on hover â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .nsm-stat:hover .ant-badge-count {
   box-shadow: 0 0 10px rgba(234, 189, 35, 0.4) !important;
 }
 
 
-/* ─── ACCESSIBILITY — Reduced motion ──────────────────────────────── */
+/* â”€â”€â”€ ACCESSIBILITY â€” Reduced motion â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 @media (prefers-reduced-motion: reduce) {
   .nsm-switch-row,
@@ -2315,11 +2708,11 @@ body {
 }
 
 
-/* ══════════════════════════════════════════════════
-   Etiquetas de Precios — Page Styles
-   ══════════════════════════════════════════════════ */
+/* â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�
+   Etiquetas de Precios â€” Page Styles
+   â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•� */
 
-/* ── Main layout: 2-column split ─────────────── */
+/* â”€â”€ Main layout: 2-column split â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .etiquetas-page {
   display: flex;
   flex-direction: column;
@@ -2342,7 +2735,7 @@ body {
   }
 }
 
-/* ── Panel cards ─────────────────────────────── */
+/* â”€â”€ Panel cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .etiquetas-panel {
   border-radius: var(--rg-radius) !important;
   border: 1px solid var(--rg-border);
@@ -2385,7 +2778,7 @@ body {
   padding: 12px 16px;
 }
 
-/* ── Right column stacking ───────────────────── */
+/* â”€â”€ Right column stacking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .etiquetas-right {
   display: flex;
   flex-direction: column;
@@ -2412,7 +2805,7 @@ body {
   min-height: 0;
 }
 
-/* ── Config grid ─────────────────────────────── */
+/* â”€â”€ Config grid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .etiquetas-config-grid {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
@@ -2430,7 +2823,7 @@ body {
   }
 }
 
-/* ── Action buttons row ──────────────────────── */
+/* â”€â”€ Action buttons row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .etiquetas-actions {
   display: flex;
   gap: 8px;
@@ -2442,12 +2835,12 @@ body {
   height: 40px;
 }
 
-/* ── Table overrides ─────────────────────────── */
+/* â”€â”€ Table overrides â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .etiquetas-table .ant-table-row:hover {
   background: rgba(234, 189, 35, 0.04) !important;
 }
 
-/* ── Preview modal ───────────────────────────── */
+/* â”€â”€ Preview modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .etiquetas-preview-modal .ant-modal-content {
   border-radius: 12px;
   overflow: hidden;
@@ -2478,11 +2871,11 @@ body {
   overflow: hidden;
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   CAJERO INICIO — Professional, GPU-friendly animations
+/* â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�
+   CAJERO INICIO â€” Professional, GPU-friendly animations
    All animations run on transform / opacity (compositor-only) and respect
    prefers-reduced-motion. No JS animation loops.
-   ═══════════════════════════════════════════════════════════════════════════ */
+   â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•� */
 
 /* Hero gradient that slowly drifts ~30s */
 @keyframes rgHeroDrift {
@@ -2515,7 +2908,7 @@ body {
   to   { opacity: 1; transform: rotate(0)     scale(1); }
 }
 
-/* ── Hero card ──────────────────────────────────────────────────────── */
+/* â”€â”€ Hero card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-cajero-hero {
   position: relative;
   border-radius: 18px;
@@ -2596,7 +2989,7 @@ body {
   animation: rgPulseRing 2.6s ease-out infinite;
 }
 
-/* ── Quick actions: Ventas + Caja ────────────────────────────────────── */
+/* â”€â”€ Quick actions: Ventas + Caja â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-quick-action {
   position: relative;
   display: flex;
@@ -2727,7 +3120,7 @@ body {
   background: color-mix(in srgb, var(--qa-color, #EABD23) 35%, transparent);
 }
 
-/* ── Section title ───────────────────────────────────────────────────── */
+/* â”€â”€ Section title â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-section-title {
   display: flex;
   align-items: center;
@@ -2746,7 +3139,7 @@ body {
   border-radius: 2px;
 }
 
-/* Shortcuts collapse — keep header flush with section-title style */
+/* Shortcuts collapse â€” keep header flush with section-title style */
 .rg-shortcuts-collapse > .ant-collapse-item > .ant-collapse-header {
   padding: 0 !important;
   align-items: center !important;
@@ -2771,9 +3164,9 @@ body {
 }
 
 
-/* ══════════════════════════════════════════════════
-   Dashboard — Charts & Filter Bar
-   ══════════════════════════════════════════════════ */
+/* â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�
+   Dashboard â€” Charts & Filter Bar
+   â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•�â•� */
 
 .rg-dash-filterbar {
   margin-top: 4px;
@@ -2783,7 +3176,7 @@ body {
   border-radius: 12px;
 }
 
-/* ── Chart wrapper ──────────────────────────────────────────── */
+/* â”€â”€ Chart wrapper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-chart-wrap {
   position: relative;
   width: 100%;
@@ -2849,7 +3242,7 @@ body {
   border-radius: 3px;
 }
 
-/* ── Donut legend ───────────────────────────────────────────── */
+/* â”€â”€ Donut legend â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-donut-wrap {
   padding: 4px 0;
 }
@@ -2899,13 +3292,13 @@ body {
   text-align: right;
 }
 
-/* ── Heatmap ────────────────────────────────────────────────── */
+/* â”€â”€ Heatmap â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-heatmap-wrap {
   width: 100%;
   overflow-x: auto;
 }
 
-/* ── Mini stat tile (caja central detail) ──────────────────── */
+/* â”€â”€ Mini stat tile (caja central detail) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-mini-stat {
   background: #fafafa;
   border: 1px solid #f0f0f0;
@@ -2927,7 +3320,7 @@ body {
   padding: 0 6px;
 }
 
-/* ── Heatmap insights summary tiles ─────────────────────────── */
+/* â”€â”€ Heatmap insights summary tiles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-heat-summary .ant-card-body {
   padding: 12px 16px;
 }
@@ -2978,7 +3371,7 @@ body {
   color: #b8860b;
 }
 
-/* ── Caja Central card ─────────────────────────────────────── */
+/* â”€â”€ Caja Central card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .rg-cc-card .ant-card-body {
   padding: 16px 18px;
 }
@@ -3111,14 +3504,14 @@ body {
   transform: scale(1.15);
 }
 
-/* ─────────────────────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Modal "head-shake" feedback
-   ─────────────────────────────────────────────────────────────
+   â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Applied by `ModalShakeGuard` when the user clicks the mask of
    a modal that should not close on outside-click. Mimics a
    subtle "uh-uh, not that way" gesture and gently scales the
    dialog to draw attention without being aggressive.
-   ───────────────────────────────────────────────────────────── */
+   â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 @keyframes rg-modal-shake {
   0%   { transform: translate3d(0, 0, 0)    scale(1); }
   15%  { transform: translate3d(-10px, 0, 0) scale(1.01); }
@@ -3144,3 +3537,106 @@ body {
   background-color: rgba(0, 0, 0, 0.55);
 }
 
+
+/* --------------------------------------------------
+   Río Gestión — Export Buttons (PDF / Excel)
+   -------------------------------------------------- */
+
+.rg-export-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.rg-export-buttons-full {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.rg-export-buttons-full .ant-btn {
+  font-weight: 600;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.rg-export-buttons-grouped {
+  display: inline-flex;
+  align-items: center;
+}
+.rg-export-buttons-grouped .ant-btn-group .ant-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* -- PDF (rojo sobrio) -- */
+.rg-export-pdf.ant-btn,
+.rg-export-buttons-full .rg-export-pdf.ant-btn {
+  color: #c41d3b;
+  border-color: rgba(196, 29, 59, 0.25);
+  background: #fff;
+  transition: transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.rg-export-pdf.ant-btn:hover,
+.rg-export-buttons-full .rg-export-pdf.ant-btn:hover {
+  background: rgba(196, 29, 59, 0.08) !important;
+  border-color: rgba(196, 29, 59, 0.6) !important;
+  color: #c41d3b !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(196, 29, 59, 0.18);
+}
+.rg-export-pdf.ant-btn:disabled,
+.rg-export-buttons-full .rg-export-pdf.ant-btn:disabled {
+  color: rgba(0, 0, 0, 0.25);
+  border-color: rgba(0, 0, 0, 0.06);
+  background: #fafafa;
+}
+
+/* -- Excel (verde sobrio) -- */
+.rg-export-excel.ant-btn,
+.rg-export-buttons-full .rg-export-excel.ant-btn {
+  color: #1f7a3d;
+  border-color: rgba(31, 122, 61, 0.28);
+  background: #fff;
+  transition: transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.rg-export-excel.ant-btn:hover,
+.rg-export-buttons-full .rg-export-excel.ant-btn:hover {
+  background: rgba(31, 122, 61, 0.08) !important;
+  border-color: rgba(31, 122, 61, 0.6) !important;
+  color: #1f7a3d !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(31, 122, 61, 0.18);
+}
+.rg-export-excel.ant-btn:disabled,
+.rg-export-buttons-full .rg-export-excel.ant-btn:disabled {
+  color: rgba(0, 0, 0, 0.25);
+  border-color: rgba(0, 0, 0, 0.06);
+  background: #fafafa;
+}
+
+/* Variante circular: ícono más grande para mayor clickabilidad */
+.rg-export-buttons .ant-btn-circle.rg-export-pdf,
+.rg-export-buttons .ant-btn-circle.rg-export-excel {
+  width: 36px;
+  height: 36px;
+  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* -- Soporte para la variante Button.Group -- */
+.rg-export-buttons-grouped .rg-export-pdf {
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+  border-right: 1px solid rgba(196, 29, 59, 0.2) !important;
+}
+.rg-export-buttons-grouped .rg-export-excel {
+  border-radius: 0 !important;
+  border-right: 1px solid rgba(31, 122, 61, 0.2) !important;
+}
+.rg-export-buttons-grouped .ant-btn[disabled][aria-label] {
+  border-top-left-radius: 0 !important;
+  border-bottom-left-radius: 0 !important;
+}

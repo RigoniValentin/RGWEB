@@ -27,6 +27,7 @@ router.get('/', async (req: Request, res: Response) => {
       unidadIds: parseIdList(req.query.unidadIds),
       activo: req.query.activo !== undefined ? req.query.activo === 'true' : undefined,
       stockBajo: req.query.stockBajo === 'true',
+      listaDefecto: req.query.listaDefecto ? parseInt(req.query.listaDefecto as string) : undefined,
       orderBy: req.query.orderBy as string | undefined,
       orderDir: (req.query.orderDir as 'ASC' | 'DESC') || undefined,
     });

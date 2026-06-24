@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   Table, Card, Space, Input, Select, Button, Tag, Typography, App,
-  Modal, Form, InputNumber, DatePicker, Row, Col, Statistic, Tooltip, Popconfirm,
+  Modal, Form, InputNumber, DatePicker, Row, Col, Statistic,
 } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
@@ -16,6 +16,8 @@ import BancoSelect from '../components/cheques/BancoSelect';
 import { fmtMoney } from '../utils/format';
 import type { Banco, Cheque, ChequeEstado } from '../types';
 import { useAuthStore } from '../store/authStore';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
 
 const { Title, Text } = Typography;
 
@@ -222,33 +224,42 @@ export function ChequesPage() {
       width: 120,
       render: (v: ChequeEstado) => <Tag color={ESTADO_COLORS[v]}>{ESTADO_LABELS[v]}</Tag>,
     },
+  ], []);
+
+  // ── Row interactions (active row + context menu) ─
+  const contextMenuActions = useMemo<RowAction<Cheque>[]>(() => [
     {
-      title: '',
-      key: 'actions',
-      width: 100,
-      render: (_: unknown, c: Cheque) => (
-        <Space size={4}>
-          {c.ESTADO === 'EN_CARTERA' && (
-            <Tooltip title="Editar">
-              <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(c)} />
-            </Tooltip>
-          )}
-          {c.ESTADO === 'EN_CARTERA' && (
-            <Popconfirm
-              title="¿Anular este cheque?"
-              description="El cheque pasa a estado ANULADO."
-              okText="Anular"
-              cancelText="Cancelar"
-              okButtonProps={{ danger: true }}
-              onConfirm={() => deleteMutation.mutate(c.CHEQUE_ID)}
-            >
-              <Button size="small" danger icon={<DeleteOutlined />} />
-            </Popconfirm>
-          )}
-        </Space>
-      ),
+      key: 'edit',
+      label: 'Editar',
+      icon: <EditOutlined />,
+      disabled: (c) => c.ESTADO !== 'EN_CARTERA',
+      onClick: openEdit,
+    },
+    { type: 'divider' },
+    {
+      key: 'anular',
+      label: 'Anular',
+      icon: <DeleteOutlined />,
+      danger: true,
+      disabled: (c) => c.ESTADO !== 'EN_CARTERA',
+      onClick: (c) => {
+        Modal.confirm({
+          title: '¿Anular este cheque?',
+          content: 'El cheque pasa a estado ANULADO.',
+          okText: 'Anular',
+          cancelText: 'Cancelar',
+          okButtonProps: { danger: true },
+          onOk: () => deleteMutation.mutateAsync(c.CHEQUE_ID),
+        });
+      },
     },
   ], [deleteMutation]);
+
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<Cheque>({
+    getRowId: (c) => c.CHEQUE_ID,
+    primaryAction: openEdit,
+    actions: contextMenuActions,
+  });
 
   const seleccionEnCartera = useMemo(() => {
     const list = data?.data || [];
@@ -343,6 +354,8 @@ export function ChequesPage() {
           dataSource={data?.data || []}
           loading={isLoading}
           size="middle"
+          onRow={onRow}
+          rowClassName={rowClassName}
           rowSelection={{
             selectedRowKeys: selectedIds,
             onChange: keys => setSelectedIds(keys as number[]),
@@ -356,6 +369,13 @@ export function ChequesPage() {
             pageSizeOptions: [10, 20, 50, 100],
             onChange: (p, s) => { setPage(p); setPageSize(s); },
           }}
+        />
+
+        <RowContextMenu
+          open={contextMenu !== null}
+          position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+          items={contextMenuItems}
+          onClose={closeContextMenu}
         />
       </Card>
 

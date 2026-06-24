@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Input, Typography, Tag, Select, Button, Modal, App,
@@ -8,13 +8,17 @@ import type { TableColumnType } from 'antd';
 import {
   SearchOutlined, ReloadOutlined, HistoryOutlined,
   EditOutlined, WarningOutlined, InboxOutlined,
-  ArrowUpOutlined, ArrowDownOutlined,
+  ArrowUpOutlined, ArrowDownOutlined, EyeOutlined,
 } from '@ant-design/icons';
 import { stockApi, type StockProducto, type StockDepositoItem } from '../services/stock.api';
 import { puntoVentaApi } from '../services/puntoVenta.api';
 import { useAuthStore } from '../store/authStore';
 import { fmtNum } from '../utils/format';
 import { StockHistoryModal } from '../components/stock/StockHistoryModal';
+import { ExportButtons, type ExportColumn } from '../components/ExportButtons';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
+
 
 const { Title, Text } = Typography;
 
@@ -75,6 +79,21 @@ export function StockPage() {
       soloBajoMinimo,
       orderBy, orderDir,
     }),
+  });
+
+  // Query para exportar TODO el stock (sin paginación, con los mismos filtros)
+  const { data: allStockData } = useQuery({
+    queryKey: ['stock-all', search, puntoVentaId, depositoId, soloConStock, soloBajoMinimo, orderBy, orderDir],
+    queryFn: () => stockApi.getAll({
+      page: 1, pageSize: 999999,
+      search: search || undefined,
+      puntoVentaId,
+      depositoId,
+      soloConStock,
+      soloBajoMinimo,
+      orderBy, orderDir,
+    }),
+    staleTime: 30 * 1000,
   });
 
   const { data: depositos } = useQuery({
@@ -259,41 +278,84 @@ export function StockPage() {
         );
       },
     },
+  ];
+
+  // ── Row interactions (active row + context menu) ─
+  const contextMenuActions = useMemo<RowAction<StockProducto>[]>(() => [
+    { key: 'view', label: 'Ver detalle', icon: <EyeOutlined />, onClick: openDetail },
+    { key: 'history', label: 'Ver historial', icon: <HistoryOutlined />, onClick: openHistory },
+  ], []);
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<StockProducto>({
+    getRowId: (r) => r.PRODUCTO_ID,
+    primaryAction: openDetail,
+    actions: contextMenuActions,
+  });
+
+  // ── Export columns ────────────────────────────
+  const exportColumns: ExportColumn<StockProducto>[] = [
+    { title: 'Código', dataIndex: 'CODIGOPARTICULAR', width: 12 },
+    { title: 'Producto', dataIndex: 'NOMBRE', width: 30 },
+    { title: 'Marca', dataIndex: 'MARCA_NOMBRE', width: 16 },
+    { title: 'Categoría', dataIndex: 'CATEGORIA_NOMBRE', width: 16 },
+    { title: 'Stock Total', dataIndex: 'CANTIDAD', numeric: true, align: 'center', width: 12 },
+    { title: 'Unidad', dataIndex: 'UNIDAD_ABREVIACION', align: 'center', width: 8 },
+    { title: 'Stock Mín.', dataIndex: 'STOCK_MINIMO', numeric: true, align: 'center', width: 10 },
     {
-      title: 'Acciones',
-      key: 'actions',
-      width: 110,
-      align: 'center',
-      render: (_: any, record: StockProducto) => (
-        <Space size="small">
-          <Tooltip title="Ver historial">
-            <Button
-              type="text"
-              size="small"
-              icon={<HistoryOutlined />}
-              onClick={() => openHistory(record)}
-            />
-          </Tooltip>
-          <Tooltip title="Detalle">
-            <Button
-              type="text"
-              size="small"
-              icon={<EditOutlined />}
-              onClick={() => openDetail(record)}
-            />
-          </Tooltip>
-        </Space>
-      ),
+      title: 'Estado',
+      render: (_v, r) => r.CANTIDAD <= 0 ? 'Sin stock' : (r.STOCK_MINIMO != null && r.CANTIDAD <= r.STOCK_MINIMO) ? 'Bajo mínimo' : 'OK',
+      align: 'center', width: 12,
+    },
+    {
+      title: 'Depósitos',
+      render: (_v, r) => (r.stockDepositos || []).map(sd => `${sd.DEPOSITO_NOMBRE}: ${fmtNum(sd.CANTIDAD)}`).join(' · '),
+      width: 30,
     },
   ];
 
-  // ── Render ───────────────────────────────────────
+  const exportMetaParts: string[] = [];
+  if (search) exportMetaParts.push(`Búsqueda: "${search}"`);
+  if (puntoVentaId) {
+    const pv = puntosVenta?.find(p => p.PUNTO_VENTA_ID === puntoVentaId);
+    if (pv) exportMetaParts.push(`Punto de Venta: ${pv.NOMBRE}`);
+  }
+  if (depositoId) {
+    const d = depositos?.find(x => x.DEPOSITO_ID === depositoId);
+    if (d) exportMetaParts.push(`Depósito: ${d.NOMBRE}`);
+  }
+  if (soloConStock) exportMetaParts.push('Sólo con stock');
+  if (soloBajoMinimo) exportMetaParts.push('Sólo bajo mínimo');
+  const exportMeta = exportMetaParts.length > 0 ? `Filtros: ${exportMetaParts.join(' · ')}` : undefined;
+
+  const exportData = data?.data ?? [];
+  const exportSummary = exportData.length > 0 ? [[
+    '', '', '', 'TOTALES',
+    String(exportData.reduce((s, r) => s + (r.CANTIDAD ?? 0), 0)),
+    '',
+    String(exportData.reduce((s, r) => s + (r.STOCK_MINIMO ?? 0), 0)),
+    '', '',
+  ]] : undefined;
+
+  // ── Render ──────────────────────────────────────
   return (
     <div className="page-enter">
       {/* Header */}
       <div className="page-header">
         <Title level={3}>Stock por Depósito</Title>
-        <Button icon={<ReloadOutlined />} onClick={() => refetch()}>Actualizar</Button>
+        <Space size="small">
+          <Button icon={<ReloadOutlined />} onClick={() => refetch()}>Actualizar</Button>
+          <ExportButtons
+            data={exportData}
+            allData={allStockData?.data}
+            totalCount={allStockData?.total}
+            columns={exportColumns}
+            title="Stock por Depósito"
+            subtitle="Listado de stock actual"
+            meta={exportMeta}
+            footerSummary={exportSummary}
+            fileName="stock"
+            sheetName="Stock"
+          />
+        </Space>
       </div>
 
       {/* Filters */}
@@ -352,6 +414,8 @@ export function StockPage() {
         loading={isLoading}
         size="small"
         onChange={handleTableChange}
+        onRow={onRow}
+        rowClassName={rowClassName}
         pagination={{
           current: page,
           pageSize,
@@ -361,9 +425,13 @@ export function StockPage() {
           showTotal: (total) => `${total} productos`,
           onChange: (p, ps) => { setPage(p); setPageSize(ps); },
         }}
-        onRow={(record) => ({
-          onDoubleClick: () => openDetail(record),
-        })}
+      />
+
+      <RowContextMenu
+        open={contextMenu !== null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        items={contextMenuItems}
+        onClose={closeContextMenu}
       />
 
       {/* ── Stock Edit Modal ─────────────────────── */}

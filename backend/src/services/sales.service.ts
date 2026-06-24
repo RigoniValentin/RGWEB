@@ -1144,7 +1144,11 @@ export const salesService = {
 
       // ── 5. CAJA_ITEMS (if not cta corriente and caja active) ──
       if (!input.ES_CTA_CORRIENTE && caja) {
-        const efectivoNeto = Math.max(0, montoEfectivo - vuelto);
+        // When metodos_pago are provided the frontend already subtracts vuelto
+        // from the efectivo amounts, so we must NOT subtract it again here.
+        const efectivoNeto = (input.metodos_pago && input.metodos_pago.length > 0)
+          ? montoEfectivo
+          : Math.max(0, montoEfectivo - vuelto);
         if (efectivoNeto > 0 || montoDigital > 0) {
           await tx.request()
             .input('cajaId', sql.Int, caja.CAJA_ID)
@@ -1552,10 +1556,19 @@ export const salesService = {
       // ── 8. Re-create CAJA_ITEMS if applicable ──
       const caja = await getCajaAbiertaTx(tx, usuarioId);
       if (!input.ES_CTA_CORRIENTE && caja) {
-        const montoEfectivo = input.MONTO_EFECTIVO || 0;
-        const montoDigital = input.MONTO_DIGITAL || 0;
+        let montoEfectivo = input.MONTO_EFECTIVO || 0;
+        let montoDigital = input.MONTO_DIGITAL || 0;
         const vuelto = input.VUELTO || 0;
-        const efectivoNeto = Math.max(0, montoEfectivo - vuelto);
+        // If metodos_pago are provided, derive category totals from them
+        // (the frontend already subtracts vuelto from the efectivo method).
+        if (input.metodos_pago && input.metodos_pago.length > 0) {
+          const derivedUpd = await derivarCategorias(tx, input.metodos_pago);
+          montoEfectivo = derivedUpd.montoEfectivo;
+          montoDigital = derivedUpd.montoDigital;
+        }
+        const efectivoNeto = (input.metodos_pago && input.metodos_pago.length > 0)
+          ? montoEfectivo
+          : Math.max(0, montoEfectivo - vuelto);
         if (efectivoNeto > 0 || montoDigital > 0) {
           await tx.request()
             .input('cajaId', sql.Int, caja.CAJA_ID)
@@ -1821,7 +1834,11 @@ export const salesService = {
       // ── 2. CAJA_ITEMS ──
       const caja = await getCajaAbiertaTx(tx, usuarioId);
       if (caja) {
-        const efectivoNeto = Math.max(0, payEfectivo - payment.VUELTO);
+        // When metodos_pago are provided the frontend already subtracts vuelto
+        // from the efectivo amounts, so we must NOT subtract it again here.
+        const efectivoNeto = (payment.metodos_pago && payment.metodos_pago.length > 0)
+          ? payEfectivo
+          : Math.max(0, payEfectivo - payment.VUELTO);
         if (efectivoNeto > 0 || payDigital > 0) {
           await tx.request()
             .input('cajaId', sql.Int, caja.CAJA_ID)

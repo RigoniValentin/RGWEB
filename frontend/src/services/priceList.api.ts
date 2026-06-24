@@ -17,7 +17,6 @@ export interface PriceListInput {
   NOMBRE: string;
   DESCRIPCION?: string | null;
   MARGEN?: number;
-  MARGEN_REAL?: number | null;
   ACTIVA?: boolean;
 }
 
@@ -30,12 +29,16 @@ export interface ApplyPercentageInput {
   porcentaje: number;
   incluirInactivos?: boolean;
   redondeo?: 'ninguno' | 'entero' | '50' | '100';
+  actualizarMargen?: boolean;
 }
 
 export interface ApplyPercentageResult {
   affected: number;
   before: PriceListStats;
   after: PriceListStats;
+  margenAnterior?: number | null;
+  margenNuevo?: number | null;
+  margenActualizado?: boolean;
 }
 
 export const priceListApi = {

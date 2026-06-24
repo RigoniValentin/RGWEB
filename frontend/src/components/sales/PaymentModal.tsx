@@ -83,11 +83,6 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
     [selectedMetodos, montosPorMetodo]
   );
 
-  const hayEfectivo = selectedMetodos.some(id => {
-    const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
-    return m?.CATEGORIA === 'EFECTIVO';
-  });
-
   const soloEfectivo = selectedMetodos.length > 0 && selectedMetodos.every(id => {
     const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
     return m?.CATEGORIA === 'EFECTIVO';
@@ -107,9 +102,10 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
 
   const vuelto = useMemo(() => {
     if (selectedMetodos.length === 0) return 0;
-    if (soloEfectivo || hayEfectivo) return Math.max(0, totalRecibido - montoASaldar);
-    return 0;
-  }, [selectedMetodos, totalRecibido, montoASaldar, soloEfectivo, hayEfectivo]);
+    // Only effective cash methods can produce change
+    if (soloEfectivo) return Math.max(0, totalRecibido - montoASaldar);
+    return 0; // mixed or all-digital: exact amount required, no change
+  }, [selectedMetodos, totalRecibido, montoASaldar, soloEfectivo]);
 
   const payMutation = useMutation({
     mutationFn: () => {
@@ -162,7 +158,11 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
 
   const esValido = (mode === 'parcial'
     ? totalRecibido > 0
-    : totalRecibido >= montoASaldar) && !chequesIncompletos;
+    : (soloEfectivo
+        ? totalRecibido >= montoASaldar
+        : Math.abs(totalRecibido - montoASaldar) < 0.01
+      )
+    ) && !chequesIncompletos;
 
   const paymentMethodKeyboard = usePaymentMethodKeyboardNavigation({
     enabled: open && !!venta,

@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Alert, Button, Card, Collapse, Col, Descriptions, Drawer, Input, Row, Space, Spin, Statistic, Table, Tag, Typography, Tooltip,
+  Alert, Button, Card, Collapse, Col, Descriptions, Drawer, Input, Row, Space, Spin, Statistic, Table, Tag, Typography,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
 import {
@@ -18,6 +18,8 @@ import { DateFilterPopover, type DatePreset } from '../components/DateFilterPopo
 import { useAuthStore } from '../store/authStore';
 import { fmtComprobanteTipo, fmtMoney } from '../utils/format';
 import type { Venta, VentaDetalle } from '../types';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
 
 const { Title, Text } = Typography;
 
@@ -233,26 +235,21 @@ export function ArcaPage() {
           : <Tag color="orange">Pendiente</Tag>
       ),
     },
-    {
-      title: '',
-      key: 'actions',
-      width: 80,
-      align: 'center' as const,
-      render: (_: unknown, record: Venta) => (
-        <Tooltip title="Consultar detalle">
-          <Button
-            type="text"
-            icon={<EyeOutlined />}
-            onClick={() => {
-              setSelectedId(record.VENTA_ID);
-              setDrawerOpen(true);
-            }}
-            style={{ color: '#EABD23' }}
-          />
-        </Tooltip>
-      ),
-    },
   ];
+
+  // ── Row interactions (active row + context menu) ─
+  const handleOpenDetail = (record: Venta) => {
+    setSelectedId(record.VENTA_ID);
+    setDrawerOpen(true);
+  };
+  const contextMenuActions = useMemo<RowAction<Venta>[]>(() => [
+    { key: 'view', label: 'Consultar detalle', icon: <EyeOutlined />, onClick: handleOpenDetail },
+  ], []);
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<Venta>({
+    getRowId: (r) => r.VENTA_ID,
+    primaryAction: handleOpenDetail,
+    actions: contextMenuActions,
+  });
 
   return (
     <div className="page-enter">
@@ -339,6 +336,8 @@ export function ArcaPage() {
         dataSource={data?.data}
         rowKey="VENTA_ID"
         loading={isLoading}
+        onRow={onRow}
+        rowClassName={rowClassName}
         pagination={{
           current: page,
           pageSize,
@@ -351,6 +350,13 @@ export function ArcaPage() {
         size="middle"
         scroll={{ x: 900 }}
         style={{ marginBottom: 16 }}
+      />
+
+      <RowContextMenu
+        open={contextMenu !== null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        items={contextMenuItems}
+        onClose={closeContextMenu}
       />
 
       <Drawer

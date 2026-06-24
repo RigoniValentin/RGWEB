@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Drawer, Descriptions, Spin, Alert,
-  Button, Input, Dropdown, Popconfirm, message, Checkbox, Badge,
+  Button, Input, Popconfirm, message, Checkbox, Badge,
 } from 'antd';
 import {
   EyeOutlined, PlusOutlined, DeleteOutlined,
-  SearchOutlined, MoreOutlined, ReloadOutlined, SwapOutlined,
+  SearchOutlined, ReloadOutlined, SwapOutlined,
   CheckCircleOutlined,
 } from '@ant-design/icons';
 import { usePurchaseDraftStore } from '../store/purchaseDraftStore';
@@ -17,10 +17,13 @@ import { invalidateInventoryQueries } from '../utils/invalidateInventoryQueries'
 import { NewPurchaseModal } from '../components/purchases/NewPurchaseModal';
 import { PriceCheckModal } from '../components/purchases/PriceCheckModal';
 import { DateFilterPopover, type DatePreset } from '../components/DateFilterPopover';
+import { ExportButtons, type ExportColumn } from '../components/ExportButtons';
 import { useTabStore } from '../store/tabStore';
 import { useNavigationStore } from '../store/navigationStore';
 import { fmtComprobanteTipo, fmtMoney, fmtNum } from '../utils/format';
 import type { Compra, CompraDetalle } from '../types';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
 
 const { Title, Text } = Typography;
 
@@ -78,6 +81,20 @@ export function PurchasesPage() {
     }),
   });
 
+  // ── Query para exportar TODAS las compras (sin paginación) ──
+  // Esta query carga todas las compras aplicadas los mismos filtros para exportar
+  const { data: allPurchasesData } = useQuery({
+    queryKey: ["purchases-all", searchDebounced, fechaDesde, fechaHasta, filterCobrada],
+    queryFn: () => purchasesApi.getAll({
+      page: 1,
+      pageSize: 999999, // Número grande para obtener todos
+      search: searchDebounced || undefined,
+      fechaDesde, fechaHasta,
+      cobrada: filterCobrada,
+    }),
+    staleTime: 30 * 1000, // 30 segundos de cache
+  });
+
   // Refetch when tab becomes active
   const activeKey = useTabStore(s => s.activeKey);
   useEffect(() => {
@@ -119,39 +136,35 @@ export function PurchasesPage() {
     }
   };
 
-  // ── Action menu for each row ───────────────────
-  const getRowActions = (record: Compra) => {
-    const items: any[] = [
-      { key: 'detail', label: 'Ver detalle', icon: <EyeOutlined />, onClick: () => openDetail(record) },
-      {
-        key: 'price-check', label: 'Chequeo de precios', icon: <CheckCircleOutlined />,
-        onClick: () => { setPriceCheckCompraId(record.COMPRA_ID); setPriceCheckOpen(true); },
+  // ── Context menu actions ─────────────────────────
+  const contextMenuActions = useMemo<RowAction<Compra>[]>(() => [
+    { key: 'view', label: 'Ver detalle', icon: <EyeOutlined />, onClick: openDetail },
+    {
+      key: 'price-check', label: 'Chequeo de precios', icon: <CheckCircleOutlined />,
+      onClick: (r) => { setPriceCheckCompraId(r.COMPRA_ID); setPriceCheckOpen(true); },
+    },
+    { type: 'divider' },
+    {
+      key: 'delete', label: 'Eliminar', icon: <DeleteOutlined />, danger: true,
+      onClick: (r) => deleteMutation.mutate(r.COMPRA_ID),
+    },
+    { type: 'divider' },
+    {
+      key: 'cta-corriente-prov', label: 'Ver Cta. Cte. Prov.', icon: <SwapOutlined />,
+      onClick: (r) => {
+        openTab({ key: '/cta-corriente-prov', label: 'Cta. Cte. Prov.', closable: true });
+        navTo('/cta-corriente-prov', { proveedorId: r.PROVEEDOR_ID });
+        navigate('/cta-corriente-prov');
       },
-    ];
+      disabled: (r) => !r.ES_CTA_CORRIENTE,
+    },
+  ], []);
 
-    items.push(
-      { type: 'divider' as const },
-      { key: 'delete', label: 'Eliminar', icon: <DeleteOutlined />, danger: true, onClick: () => deleteMutation.mutate(record.COMPRA_ID) },
-    );
-
-    if (record.ES_CTA_CORRIENTE) {
-      items.push(
-        { type: 'divider' as const },
-        {
-          key: 'cta-corriente-prov',
-          label: 'Ver Cta. Cte. Prov.',
-          icon: <SwapOutlined />,
-          onClick: () => {
-            openTab({ key: '/cta-corriente-prov', label: 'Cta. Cte. Prov.', closable: true });
-            navTo('/cta-corriente-prov', { proveedorId: record.PROVEEDOR_ID });
-            navigate('/cta-corriente-prov');
-          },
-        },
-      );
-    }
-
-    return items;
-  };
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<Compra>({
+    getRowId: (r) => r.COMPRA_ID,
+    primaryAction: openDetail,
+    actions: contextMenuActions,
+  });
 
   // ── Columns ────────────────────────────────────
   const columns = [
@@ -180,25 +193,69 @@ export function PurchasesPage() {
       title: 'Pagada', dataIndex: 'COBRADA', key: 'paid', width: 100, align: 'center' as const,
       render: (v: boolean) => <Tag color={v ? 'green' : 'orange'}>{v ? 'Pagada' : 'Pendiente'}</Tag>,
     },
+  ];
+
+  // ── Export columns ──────────────────────────────
+  const exportColumns: ExportColumn<Compra>[] = [
+    { title: "ID", dataIndex: "COMPRA_ID", align: "center", width: 8 },
     {
-      title: '', key: 'actions', width: 80, fixed: 'right' as const,
-      render: (_: unknown, record: Compra) => (
-        <Space size={4}>
-          <EyeOutlined
-            style={{ cursor: 'pointer', color: '#EABD23', fontSize: 16 }}
-            onClick={() => openDetail(record)}
-          />
-          <Dropdown
-            menu={{ items: getRowActions(record) }}
-            trigger={['click']}
-            placement="bottomRight"
-          >
-            <MoreOutlined style={{ cursor: 'pointer', fontSize: 16, padding: 4 }} />
-          </Dropdown>
-        </Space>
-      ),
+      title: "Fecha",
+      dataIndex: "FECHA_COMPRA",
+      align: "center",
+      width: 20,
+      render: (v: string) => new Date(v).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }),
+    },
+    { title: "Proveedor", dataIndex: "PROVEEDOR_NOMBRE", width: 30 },
+    {
+      title: "Comprobante",
+      align: "center",
+      width: 24,
+      render: (_v: unknown, r: Compra) => {
+        const tipo = r.TIPO_COMPROBANTE || "";
+        const pv = r.PTO_VTA || "0000";
+        const nro = r.NRO_COMPROBANTE || "00000000";
+        if (!tipo && pv === "0000" && nro === "00000000") return "-";
+        return fmtComprobanteTipo(tipo) + " " + pv + "-" + nro;
+      },
+    },
+    { title: "PV", dataIndex: "PTO_VTA", align: "center", width: 8 },
+    { title: "Nro.", dataIndex: "NRO_COMPROBANTE", align: "center", width: 14 },
+    { title: "Subtotal", dataIndex: "BONIFICACION_TOTAL", numeric: true, money: true, align: "right", width: 14 },
+    { title: "IVA", dataIndex: "IVA_TOTAL", numeric: true, money: true, align: "right", width: 14 },
+    { title: "Total", dataIndex: "TOTAL", numeric: true, money: true, align: "right", width: 14 },
+    {
+      title: "Estado",
+      align: "center",
+      width: 12,
+      render: (_v: unknown, r: Compra) => r.COBRADA ? "Pagada" : "Pendiente",
     },
   ];
+
+  // ── Meta de filtros aplicados ──
+  const exportMeta: string | undefined = (() => {
+    const parts: string[] = [];
+    if (searchDebounced) parts.push("Búsqueda: " + searchDebounced + "");
+    if (fechaDesde && fechaHasta && fechaDesde === fechaHasta) parts.push("Fecha: " + fechaDesde);
+    else if (fechaDesde || fechaHasta) parts.push("Rango: " + (fechaDesde || "...") + " → " + (fechaHasta || "..."));
+    if (filterCobrada === false) parts.push("Sólo pago pendiente");
+    return parts.length > 0 ? "Filtros: " + parts.join(" · ") : undefined;
+  })();
+
+  // ── Footer summary con totales de la página actual ──
+  const exportSummary: string[][] | undefined = (() => {
+    const arr: Compra[] = data?.data ?? [];
+    if (arr.length === 0) return undefined;
+    const totalBonif = arr.reduce((s, r) => s + (r.BONIFICACION_TOTAL ?? 0), 0);
+    const totalIva = arr.reduce((s, r) => s + (r.IVA_TOTAL ?? 0), 0);
+    const totalTotal = arr.reduce((s, r) => s + (r.TOTAL ?? 0), 0);
+    return [[
+      "", "", "", "", "", "",
+      totalBonif > 0 ? fmtMoney(totalBonif) : "",
+      fmtMoney(totalIva),
+      fmtMoney(totalTotal),
+      "",
+    ]];
+  })();
 
   return (
     <div className="page-enter">
@@ -231,6 +288,18 @@ export function PurchasesPage() {
             Pago pendiente
           </Checkbox>
           <Button icon={<ReloadOutlined />} onClick={() => refetch()} />
+          <ExportButtons
+            data={data?.data ?? []}
+            allData={allPurchasesData?.data}
+            totalCount={allPurchasesData?.total}
+            columns={exportColumns}
+            title="Listado de Compras"
+            subtitle="Compras registradas"
+            meta={exportMeta}
+            footerSummary={exportSummary}
+            fileName="compras"
+            sheetName="Compras"
+          />
           <Badge count={usePurchaseDraftStore(s => s.hasDraft()) ? 1 : 0} offset={[-4, 4]} size="small" style={{ backgroundColor: '#EABD23', color: '#1E1F22' }}>
             <Button
               type="primary"
@@ -260,9 +329,15 @@ export function PurchasesPage() {
         }}
         size="middle"
         scroll={{ x: 800 }}
-        onRow={(record) => ({
-          onDoubleClick: () => openDetail(record),
-        })}
+        onRow={onRow}
+        rowClassName={rowClassName}
+      />
+
+      <RowContextMenu
+        open={contextMenu !== null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        items={contextMenuItems}
+        onClose={closeContextMenu}
       />
 
       {/* ── Detail Drawer ─────────────────────── */}

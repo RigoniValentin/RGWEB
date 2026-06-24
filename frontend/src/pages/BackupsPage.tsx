@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   App, Button, Card, Form, Input, InputNumber, Modal, Space, Switch, Table,
@@ -13,6 +13,8 @@ import {
 } from '@ant-design/icons';
 import { backupsApi, type BackupConfig, type BackupRecord, type RestoreRecord } from '../services/backups.api';
 import { RestoreBackupModal } from '../components/backups/RestoreBackupModal';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -119,6 +121,27 @@ export function BackupsPage() {
     onError: (err: any) => message.error(err?.response?.data?.error || err.message),
   });
 
+  // ── Handlers ────────────────────────────────────
+  const handleDownloadBackup = (r: BackupRecord) => {
+    backupsApi.download(r.BACKUP_ID, r.ARCHIVO_NOMBRE).catch(e => message.error(e.message));
+  };
+
+  const handleRestoreBackup = (r: BackupRecord) => {
+    setRestoreFromBackup(r);
+    setRestoreOpen(true);
+  };
+
+  const handleDeleteBackup = (r: BackupRecord) => {
+    Modal.confirm({
+      title: '¿Eliminar este backup?',
+      content: 'Se borrará el archivo .bak y su registro.',
+      okText: 'Eliminar',
+      okType: 'danger',
+      cancelText: 'Cancelar',
+      onOk: () => deleteMut.mutate(r.BACKUP_ID),
+    });
+  };
+
   // ── Columns ─────────────────────────────────────
   const columns: ColumnsType<BackupRecord> = [
     {
@@ -148,42 +171,20 @@ export function BackupsPage() {
     { title: 'Tamaño', dataIndex: 'TAMANO_BYTES', width: 100, render: formatBytes, align: 'right' },
     { title: 'Duración', dataIndex: 'DURACION_MS', width: 100, render: formatMs, align: 'right' },
     { title: 'Usuario', dataIndex: 'USUARIO_NOMBRE', width: 140, render: (v) => v || '—' },
-    {
-      title: 'Acciones', width: 200, fixed: 'right' as const,
-      render: (_: any, r: BackupRecord) => (
-        <Space>
-          <Tooltip title="Descargar .bak">
-            <Button
-              type="text"
-              icon={<CloudDownloadOutlined />}
-              disabled={r.ESTADO !== 'OK'}
-              onClick={() => backupsApi.download(r.BACKUP_ID, r.ARCHIVO_NOMBRE).catch(e => message.error(e.message))}
-            />
-          </Tooltip>
-          <Tooltip title="Restaurar este backup">
-            <Button
-              type="text"
-              icon={<RollbackOutlined />}
-              disabled={r.ESTADO !== 'OK'}
-              onClick={() => { setRestoreFromBackup(r); setRestoreOpen(true); }}
-            />
-          </Tooltip>
-          <Popconfirm
-            title="¿Eliminar este backup?"
-            description="Se borrará el archivo .bak y su registro."
-            okType="danger"
-            okText="Eliminar"
-            cancelText="Cancelar"
-            onConfirm={() => deleteMut.mutate(r.BACKUP_ID)}
-          >
-            <Tooltip title="Eliminar">
-              <Button type="text" danger icon={<DeleteOutlined />} />
-            </Tooltip>
-          </Popconfirm>
-        </Space>
-      ),
-    },
   ];
+
+  const contextMenuActions = useMemo<RowAction<BackupRecord>[]>(() => [
+    { key: 'download', label: 'Descargar .bak', icon: <CloudDownloadOutlined />, disabled: (r) => r.ESTADO !== 'OK', onClick: handleDownloadBackup },
+    { key: 'restore', label: 'Restaurar este backup', icon: <RollbackOutlined />, disabled: (r) => r.ESTADO !== 'OK', onClick: handleRestoreBackup },
+    { type: 'divider' },
+    { key: 'delete', label: 'Eliminar', icon: <DeleteOutlined />, danger: true, onClick: handleDeleteBackup },
+  ], []);
+
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<BackupRecord>({
+    getRowId: (r) => r.BACKUP_ID,
+    primaryAction: handleDownloadBackup,
+    actions: contextMenuActions,
+  });
 
   const lastOk = list.find(b => b.ESTADO === 'OK');
   const horasDesdeUltimo = lastOk
@@ -279,16 +280,26 @@ export function BackupsPage() {
               key: 'backups',
               label: <span><DatabaseOutlined /> Backups</span>,
               children: (
-                <Table<BackupRecord>
-                  className="rg-table"
-                  rowKey="BACKUP_ID"
-                  dataSource={list}
-                  columns={columns}
-                  loading={isLoading}
-                  size="small"
-                  pagination={{ pageSize: 20, showSizeChanger: true }}
-                  scroll={{ x: 1100 }}
-                />
+                <>
+                  <Table<BackupRecord>
+                    className="rg-table"
+                    rowKey="BACKUP_ID"
+                    dataSource={list}
+                    columns={columns}
+                    loading={isLoading}
+                    size="small"
+                    onRow={onRow}
+                    rowClassName={rowClassName}
+                    pagination={{ pageSize: 20, showSizeChanger: true }}
+                    scroll={{ x: 1100 }}
+                  />
+                  <RowContextMenu
+                    open={contextMenu !== null}
+                    position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+                    items={contextMenuItems}
+                    onClose={closeContextMenu}
+                  />
+                </>
               ),
             },
             {

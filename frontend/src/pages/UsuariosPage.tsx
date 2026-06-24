@@ -3,11 +3,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Card, Row, Col, Statistic,
   Button, Input, Select, Switch, Tabs, Tooltip, Modal, Form,
-  Popconfirm, Drawer, Checkbox, Divider, Badge, Alert,
+  Drawer, Checkbox, Divider, Badge, Alert,
   InputNumber, Collapse, App,
 } from 'antd';
 import {
-  UserOutlined, LockOutlined, UnlockOutlined, DeleteOutlined,
+  UserOutlined, LockOutlined, DeleteOutlined,
   EditOutlined, PlusOutlined, ReloadOutlined, SafetyOutlined,
   AuditOutlined, SettingOutlined, KeyOutlined,
   CheckCircleOutlined, StopOutlined, TeamOutlined, EnvironmentOutlined,
@@ -22,6 +22,8 @@ import type {
 } from '../types';
 import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -470,6 +472,28 @@ export function UsuariosPage() {
   const openEditModal   = (u: UsuarioDetalle) => { setEditUserId(u.USUARIO_ID); setSobreescribirPermisos(false); setUserModalOpen(true); };
   const closeUserModal  = () => { setUserModalOpen(false); setEditUserId(null); userForm.resetFields(); setSobreescribirPermisos(false); };
 
+  const handleOpenPermisos = (u: UsuarioDetalle) => {
+    setPermDrawerUser({ id: u.USUARIO_ID, nombre: u.NOMBRE });
+  };
+
+  const handleToggleBloqueo = (u: UsuarioDetalle) => {
+    bloqueoMutation.mutate({ id: u.USUARIO_ID, bloquear: !u.BLOQUEADO });
+  };
+
+  const handleDeleteUser = (u: UsuarioDetalle) => {
+    Modal.confirm({
+      title: '¿Eliminar este usuario?',
+      okText: 'Sí',
+      okType: 'danger',
+      cancelText: 'No',
+      onOk: () => deleteMutation.mutate(u.USUARIO_ID),
+    });
+  };
+
+  const handleOpenRolPermisos = (r: Rol) => {
+    setRolDrawerId(r.ROL_ID);
+  };
+
   // '+' key shortcut → Nuevo Usuario
   useEffect(() => {
     const handler = () => { if (useTabStore.getState().activeKey === '/users/users') openCreateModal(); };
@@ -578,33 +602,6 @@ export function UsuariosPage() {
       title: 'Último login', dataIndex: 'ULTIMO_LOGIN', key: 'login', width: 145, align: 'center' as const,
       render: (v: string) => <Text style={{ fontSize: 12 }}>{fmtDate(v)}</Text>,
     },
-    {
-      title: '', key: 'actions', width: 140, align: 'center' as const,
-      render: (_: any, u: UsuarioDetalle) => (
-        <Space size={4}>
-          <Tooltip title="Editar">
-            <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(u)} />
-          </Tooltip>
-          <Tooltip title="Permisos">
-            <Button size="small" icon={<SafetyOutlined />}
-              onClick={() => setPermDrawerUser({ id: u.USUARIO_ID, nombre: u.NOMBRE })} />
-          </Tooltip>
-          <Tooltip title={u.BLOQUEADO ? 'Desbloquear' : 'Bloquear'}>
-            <Button size="small"
-              danger={!u.BLOQUEADO}
-              icon={u.BLOQUEADO ? <UnlockOutlined /> : <LockOutlined />}
-              onClick={() => bloqueoMutation.mutate({ id: u.USUARIO_ID, bloquear: !u.BLOQUEADO })}
-            />
-          </Tooltip>
-          <Popconfirm
-            title="¿Eliminar este usuario?" okText="Sí" cancelText="No" okButtonProps={{ danger: true }}
-            onConfirm={() => deleteMutation.mutate(u.USUARIO_ID)}
-          >
-            <Button size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
-      ),
-    },
   ];
 
   const rolColumns = [
@@ -623,15 +620,38 @@ export function UsuariosPage() {
       title: 'Estado', dataIndex: 'ACTIVO', key: 'activo', width: 90, align: 'center' as const,
       render: (v: boolean) => <Tag color={v ? 'green' : 'default'}>{v ? 'Activo' : 'Inactivo'}</Tag>,
     },
-    {
-      title: '', key: 'actions', width: 80, align: 'center' as const,
-      render: (_: any, r: Rol) => (
-        <Tooltip title="Editar permisos del rol">
-          <Button size="small" icon={<KeyOutlined />} onClick={() => setRolDrawerId(r.ROL_ID)} />
-        </Tooltip>
-      ),
-    },
   ];
+
+  // ── Row interactions (active row + context menu) ──────────────────────────
+  const userContextMenuActions = useMemo<RowAction<UsuarioDetalle>[]>(() => [
+    { key: 'permisos', label: 'Ver permisos', icon: <SafetyOutlined />, onClick: handleOpenPermisos },
+    { key: 'edit', label: 'Editar', icon: <EditOutlined />, onClick: openEditModal },
+    { key: 'bloqueo', label: 'Bloquear / Desbloquear', icon: <LockOutlined />, danger: true, onClick: handleToggleBloqueo },
+    { type: 'divider' },
+    { key: 'delete', label: 'Eliminar', icon: <DeleteOutlined />, danger: true, onClick: handleDeleteUser },
+  ], []);
+
+  const rolContextMenuActions = useMemo<RowAction<Rol>[]>(() => [
+    { key: 'permisos', label: 'Ver permisos', icon: <KeyOutlined />, onClick: handleOpenRolPermisos },
+  ], []);
+
+  const {
+    onRow: onUserRow, rowClassName: userRowClassName,
+    contextMenu: userContextMenu, contextMenuItems: userContextMenuItems, closeContextMenu: closeUserContextMenu,
+  } = useRowActions<UsuarioDetalle>({
+    getRowId: (r) => r.USUARIO_ID,
+    primaryAction: handleOpenPermisos,
+    actions: userContextMenuActions,
+  });
+
+  const {
+    onRow: onRolRow, rowClassName: rolRowClassName,
+    contextMenu: rolContextMenu, contextMenuItems: rolContextMenuItems, closeContextMenu: closeRolContextMenu,
+  } = useRowActions<Rol>({
+    getRowId: (r) => r.ROL_ID,
+    primaryAction: handleOpenRolPermisos,
+    actions: rolContextMenuActions,
+  });
 
   const auditColumns = [
     {
@@ -747,7 +767,16 @@ export function UsuariosPage() {
                 loading={loadingUsers}
                 size="small"
                 scroll={{ x: 1200 }}
+                onRow={onUserRow}
+                rowClassName={userRowClassName}
                 pagination={{ defaultPageSize: 20, showSizeChanger: true, pageSizeOptions: ['10','20','50','100'], showTotal: t => `${t} usuarios` }}
+              />
+
+              <RowContextMenu
+                open={userContextMenu !== null}
+                position={userContextMenu ? { x: userContextMenu.x, y: userContextMenu.y } : null}
+                items={userContextMenuItems}
+                onClose={closeUserContextMenu}
               />
             </>
           ),
@@ -758,15 +787,26 @@ export function UsuariosPage() {
           key: 'roles',
           label: <span><TeamOutlined /> Roles <Badge count={roles.length} showZero color="purple" /></span>,
           children: (
-            <Table
-              className="rg-table"
-              columns={rolColumns}
-              dataSource={roles}
-              rowKey="ROL_ID"
-              size="small"
-              pagination={false}
-              scroll={{ x: 700 }}
-            />
+            <>
+              <Table
+                className="rg-table"
+                columns={rolColumns}
+                dataSource={roles}
+                rowKey="ROL_ID"
+                size="small"
+                pagination={false}
+                scroll={{ x: 700 }}
+                onRow={onRolRow}
+                rowClassName={rolRowClassName}
+              />
+
+              <RowContextMenu
+                open={rolContextMenu !== null}
+                position={rolContextMenu ? { x: rolContextMenu.x, y: rolContextMenu.y } : null}
+                items={rolContextMenuItems}
+                onClose={closeRolContextMenu}
+              />
+            </>
           ),
         },
 

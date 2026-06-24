@@ -1,15 +1,15 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Drawer, Descriptions, Spin,
   Button, Input, Select, InputNumber, Popconfirm, message, Card, Row, Col,
-  Statistic, Modal, Form, Dropdown, Radio, Divider, Alert,
+  Statistic, Modal, Form, Radio, Divider, Alert,
 } from 'antd';
 import {
   PlusOutlined, LockOutlined, UnlockOutlined, EyeOutlined,
   ArrowUpOutlined, ArrowDownOutlined,
-  DeleteOutlined, ReloadOutlined, MoreOutlined, SwapOutlined,
+  DeleteOutlined, ReloadOutlined, SwapOutlined,
   PrinterOutlined,
 } from '@ant-design/icons';
 import { cajaApi } from '../services/caja.api';
@@ -22,6 +22,10 @@ import { printCajaDetail } from '../utils/printCajaDetail';
 import { salesApi } from '../services/sales.api';
 import { useTabStore } from '../store/tabStore';
 import type { Caja, CajaItem, DesgloseMetodo } from '../types';
+import { ExportButtons, type ExportColumn } from '../components/ExportButtons';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
+
 
 const { Title, Text } = Typography;
 
@@ -89,6 +93,18 @@ export function CajaPage() {
       estado: filterEstado,
       puntoVentaIds: pvFilter ? String(pvFilter) : undefined,
     }),
+  });
+
+  // Query para exportar TODAS las cajas (sin paginación, con los mismos filtros)
+  const { data: allCajasData } = useQuery({
+    queryKey: ['cajas-all', fechaDesde, fechaHasta, filterEstado, pvFilter],
+    queryFn: () => cajaApi.getAll({
+      page: 1, pageSize: 999999,
+      fechaDesde, fechaHasta,
+      estado: filterEstado,
+      puntoVentaIds: pvFilter ? String(pvFilter) : undefined,
+    }),
+    staleTime: 30 * 1000,
   });
 
   const { data: miCaja, refetch: refetchMiCaja } = useQuery({
@@ -260,18 +276,21 @@ export function CajaPage() {
     setIeModalOpen(true);
   };
 
-  // ── Row actions ────────────────────────────────
-  const getRowActions = (record: Caja) => {
-    const items: any[] = [
-      { key: 'detail', label: 'Ver detalle', icon: <EyeOutlined />, onClick: () => openDetail(record) },
-    ];
-    if (record.ESTADO === 'ACTIVA' && record.USUARIO_ID === user?.USUARIO_ID && canCerrar) {
-      items.push(
-        { key: 'cerrar', label: 'Cerrar caja', icon: <LockOutlined />, danger: true, onClick: () => handleCerrar(record.CAJA_ID) },
-      );
-    }
-    return items;
-  };
+  // ── Context menu actions ─────────────────────────
+  const contextMenuActions = useMemo<RowAction<Caja>[]>(() => [
+    { key: 'view', label: 'Ver detalle', icon: <EyeOutlined />, onClick: openDetail },
+    {
+      key: 'cerrar', label: 'Cerrar caja', icon: <LockOutlined />, danger: true,
+      onClick: (r) => handleCerrar(r.CAJA_ID),
+      disabled: (r) => !(r.ESTADO === 'ACTIVA' && r.USUARIO_ID === user?.USUARIO_ID && canCerrar),
+    },
+  ], [user?.USUARIO_ID, canCerrar]);
+
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<Caja>({
+    getRowId: (r) => r.CAJA_ID,
+    primaryAction: openDetail,
+    actions: contextMenuActions,
+  });
 
   // ── Columns ────────────────────────────────────
   const columns = [
@@ -297,20 +316,6 @@ export function CajaPage() {
     {
       title: 'Estado', dataIndex: 'ESTADO', key: 'status', width: 50, align: 'center' as const,
       render: (v: string) => <Tag color={v === 'ACTIVA' ? 'green' : 'default'}>{v}</Tag>,
-    },
-    {
-      title: '', key: 'actions', width: 80, fixed: 'right' as const,
-      render: (_: unknown, record: Caja) => (
-        <Space size={4}>
-          <EyeOutlined
-            style={{ cursor: 'pointer', color: '#EABD23', fontSize: 16 }}
-            onClick={() => openDetail(record)}
-          />
-          <Dropdown menu={{ items: getRowActions(record) }} trigger={['click']} placement="bottomRight">
-            <MoreOutlined style={{ cursor: 'pointer', fontSize: 16, padding: 4 }} />
-          </Dropdown>
-        </Space>
-      ),
     },
   ];
 
@@ -432,9 +437,44 @@ export function CajaPage() {
 
   const pvNombre = puntosVenta.find(p => p.PUNTO_VENTA_ID === puntoVentaActivo)?.NOMBRE || '';
 
+  // ── Export columns ─────────────────────────────
+  const exportColumns: ExportColumn<Caja>[] = [
+    { title: '#', dataIndex: 'CAJA_ID', align: 'center', width: 8 },
+    {
+      title: 'Apertura', dataIndex: 'FECHA_APERTURA',
+      render: (v: string) => v ? new Date(v).toLocaleString('es-AR') : '-', width: 20,
+    },
+    {
+      title: 'Cierre', dataIndex: 'FECHA_CIERRE',
+      render: (v: string | null) => v ? new Date(v).toLocaleString('es-AR') : '-', width: 20,
+    },
+    { title: 'Usuario', dataIndex: 'USUARIO_NOMBRE', width: 20 },
+    { title: 'Punto de Venta', dataIndex: 'PUNTO_VENTA_NOMBRE', width: 18 },
+    { title: 'M. Apertura', dataIndex: 'MONTO_APERTURA', numeric: true, money: true, align: 'right', width: 16 },
+    { title: 'M. Cierre', dataIndex: 'MONTO_CIERRE', numeric: true, money: true, align: 'right', width: 16 },
+    { title: 'Estado', dataIndex: 'ESTADO', align: 'center', width: 12 },
+  ];
+
+  const exportMetaParts: string[] = [];
+  if (fechaDesde && fechaHasta) exportMetaParts.push(`Período: ${fechaDesde} → ${fechaHasta}`);
+  if (filterEstado) exportMetaParts.push(`Estado: ${filterEstado}`);
+  if (pvFilter) {
+    const pv = puntosVenta.find(p => p.PUNTO_VENTA_ID === pvFilter);
+    if (pv) exportMetaParts.push(`Punto de Venta: ${pv.NOMBRE}`);
+  }
+  const exportMeta = exportMetaParts.length > 0 ? `Filtros: ${exportMetaParts.join(' · ')}` : undefined;
+
+  const exportData = data?.data ?? [];
+  const exportSummary = exportData.length > 0 ? [[
+    '', '', '', '', '',
+    fmtMoney(exportData.reduce((s, r) => s + (r.MONTO_APERTURA ?? 0), 0)),
+    fmtMoney(exportData.reduce((s, r) => s + (r.MONTO_CIERRE ?? 0), 0)),
+    '',
+  ]] : undefined;
+
   return (
     <div className="page-enter">
-      {/* ── Header ─────────────────────────────── */}
+      {/* ── Header ────────────────────────────── */}
       <div className="page-header">
         <Title level={3}>Cajas</Title>
         <Space wrap>
@@ -458,6 +498,18 @@ export function CajaPage() {
           />
           <PuntoVentaFilter value={pvFilter} onChange={(v) => { setPvFilter(v); setPage(1); }} />
           <Button icon={<ReloadOutlined />} onClick={() => invalidateAll()} />
+          <ExportButtons
+            data={exportData}
+            allData={allCajasData?.data}
+            totalCount={allCajasData?.total}
+            columns={exportColumns}
+            title="Listado de Cajas"
+            subtitle="Apertura y cierre de cajas registradoras"
+            meta={exportMeta}
+            footerSummary={exportSummary}
+            fileName="cajas"
+            sheetName="Cajas"
+          />
         </Space>
       </div>
 
@@ -577,9 +629,15 @@ export function CajaPage() {
         }}
         size="middle"
         scroll={{ x: 900 }}
-        onRow={(record) => ({
-          onDoubleClick: () => openDetail(record),
-        })}
+        onRow={onRow}
+        rowClassName={rowClassName}
+      />
+
+      <RowContextMenu
+        open={contextMenu !== null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        items={contextMenuItems}
+        onClose={closeContextMenu}
       />
 
       {/* ── Detail Drawer ─────────────────────── */}

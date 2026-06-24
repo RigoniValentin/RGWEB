@@ -1,14 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Drawer, Descriptions, Spin, Alert,
-  Button, Input, Dropdown, Popconfirm, message, Select, Statistic, Card, Row, Col,
+  Button, Input, Popconfirm, message, Select, Statistic, Card, Row, Col,
   Tooltip, Modal,
 } from 'antd';
 import {
   EyeOutlined, PlusOutlined, StopOutlined,
-  SearchOutlined, MoreOutlined, ReloadOutlined,
+  SearchOutlined, ReloadOutlined,
   FileExclamationOutlined, UndoOutlined,
   BankOutlined,
 } from '@ant-design/icons';
@@ -18,6 +18,8 @@ import { DateFilterPopover, type DatePreset } from '../components/DateFilterPopo
 import { NewNCCompraModal } from '../components/purchases/NewNCCompraModal.js';
 import { useTabStore } from '../store/tabStore';
 import { fmtMoney, fmtNum, statFormatter } from '../utils/format';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
 
 const { Title, Text } = Typography;
 
@@ -124,19 +126,22 @@ export function NCComprasPage() {
   const totalActivas = notas?.filter(n => !n.ANULADA).length ?? 0;
   const totalAnuladas = notas?.filter(n => n.ANULADA).length ?? 0;
 
-  // ── Action menu ────────────────────────────────
-  const getRowActions = (record: NCCompra) => {
-    const items: any[] = [
-      { key: 'detail', label: 'Ver detalle', icon: <EyeOutlined />, onClick: () => openDetail(record) },
-    ];
-    if (!record.ANULADA) {
-      items.push(
-        { type: 'divider' as const },
-        { key: 'anular', label: 'Anular NC', icon: <StopOutlined />, danger: true },
-      );
-    }
-    return items;
-  };
+  // ── Context menu actions ─────────────────────────
+  const contextMenuActions = useMemo<RowAction<NCCompra>[]>(() => [
+    { key: 'view', label: 'Ver detalle', icon: <EyeOutlined />, onClick: openDetail },
+    { type: 'divider' },
+    {
+      key: 'anular', label: 'Anular NC', icon: <StopOutlined />, danger: true,
+      onClick: (r) => openDetail(r),
+      disabled: (r) => r.ANULADA,
+    },
+  ], []);
+
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<NCCompra>({
+    getRowId: (r) => r.NC_ID,
+    primaryAction: openDetail,
+    actions: contextMenuActions,
+  });
 
   // ── Columns ────────────────────────────────────
   const columns = [
@@ -163,32 +168,6 @@ export function NCComprasPage() {
       title: 'Estado', key: 'estado', width: 100, align: 'center' as const,
       render: (_: unknown, record: NCCompra) => (
         <Tag color={record.ANULADA ? 'red' : 'green'}>{record.ANULADA ? 'Anulada' : 'Activa'}</Tag>
-      ),
-    },
-    {
-      title: '', key: 'actions', width: 80, fixed: 'right' as const,
-      render: (_: unknown, record: NCCompra) => (
-        <Space size={4}>
-          <EyeOutlined
-            style={{ cursor: 'pointer', color: '#EABD23', fontSize: 16 }}
-            onClick={() => openDetail(record)}
-          />
-          <Dropdown
-            menu={{
-              items: getRowActions(record),
-              onClick: ({ key }) => {
-                if (key === 'anular') {
-                  // Will use popconfirm in drawer instead
-                  openDetail(record);
-                }
-              },
-            }}
-            trigger={['click']}
-            placement="bottomRight"
-          >
-            <MoreOutlined style={{ cursor: 'pointer', fontSize: 16, padding: 4 }} />
-          </Dropdown>
-        </Space>
       ),
     },
   ];
@@ -298,10 +277,15 @@ export function NCComprasPage() {
         }}
         size="small"
         scroll={{ x: 900 }}
-        onRow={(record) => ({
-          onDoubleClick: () => openDetail(record),
-          style: record.ANULADA ? { opacity: 0.5 } : undefined,
-        })}
+        onRow={onRow}
+        rowClassName={(r) => `${rowClassName(r)} ${r.ANULADA ? 'rg-row-anulada' : ''}`}
+      />
+
+      <RowContextMenu
+        open={contextMenu !== null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        items={contextMenuItems}
+        onClose={closeContextMenu}
       />
 
       {/* ── Detail Drawer ─────────────────────── */}

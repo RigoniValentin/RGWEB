@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card, Tabs, Button, Table, Tag, Modal, Form, Input, Switch, InputNumber, Space,
-  Typography, Alert, App, Popconfirm, Tooltip,
+  Typography, Alert, App, Tooltip,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -17,6 +17,8 @@ import {
   type ApiKeyCreated,
   type SyncLog,
 } from '../services/integraciones.api';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -120,6 +122,30 @@ function ApiKeysSection() {
     onError: (e: any) => message.error(e?.response?.data?.error || e.message),
   });
 
+  // ── Handlers ─────────────────────────────────────
+  const handleOpenCreate = () => setCreateOpen(true);
+
+  const handleRevokeApiKey = (r: ApiKey) => {
+    Modal.confirm({
+      title: '¿Revocar esta API key?',
+      content: 'La clave dejará de funcionar inmediatamente.',
+      okText: 'Revocar',
+      okType: 'danger',
+      cancelText: 'Cancelar',
+      onOk: () => revokeMut.mutate(r.API_KEY_ID),
+    });
+  };
+
+  const handleDeleteApiKey = (r: ApiKey) => {
+    Modal.confirm({
+      title: '¿Eliminar definitivamente?',
+      okText: 'Eliminar',
+      okType: 'danger',
+      cancelText: 'Cancelar',
+      onOk: () => deleteMut.mutate(r.API_KEY_ID),
+    });
+  };
+
   const columns: ColumnsType<ApiKey> = [
     { title: 'Nombre', dataIndex: 'NOMBRE', key: 'nombre' },
     {
@@ -154,24 +180,18 @@ function ApiKeysSection() {
       width: 150,
       render: (v: string | null) => v ? dayjs(v).format('DD/MM/YYYY HH:mm') : <Text type="secondary">nunca</Text>,
     },
-    {
-      title: 'Acciones',
-      key: 'acc',
-      width: 200,
-      render: (_: any, r) => (
-        <Space>
-          {r.ACTIVA && (
-            <Popconfirm title="¿Revocar esta API key?" onConfirm={() => revokeMut.mutate(r.API_KEY_ID)}>
-              <Button size="small" icon={<StopOutlined />} danger>Revocar</Button>
-            </Popconfirm>
-          )}
-          <Popconfirm title="¿Eliminar definitivamente?" onConfirm={() => deleteMut.mutate(r.API_KEY_ID)}>
-            <Button size="small" icon={<DeleteOutlined />} danger type="text" />
-          </Popconfirm>
-        </Space>
-      ),
-    },
   ];
+
+  const contextMenuActions = useMemo<RowAction<ApiKey>[]>(() => [
+    { key: 'revoke', label: 'Revocar', icon: <StopOutlined />, danger: true, disabled: (r) => !r.ACTIVA, onClick: handleRevokeApiKey },
+    { key: 'delete', label: 'Eliminar', icon: <DeleteOutlined />, danger: true, onClick: handleDeleteApiKey },
+  ], []);
+
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<ApiKey>({
+    getRowId: (r) => r.API_KEY_ID,
+    primaryAction: handleOpenCreate,
+    actions: contextMenuActions,
+  });
 
   return (
     <Card
@@ -194,7 +214,16 @@ function ApiKeysSection() {
         dataSource={keys}
         columns={columns}
         size="small"
+        onRow={onRow}
+        rowClassName={rowClassName}
         pagination={false}
+      />
+
+      <RowContextMenu
+        open={contextMenu !== null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        items={contextMenuItems}
+        onClose={closeContextMenu}
       />
 
       <Modal

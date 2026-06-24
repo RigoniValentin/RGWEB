@@ -20,6 +20,10 @@ import { fmtMoney, fmtUsd } from '../utils/format';
 import { ProductFormModal } from '../components/products/ProductFormModal';
 import { BulkPriceModal } from '../components/products/BulkPriceModal';
 import { PriceListModal } from '../components/products/PriceListModal';
+import { ExportButtons, type ExportColumn } from '../components/ExportButtons';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
+
 
 const { Title, Text } = Typography;
 
@@ -35,6 +39,7 @@ export function ProductsPage() {
   const [marcaId, setMarcaId] = useState<number | undefined>();
   const [unidadIds, setUnidadIds] = useState<number[]>([]);
   const [activo, setActivo] = useState<boolean | undefined>(undefined);
+  const [listaDefecto, setListaDefecto] = useState<number | undefined>();
   const [orderBy, setOrderBy] = useState<string>('NOMBRE');
   const [orderDir, setOrderDir] = useState<'ASC' | 'DESC'>('ASC');
 
@@ -62,13 +67,14 @@ export function ProductsPage() {
 
   // ── Data queries ─────────────────────────────────
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['products', page, pageSize, search, categoriaId, marcaId, unidadIds, activo, orderBy, orderDir],
+    queryKey: ['products', page, pageSize, search, categoriaId, marcaId, unidadIds, activo, listaDefecto, orderBy, orderDir],
     queryFn: () => productApi.getAll({
       page, pageSize,
       search: search || undefined,
       categoriaId, marcaId,
       unidadIds: unidadIds.length > 0 ? unidadIds.join(',') : undefined,
       activo,
+      listaDefecto,
       orderBy, orderDir,
     }),
   });
@@ -77,6 +83,23 @@ export function ProductsPage() {
   const { data: marcas } = useQuery({ queryKey: ['marcas'], queryFn: () => catalogApi.getMarcas() });
   const { data: unidades } = useQuery({ queryKey: ['unidades'], queryFn: () => catalogApi.getUnidades() });
   const { data: listas } = useQuery({ queryKey: ['listas-precios'], queryFn: () => catalogApi.getListasPrecios() });
+
+  // ── Query para exportar TODOS los productos (sin paginación) ──
+  // Esta query carga todos los productos aplicados los mismos filtros para exportar
+const { data: allProductsData } = useQuery({
+    queryKey: ['products-all', search, categoriaId, marcaId, unidadIds, activo, listaDefecto, orderBy, orderDir],
+    queryFn: () => productApi.getAll({
+      page: 1,
+      pageSize: 999999, // Número grande para obtener todos
+      search: search || undefined,
+      categoriaId, marcaId,
+      unidadIds: unidadIds.length > 0 ? unidadIds.join(',') : undefined,
+      activo,
+      listaDefecto,
+      orderBy, orderDir,
+    }),
+    staleTime: 30 * 1000, // 30 segundos de cache
+  });
 
   // Detail
   const { data: detail, isLoading: detailLoading } = useQuery({
@@ -157,6 +180,21 @@ export function ProductsPage() {
   };
 
   const handleDetail = (record: Producto) => { setDetailId(record.PRODUCTO_ID); setStockPvId(undefined); setDetailOpen(true); };
+
+  // ── Row interactions (active row + context menu) ─
+  const contextMenuActions = useMemo<RowAction<Producto>[]>(() => [
+    { key: 'view', label: 'Ver detalle', icon: <EyeOutlined />, onClick: handleDetail },
+    { key: 'edit', label: 'Editar', icon: <EditOutlined />, onClick: handleEdit },
+    { key: 'copy', label: 'Copiar', icon: <CopyOutlined />, onClick: handleCopy },
+    { type: 'divider' },
+    { key: 'delete', label: 'Eliminar', icon: <DeleteOutlined />, danger: true, onClick: handleDelete },
+  ], []);
+
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<Producto>({
+    getRowId: (r) => r.PRODUCTO_ID,
+    primaryAction: handleDetail,
+    actions: contextMenuActions,
+  });
 
   // ── Bulk actions ─────────────────────────────────
   const handleBulkDelete = () => {
@@ -242,7 +280,7 @@ export function ProductsPage() {
     return (
       <div
         style={{ cursor: 'pointer', minHeight: 22 }}
-        onDoubleClick={() => startEdit(id, field, value)}
+        onDoubleClick={(e) => { e.stopPropagation(); startEdit(id, field, value); }}
         title="Doble click para editar"
       >
         {isPrice ? fmtMoney(value) : (value || '')}
@@ -356,32 +394,6 @@ export function ProductsPage() {
       width: 95,
       render: (v: boolean) => <Tag color={v ? 'green' : 'red'}>{v ? 'Activo' : 'Inactivo'}</Tag>,
     },
-    {
-      title: '',
-      key: 'actions',
-      width: 120,
-      fixed: 'right',
-      render: (_: unknown, record: Producto) => (
-        <Space size={4}>
-          <Tooltip title="Ver detalle">
-            <Button type="text" size="small" icon={<EyeOutlined />}
-              onClick={() => handleDetail(record)} style={{ color: '#EABD23' }} />
-          </Tooltip>
-          <Tooltip title="Editar">
-            <Button type="text" size="small" icon={<EditOutlined />}
-              onClick={() => handleEdit(record)} style={{ color: '#EABD23' }} />
-          </Tooltip>
-          <Tooltip title="Copiar">
-            <Button type="text" size="small" icon={<CopyOutlined />}
-              onClick={() => handleCopy(record)} />
-          </Tooltip>
-          <Tooltip title="Eliminar">
-            <Button type="text" size="small" danger icon={<DeleteOutlined />}
-              onClick={() => handleDelete(record)} />
-          </Tooltip>
-        </Space>
-      ),
-    },
   ];
 
   // ── Bulk actions menu ────────────────────────────
@@ -393,6 +405,60 @@ export function ProductsPage() {
     { type: 'divider' as const },
     { key: 'delete', icon: <DeleteOutlined />, label: 'Eliminar seleccionados', danger: true, onClick: handleBulkDelete },
   ];
+
+  // ── Export columns ──────────────────────────────
+  const exportColumns: ExportColumn<Producto>[] = useMemo(() => [
+    { title: 'Código', dataIndex: 'CODIGOPARTICULAR', width: 12 },
+    { title: 'Nombre', dataIndex: 'NOMBRE', width: 30 },
+    { title: 'Categoría', dataIndex: 'CATEGORIA_NOMBRE', width: 20 },
+    { title: 'Marca', dataIndex: 'MARCA_NOMBRE', width: 15 },
+    { title: 'Lista 1', dataIndex: 'LISTA_1', numeric: true, money: true, align: 'right', width: 14 },
+    { title: 'Lista 2', dataIndex: 'LISTA_2', numeric: true, money: true, align: 'right', width: 14 },
+    { title: 'Lista 3', dataIndex: 'LISTA_3', numeric: true, money: true, align: 'right', width: 14 },
+    { title: 'Lista 4', dataIndex: 'LISTA_4', numeric: true, money: true, align: 'right', width: 14 },
+    { title: 'Lista 5', dataIndex: 'LISTA_5', numeric: true, money: true, align: 'right', width: 14 },
+    { title: 'Costo', dataIndex: 'PRECIO_COMPRA', numeric: true, money: true, align: 'right', width: 14 },
+    { title: 'Stock', dataIndex: 'CANTIDAD', numeric: true, align: 'center', width: 10 },
+    { title: 'Stock Mín.', dataIndex: 'STOCK_MINIMO', numeric: true, align: 'center', width: 10 },
+    { title: 'Estado', render: (_v, r) => r.ACTIVO ? 'Activo' : 'Inactivo', align: 'center', width: 10 },
+  ], []);
+
+  // ── Meta de filtros aplicados ──
+  const exportMeta = useMemo(() => {
+    const parts: string[] = [];
+    if (search) parts.push(`Búsqueda: "${search}"`);
+    if (categoriaId) {
+      const c = categorias?.find(x => x.CATEGORIA_ID === categoriaId);
+      if (c) parts.push(`Categoría: ${c.NOMBRE}`);
+    }
+    if (marcaId) {
+      const m = marcas?.find(x => x.MARCA_ID === marcaId);
+      if (m) parts.push(`Marca: ${m.NOMBRE}`);
+    }
+    if (unidadIds.length > 0) parts.push(`Unidades: ${unidadIds.length}`);
+    if (activo === true) parts.push('Sólo activos');
+    if (activo === false) parts.push('Sólo inactivos');
+    if (listaDefecto) {
+      const l = listas?.find(x => x.LISTA_ID === listaDefecto);
+      if (l) parts.push(`Lista: ${l.NOMBRE}`);
+    }
+    return parts.length > 0 ? `Filtros: ${parts.join(' · ')}` : undefined;
+  }, [search, categoriaId, marcaId, unidadIds, activo, listaDefecto, categorias, marcas, listas]);
+
+  // Total de la página actual (para summary)
+  const exportData = useMemo(() => data?.data ?? [], [data]);
+  const exportSummary = useMemo(() => {
+    const arr = exportData;
+    if (arr.length === 0) return undefined;
+    const totalCosto = arr.reduce((s, r) => s + (r.PRECIO_COMPRA ?? 0) * (r.CANTIDAD ?? 0), 0);
+    const totalStock = arr.reduce((s, r) => s + (r.CANTIDAD ?? 0), 0);
+    return [[
+      '', '', '', '', '', '', '', '', 'TOTALES',
+      fmtMoney(totalCosto),
+      String(totalStock),
+      '', '',
+    ]];
+  }, [exportData]);
 
   // ── Detail modal ─────────────────────────────────
   const renderDetail = () => {
@@ -528,11 +594,35 @@ export function ProductsPage() {
               { label: 'Inactivos', value: false },
             ]}
           />
+          <Select
+            placeholder="Todas"
+            allowClear
+            style={{ width: 170 }}
+            value={listaDefecto}
+            onChange={(v) => { setListaDefecto(v); setPage(1); }}
+            showSearch
+            optionFilterProp="label"
+            prefix={<span style={{ fontSize: 12, color: '#8c8c8c', marginRight: 2 }}>Lista</span>}
+            options={listas?.filter(l => l.ACTIVA).map(l => ({ label: l.NOMBRE, value: l.LISTA_ID }))}
+            suffixIcon={<FilterOutlined />}
+          />
         </Space>
         <Space size="small">
           <Tooltip title="Refrescar">
             <Button icon={<ReloadOutlined />} onClick={() => refetch()} />
           </Tooltip>
+          <ExportButtons
+            data={exportData}
+            allData={allProductsData?.data}
+            totalCount={allProductsData?.total}
+            columns={exportColumns}
+            title="Listado de Productos"
+            subtitle="ABM de Productos"
+            meta={exportMeta}
+            footerSummary={exportSummary}
+            fileName="productos"
+            sheetName="Productos"
+          />
           <Button type="primary" icon={<PlusOutlined />} onClick={handleNew} className="btn-gold">
             Nuevo Producto
           </Button>
@@ -559,6 +649,8 @@ export function ProductsPage() {
           preserveSelectedRowKeys: true,
         }}
         onChange={handleTableChange}
+        onRow={onRow}
+        rowClassName={rowClassName}
         pagination={{
           current: page,
           pageSize,
@@ -570,6 +662,14 @@ export function ProductsPage() {
         }}
         size="middle"
         scroll={{ x: 1100 }}
+      />
+
+      {/* ── Row context menu (right click) ────── */}
+      <RowContextMenu
+        open={contextMenu !== null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        items={contextMenuItems}
+        onClose={closeContextMenu}
       />
 
       {/* ── Product Form (New / Edit / Copy) ─── */}

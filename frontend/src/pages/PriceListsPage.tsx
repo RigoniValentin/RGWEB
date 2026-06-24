@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  App, Button, Card, Col, Form, Input, InputNumber, Modal, Row,
+  App, Button, Card, Col, Divider, Form, Input, InputNumber, Modal, Row,
   Select, Space, Statistic, Switch, Table, Tag, Tooltip, Typography,
 } from 'antd';
 import type { TableColumnType } from 'antd';
@@ -12,6 +12,8 @@ import {
 import { priceListApi, type PriceListInput, type PriceListWithStats } from '../services/priceList.api';
 import { useTabStore } from '../store/tabStore';
 import { fmtMoney, fmtNum } from '../utils/format';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
 
 const { Title } = Typography;
 
@@ -35,6 +37,7 @@ export function PriceListsPage() {
   const [listForm] = Form.useForm();
   const [applyForm] = Form.useForm();
   const applyPorcentaje: number | undefined = Form.useWatch('porcentaje', applyForm);
+  const applyActualizarMargen: boolean = Form.useWatch('actualizarMargen', applyForm) ?? false;
   const isAumento = (applyPorcentaje ?? 0) >= 0;
 
   const { data: lists, isLoading: listsLoading, refetch: refetchLists } = useQuery({
@@ -81,11 +84,23 @@ export function PriceListsPage() {
       NOMBRE: record.NOMBRE,
       DESCRIPCION: record.DESCRIPCION,
       MARGEN: record.MARGEN ?? 0,
-      MARGEN_REAL: record.MARGEN_REAL ?? record.MARGEN ?? 0,
       ACTIVA: record.ACTIVA,
     });
     setSelectedListId(record.LISTA_ID);
+    setActiveId(record.LISTA_ID);
     setFormOpen(true);
+  };
+
+  const handleApplyOpen = (record: PriceListWithStats) => {
+    setSelectedListId(record.LISTA_ID);
+    setActiveId(record.LISTA_ID);
+    applyForm.setFieldsValue({
+      porcentaje: 0,
+      redondeo: 'ninguno',
+      incluirInactivos: false,
+      actualizarMargen: true,
+    });
+    setApplyOpen(true);
   };
 
   useEffect(() => {
@@ -106,7 +121,6 @@ export function PriceListsPage() {
         NOMBRE: values.NOMBRE,
         DESCRIPCION: values.DESCRIPCION || null,
         MARGEN: values.MARGEN ?? 0,
-        MARGEN_REAL: values.MARGEN_REAL ?? 0,
         ACTIVA: values.ACTIVA !== false,
       };
       await priceListApi.update(selectedListId, payload);
@@ -124,20 +138,45 @@ export function PriceListsPage() {
     if (!selectedListId || !selectedList) return;
     try {
       const values = await applyForm.validateFields();
+      const porcentaje = Number(values.porcentaje);
+      const margenActual = selectedList.MARGEN ?? 0;
+      const margenNuevo = applyActualizarMargen
+        ? Math.round(margenActual * (1 + porcentaje / 100) * 100) / 100
+        : null;
+
       Modal.confirm({
         title: 'Actualizar precios de lista',
-        content: `Se ${values.porcentaje >= 0 ? 'aumentarán' : 'reducirán'} los precios de "${selectedList.NOMBRE}" un ${fmtNum(Math.abs(values.porcentaje))}%.`,
-        okText: values.porcentaje >= 0 ? 'Aumentar' : 'Reducir',
+        content: (
+          <div>
+            <p style={{ marginBottom: applyActualizarMargen ? 4 : 0 }}>
+              Se {porcentaje >= 0 ? 'aumentarán' : 'reducirán'} los precios de{' '}
+              <strong>"{selectedList.NOMBRE}"</strong> un{' '}
+              <strong>{fmtNum(Math.abs(porcentaje))}%</strong>.
+            </p>
+            {applyActualizarMargen && (
+              <p style={{ marginBottom: 0 }}>
+                Margen actual: <strong>{fmtNum(margenActual)}%</strong> → nuevo margen:{' '}
+                <strong>{fmtNum(margenNuevo ?? margenActual)}%</strong>
+              </p>
+            )}
+          </div>
+        ),
+        okText: porcentaje >= 0 ? 'Aumentar' : 'Reducir',
         cancelText: 'Cancelar',
         onOk: async () => {
           setApplying(true);
           try {
             const result = await priceListApi.applyPercentage(selectedListId, {
-              porcentaje: values.porcentaje,
+              porcentaje,
               incluirInactivos: values.incluirInactivos,
               redondeo: values.redondeo,
+              actualizarMargen: applyActualizarMargen,
             });
-            message.success(`Precios actualizados: ${result.affected} producto(s)`);
+            let msg = `Precios actualizados: ${result.affected} producto(s)`;
+            if (result.margenActualizado && result.margenNuevo != null) {
+              msg += ` · Margen: ${fmtNum(result.margenAnterior ?? margenActual)}% → ${fmtNum(result.margenNuevo)}%`;
+            }
+            message.success(msg);
             setApplyOpen(false);
             applyForm.resetFields();
             invalidate();
@@ -155,7 +194,7 @@ export function PriceListsPage() {
 
   const handleListTableChange = (_pagination: any, _filters: any, sorter: any) => {
     const colMap: Record<string, string> = {
-      LISTA_ID: 'LISTA_ID', CODIGOPARTICULAR: 'CODIGOPARTICULAR', NOMBRE: 'NOMBRE', MARGEN: 'MARGEN', MARGEN_REAL: 'MARGEN_REAL',
+      LISTA_ID: 'LISTA_ID', CODIGOPARTICULAR: 'CODIGOPARTICULAR', NOMBRE: 'NOMBRE', MARGEN: 'MARGEN',
     };
     const mapped = colMap[sorter.field];
     if (mapped) {
@@ -169,44 +208,28 @@ export function PriceListsPage() {
     { title: 'Nombre', dataIndex: 'NOMBRE', key: 'NOMBRE', ellipsis: true, sorter: true },
     { title: 'Descripción', dataIndex: 'DESCRIPCION', key: 'DESCRIPCION', ellipsis: true, render: (v) => v || '-' },
     { title: 'Margen', dataIndex: 'MARGEN', key: 'MARGEN', width: 110, align: 'center', sorter: true, render: (v: number) => `${fmtNum(v)}%` },
-    { title: 'Margen real', dataIndex: 'MARGEN_REAL', key: 'MARGEN_REAL', width: 150, align: 'center', sorter: true, render: (v: number | null) => v != null ? `${fmtNum(v)}%` : '-' },
     { title: 'Con precio', dataIndex: 'productosConPrecio', key: 'productosConPrecio', width: 120, align: 'center' },
     { title: 'Precio promedio', dataIndex: 'precioPromedio', key: 'precioPromedio', width: 160, align: 'center', render: (v: number) => fmtMoney(v) },
     {
       title: 'Estado', dataIndex: 'ACTIVA', key: 'ACTIVA', width: 95,
       render: (v: boolean) => <Tag color={v ? 'green' : 'red'}>{v ? 'Activa' : 'Inactiva'}</Tag>,
     },
-    {
-      title: '', key: 'actions', width: 88, fixed: 'right',
-      render: (_: unknown, record) => (
-        <Space size={2}>
-          <Tooltip title="Ajustar precios %">
-            <Button
-              type="text"
-              size="small"
-              icon={<PercentageOutlined />}
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedListId(record.LISTA_ID);
-                applyForm.setFieldsValue({ porcentaje: 0, redondeo: 'ninguno', incluirInactivos: false });
-                setApplyOpen(true);
-              }}
-              style={{ color: '#1677ff' }}
-            />
-          </Tooltip>
-          <Tooltip title="Editar">
-            <Button
-              type="text"
-              size="small"
-              icon={<EditOutlined />}
-              onClick={(e) => { e.stopPropagation(); handleEditList(record); }}
-              style={{ color: '#EABD23' }}
-            />
-          </Tooltip>
-        </Space>
-      ),
-    },
   ];
+
+  const contextMenuActions = useMemo<RowAction<PriceListWithStats>[]>(() => [
+    { key: 'apply', label: 'Ajustar precios', icon: <PercentageOutlined />, onClick: handleApplyOpen },
+    { key: 'edit', label: 'Editar', icon: <EditOutlined />, onClick: handleEditList },
+  ], []);
+
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu, activeId, setActiveId } = useRowActions<PriceListWithStats>({
+    getRowId: (r) => r.LISTA_ID,
+    primaryAction: handleEditList,
+    actions: contextMenuActions,
+  });
+
+  useEffect(() => {
+    if (activeId != null) setSelectedListId(Number(activeId));
+  }, [activeId]);
 
   return (
     <div className="page-enter price-lists-page">
@@ -242,7 +265,12 @@ export function PriceListsPage() {
             className="btn-gold"
             disabled={!selectedList}
             onClick={() => {
-              applyForm.setFieldsValue({ porcentaje: 0, redondeo: 'ninguno', incluirInactivos: false });
+              applyForm.setFieldsValue({
+                porcentaje: 0,
+                redondeo: 'ninguno',
+                incluirInactivos: false,
+                actualizarMargen: true,
+              });
               setApplyOpen(true);
             }}
             title={selectedList ? `Aplicar a: ${selectedList.NOMBRE}` : 'Seleccioná una lista primero'}
@@ -299,10 +327,8 @@ export function PriceListsPage() {
         rowKey="LISTA_ID"
         loading={listsLoading}
         onChange={handleListTableChange}
-        onRow={(record) => ({
-          onClick: () => setSelectedListId(record.LISTA_ID),
-        })}
-        rowClassName={(record) => record.LISTA_ID === selectedListId ? 'price-list-row-selected' : ''}
+        onRow={onRow}
+        rowClassName={rowClassName}
         pagination={{
           current: listPage,
           pageSize: listPageSize,
@@ -314,6 +340,13 @@ export function PriceListsPage() {
         }}
         size="middle"
         scroll={{ x: 900 }}
+      />
+
+      <RowContextMenu
+        open={contextMenu !== null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        items={contextMenuItems}
+        onClose={closeContextMenu}
       />
 
       {/* ── Editar lista ──────────────────────────── */}
@@ -339,14 +372,9 @@ export function PriceListsPage() {
           <Form.Item name="DESCRIPCION" label="Descripción">
             <Input.TextArea rows={3} />
           </Form.Item>
-          <Space size="middle" style={{ width: '100%' }}>
-            <Form.Item name="MARGEN" label="Margen" rules={[{ required: true, message: 'Ingresá el margen' }]} style={{ flex: 1 }}>
-              <InputNumber min={-99.99} max={1000} precision={2} addonAfter="%" style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="MARGEN_REAL" label="Margen Real" rules={[{ required: true, message: 'Ingresá el margen real' }]} style={{ flex: 1 }}>
-              <InputNumber min={-99.99} max={1000} precision={2} addonAfter="%" style={{ width: '100%' }} />
-            </Form.Item>
-          </Space>
+          <Form.Item name="MARGEN" label="Margen" rules={[{ required: true, message: 'Ingresá el margen' }]}>
+            <InputNumber min={-99.99} max={1000} precision={2} addonAfter="%" style={{ width: '100%' }} />
+          </Form.Item>
           <Form.Item name="ACTIVA" label="Activa" valuePropName="checked">
             <Switch />
           </Form.Item>
@@ -362,11 +390,16 @@ export function PriceListsPage() {
         okText={isAumento ? 'Aplicar Aumento' : 'Aplicar Reducción'}
         cancelText="Cancelar"
         confirmLoading={applying}
-        width={480}
+        width={520}
         destroyOnClose
         className="rg-modal"
       >
-        <Form form={applyForm} layout="vertical" size="middle" initialValues={{ porcentaje: 0, redondeo: 'ninguno', incluirInactivos: false }}>
+        <Form
+          form={applyForm}
+          layout="vertical"
+          size="middle"
+          initialValues={{ porcentaje: 0, redondeo: 'ninguno', incluirInactivos: false, actualizarMargen: true }}
+        >
           <Form.Item
             name="porcentaje"
             label={`Porcentaje (positivo = aumento, negativo = reducción)`}
@@ -385,6 +418,36 @@ export function PriceListsPage() {
           <Form.Item name="incluirInactivos" label="Incluir productos inactivos" valuePropName="checked">
             <Switch />
           </Form.Item>
+          <Divider style={{ margin: '8px 0 16px' }} />
+          <Form.Item
+            name="actualizarMargen"
+            label="Aplicar el mismo porcentaje al margen de la lista"
+            valuePropName="checked"
+            extra="Afecta al margen que se utiliza como base para nuevos productos en esta lista."
+          >
+            <Switch />
+          </Form.Item>
+          {applyActualizarMargen && selectedList && (
+            <div
+              style={{
+                background: '#fafafa',
+                border: '1px solid #f0f0f0',
+                borderRadius: 6,
+                padding: '10px 12px',
+                fontSize: 13,
+                color: 'rgba(0,0,0,0.65)',
+              }}
+            >
+              Margen actual: <strong>{fmtNum(selectedList.MARGEN ?? 0)}%</strong>
+              {' → '}
+              nuevo margen:{' '}
+              <strong>
+                {fmtNum(
+                  Math.round(((selectedList.MARGEN ?? 0) * (1 + (applyPorcentaje ?? 0) / 100)) * 100) / 100
+                )}%
+              </strong>
+            </div>
+          )}
         </Form>
       </Modal>
     </div>

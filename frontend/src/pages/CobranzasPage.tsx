@@ -21,6 +21,8 @@ import { printReciboCobranza } from '../utils/printReciboCobranza';
 import { NuevaCobranzaGeneralModal } from '../components/cobranzas/NuevaCobranzaGeneralModal';
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
 import { useTabStore } from '../store/tabStore';
+import { ExportButtons, type ExportColumn } from '../components/ExportButtons';
+
 
 const { Title, Text } = Typography;
 
@@ -186,6 +188,37 @@ export function CobranzasPage() {
     },
   ];
 
+  // ── Export columns ──────────────────────────────
+  const exportColumns: ExportColumn<CobranzaGeneralItem>[] = useMemo(() => [
+    {
+      title: 'Fecha', dataIndex: 'FECHA', width: 18,
+      render: (v: string) => v ? dayjs(v).format('DD/MM/YYYY HH:mm') : '-',
+    },
+    { title: 'Cliente', dataIndex: 'CLIENTE_NOMBRE', width: 30 },
+    { title: 'Concepto', dataIndex: 'CONCEPTO', width: 30 },
+    { title: 'Usuario', dataIndex: 'USUARIO', width: 16 },
+    { title: 'Efectivo', dataIndex: 'EFECTIVO', numeric: true, money: true, align: 'right', width: 14 },
+    { title: 'Digital', dataIndex: 'DIGITAL', numeric: true, money: true, align: 'right', width: 14 },
+    { title: 'Cheques', dataIndex: 'CHEQUES', numeric: true, money: true, align: 'right', width: 14 },
+    { title: 'Total', dataIndex: 'TOTAL', numeric: true, money: true, align: 'right', width: 16 },
+  ], []);
+
+  const exportMeta = useMemo(() => {
+    const parts: string[] = [];
+    if (fechaDesde && fechaHasta) parts.push(`Período: ${fechaDesde} → ${fechaHasta}`);
+    if (search) parts.push(`Búsqueda: "${search}"`);
+    return parts.length > 0 ? `Filtros: ${parts.join(' · ')}` : undefined;
+  }, [fechaDesde, fechaHasta, search]);
+
+  const exportData = cobranzas ?? [];
+  const exportSummary = exportData.length > 0 ? [[
+    'TOTALES', '', '', '',
+    fmtMoney(exportData.reduce((s, c) => s + (c.EFECTIVO ?? 0), 0)),
+    fmtMoney(exportData.reduce((s, c) => s + (c.DIGITAL ?? 0), 0)),
+    fmtMoney(exportData.reduce((s, c) => s + (c.CHEQUES ?? 0), 0)),
+    fmtMoney(exportData.reduce((s, c) => s + (c.TOTAL ?? 0), 0)),
+  ]] : undefined;
+
   // ── Render ──────────────────────────────────────
   return (
     <div className="page-enter">
@@ -199,6 +232,17 @@ export function CobranzasPage() {
           }}>
             Actualizar
           </Button>
+          <ExportButtons
+            data={exportData}
+            showQuantitySelector
+            columns={exportColumns}
+            title="Listado de Cobranzas"
+            subtitle="Cobranzas a clientes"
+            meta={exportMeta}
+            footerSummary={exportSummary}
+            fileName="cobranzas"
+            sheetName="Cobranzas"
+          />
           <Button type="primary" icon={<PlusOutlined />} onClick={handleNew}>
             Nueva Cobranza
           </Button>

@@ -13,6 +13,8 @@ import { depositApi, type DepositoInput } from '../services/deposit.api';
 import { puntoVentaApi } from '../services/puntoVenta.api';
 import { useTabStore } from '../store/tabStore';
 import type { Deposito } from '../types';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
 
 const { Title } = Typography;
 
@@ -217,25 +219,20 @@ export function DepositsPage() {
         );
       },
     },
-    {
-      title: '',
-      key: 'actions',
-      width: 100,
-      fixed: 'right',
-      render: (_: unknown, record: Deposito) => (
-        <Space size={4}>
-          <Tooltip title="Editar">
-            <Button type="text" size="small" icon={<EditOutlined />}
-              onClick={() => handleEdit(record)} style={{ color: '#EABD23' }} />
-          </Tooltip>
-          <Tooltip title="Eliminar">
-            <Button type="text" size="small" danger icon={<DeleteOutlined />}
-              onClick={() => handleDelete(record)} />
-          </Tooltip>
-        </Space>
-      ),
-    },
   ];
+
+  // ── Row interactions (active row + context menu) ─
+  const contextMenuActions = useMemo<RowAction<Deposito>[]>(() => [
+    { key: 'edit', label: 'Editar', icon: <EditOutlined />, onClick: handleEdit },
+    { type: 'divider' },
+    { key: 'delete', label: 'Eliminar', icon: <DeleteOutlined />, danger: true, onClick: handleDelete },
+  ], []);
+
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<Deposito>({
+    getRowId: (r) => r.DEPOSITO_ID,
+    primaryAction: handleEdit,
+    actions: contextMenuActions,
+  });
 
   return (
     <div className="page-enter">
@@ -272,6 +269,8 @@ export function DepositsPage() {
         rowKey="DEPOSITO_ID"
         loading={isLoading}
         onChange={handleTableChange}
+        onRow={onRow}
+        rowClassName={rowClassName}
         pagination={{
           current: page,
           pageSize,
@@ -283,6 +282,13 @@ export function DepositsPage() {
         }}
         size="middle"
         scroll={{ x: 800 }}
+      />
+
+      <RowContextMenu
+        open={contextMenu !== null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        items={contextMenuItems}
+        onClose={closeContextMenu}
       />
 
       {/* ── Form Modal (New / Edit) ───────────── */}

@@ -15,6 +15,8 @@ import { depositApi } from '../services/deposit.api';
 import { usuariosApi } from '../services/usuarios.api';
 import { useTabStore } from '../store/tabStore';
 import type { PuntoVenta } from '../types';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
 
 const { Title, Text } = Typography;
 
@@ -203,22 +205,20 @@ export function PuntosVentaPage() {
       render: (n?: number) => <Tag color="purple"><UserOutlined /> {n ?? 0}</Tag> },
     { title: 'Activo', dataIndex: 'ACTIVO', key: 'ACTIVO', width: 100, align: 'center', sorter: true,
       render: (v: boolean) => v ? <Tag color="green">SÍ</Tag> : <Tag>NO</Tag> },
-    {
-      title: '', key: 'actions', width: 100, fixed: 'right',
-      render: (_: unknown, record: PuntoVenta) => (
-        <Space size={4}>
-          <Tooltip title="Editar">
-            <Button type="text" size="small" icon={<EditOutlined />}
-              onClick={() => handleEdit(record)} style={{ color: '#EABD23' }} />
-          </Tooltip>
-          <Tooltip title="Eliminar">
-            <Button type="text" size="small" danger icon={<DeleteOutlined />}
-              onClick={() => handleDelete(record)} />
-          </Tooltip>
-        </Space>
-      ),
-    },
   ];
+
+  // ── Row interactions (active row + context menu) ─
+  const contextMenuActions = useMemo<RowAction<PuntoVenta>[]>(() => [
+    { key: 'edit', label: 'Editar', icon: <EditOutlined />, onClick: handleEdit },
+    { type: 'divider' },
+    { key: 'delete', label: 'Eliminar', icon: <DeleteOutlined />, danger: true, onClick: handleDelete },
+  ], []);
+
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<PuntoVenta>({
+    getRowId: (r) => r.PUNTO_VENTA_ID,
+    primaryAction: handleEdit,
+    actions: contextMenuActions,
+  });
 
   return (
     <div className="page-enter">
@@ -254,6 +254,8 @@ export function PuntosVentaPage() {
         rowKey="PUNTO_VENTA_ID"
         loading={isLoading}
         onChange={handleTableChange}
+        onRow={onRow}
+        rowClassName={rowClassName}
         pagination={{
           current: page,
           pageSize,
@@ -265,6 +267,13 @@ export function PuntosVentaPage() {
         }}
         size="middle"
         scroll={{ x: 800 }}
+      />
+
+      <RowContextMenu
+        open={contextMenu !== null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        items={contextMenuItems}
+        onClose={closeContextMenu}
       />
 
       {/* ── Form Modal ────────────────────────── */}

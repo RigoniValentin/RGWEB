@@ -10,6 +10,7 @@ import {
   WalletOutlined, ArrowLeftOutlined, CheckCircleOutlined,
   WarningOutlined, BankOutlined, PrinterOutlined, WhatsAppOutlined,
   SendOutlined, ExclamationCircleOutlined, QuestionCircleOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -187,6 +188,10 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const efectivoRef = useRef<any>(null);
   const [metodoModalOpen, setMetodoModalOpen] = useState(false);
   const [metodoModalSelection, setMetodoModalSelection] = useState<number[]>([]);
+  // Multi-method popover (for combined payment methods) and first-amount ref
+  const [multiMetodoPopoverOpen, setMultiMetodoPopoverOpen] = useState(false);
+  const primerMontoRef = useRef<any>(null);
+  const montoRapidoRef = useRef<any>(null);
 
 
   // ── Refs for Enter-flow: price → qty → dto → search ──
@@ -456,11 +461,6 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     [selectedMetodos, montosPorMetodo, metodosPago]
   );
 
-  const hayEfectivo = selectedMetodos.some(id => {
-    const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
-    return m?.CATEGORIA === 'EFECTIVO';
-  });
-
   const soloEfectivo = selectedMetodos.length > 0 && selectedMetodos.every(id => {
     const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
     return m?.CATEGORIA === 'EFECTIVO';
@@ -599,6 +599,15 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       });
       setMetodoModalOpen(false);
       setStep('cobro');
+      // Focus strategy:
+      // - single method → focus the quick amount input in the footer
+      // - multiple methods → open the combined-methods popover and focus the first amount input
+      if (metodoModalSelection.length === 1) {
+        setTimeout(() => montoRapidoRef.current?.focus(), 50);
+      } else {
+        setMultiMetodoPopoverOpen(true);
+        setTimeout(() => primerMontoRef.current?.focus(), 150);
+      }
     },
   });
 
@@ -837,6 +846,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     cancelInFlightSearch();
     setMetodoModalOpen(false);
     setMetodoModalSelection([]);
+    setMultiMetodoPopoverOpen(false);
     setLastAddedKey(null);
     setFacturando(false);
     setRemitosPendientes([]);
@@ -1021,6 +1031,17 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     }, 0);
     return () => clearTimeout(timer);
   }, [lastAddedKey]);
+
+  // Auto-focus the first amount input when the multi-method popover opens
+  // (only if user opens it manually after methods are already selected)
+  useEffect(() => {
+    if (!multiMetodoPopoverOpen) return;
+    if (selectedMetodos.length < 2) return;
+    const timer = setTimeout(() => {
+      primerMontoRef.current?.focus();
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [multiMetodoPopoverOpen, selectedMetodos.length]);
 
   // On Enter: barcode balanza → auto-add; single match → auto-add; otherwise → open advanced search modal
   const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -1278,21 +1299,16 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     if (selectedMetodos.length === 0) return 0;
     // Only effective cash methods can produce change
     if (soloEfectivo) return Math.max(0, totalRecibido - total);
-    if (hayEfectivo) {
-      // Mixed: only if total received > total, change comes from efectivo
-      return Math.max(0, totalRecibido - total);
-    }
-    return 0; // all digital: no change
-  }, [selectedMetodos, totalRecibido, total, soloEfectivo, hayEfectivo]);
+    return 0; // mixed or all-digital: exact amount required, no change
+  }, [selectedMetodos, totalRecibido, total, soloEfectivo]);
 
   const pagoValido = useMemo(() => {
     if (selectedMetodos.length === 0 || totalRecibido <= 0) return false;
+    // If all selected methods are efectivo: overpay is OK (change is returned)
     if (soloEfectivo) return totalRecibido >= total;
-    if (soloDigital) return Math.abs(totalRecibido - total) < 0.01;
-    // Mixed: efectivo can cover the excess (change), but total must be >= total
-    if (hayEfectivo) return totalRecibido >= total;
+    // Any mix with non-efectivo methods, or multiple methods: exact amount required
     return Math.abs(totalRecibido - total) < 0.01;
-  }, [selectedMetodos, totalRecibido, total, soloEfectivo, soloDigital, hayEfectivo]);
+  }, [selectedMetodos, totalRecibido, total, soloEfectivo]);
 
   const handleConfirmCobro = () => {
     if (saleSubmitBusy) {
@@ -1954,242 +1970,327 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
           </div>
         </div>
 
-        {/* ══ RIGHT COLUMN — Config / Cobro ═══════ */}
+        {/* ══ BOTTOM FOOTER — Totals + Config + Actions ═══════ */}
         <div className="nsm-sidebar">
           {step === 'cart' ? (
-            /* ── STEP 1: Cart configuration ───────── */
-            <>
-              <div className="npm-sidebar-scroll">
-              {/* Client */}
-              <div className="nsm-field-group">
-                <label className="nsm-label">
-                  <UserOutlined style={{ marginRight: 6 }} />
-                  Cliente
-                </label>
-                <Select
-                  showSearch
-                  placeholder="Seleccionar cliente"
-                  style={{ width: '100%' }}
-                  value={clienteId}
-                  onChange={setClienteId}
-                  optionFilterProp="label"
-                  size="large"
-                  options={clientes.map((c: ClienteVenta) => ({
-                    value: c.CLIENTE_ID,
-                    label: `${c.NOMBRE || ''}  (${c.CODIGOPARTICULAR})`,
-                  }))}
-                />
-              </div>
-
-              {/* Remitos pendientes */}
-              {loadingRemitos && clienteId !== 1 && (
-                <div className="nsm-field-group">
-                  <Spin size="small" /> <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>Buscando remitos...</Text>
-                </div>
-              )}
-              {remitosPendientes.length > 0 && (
-                <div className="nsm-field-group">
-                  <label className="nsm-label">
-                    <FileTextOutlined style={{ marginRight: 6, color: '#1677ff' }} />
-                    Remitos pendientes de facturar
-                    <Badge count={remitosPendientes.length} style={{ backgroundColor: '#1677ff', marginLeft: 8 }} />
-                  </label>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
-                    {remitosPendientes.map(r => {
-                      const isSelected = selectedRemitoIds.includes(r.REMITO_ID);
-                      return (
-                        <div
-                          key={r.REMITO_ID}
-                          onClick={() => {
-                            setSelectedRemitoIds(prev =>
-                              isSelected
-                                ? prev.filter(id => id !== r.REMITO_ID)
-                                : [...prev, r.REMITO_ID]
-                            );
-                          }}
-                          style={{
-                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                            padding: '8px 12px', borderRadius: 8, cursor: 'pointer',
-                            border: isSelected ? '2px solid #1677ff' : '1px solid #d9d9d9',
-                            background: isSelected ? 'rgba(22, 119, 255, 0.06)' : 'transparent',
-                            transition: 'all 0.15s',
-                          }}
-                        >
-                          <div>
-                            <Text strong style={{ fontSize: 13 }}>
-                              R {String(r.PTO_VTA).padStart(4, '0')}-{String(r.NRO_REMITO).padStart(8, '0')}
-                            </Text>
-                            <br />
-                            <Text type="secondary" style={{ fontSize: 11 }}>
-                              {new Date(r.FECHA).toLocaleDateString('es-AR')}
-                            </Text>
-                          </div>
-                          <div style={{ textAlign: 'right' }}>
-                            <Text strong style={{ fontSize: 13 }}>{fmtMoney(r.TOTAL)}</Text>
-                            {isSelected && <CheckCircleOutlined style={{ color: '#1677ff', marginLeft: 8 }} />}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <Button
-                    type="primary"
-                    size="small"
-                    icon={<PlusOutlined />}
-                    disabled={selectedRemitoIds.length === 0}
-                    loading={loadingRemitoItems}
-                    onClick={() => handleCargarRemitos(selectedRemitoIds)}
-                    style={{ marginTop: 8 }}
-                  >
-                    Cargar {selectedRemitoIds.length > 0 ? `${selectedRemitoIds.length} remito(s)` : 'remitos'} en la venta
-                  </Button>
-                </div>
-              )}
-
-              {/* Deposito */}
-              <div className="nsm-field-group">
-                <label className="nsm-label">
-                  <ShopOutlined style={{ marginRight: 6 }} />
-                  Depósito
-                </label>
-                <Select
-                  placeholder="Depósito"
-                  style={{ width: '100%' }}
-                  value={depositoVentaId ?? undefined}
-                  onChange={setDepositoId}
-                  size="large"
-                  options={depositosPV.map(d => ({
-                    value: d.DEPOSITO_ID,
-                    label: d.ES_PREFERIDO ? `${d.NOMBRE} (preferido)` : d.NOMBRE,
-                  }))}
-                />
-              </div>
-
-              {/* Comprobante */}
-              <div className="nsm-field-group">
-                <label className="nsm-label">
-                  <FileTextOutlined style={{ marginRight: 6 }} />
-                  Tipo Comprobante
-                </label>
-                <Select
-                  placeholder="Tipo"
-                  style={{ width: '100%' }}
-                  value={tipoComprobante || undefined}
-                  onChange={setTipoComprobante}
-                  disabled={esMonotributo || esRI}
-                  size="large"
-                  options={comprobanteOptions}
-                />
-              </div>
-
-              {/* Cta Corriente switch — only enabled if customer has CTA_CORRIENTE */}
-              <div className="nsm-field-group">
-                <div className="nsm-switch-row">
-                  <Switch
-                    size="default"
-                    checked={esCtaCorriente}
-                    onChange={setEsCtaCorriente}
-                    disabled={!clienteTieneCtaCte}
-                  />
-                  <span className="nsm-switch-label" style={{ opacity: clienteTieneCtaCte ? 1 : 0.45 }}>
-                    <SwapOutlined style={{ marginRight: 6 }} />
-                    Cuenta Corriente
-                    <Tooltip title="Si el cliente no tiene cuenta corriente, se creará automáticamente al finalizar la operación.">
-                      <QuestionCircleOutlined style={{ marginLeft: 6, color: '#8c8c8c', cursor: 'help' }} />
-                    </Tooltip>
+            /* ── STEP 1: Cart footer ─────────────────── */
+            <div className="nsm-footer-content">
+              {/* ── Left zone: stats + totals + config ── */}
+              <div className="nsm-footer-zone nsm-footer-zone-totals">
+                {/* Quick stats */}
+                <Space size={16} wrap>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <Text type="secondary" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600 }}>Ítems</Text>
+                    <Badge
+                      count={totalItems}
+                      showZero
+                      style={{ backgroundColor: totalItems > 0 ? '#EABD23' : '#d9d9d9', color: '#1E1F22', fontWeight: 600 }}
+                    />
                   </span>
-                </div>
-              </div>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <Text type="secondary" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600 }}>Unidades</Text>
+                    <Badge
+                      count={totalUnits}
+                      showZero
+                      style={{ backgroundColor: totalUnits > 0 ? '#EABD23' : '#d9d9d9', color: '#1E1F22', fontWeight: 600 }}
+                    />
+                  </span>
+                </Space>
 
-              {/* Dto general */}
-              <div className="nsm-field-group">
-                <label className="nsm-label">Descuento General %</label>
-                <InputNumber
-                  value={dtoGral}
-                  min={0}
-                  max={100}
-                  size="large"
-                  style={{ width: '100%' }}
-                  onChange={(v) => setDtoGral(v || 0)}
-                />
-              </div>
-
-              <Divider style={{ margin: '10px 0' }} />
-
-              {/* Stats */}
-              <div className="nsm-stats">
-                <div className="nsm-stat">
-                  <Text type="secondary" style={{ fontSize: 12 }}>Ítems</Text>
-                  <Badge
-                    count={totalItems}
-                    showZero
-                    style={{ backgroundColor: totalItems > 0 ? '#EABD23' : '#d9d9d9', color: '#1E1F22', fontWeight: 600 }}
-                  />
-                </div>
-                <div className="nsm-stat">
-                  <Text type="secondary" style={{ fontSize: 12 }}>Unidades</Text>
-                  <Badge
-                    count={totalUnits}
-                    showZero
-                    style={{ backgroundColor: totalUnits > 0 ? '#EABD23' : '#d9d9d9', color: '#1E1F22', fontWeight: 600 }}
-                  />
-                </div>
-              </div>
-              </div>{/* /npm-sidebar-scroll */}
-
-              {/* Totals */}
-              <div className="nsm-totals-box">
+                {/* Subtotal / Dto if any */}
                 {dtoGral > 0 && (
-                  <>
-                    <div className="nsm-total-line">
-                      <Text type="secondary">Subtotal</Text>
-                      <Text>{fmtMoney(subtotal)}</Text>
-                    </div>
-                    <div className="nsm-total-line">
-                      <Text type="secondary">Dto. {dtoGral}%</Text>
-                      <Text type="danger">- {fmtMoney(descuentoMonto)}</Text>
-                    </div>
-                    <Divider style={{ margin: '8px 0' }} />
-                  </>
+                  <div className="nsm-footer-summary-inline">
+                    <span className="label">Subtotal</span>
+                    <span className="value">{fmtMoney(subtotal)}</span>
+                    <span className="label" style={{ marginLeft: 8 }}>Dto. {dtoGral}%</span>
+                    <span className="value" style={{ color: '#ff4d4f', fontSize: 14 }}>- {fmtMoney(descuentoMonto)}</span>
+                  </div>
                 )}
-                <div className="nsm-total-final">
-                  <span>TOTAL</span>
-                  <span className="nsm-total-amount">{fmtMoney(total)}</span>
+
+                {/* Total */}
+                <div className="nsm-footer-summary-inline gold">
+                  <span className="label">TOTAL</span>
+                  <span className="value" style={{ fontSize: 26 }}>{fmtMoney(total)}</span>
                 </div>
+
+                {/* ── Config Popover ── */}
+                <Popover
+                  trigger="click"
+                  placement="topRight"
+                  destroyTooltipOnHide
+                  content={
+                    <div className="nsm-config-popover">
+                      <div className="nsm-field-group">
+                        <label className="nsm-label">
+                          <UserOutlined style={{ marginRight: 6 }} />
+                          Cliente
+                        </label>
+                        <Select
+                          showSearch
+                          placeholder="Seleccionar cliente"
+                          style={{ width: '100%' }}
+                          value={clienteId}
+                          onChange={setClienteId}
+                          optionFilterProp="label"
+                          size="middle"
+                          options={clientes.map((c: ClienteVenta) => ({
+                            value: c.CLIENTE_ID,
+                            label: `${c.NOMBRE || ''}  (${c.CODIGOPARTICULAR})`,
+                          }))}
+                        />
+                      </div>
+
+                      {/* Remitos pendientes */}
+                      {loadingRemitos && clienteId !== 1 && (
+                        <div className="nsm-field-group">
+                          <Spin size="small" /> <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>Buscando remitos...</Text>
+                        </div>
+                      )}
+                      {remitosPendientes.length > 0 && (
+                        <div className="nsm-field-group">
+                          <label className="nsm-label">
+                            <FileTextOutlined style={{ marginRight: 6, color: '#1677ff' }} />
+                            Remitos pendientes
+                            <Badge count={remitosPendientes.length} style={{ backgroundColor: '#1677ff', marginLeft: 8 }} />
+                          </label>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 140, overflowY: 'auto' }}>
+                            {remitosPendientes.map(r => {
+                              const isSelected = selectedRemitoIds.includes(r.REMITO_ID);
+                              return (
+                                <div
+                                  key={r.REMITO_ID}
+                                  onClick={() => {
+                                    setSelectedRemitoIds(prev =>
+                                      isSelected
+                                        ? prev.filter(id => id !== r.REMITO_ID)
+                                        : [...prev, r.REMITO_ID]
+                                    );
+                                  }}
+                                  style={{
+                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                    padding: '6px 10px', borderRadius: 6, cursor: 'pointer',
+                                    border: isSelected ? '2px solid #1677ff' : '1px solid #d9d9d9',
+                                    background: isSelected ? 'rgba(22, 119, 255, 0.06)' : 'transparent',
+                                    transition: 'all 0.15s',
+                                  }}
+                                >
+                                  <div>
+                                    <Text strong style={{ fontSize: 12 }}>
+                                      R {String(r.PTO_VTA).padStart(4, '0')}-{String(r.NRO_REMITO).padStart(8, '0')}
+                                    </Text>
+                                    <br />
+                                    <Text type="secondary" style={{ fontSize: 10 }}>
+                                      {new Date(r.FECHA).toLocaleDateString('es-AR')}
+                                    </Text>
+                                  </div>
+                                  <div style={{ textAlign: 'right' }}>
+                                    <Text strong style={{ fontSize: 12 }}>{fmtMoney(r.TOTAL)}</Text>
+                                    {isSelected && <CheckCircleOutlined style={{ color: '#1677ff', marginLeft: 6, fontSize: 11 }} />}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <Button
+                            type="primary"
+                            size="small"
+                            icon={<PlusOutlined />}
+                            disabled={selectedRemitoIds.length === 0}
+                            loading={loadingRemitoItems}
+                            onClick={() => handleCargarRemitos(selectedRemitoIds)}
+                            style={{ marginTop: 6 }}
+                            block
+                          >
+                            Cargar {selectedRemitoIds.length > 0 ? `${selectedRemitoIds.length} remito(s)` : 'remitos'}
+                          </Button>
+                        </div>
+                      )}
+
+                      <div className="nsm-field-group">
+                        <label className="nsm-label">
+                          <ShopOutlined style={{ marginRight: 6 }} />
+                          Depósito
+                        </label>
+                        <Select
+                          placeholder="Depósito"
+                          style={{ width: '100%' }}
+                          value={depositoVentaId ?? undefined}
+                          onChange={setDepositoId}
+                          size="middle"
+                          options={depositosPV.map(d => ({
+                            value: d.DEPOSITO_ID,
+                            label: d.ES_PREFERIDO ? `${d.NOMBRE} (preferido)` : d.NOMBRE,
+                          }))}
+                        />
+                      </div>
+
+                      <div className="nsm-field-group">
+                        <label className="nsm-label">
+                          <FileTextOutlined style={{ marginRight: 6 }} />
+                          Tipo Comprobante
+                        </label>
+                        <Select
+                          placeholder="Tipo"
+                          style={{ width: '100%' }}
+                          value={tipoComprobante || undefined}
+                          onChange={setTipoComprobante}
+                          disabled={esMonotributo || esRI}
+                          size="middle"
+                          options={comprobanteOptions}
+                        />
+                      </div>
+
+                      <div className="nsm-field-group">
+                        <div className="nsm-switch-row">
+                          <Switch
+                            size="small"
+                            checked={esCtaCorriente}
+                            onChange={setEsCtaCorriente}
+                            disabled={!clienteTieneCtaCte}
+                          />
+                          <span className="nsm-switch-label" style={{ opacity: clienteTieneCtaCte ? 1 : 0.45, fontSize: 12 }}>
+                            <SwapOutlined style={{ marginRight: 6 }} />
+                            Cuenta Corriente
+                            <Tooltip title="Si el cliente no tiene cuenta corriente, se creará automáticamente al finalizar la operación.">
+                              <QuestionCircleOutlined style={{ marginLeft: 6, color: '#8c8c8c', cursor: 'help' }} />
+                            </Tooltip>
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="nsm-field-group">
+                        <label className="nsm-label">Descuento General %</label>
+                        <InputNumber
+                          value={dtoGral}
+                          min={0}
+                          max={100}
+                          size="middle"
+                          style={{ width: '100%' }}
+                          onChange={(v) => setDtoGral(v || 0)}
+                        />
+                      </div>
+                    </div>
+                  }
+                >
+                  <Button
+                    icon={<SettingOutlined />}
+                    size="large"
+                  >
+                    Comprobante
+                    {(selectedCliente?.NOMBRE && clienteId !== 1) ? `: ${selectedCliente.NOMBRE}` : ''}
+                  </Button>
+                </Popover>
               </div>
 
-              {/* Action buttons */}
-              <div className="nsm-actions">
+              {/* ── Right zone: actions ── */}
+              <div className="nsm-footer-zone nsm-footer-zone-actions">
                 {esCtaCorriente && (
-                  <>
-                    {/* Print & FE options inline for CTA CTE (payment step is skipped) */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
-                      {!wantFacturar && (
-                        <Checkbox
-                          checked={wantPrint}
-                          onChange={e => setWantPrint(e.target.checked)}
-                        >
-                          <Space size={6}>
-                            <PrinterOutlined />
-                            <span>Imprimir ticket</span>
-                          </Space>
-                        </Checkbox>
-                      )}
-                      {utilizaFE && (
-                        <>
+                  <Popover
+                    trigger="click"
+                    placement="topRight"
+                    destroyTooltipOnHide
+                    content={
+                      <div className="nsm-config-popover" style={{ width: 260 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {!wantFacturar && (
+                            <Checkbox
+                              checked={wantPrint}
+                              onChange={e => setWantPrint(e.target.checked)}
+                            >
+                              <Space size={6}>
+                                <PrinterOutlined />
+                                <span>Imprimir ticket</span>
+                              </Space>
+                            </Checkbox>
+                          )}
+                          {utilizaFE && (
+                            <>
+                              <Checkbox
+                                checked={wantFacturar}
+                                onChange={e => {
+                                  setWantFacturar(e.target.checked);
+                                  if (e.target.checked) setWantPrint(false);
+                                }}
+                              >
+                                <Space size={6}>
+                                  <FileTextOutlined style={{ color: '#1677ff' }} />
+                                  <span>Emitir Factura Electrónica</span>
+                                </Space>
+                              </Checkbox>
+                              {wantFacturar && (
+                                <div style={{ marginLeft: 24, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  <Checkbox
+                                    checked={wantFEPdf}
+                                    onChange={e => setWantFEPdf(e.target.checked)}
+                                  >
+                                    <Space size={6}>
+                                      <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                                      <span>Descargar PDF</span>
+                                    </Space>
+                                  </Checkbox>
+                                  <Checkbox
+                                    checked={wantFETicket}
+                                    onChange={e => setWantFETicket(e.target.checked)}
+                                  >
+                                    <Space size={6}>
+                                      <PrinterOutlined />
+                                      <span>Imprimir ticket 80mm</span>
+                                    </Space>
+                                  </Checkbox>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    }
+                  >
+                    <Button icon={<SettingOutlined />} size="large">
+                      Impr
+                    </Button>
+                  </Popover>
+                )}
+                {!esCtaCorriente && (
+                  <Popover
+                    trigger="click"
+                    placement="topRight"
+                    destroyTooltipOnHide
+                    content={
+                      <div className="nsm-config-popover" style={{ width: 260 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                           <Checkbox
-                            checked={wantFacturar}
-                            onChange={e => {
-                              setWantFacturar(e.target.checked);
-                              if (e.target.checked) setWantPrint(false);
-                            }}
+                            checked={wantPrint}
+                            onChange={e => setWantPrint(e.target.checked)}
                           >
                             <Space size={6}>
-                              <FileTextOutlined style={{ color: '#1677ff' }} />
-                              <span>Emitir Factura Electrónica</span>
+                              <PrinterOutlined />
+                              <span>Imprimir ticket</span>
                             </Space>
                           </Checkbox>
-                          {wantFacturar && (
+                          <Checkbox
+                            checked={wantWhatsApp}
+                            onChange={e => setWantWhatsApp(e.target.checked)}
+                          >
+                            <Space size={6}>
+                              <WhatsAppOutlined style={{ color: '#25D366' }} />
+                              <span>Enviar por WhatsApp</span>
+                            </Space>
+                          </Checkbox>
+                          {utilizaFE && (
+                            <Checkbox
+                              checked={wantFacturar}
+                              onChange={e => {
+                                setWantFacturar(e.target.checked);
+                                if (e.target.checked) setWantPrint(false);
+                              }}
+                            >
+                              <Space size={6}>
+                                <FileTextOutlined style={{ color: '#1677ff' }} />
+                                <span>Emitir Factura Electrónica</span>
+                              </Space>
+                            </Checkbox>
+                          )}
+                          {wantFacturar && utilizaFE && (
                             <div style={{ marginLeft: 24, display: 'flex', flexDirection: 'column', gap: 4 }}>
                               <Checkbox
                                 checked={wantFEPdf}
@@ -2211,258 +2312,310 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                               </Checkbox>
                             </div>
                           )}
-                        </>
-                      )}
-                    </div>
-                    <Button
-                      block
-                      size="large"
-                      onClick={() => handleSubmit(false)}
-                      loading={saleSubmitBusy || checkingSaldo}
-                      disabled={cart.length === 0 || saleSubmitBusy}
-                      style={{ height: 48 }}
-                    >
-                      Guardar (Cobro Pendiente)
+                        </div>
+                      </div>
+                    }
+                  >
+                    <Button icon={<SettingOutlined />} size="large">
+                      Impr
                     </Button>
-                  </>
+                  </Popover>
                 )}
-                {!esCtaCorriente && (
+
+                {esCtaCorriente ? (
                   <Button
                     type="primary"
-                    block
+                    size="large"
+                    onClick={() => handleSubmit(false)}
+                    loading={saleSubmitBusy || checkingSaldo}
+                    disabled={cart.length === 0 || saleSubmitBusy}
+                    style={{ height: 56, minWidth: 200, fontSize: 16, fontWeight: 700 }}
+                  >
+                    Guardar (Pendiente)
+                  </Button>
+                ) : (
+                  <Button
+                    type="primary"
                     size="large"
                     className="btn-gold nsm-btn-cobrar"
                     onClick={() => handleSubmit(true)}
                     loading={saleSubmitBusy}
                     disabled={cart.length === 0 || saleSubmitBusy}
                     icon={<ShoppingCartOutlined />}
+                    style={{ height: 56, minWidth: 220, fontSize: 16, fontWeight: 700 }}
                   >
                     Cobrar {fmtMoney(total)}
                   </Button>
                 )}
               </div>
-            </>
+            </div>
           ) : (
-            /* ── STEP 2: Payment / Cobro ──────────── */
-            <>
-              <div className="npm-sidebar-scroll">
-              {/* Total a cobrar - prominent */}
-              <div className="nsm-cobro-total-box">
-                <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  Total a cobrar
-                </Text>
-                <div className="nsm-cobro-total-amount">{fmtMoney(total)}</div>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  {totalItems} ítem{totalItems !== 1 ? 's' : ''} · {totalUnits} unidad{totalUnits !== 1 ? 'es' : ''}
-                </Text>
+            /* ── STEP 2: Cobro footer ───────────────── */
+            <div className="nsm-footer-content">
+              {/* ── Zone 1: Totals + Status ── */}
+              <div className="nsm-footer-zone nsm-footer-zone-totals">
+                <div className="nsm-footer-summary-inline gold">
+                  <span className="label">Total</span>
+                  <span className="value" style={{ fontSize: 22 }}>{fmtMoney(total)}</span>
+                </div>
+                <div className="nsm-footer-summary-inline blue">
+                  <span className="label">Recibido</span>
+                  <span className="value" style={{ fontSize: 22 }}>{fmtMoney(totalRecibido)}</span>
+                </div>
+                {/* Status pill */}
+                {vuelto > 0 ? (
+                  <div className="nsm-footer-status status-success">
+                    <span className="status-label">Vuelto</span>
+                    <span className="status-amount">{fmtMoney(vuelto)}</span>
+                  </div>
+                ) : totalRecibido < total ? (
+                  <div className="nsm-footer-status status-danger">
+                    <span className="status-label">Faltan</span>
+                    <span className="status-amount">{fmtMoney(total - totalRecibido)}</span>
+                  </div>
+                ) : !soloEfectivo && totalRecibido > total ? (
+                  <div className="nsm-footer-status status-warning">
+                    <span className="status-label">Exceso</span>
+                    <span className="status-amount">{fmtMoney(totalRecibido - total)}</span>
+                  </div>
+                ) : (
+                  <div className="nsm-footer-status status-success">
+                    <span className="status-label">Estado</span>
+                    <span className="status-amount" style={{ fontSize: 14 }}>PAGO EXACTO</span>
+                  </div>
+                )}
               </div>
 
-              <Divider style={{ margin: '16px 0' }} />
+              {/* ── Zone 2: Amount Input + Methods ── */}
+              <div className="nsm-footer-zone">
+                {/* Method tags (clickable to open modal) */}
+                <Popover
+                  trigger="click"
+                  placement="top"
+                  destroyTooltipOnHide
+                  open={multiMetodoPopoverOpen}
+                  onOpenChange={(open) => setMultiMetodoPopoverOpen(open)}
+                  content={
+                    <div className="nsm-config-popover">
+                      <div className="nsm-field-group">
+                        <label className="nsm-label">Métodos de pago</label>
+                        <div className="nsm-method-tags-inline">
+                          {selectedMetodos.map(id => {
+                            const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+                            return m ? (
+                              <Tag key={id} color={m.CATEGORIA === 'EFECTIVO' ? 'gold' : 'blue'}>
+                                {m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined /> : <CreditCardOutlined />}
+                                {' '}{m.NOMBRE}
+                              </Tag>
+                            ) : null;
+                          })}
+                        </div>
+                        <Button
+                          type="link"
+                          size="small"
+                          style={{ padding: 0, marginTop: 6 }}
+                          onClick={() => {
+                            setMultiMetodoPopoverOpen(false);
+                            setMetodoModalSelection([...selectedMetodos]);
+                            setMetodoModalOpen(true);
+                          }}
+                        >
+                          Cambiar métodos
+                        </Button>
+                      </div>
 
-              {/* Selected payment methods summary */}
-              <div className="nsm-field-group">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <label className="nsm-label" style={{ margin: 0 }}>Método de pago</label>
-                  <Button type="link" size="small" onClick={() => {
-                    setMetodoModalSelection([...selectedMetodos]);
-                    setMetodoModalOpen(true);
-                  }}>Cambiar</Button>
-                </div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {selectedMetodos.map(id => {
-                    const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
-                    if (!m) return null;
-                    return (
-                      <Tag key={id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', fontSize: 13 }}>
-                        {m.IMAGEN_BASE64 ? (
-                          <img src={m.IMAGEN_BASE64} alt={m.NOMBRE} style={{ width: 16, height: 16, objectFit: 'contain', borderRadius: 2 }} />
-                        ) : (
-                          m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined /> : <CreditCardOutlined />
-                        )}
-                        {m.NOMBRE}
-                      </Tag>
-                    );
-                  })}
-                </div>
-              </div>
+                      {/* Amount inputs per selected method (multi) */}
+                      {selectedMetodos.length > 1 && selectedMetodos.map((id, idx) => {
+                        const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+                        if (!m) return null;
+                        return (
+                          <div className="nsm-field-group" key={id}>
+                            <label className="nsm-label">
+                              {m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined style={{ marginRight: 6 }} /> : <CreditCardOutlined style={{ marginRight: 6 }} />}
+                              {m.NOMBRE}
+                            </label>
+                            <InputNumber
+                              ref={idx === 0 ? primerMontoRef : undefined}
+                              value={montosPorMetodo[id] || 0}
+                              min={0}
+                              step={100}
+                              size="middle"
+                              style={{ width: '100%' }}
+                              formatter={v => `$ ${v}`}
+                              onChange={v => setMontosPorMetodo(prev => ({ ...prev, [id]: v || 0 }))}
+                              onPressEnter={() => { if (pagoValido) handleConfirmCobro(); }}
+                            />
+                          </div>
+                        );
+                      })}
 
-              {/* Amount inputs per selected method */}
-              {selectedMetodos.length > 1 && selectedMetodos.map(id => {
-                const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
-                if (!m) return null;
-                return (
-                  <div className="nsm-field-group" key={id}>
-                    <label className="nsm-label">
-                      {m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined style={{ marginRight: 6 }} /> : <CreditCardOutlined style={{ marginRight: 6 }} />}
-                      {m.NOMBRE}
-                    </label>
+                      {/* Single method: inline amount input */}
+                      {selectedMetodos.length === 1 && (() => {
+                        const id = selectedMetodos[0]!;
+                        const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+                        if (!m) return null;
+                        return (
+                          <>
+                            <div className="nsm-field-group">
+                              <label className="nsm-label">
+                                {m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined style={{ marginRight: 6 }} /> : <CreditCardOutlined style={{ marginRight: 6 }} />}
+                                Monto {m.NOMBRE}
+                              </label>
+                              <InputNumber
+                                ref={efectivoRef}
+                                value={montosPorMetodo[id] || 0}
+                                min={0}
+                                step={100}
+                                size="middle"
+                                style={{ width: '100%' }}
+                                formatter={v => `$ ${v}`}
+                                onChange={v => setMontosPorMetodo(prev => ({ ...prev, [id]: v || 0 }))}
+                                onPressEnter={() => { if (pagoValido) handleConfirmCobro(); }}
+                                autoFocus
+                              />
+                              {m.CATEGORIA === 'EFECTIVO' && (
+                                <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
+                                  Puede ingresar un monto mayor — se calculará el vuelto
+                                </Text>
+                              )}
+                              {m.CATEGORIA === 'DIGITAL' && (
+                                <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
+                                  El monto debe ser exacto
+                                </Text>
+                              )}
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  }
+                >
+                  <Button size="large" icon={<WalletOutlined />}>
+                    {selectedMetodos.length === 0
+                      ? 'Método de pago'
+                      : selectedMetodos.map(id => {
+                          const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+                          return m?.NOMBRE;
+                        }).join(' + ')}
+                  </Button>
+                </Popover>
+
+                {/* Quick amount input for the active method (if single) */}
+                {selectedMetodos.length === 1 && (() => {
+                  const id = selectedMetodos[0]!;
+                  return (
                     <InputNumber
+                      ref={montoRapidoRef}
                       value={montosPorMetodo[id] || 0}
                       min={0}
                       step={100}
                       size="large"
-                      style={{ width: '100%' }}
+                      style={{ width: 180 }}
+                      placeholder="Monto"
                       formatter={v => `$ ${v}`}
                       onChange={v => setMontosPorMetodo(prev => ({ ...prev, [id]: v || 0 }))}
                       onPressEnter={() => { if (pagoValido) handleConfirmCobro(); }}
                     />
-                  </div>
-                );
-              })}
-
-              {/* Single method selected: one editable input */}
-              {selectedMetodos.length === 1 && (() => {
-                const id = selectedMetodos[0]!;
-                const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
-                if (!m) return null;
-                return (
-                  <div className="nsm-field-group">
-                    <label className="nsm-label">
-                      {m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined style={{ marginRight: 6 }} /> : <CreditCardOutlined style={{ marginRight: 6 }} />}
-                      Monto {m.NOMBRE}
-                    </label>
-                    <InputNumber
-                      ref={efectivoRef}
-                      value={montosPorMetodo[id] || 0}
-                      min={0}
-                      step={100}
-                      size="large"
-                      style={{ width: '100%' }}
-                      formatter={v => `$ ${v}`}
-                      onChange={v => setMontosPorMetodo(prev => ({ ...prev, [id]: v || 0 }))}
-                      autoFocus
-                      onPressEnter={() => {
-                        if (pagoValido) handleConfirmCobro();
-                      }}
-                    />
-                    {m.CATEGORIA === 'EFECTIVO' && (
-                      <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
-                        Puede ingresar un monto mayor — se calculará el vuelto
-                      </Text>
-                    )}
-                    {m.CATEGORIA === 'DIGITAL' && (
-                      <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
-                        El monto debe ser exacto
-                      </Text>
-                    )}
-                  </div>
-                );
-              })()}
-
-              <Divider style={{ margin: '12px 0' }} />
-
-              {/* Payment summary */}
-              <div className="nsm-cobro-summary">
-                <div className="nsm-cobro-line">
-                  <Text type="secondary">Total recibido</Text>
-                  <Text strong>{fmtMoney(totalRecibido)}</Text>
-                </div>
-                <div className="nsm-cobro-line">
-                  <Text type="secondary">Total a abonar</Text>
-                  <Text strong>{fmtMoney(total)}</Text>
-                </div>
-                {vuelto > 0 && (
-                  <div className="nsm-cobro-vuelto">
-                    <Text strong>Vuelto</Text>
-                    <Text strong className="nsm-cobro-vuelto-amount">{fmtMoney(vuelto)}</Text>
-                  </div>
-                )}
-                {!soloEfectivo && totalRecibido > 0 && Math.abs(totalRecibido - total) >= 0.01 && (
-                  <div style={{ marginTop: 8 }}>
-                    <Text type="danger" style={{ fontSize: 12 }}>
-                      {totalRecibido < total
-                        ? `Faltan ${fmtMoney(total - totalRecibido)}`
-                        : `Exceso de ${fmtMoney(totalRecibido - total)} — el monto debe ser exacto`
-                      }
-                    </Text>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
 
-              {/* Print / WhatsApp toggles */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, margin: '12px 0' }}>
-                {!wantFacturar && (
-                  <Checkbox
-                    checked={wantPrint}
-                    onChange={e => setWantPrint(e.target.checked)}
-                  >
-                    <Space size={6}>
-                      <PrinterOutlined />
-                      <span>Imprimir ticket</span>
-                    </Space>
-                  </Checkbox>
-                )}
-                <Checkbox
-                  checked={wantWhatsApp}
-                  onChange={e => setWantWhatsApp(e.target.checked)}
+              {/* ── Zone 3: Print / WhatsApp / FE ── */}
+              <div className="nsm-footer-zone">
+                <Popover
+                  trigger="click"
+                  placement="top"
+                  destroyTooltipOnHide
+                  content={
+                    <div className="nsm-config-popover" style={{ width: 260 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {!wantFacturar && (
+                          <Checkbox
+                            checked={wantPrint}
+                            onChange={e => setWantPrint(e.target.checked)}
+                          >
+                            <Space size={6}>
+                              <PrinterOutlined />
+                              <span>Imprimir ticket</span>
+                            </Space>
+                          </Checkbox>
+                        )}
+                        <Checkbox
+                          checked={wantWhatsApp}
+                          onChange={e => setWantWhatsApp(e.target.checked)}
+                        >
+                          <Space size={6}>
+                            <WhatsAppOutlined style={{ color: '#25D366' }} />
+                            <span>Enviar por WhatsApp</span>
+                          </Space>
+                        </Checkbox>
+                        {utilizaFE && (
+                          <Checkbox
+                            checked={wantFacturar}
+                            onChange={e => setWantFacturar(e.target.checked)}
+                          >
+                            <Space size={6}>
+                              <FileTextOutlined style={{ color: '#1677ff' }} />
+                              <span>Emitir Factura Electrónica</span>
+                            </Space>
+                          </Checkbox>
+                        )}
+                        {wantFacturar && utilizaFE && (
+                          <div style={{ marginLeft: 24, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <Checkbox
+                              checked={wantFEPdf}
+                              onChange={e => setWantFEPdf(e.target.checked)}
+                            >
+                              <Space size={6}>
+                                <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                                <span>Descargar PDF</span>
+                              </Space>
+                            </Checkbox>
+                            <Checkbox
+                              checked={wantFETicket}
+                              onChange={e => setWantFETicket(e.target.checked)}
+                            >
+                              <Space size={6}>
+                                <PrinterOutlined />
+                                <span>Imprimir ticket 80mm</span>
+                              </Space>
+                            </Checkbox>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  }
                 >
-                  <Space size={6}>
-                    <WhatsAppOutlined style={{ color: '#25D366' }} />
-                    <span>Enviar por WhatsApp</span>
-                  </Space>
-                </Checkbox>
-                {utilizaFE && (
-                  <Checkbox
-                    checked={wantFacturar}
-                    onChange={e => setWantFacturar(e.target.checked)}
-                  >
-                    <Space size={6}>
-                      <FileTextOutlined style={{ color: '#1677ff' }} />
-                      <span>Emitir Factura Electrónica</span>
-                    </Space>
-                  </Checkbox>
-                )}
-                {wantFacturar && (
-                  <div style={{ marginLeft: 24, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <Checkbox
-                      checked={wantFEPdf}
-                      onChange={e => setWantFEPdf(e.target.checked)}
-                    >
-                      <Space size={6}>
-                        <FilePdfOutlined style={{ color: '#ff4d4f' }} />
-                        <span>Descargar PDF</span>
-                      </Space>
-                    </Checkbox>
-                    <Checkbox
-                      checked={wantFETicket}
-                      onChange={e => setWantFETicket(e.target.checked)}
-                    >
-                      <Space size={6}>
-                        <PrinterOutlined />
-                        <span>Imprimir ticket 80mm</span>
-                      </Space>
-                    </Checkbox>
-                  </div>
-                )}
-
+                  <Button size="large" icon={<SettingOutlined />}>
+                    Impr
+                  </Button>
+                </Popover>
               </div>
-              </div>{/* /npm-sidebar-scroll */}
 
-              {/* Cobro action buttons */}
-              <div className="nsm-actions">
+              {/* ── Zone 4: Actions ── */}
+              <div className="nsm-footer-zone nsm-footer-zone-actions">
+                <Button
+                  size="large"
+                  onClick={() => { setStep('cart'); setMultiMetodoPopoverOpen(false); }}
+                  icon={<ArrowLeftOutlined />}
+                  style={{ height: 56 }}
+                >
+                  Volver
+                </Button>
                 <Button
                   type="primary"
-                  block
                   size="large"
                   className="btn-gold nsm-btn-cobrar"
                   onClick={handleConfirmCobro}
                   loading={saleSubmitBusy}
                   disabled={!pagoValido || saleSubmitBusy}
                   icon={<CheckCircleOutlined />}
+                  style={{ height: 56, minWidth: 200, fontSize: 16, fontWeight: 700 }}
                 >
                   Confirmar Cobro
                 </Button>
-                <Button
-                  block
-                  size="large"
-                  onClick={() => setStep('cart')}
-                  icon={<ArrowLeftOutlined />}
-                  style={{ height: 44 }}
-                >
-                  Volver al carrito
-                </Button>
               </div>
-            </>
+            </div>
           )}
         </div>
       </div>
@@ -2502,6 +2655,15 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
               });
               setMetodoModalOpen(false);
               setStep('cobro');
+              // Focus strategy:
+              // - single method → focus the quick amount input in the footer
+              // - multiple methods → open the combined-methods popover and focus the first amount input
+              if (metodoModalSelection.length === 1) {
+                setTimeout(() => montoRapidoRef.current?.focus(), 50);
+              } else {
+                setMultiMetodoPopoverOpen(true);
+                setTimeout(() => primerMontoRef.current?.focus(), 150);
+              }
             }}
             icon={<CheckCircleOutlined />}
           >

@@ -16,6 +16,7 @@ export interface ProductFilter {
   unidadIds?: number[];
   activo?: boolean;
   stockBajo?: boolean;
+  listaDefecto?: number;
   orderBy?: string;
   orderDir?: 'ASC' | 'DESC';
 }
@@ -123,6 +124,10 @@ export const productService = {
     }
     if (filter.stockBajo) {
       where += ' AND p.STOCK_MINIMO IS NOT NULL AND (SELECT ISNULL(SUM(sd2.CANTIDAD),0) FROM STOCK_DEPOSITOS sd2 WHERE sd2.PRODUCTO_ID = p.PRODUCTO_ID) <= p.STOCK_MINIMO';
+    }
+    if (filter.listaDefecto) {
+      where += ' AND p.LISTA_DEFECTO = @listaDefecto';
+      params.push({ name: 'listaDefecto', type: sql.Int, value: filter.listaDefecto });
     }
 
     const bind = (req: any) => {

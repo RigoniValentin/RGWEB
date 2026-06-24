@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Table, Typography, Tag, Space, Button, Select, Drawer, Spin,
-  Descriptions, Empty, Tooltip, message,
+  Descriptions, Empty, message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -19,6 +19,8 @@ import { DateFilterPopover, type DatePreset } from '../components/DateFilterPopo
 import { NewSaleModal } from '../components/sales/NewSaleModal';
 import type { PedidoParaVenta } from '../components/sales/NewSaleModal';
 import type { ComandaListItem, PedidoItem } from '../types';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
 
 const { Title, Text } = Typography;
 
@@ -217,45 +219,48 @@ export function ListadoComandasPage() {
         <Text style={{ fontSize: 12 }}>{dayjs(v).format('DD/MM/YYYY HH:mm')}</Text>
       ),
     },
-    {
-      title: '',
-      width: 130,
-      fixed: 'right',
-      render: (_: any, record: ComandaListItem) => (
-        <Space size={4}>
-          <Tooltip title="Ver detalle">
-            <Button type="text" size="small" icon={<EyeOutlined />}
-              onClick={() => handleVerDetalle(record.PEDIDO_ID)}
-              style={{ color: '#666' }}
-            />
-          </Tooltip>
-          <Tooltip title="Imprimir comanda">
-            <Button type="text" size="small" icon={<PrinterOutlined />}
-              onClick={() => handlePrint(record.PEDIDO_ID)}
-              style={{ color: '#666' }}
-            />
-          </Tooltip>
-          {record.ESTADO === 'CERRADO' && (
-            record.VENTA_ID ? (
-              <Tooltip title="Ir a venta">
-                <Button type="text" size="small" icon={<LinkOutlined />}
-                  onClick={() => { openTab({ key: '/sales', label: 'Ventas', closable: true }); navTo('/sales', { ventaId: record.VENTA_ID }); }}
-                  style={{ color: '#1890ff' }}
-                />
-              </Tooltip>
-            ) : (
-              <Tooltip title="Facturar">
-                <Button type="text" size="small" icon={<DollarOutlined />}
-                  onClick={() => handleFacturar(record.PEDIDO_ID)}
-                  style={{ color: '#b8960e' }}
-                />
-              </Tooltip>
-            )
-          )}
-        </Space>
-      ),
-    },
   ];
+
+  // ── Row interactions (active row + context menu) ─
+  const goToVenta = (record: ComandaListItem) => {
+    openTab({ key: '/sales', label: 'Ventas', closable: true });
+    navTo('/sales', { ventaId: record.VENTA_ID });
+  };
+
+  const contextMenuActions = useMemo<RowAction<ComandaListItem>[]>(() => [
+    {
+      key: 'view',
+      label: 'Ver detalle',
+      icon: <EyeOutlined />,
+      onClick: (r) => handleVerDetalle(r.PEDIDO_ID),
+    },
+    {
+      key: 'print',
+      label: 'Imprimir comanda',
+      icon: <PrinterOutlined />,
+      onClick: (r) => handlePrint(r.PEDIDO_ID),
+    },
+    {
+      key: 'goVenta',
+      label: 'Ir a venta',
+      icon: <LinkOutlined />,
+      disabled: (r) => !(r.ESTADO === 'CERRADO' && r.VENTA_ID),
+      onClick: goToVenta,
+    },
+    {
+      key: 'facturar',
+      label: 'Facturar',
+      icon: <DollarOutlined />,
+      disabled: (r) => !(r.ESTADO === 'CERRADO' && !r.VENTA_ID),
+      onClick: (r) => handleFacturar(r.PEDIDO_ID),
+    },
+  ], [openTab, navTo]);
+
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<ComandaListItem>({
+    getRowId: (r) => r.PEDIDO_ID,
+    primaryAction: (r) => handleVerDetalle(r.PEDIDO_ID),
+    actions: contextMenuActions,
+  });
 
   return (
     <div className="page-enter" style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -318,6 +323,8 @@ export function ListadoComandasPage() {
           rowKey="PEDIDO_ID"
           size="small"
           loading={isLoading}
+          onRow={onRow}
+          rowClassName={rowClassName}
           pagination={{
             pageSize: 25,
             showSizeChanger: true,
@@ -328,6 +335,13 @@ export function ListadoComandasPage() {
           scroll={{ x: 1000 }}
           style={{ marginTop: 8 }}
           locale={{ emptyText: <Empty description="Sin comandas en el período seleccionado" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+        />
+
+        <RowContextMenu
+          open={contextMenu !== null}
+          position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+          items={contextMenuItems}
+          onClose={closeContextMenu}
         />
       </div>
 

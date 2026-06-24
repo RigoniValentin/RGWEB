@@ -20,6 +20,8 @@ import {
 } from '../services/ctaCorrienteProv.api';
 import { fmtMoney } from '../utils/format';
 import { invalidateCashQueries } from '../utils/invalidateCashQueries';
+import { RowContextMenu } from '../components/RowContextMenu';
+import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { NuevaOrdenPagoModal } from '../components/ctaCorriente/NuevaOrdenPagoModal';
 import { useNavigationStore } from '../store/navigationStore';
 
@@ -246,6 +248,16 @@ export function CtaCorrienteProvPage() {
     },
   ];
 
+  // ── Row interactions (active row + context menu) ─
+  const contextMenuActions = useMemo<RowAction<CtaCorrienteProvListItem>[]>(() => [
+    { key: 'view', label: 'Ver detalle', icon: <EyeOutlined />, onClick: handleView },
+  ], []);
+  const { onRow, rowClassName, contextMenu, contextMenuItems, closeContextMenu } = useRowActions<CtaCorrienteProvListItem>({
+    getRowId: (r) => r.CTA_CORRIENTE_ID,
+    primaryAction: handleView,
+    actions: contextMenuActions,
+  });
+
   // ── Movement columns ────────────────────────────
   const movColumns: TableColumnType<MovimientoCtaCteProv>[] = [
     {
@@ -421,16 +433,21 @@ export function CtaCorrienteProvPage() {
       {/* Main table */}
       <Table<CtaCorrienteProvListItem>
         className="rg-table"
-        rowKey="PROVEEDOR_ID"
+        rowKey="CTA_CORRIENTE_ID"
         columns={columns}
         dataSource={proveedores}
         loading={isLoading}
         size="small"
         pagination={{ pageSize: 25, showSizeChanger: true, showTotal: t => `${t} proveedores` }}
-        onRow={(record) => ({
-          onDoubleClick: () => handleView(record),
-          style: { cursor: 'pointer' },
-        })}
+        onRow={onRow}
+        rowClassName={rowClassName}
+      />
+
+      <RowContextMenu
+        open={contextMenu !== null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        items={contextMenuItems}
+        onClose={closeContextMenu}
       />
 
       {/* Detail drawer */}
