@@ -326,18 +326,17 @@ export function QuickProductLookupModal({ open, onClose }: Props) {
             />
 
             {/* Lists if differ */}
-            {(product.LISTA_1 || product.LISTA_2 || product.LISTA_3) ? (
+            {(product.PRECIOS && product.PRECIOS.length > 0) ? (
               <div style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
                 gap: 6,
                 marginBottom: 6,
               }}>
-                {[1, 2, 3, 4, 5].map((n) => {
-                  const v = (product as any)[`LISTA_${n}`] as number;
-                  if (!v) return null;
+                {product.PRECIOS.map((p) => {
+                  if (!p.PRECIO) return null;
                   return (
-                    <Tooltip key={n} title={`Lista ${n}`}>
+                    <Tooltip key={p.LISTA_ID} title={`Lista ${p.LISTA_ID}`}>
                       <div style={{
                         padding: '8px 10px',
                         borderRadius: 8,
@@ -346,10 +345,10 @@ export function QuickProductLookupModal({ open, onClose }: Props) {
                         textAlign: 'center',
                       }}>
                         <Text type="secondary" style={{ fontSize: 10.5, display: 'block' }}>
-                          Lista {n}
+                          Lista {p.LISTA_ID}
                         </Text>
                         <Text strong style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
-                          {fmtMoney(v)}
+                          {fmtMoney(p.PRECIO)}
                         </Text>
                       </div>
                     </Tooltip>

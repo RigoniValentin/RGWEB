@@ -143,14 +143,7 @@ router.post('/orders', async (req: ExternalRequest, res: Response, next: NextFun
     prodIds.forEach((id, i) => reqDb.input(`p${i}`, sql.Int, id));
     const prodResult = await reqDb.query(`
       SELECT PRODUCTO_ID,
-             CASE ISNULL(LISTA_DEFECTO, 1)
-               WHEN 1 THEN ISNULL(LISTA_1, 0)
-               WHEN 2 THEN ISNULL(LISTA_2, 0)
-               WHEN 3 THEN ISNULL(LISTA_3, 0)
-               WHEN 4 THEN ISNULL(LISTA_4, 0)
-               WHEN 5 THEN ISNULL(LISTA_5, 0)
-               ELSE ISNULL(LISTA_1, 0)
-             END AS PRECIO,
+             ISNULL((SELECT TOP 1 plp.PRECIO FROM PRODUCTO_LISTA_PRECIOS plp WHERE plp.PRODUCTO_ID = PRODUCTOS.PRODUCTO_ID AND plp.LISTA_ID = ISNULL(LISTA_DEFECTO, 1)), 0) AS PRECIO,
              ISNULL(PRECIO_COMPRA, 0) AS PRECIO_COMPRA,
              VENTA_WEB, ACTIVO
       FROM PRODUCTOS

@@ -294,7 +294,6 @@ const { data: allProductsData } = useQuery({
       const colMap: Record<string, string> = {
         CODIGOPARTICULAR: 'CODIGOPARTICULAR',
         NOMBRE: 'NOMBRE',
-        LISTA_1: 'LISTA_1',
         CANTIDAD: 'CANTIDAD',
         CATEGORIA_NOMBRE: 'CATEGORIA_NOMBRE',
         MARCA_NOMBRE: 'MARCA_NOMBRE',
@@ -343,15 +342,15 @@ const { data: allProductsData } = useQuery({
       ellipsis: { showTitle: true },
     },
     {
-      title: 'Listas $',
-      dataIndex: 'LISTA_1',
-      key: 'LISTA_1',
+      title: 'Lista pred.',
+      key: 'LISTA_PREDETERMINADA',
       width: 140,
       align: 'center',
       sorter: true,
-      render: (_: number, record: Producto) => {
+      render: (_: any, record: Producto) => {
         const defList = record.LISTA_DEFECTO ?? 1;
-        const price = (record as any)[`LISTA_${defList}`] as number ?? record.LISTA_1;
+        const found = record.PRECIOS?.find(p => p.LISTA_ID === defList);
+        const price = found?.PRECIO ?? 0;
         return (
           <div
             style={{ cursor: 'pointer', minHeight: 22 }}
@@ -407,21 +406,24 @@ const { data: allProductsData } = useQuery({
   ];
 
   // ── Export columns ──────────────────────────────
-  const exportColumns: ExportColumn<Producto>[] = useMemo(() => [
-    { title: 'Código', dataIndex: 'CODIGOPARTICULAR', width: 12 },
-    { title: 'Nombre', dataIndex: 'NOMBRE', width: 30 },
-    { title: 'Categoría', dataIndex: 'CATEGORIA_NOMBRE', width: 20 },
-    { title: 'Marca', dataIndex: 'MARCA_NOMBRE', width: 15 },
-    { title: 'Lista 1', dataIndex: 'LISTA_1', numeric: true, money: true, align: 'right', width: 14 },
-    { title: 'Lista 2', dataIndex: 'LISTA_2', numeric: true, money: true, align: 'right', width: 14 },
-    { title: 'Lista 3', dataIndex: 'LISTA_3', numeric: true, money: true, align: 'right', width: 14 },
-    { title: 'Lista 4', dataIndex: 'LISTA_4', numeric: true, money: true, align: 'right', width: 14 },
-    { title: 'Lista 5', dataIndex: 'LISTA_5', numeric: true, money: true, align: 'right', width: 14 },
-    { title: 'Costo', dataIndex: 'PRECIO_COMPRA', numeric: true, money: true, align: 'right', width: 14 },
-    { title: 'Stock', dataIndex: 'CANTIDAD', numeric: true, align: 'center', width: 10 },
-    { title: 'Stock Mín.', dataIndex: 'STOCK_MINIMO', numeric: true, align: 'center', width: 10 },
-    { title: 'Estado', render: (_v, r) => r.ACTIVO ? 'Activo' : 'Inactivo', align: 'center', width: 10 },
-  ], []);
+  const exportColumns: ExportColumn<Producto>[] = useMemo(() => {
+    const precioCols = (listas ?? []).map(l => ({
+      title: l.NOMBRE,
+      numeric: true, money: true, align: 'right' as const, width: 14,
+      render: (_v: any, r: Producto) => r.PRECIOS?.find(p => p.LISTA_ID === l.LISTA_ID)?.PRECIO ?? 0,
+    }));
+    return [
+      { title: 'Código', dataIndex: 'CODIGOPARTICULAR', width: 12 },
+      { title: 'Nombre', dataIndex: 'NOMBRE', width: 30 },
+      { title: 'Categoría', dataIndex: 'CATEGORIA_NOMBRE', width: 20 },
+      { title: 'Marca', dataIndex: 'MARCA_NOMBRE', width: 15 },
+      ...precioCols,
+      { title: 'Costo', dataIndex: 'PRECIO_COMPRA', numeric: true, money: true, align: 'right', width: 14 },
+      { title: 'Stock', dataIndex: 'CANTIDAD', numeric: true, align: 'center', width: 10 },
+      { title: 'Stock Mín.', dataIndex: 'STOCK_MINIMO', numeric: true, align: 'center', width: 10 },
+      { title: 'Estado', render: (_v, r) => r.ACTIVO ? 'Activo' : 'Inactivo', align: 'center', width: 10 },
+    ];
+  }, [listas]);
 
   // ── Meta de filtros aplicados ──
   const exportMeta = useMemo(() => {
@@ -479,9 +481,9 @@ const { data: allProductsData } = useQuery({
               ['IVA', d.TASA_IVA_NOMBRE ? `${d.TASA_IVA_NOMBRE} (${d.TASA_IVA_PORCENTAJE}%)` : '-'],
               ['Costo ARS', fmtMoney(d.PRECIO_COMPRA)],
               ['Costo USD', fmtUsd(d.COSTO_USD)],
-              ...([1, 2, 3, 4, 5].map(i => [
-                listas?.[i - 1]?.NOMBRE || `Lista ${i}`,
-                fmtMoney(d[`LISTA_${i}` as keyof Producto] as number),
+              ...((listas ?? []).map(l => [
+                l.NOMBRE,
+                fmtMoney(d.precios?.find(p => p.LISTA_ID === l.LISTA_ID)?.PRECIO ?? 0),
               ])),
               ['Stock', String(d.CANTIDAD)],
               ['Stock Mínimo', d.STOCK_MINIMO != null ? String(d.STOCK_MINIMO) : '-'],

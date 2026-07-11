@@ -11,11 +11,7 @@ export interface LabelProduct {
   PRODUCTO_ID: number;
   CODIGOPARTICULAR: string;
   NOMBRE: string;
-  LISTA_1: number;
-  LISTA_2: number;
-  LISTA_3: number;
-  LISTA_4: number;
-  LISTA_5: number;
+  PRECIOS?: { LISTA_ID: number; PRECIO: number }[];
   LISTA_DEFECTO: number | null;
   CODIGO_BARRAS: string | null;
   CATEGORIA_NOMBRE: string | null;
@@ -25,20 +21,14 @@ export type LabelFormat = 'estandar' | 'compacto' | 'grande';
 
 export interface LabelConfig {
   format: LabelFormat;
-  listaPrecios: number;        // 1-5
+  listaPrecios: number;
   showBarcode: boolean;
 }
 
 // ── Helpers ──────────────────────────────────────
 function getPrice(product: LabelProduct, lista: number): number {
-  switch (lista) {
-    case 1: return product.LISTA_1;
-    case 2: return product.LISTA_2;
-    case 3: return product.LISTA_3;
-    case 4: return product.LISTA_4;
-    case 5: return product.LISTA_5;
-    default: return product.LISTA_1;
-  }
+  const found = product.PRECIOS?.find(p => p.LISTA_ID === lista);
+  return found?.PRECIO ?? 0;
 }
 
 function formatCurrency(value: number): string {

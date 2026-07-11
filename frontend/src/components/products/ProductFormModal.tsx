@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Modal, Form, Input, InputNumber, Select, Switch, Tabs, Space, Button,
   Table, Tag, Typography, Row, Col, Divider, Badge, App, Tooltip, Dropdown,
@@ -12,7 +12,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { catalogApi } from '../../services/catalog.api';
 import { productApi, type TasaImpuesto } from '../../services/product.api';
 import { useAuthStore } from '../../store/authStore';
-import type { Producto } from '../../types';
+import type { ListaPrecio, Producto } from '../../types';
 
 const { Text } = Typography;
 
@@ -35,9 +35,12 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
   const [selectedProveedores, setSelectedProveedores] = useState<number[]>([]);
   const [activeTab, setActiveTab] = useState('general');
   const [tabErrors, setTabErrors] = useState<{ stock?: boolean; proveedores?: boolean }>({});
-  const [margenes, setMargenes] = useState<number[]>([0, 0, 0, 0, 0]);
+  // Margen por lista: mapa { LISTA_ID → margen % }. Soporta n listas arbitrarias.
+  const [margenes, setMargenes] = useState<Record<number, number>>({});
   const [esServicio, setEsServicio] = useState(false);
-  const listaDefectoActual = Form.useWatch('LISTA_DEFECTO', form) ?? 1;
+  const listaDefectoActual = Form.useWatch('LISTA_DEFECTO', form);
+
+  const listaFieldName = (listaId: number) => `LISTA_${listaId}`;
 
   // ── Puntos de venta del usuario ────────────────
   // El usuario sólo ve depósitos de su PV preferido por defecto. Si tiene
@@ -90,6 +93,10 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
   const hiddenDepositosCount = depositos.length - visibleDepositos.length;
   const { data: tasas } = useQuery({ queryKey: ['tasas'], queryFn: () => productApi.getTasasImpuestos() });
   const { data: listas } = useQuery({ queryKey: ['listas-precios'], queryFn: () => catalogApi.getListasPrecios() });
+  const listasActivas = useMemo<ListaPrecio[]>(
+    () => (listas ?? []).filter(l => l.ACTIVA),
+    [listas],
+  );
   const { data: proveedoresList } = useQuery({
     queryKey: ['all-suppliers'],
     queryFn: () => import('../../services/supplier.api').then(m => m.supplierApi.getAll({ pageSize: 9999 })),
@@ -123,8 +130,14 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
     if (editId && detail) {
       const costo = detail.PRECIO_COMPRA || 0;
 
+      // Seteamos precios por lista (LISTA_<LISTA_ID>) además de los campos del producto.
+      const precioFields: Record<string, number> = {};
+      for (const p of (detail.precios ?? [])) {
+        precioFields[listaFieldName(p.LISTA_ID)] = p.PRECIO;
+      }
       form.setFieldsValue({
         ...detail,
+        ...precioFields,
         FECHA_VENCIMIENTO: null,
       });
       setBarcodes(detail.codigosBarras || []);
@@ -132,16 +145,29 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
       setSelectedProveedores(detail.proveedores?.map((p) => p.PROVEEDOR_ID) || []);
       setEsServicio(!!detail.ES_SERVICIO);
 
-      // Recalculate margins from PRECIO_COMPRA and list prices
+      // Calcular márgenes desde PRECIO_COMPRA y los precios por lista.
+      // Usamos LISTA_ID como clave, no array index.
+      const calcMargenes: Record<number, number> = {};
       if (costo > 0) {
-        const calcMargenes = [1, 2, 3, 4, 5].map(i => {
-          const precio = (detail as any)[`LISTA_${i}`] || 0;
-          return precio > 0 ? Math.round(((precio / costo) - 1) * 10000) / 100 : 0;
-        });
-        setMargenes(calcMargenes);
+        const precioMap = new Map<number, number>();
+        for (const p of (detail.precios ?? [])) precioMap.set(p.LISTA_ID, p.PRECIO);
+        // Para todas las listas activas, calcular margen real desde el precio guardado.
+        for (const l of listasActivas) {
+          const precio = precioMap.get(l.LISTA_ID) || 0;
+          calcMargenes[l.LISTA_ID] = precio > 0
+            ? Math.round(((precio / costo) - 1) * 10000) / 100
+            : 0;
+        }
       } else {
-        setMargenes(detail.margenes || [0, 0, 0, 0, 0]);
+        // Sin costo: usar márgenes individuales override desde PRODUCTO_LISTA_PRECIOS.
+        for (const l of listasActivas) calcMargenes[l.LISTA_ID] = 0;
+        for (const p of (detail.precios ?? [])) {
+          if (p.MARGEN_INDIVIDUAL != null) {
+            calcMargenes[p.LISTA_ID] = p.MARGEN_INDIVIDUAL;
+          }
+        }
       }
+      setMargenes(calcMargenes);
     } else if (copyFrom) {
       form.setFieldsValue({
         ...copyFrom,
@@ -152,35 +178,37 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
       setBarcodes([]);
       setDepositos([]);
       setSelectedProveedores([]);
-      setMargenes([0, 0, 0, 0, 0]);
+      setMargenes({});
       setEsServicio(!!copyFrom.ES_SERVICIO);
     } else {
       form.resetFields();
-      form.setFieldsValue({
+      const defaults: Record<string, any> = {
         ACTIVO: true,
         DESCUENTA_STOCK: true,
         ES_SERVICIO: false,
         PRECIO_COMPRA: 0,
         COSTO_USD: 0,
         PRECIO_COMPRA_BASE: 0,
-        LISTA_1: 0, LISTA_2: 0, LISTA_3: 0, LISTA_4: 0, LISTA_5: 0,
-        LISTA_DEFECTO: 1,
         IMP_INT: 0,
         STOCK_MINIMO: 0,
         MARGEN_INDIVIDUAL: true,
-      });
+      };
+      // Inicializar campos LISTA_<LISTA_ID> y LISTA_DEFECTO desde listas activas.
+      const initMargenes: Record<number, number> = {};
+      for (const l of listasActivas) {
+        defaults[listaFieldName(l.LISTA_ID)] = 0;
+        initMargenes[l.LISTA_ID] = l.MARGEN || 0;
+      }
+      const primeraActiva = listasActivas[0];
+      defaults.LISTA_DEFECTO = primeraActiva ? primeraActiva.LISTA_ID : null;
+      form.setFieldsValue(defaults);
       setBarcodes([]);
       setDepositos([]);
       setSelectedProveedores([]);
-      // Initialize margins from default lista margins
-      if (listas && listas.length >= 5) {
-        setMargenes(listas.slice(0, 5).map(l => l.MARGEN || 0));
-      } else {
-        setMargenes([0, 0, 0, 0, 0]);
-      }
+      setMargenes(initMargenes);
       setEsServicio(false);
     }
-  }, [open, editId, detail, copyFrom, form, listas]);
+  }, [open, editId, detail, copyFrom, form, listasActivas]);
 
   // Set default tax rate once tasas are loaded (separate to avoid resetting form state)
   useEffect(() => {
@@ -280,14 +308,15 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
     return tasa?.PORCENTAJE ?? 0;
   }, [form, tasas]);
 
-  const recalcAllPricesFromMargins = useCallback((costo: number, currentMargenes: number[]) => {
+  const recalcAllPricesFromMargins = useCallback((costo: number, currentMargenes: Record<number, number>) => {
     if (costo <= 0) return;
     const fields: Record<string, number> = {};
-    for (let i = 0; i < 5; i++) {
-      fields[`LISTA_${i + 1}`] = Math.round((costo * (1 + (currentMargenes[i] || 0) / 100)) * 100) / 100;
+    for (const l of listasActivas) {
+      const margen = currentMargenes[l.LISTA_ID] || 0;
+      fields[listaFieldName(l.LISTA_ID)] = Math.round((costo * (1 + margen / 100)) * 100) / 100;
     }
     form.setFieldsValue(fields);
-  }, [form]);
+  }, [form, listasActivas]);
 
   /**
    * Recalculate PRECIO_COMPRA (costo con impuestos) and list prices given a
@@ -303,7 +332,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
     base: number,
     impInt: number,
     ivaRate: number,
-    currentMargenes: number[],
+    currentMargenes: Record<number, number>,
   ) => {
     const iva = Math.round(base * ivaRate) / 100;
     const costoConImp = Math.round((base + iva + impInt) * 100) / 100;
@@ -365,55 +394,51 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
     }
   }, [form, tasas, margenes, recalcCostoConImpuestos]);
 
-  const handleMargenChange = useCallback((idx: number, value: number | null) => {
-    const newMargenes = [...margenes];
-    newMargenes[idx] = value ?? 0;
+  const handleMargenChange = useCallback((listaId: number, value: number | null) => {
+    const newMargenes = { ...margenes, [listaId]: value ?? 0 };
     setMargenes(newMargenes);
     const costo = form.getFieldValue('PRECIO_COMPRA') || 0;
     if (costo > 0) {
-      const precio = Math.round((costo * (1 + newMargenes[idx] / 100)) * 100) / 100;
-      form.setFieldsValue({ [`LISTA_${idx + 1}`]: precio });
+      const precio = Math.round((costo * (1 + (newMargenes[listaId] || 0) / 100)) * 100) / 100;
+      form.setFieldsValue({ [listaFieldName(listaId)]: precio });
     }
   }, [form, margenes]);
 
-  const handlePrecioListaChange = useCallback((idx: number, value: number | null) => {
+  const handlePrecioListaChange = useCallback((listaId: number, value: number | null) => {
     const precio = value ?? 0;
-    form.setFieldsValue({ [`LISTA_${idx + 1}`]: precio });
+    form.setFieldsValue({ [listaFieldName(listaId)]: precio });
     const costo = form.getFieldValue('PRECIO_COMPRA') || 0;
     if (costo > 0 && precio > 0) {
       const nuevoMargen = Math.round(((precio / costo) - 1) * 10000) / 100;
-      const newMargenes = [...margenes];
-      newMargenes[idx] = nuevoMargen;
-      setMargenes(newMargenes);
+      setMargenes(prev => ({ ...prev, [listaId]: nuevoMargen }));
     } else if (precio === 0) {
-      const newMargenes = [...margenes];
-      newMargenes[idx] = 0;
-      setMargenes(newMargenes);
+      setMargenes(prev => ({ ...prev, [listaId]: 0 }));
     }
-  }, [form, margenes]);
+  }, [form]);
 
   const handleResetMargenesDefecto = useCallback(() => {
-    if (!listas || listas.length < 5) return;
-    const defaultMargenes = listas.slice(0, 5).map(l => l.MARGEN || 0);
+    if (listasActivas.length === 0) return;
+    const defaultMargenes: Record<number, number> = {};
+    for (const l of listasActivas) defaultMargenes[l.LISTA_ID] = l.MARGEN || 0;
     setMargenes(defaultMargenes);
     const costo = form.getFieldValue('PRECIO_COMPRA') || 0;
     if (costo > 0) {
       recalcAllPricesFromMargins(costo, defaultMargenes);
     }
     message.success('Márgenes restaurados a los valores por defecto de las listas');
-  }, [listas, form, recalcAllPricesFromMargins, message]);
+  }, [listasActivas, form, recalcAllPricesFromMargins, message]);
 
   const handleRedondearPrecios = useCallback((step: number) => {
     const costo = form.getFieldValue('PRECIO_COMPRA') || 0;
-    const newMargenes = [...margenes];
+    const newMargenes = { ...margenes };
     const fields: Record<string, number> = {};
-    for (let i = 0; i < 5; i++) {
-      const precio = form.getFieldValue(`LISTA_${i + 1}`) || 0;
+    for (const l of listasActivas) {
+      const precio = form.getFieldValue(listaFieldName(l.LISTA_ID)) || 0;
       if (precio > 0) {
         const redondeado = Math.ceil(precio / step) * step;
-        fields[`LISTA_${i + 1}`] = redondeado;
+        fields[listaFieldName(l.LISTA_ID)] = redondeado;
         if (costo > 0) {
-          newMargenes[i] = Math.round(((redondeado / costo) - 1) * 10000) / 100;
+          newMargenes[l.LISTA_ID] = Math.round(((redondeado / costo) - 1) * 10000) / 100;
         }
       }
     }
@@ -446,7 +471,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
       }
       setSaving(true);
 
-      const payload = {
+      const payload: Record<string, any> = {
         ...values,
         ES_SERVICIO: esServicio,
         DESCUENTA_STOCK: esServicio ? false : values.DESCUENTA_STOCK,
@@ -455,8 +480,20 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
         codigosBarras: barcodes,
         depositos: esServicio ? [] : depositos.map(d => ({ DEPOSITO_ID: d.DEPOSITO_ID, CANTIDAD: d.CANTIDAD })),
         proveedores: selectedProveedores,
-        margenes,
       };
+
+      // Convertir LISTA_<LISTA_ID> del form al mapa { LISTA_ID → PRECIO } para el backend,
+      // recorriendo las listas activas (soporta n listas arbitrarias).
+      const preciosMap: Record<number, number> = {};
+      for (const l of listasActivas) {
+        const fieldName = listaFieldName(l.LISTA_ID);
+        const p = Number(values[fieldName]) || 0;
+        if (p > 0) preciosMap[l.LISTA_ID] = p;
+        delete payload[fieldName];
+      }
+      if (Object.keys(preciosMap).length > 0) {
+        payload.precios = preciosMap;
+      }
 
       if (editId) {
         await productApi.update(editId, payload);
@@ -648,7 +685,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                         <Select
                           allowClear
                           placeholder="Seleccionar"
-                          options={listas?.map((l, i) => ({ label: l.NOMBRE, value: i + 1 }))}
+                          options={listasActivas.map(l => ({ label: l.NOMBRE, value: l.LISTA_ID }))}
                         />
                       </Form.Item>
                     </Col>
@@ -657,8 +694,8 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                     <Space size={12}>
                       Lista de Precios
                       <Tooltip title={
-                        listas && listas.length >= 5
-                          ? `Restaurar márgenes por defecto:\n${listas.slice(0, 5).map(l => `${l.NOMBRE}: ${l.MARGEN}%`).join(', ')}`
+                        listasActivas.length > 0
+                          ? `Restaurar márgenes por defecto:\n${listasActivas.map(l => `${l.NOMBRE}: ${l.MARGEN}%`).join(', ')}`
                           : 'Restaurar márgenes por defecto de cada lista'
                       }>
                         <Button
@@ -693,9 +730,10 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                   <Table
                     size="small"
                     pagination={false}
-                    dataSource={listas?.slice(0, 5).map((l, i) => ({ key: i, idx: i, NOMBRE: l.NOMBRE })) || []}
+                    dataSource={listasActivas.map(l => ({ key: l.LISTA_ID, LISTA_ID: l.LISTA_ID, NOMBRE: l.NOMBRE }))}
+                    scroll={{ y: 260 }}
                     onRow={(row: any) => ({
-                      style: row.idx + 1 === listaDefectoActual
+                      style: row.LISTA_ID === listaDefectoActual
                         ? { background: 'rgba(234, 189, 35, 0.14)' }
                         : undefined,
                     })}
@@ -703,7 +741,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                       {
                         title: 'Nombre', dataIndex: 'NOMBRE', width: '40%',
                         render: (value: string, row: any) => {
-                          const esDefecto = row.idx + 1 === listaDefectoActual;
+                          const esDefecto = row.LISTA_ID === listaDefectoActual;
                           return (
                             <Space size={6}>
                               <Text strong={esDefecto}>{value}</Text>
@@ -717,7 +755,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                         },
                       },
                       {
-                        title: 'Margen (%)', dataIndex: 'idx', width: '30%',
+                        title: 'Margen (%)', dataIndex: 'LISTA_ID', width: '30%',
                         render: (_: any, row: any) => (
                           <InputNumber
                             size="small"
@@ -725,22 +763,22 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                             precision={2}
                             style={{ width: '100%' }}
                             suffix="%"
-                            value={margenes[row.idx]}
-                            onChange={(v) => handleMargenChange(row.idx, v)}
+                            value={margenes[row.LISTA_ID] ?? 0}
+                            onChange={(v) => handleMargenChange(row.LISTA_ID, v)}
                           />
                         ),
                       },
                       {
-                        title: 'Precio ($)', dataIndex: 'idx', width: '30%',
+                        title: 'Precio ($)', dataIndex: 'LISTA_ID', width: '30%',
                         render: (_: any, row: any) => (
-                          <Form.Item name={`LISTA_${row.idx + 1}`} noStyle>
+                          <Form.Item name={listaFieldName(row.LISTA_ID)} noStyle>
                             <InputNumber
                               size="small"
                               min={0}
                               precision={2}
                               style={{ width: '100%' }}
                               prefix="$"
-                              onChange={(v) => handlePrecioListaChange(row.idx, v)}
+                              onChange={(v) => handlePrecioListaChange(row.LISTA_ID, v)}
                             />
                           </Form.Item>
                         ),

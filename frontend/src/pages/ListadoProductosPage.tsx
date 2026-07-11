@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   App, Button, Card, Col, Input, Row, Select, Space, Statistic, Switch, Table, Tooltip, Typography,
 } from 'antd';
+import type { SelectProps } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
   DollarOutlined, FileExcelOutlined, FilePdfOutlined, InboxOutlined, ReloadOutlined,
@@ -37,6 +38,15 @@ function getListaLabel(listaPrecio: number, listas: ListaPrecio[] | undefined): 
   return listas?.find(l => l.LISTA_ID === listaPrecio)?.NOMBRE ?? `Lista ${listaPrecio}`;
 }
 
+type ModoCodigo = 'ninguno' | 'particular' | 'id' | 'ambos';
+
+const MODO_CODIGO_OPTIONS: SelectProps['options'] = [
+  { value: 'ninguno', label: 'No mostrar' },
+  { value: 'particular', label: 'CODIGOPARTICULAR' },
+  { value: 'id', label: 'PRODUCTO_ID' },
+  { value: 'ambos', label: 'Ambos' },
+];
+
 export function ListadoProductosPage() {
   const { message } = App.useApp();
   const [listaPrecio, setListaPrecio] = useState(0);
@@ -44,7 +54,7 @@ export function ListadoProductosPage() {
   const [marcaId, setMarcaId] = useState<number | undefined>();
   const [soloActivos, setSoloActivos] = useState(true);
   const [soloConStock, setSoloConStock] = useState(false);
-  const [mostrarCodigo, setMostrarCodigo] = useState(true);
+  const [modoCodigo, setModoCodigo] = useState<ModoCodigo>('particular');
   const [mostrarStock, setMostrarStock] = useState(true);
   const [searchText, setSearchText] = useState('');
   const [search, setSearch] = useState('');
@@ -96,7 +106,7 @@ export function ListadoProductosPage() {
   const columns = useMemo<TableColumnType<ProductListingItem>[]>(() => {
     const tableColumns: TableColumnType<ProductListingItem>[] = [];
 
-    if (mostrarCodigo) {
+    if (modoCodigo === 'particular' || modoCodigo === 'ambos') {
       tableColumns.push({
         title: 'Código',
         dataIndex: 'CODIGOPARTICULAR',
@@ -107,6 +117,18 @@ export function ListadoProductosPage() {
           <Text style={{ fontFamily: 'monospace', fontSize: 12 }}>{value || '-'}</Text>
         ),
         sorter: (a, b) => (a.CODIGOPARTICULAR || '').localeCompare(b.CODIGOPARTICULAR || ''),
+      });
+    }
+    if (modoCodigo === 'id' || modoCodigo === 'ambos') {
+      tableColumns.push({
+        title: 'ID',
+        dataIndex: 'PRODUCTO_ID',
+        width: 80,
+        align: 'center',
+        render: (value: number) => (
+          <Text style={{ fontFamily: 'monospace', fontSize: 12 }}>{value}</Text>
+        ),
+        sorter: (a, b) => toNumber(a.PRODUCTO_ID) - toNumber(b.PRODUCTO_ID),
       });
     }
 
@@ -158,7 +180,7 @@ export function ListadoProductosPage() {
     });
 
     return tableColumns;
-  }, [listaPrecio, listas, mostrarCodigo, mostrarStock]);
+  }, [listaPrecio, listas, modoCodigo, mostrarStock]);
 
   const exportRows = () => {
     if (!rows.length) {
@@ -167,14 +189,16 @@ export function ListadoProductosPage() {
     }
 
     const headers: string[] = [];
-    if (mostrarCodigo) headers.push('Código');
+    if (modoCodigo === 'particular' || modoCodigo === 'ambos') headers.push('Código');
+    if (modoCodigo === 'id' || modoCodigo === 'ambos') headers.push('ID');
     headers.push('Nombre', 'Marca', 'Categoría');
     if (mostrarStock) headers.push('Stock');
     headers.push(getListaLabel(listaPrecio, listas));
 
     const body = rows.map(row => {
       const values: string[] = [];
-      if (mostrarCodigo) values.push(row.CODIGOPARTICULAR || '');
+      if (modoCodigo === 'particular' || modoCodigo === 'ambos') values.push(row.CODIGOPARTICULAR || '');
+      if (modoCodigo === 'id' || modoCodigo === 'ambos') values.push(String(row.PRODUCTO_ID));
       values.push(row.NOMBRE, row.MARCA, row.CATEGORIA);
       if (mostrarStock) values.push(`${fmtNum(toNumber(row.STOCK))}${row.UNIDAD_ABREVIACION ? ` ${row.UNIDAD_ABREVIACION}` : ''}`);
       values.push(fmtNum(toNumber(row.PRECIO)));
@@ -209,7 +233,7 @@ export function ListadoProductosPage() {
         marca: marcas?.find(m => m.MARCA_ID === marcaId)?.NOMBRE,
         soloActivos,
         soloConStock,
-        mostrarCodigo,
+        modoCodigo,
         mostrarStock,
         search,
       });
@@ -320,7 +344,16 @@ export function ListadoProductosPage() {
           />
           <ToggleLabel label="Solo activos" checked={soloActivos} onChange={setSoloActivos} />
           <ToggleLabel label="Con stock" checked={soloConStock} onChange={setSoloConStock} />
-          <ToggleLabel label="Código" checked={mostrarCodigo} onChange={setMostrarCodigo} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>Código:</Text>
+            <Select<ModoCodigo>
+              size="small"
+              value={modoCodigo}
+              onChange={setModoCodigo}
+              style={{ width: 180 }}
+              options={MODO_CODIGO_OPTIONS}
+            />
+          </div>
           <ToggleLabel label="Stock" checked={mostrarStock} onChange={setMostrarStock} />
           <div style={{ flex: 1 }} />
           <Text type="secondary" style={{ fontSize: 12 }}>
@@ -381,7 +414,7 @@ interface PdfOptions {
   marca?: string;
   soloActivos: boolean;
   soloConStock: boolean;
-  mostrarCodigo: boolean;
+  modoCodigo: ModoCodigo;
   mostrarStock: boolean;
   search: string;
 }
@@ -476,19 +509,35 @@ function generateProductListingPdf(options: PdfOptions) {
 
 function getPdfColumns(options: PdfOptions): PdfColumn[] {
   const columns: PdfColumn[] = [];
-  if (options.mostrarCodigo) {
+  const mostrarParticular = options.modoCodigo === 'particular' || options.modoCodigo === 'ambos';
+  const mostrarId = options.modoCodigo === 'id' || options.modoCodigo === 'ambos';
+
+  if (mostrarParticular) {
     columns.push({
       title: 'Código',
-      width: 28,
+      width: options.modoCodigo === 'ambos' ? 25 : 28,
       align: 'center',
       value: row => row.CODIGOPARTICULAR || '',
     });
   }
+  if (mostrarId) {
+    columns.push({
+      title: 'ID',
+      width: 18,
+      align: 'center',
+      value: row => String(row.PRODUCTO_ID),
+    });
+  }
+
+  const nombreWidth = options.modoCodigo === 'ambos' ? 70
+    : options.modoCodigo === 'ninguno' ? 105
+    : 84;
+  const categoriaWidth = options.modoCodigo === 'ambos' ? 45 : 52;
 
   columns.push(
-    { title: 'Nombre', width: options.mostrarCodigo ? 84 : 105, value: row => row.NOMBRE },
+    { title: 'Nombre', width: nombreWidth, value: row => row.NOMBRE },
     { title: 'Marca', width: 42, align: 'center', value: row => row.MARCA },
-    { title: 'Categoría', width: 52, align: 'center', value: row => row.CATEGORIA },
+    { title: 'Categoría', width: categoriaWidth, align: 'center', value: row => row.CATEGORIA },
   );
 
   if (options.mostrarStock) {

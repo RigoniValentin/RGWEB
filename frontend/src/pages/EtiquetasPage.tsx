@@ -75,13 +75,11 @@ export function EtiquetasPage() {
   const selectedIds = useMemo(() => new Set(selected.map(p => p.PRODUCTO_ID)), [selected]);
 
   const formatPrice = useCallback((product: LabelProduct) => {
-    const prices: Record<number, number> = {
-      1: product.LISTA_1, 2: product.LISTA_2, 3: product.LISTA_3,
-      4: product.LISTA_4, 5: product.LISTA_5,
-    };
+    const found = product.PRECIOS?.find(p => p.LISTA_ID === listaPrecios);
+    const precio = found?.PRECIO ?? product.PRECIOS?.[0]?.PRECIO ?? 0;
     return new Intl.NumberFormat('es-AR', {
       style: 'currency', currency: 'ARS', minimumFractionDigits: 2,
-    }).format(prices[listaPrecios] ?? product.LISTA_1);
+    }).format(precio);
   }, [listaPrecios]);
 
   const addProduct = useCallback((product: LabelProduct) => {

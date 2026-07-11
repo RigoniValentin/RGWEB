@@ -18,6 +18,16 @@ export interface PriceListInput {
   DESCRIPCION?: string | null;
   MARGEN?: number;
   ACTIVA?: boolean;
+  /** Si true (default), al crear se generan precios para todos los productos
+   *  con PRECIO_COMPRA > 0 aplicando el margen configurado. */
+  aplicarMargenInicial?: boolean;
+  /** Si true, al actualizar también se recalculan los precios de los productos
+   *  ya asociados a la lista usando el nuevo MARGEN. */
+  recalcularPorMargen?: boolean;
+  /** Paso de redondeo (ej. 50, 100, 500) aplicado después del recálculo. */
+  redondeoStep?: number | null;
+  /** Dirección del redondeo: 'arriba' (CEILING) o 'cercano' (ROUND a múltiplo). */
+  redondeoDireccion?: 'arriba' | 'cercano' | null;
 }
 
 export interface PriceListProduct extends Producto {
@@ -48,8 +58,17 @@ export const priceListApi = {
   getById: (id: number) =>
     api.get<PriceListWithStats>(`/price-lists/${id}`).then(r => r.data),
 
+  getNextCode: () =>
+    api.get<{ code: string }>('/price-lists/next-code').then(r => r.data.code),
+
+  create: (data: PriceListInput) =>
+    api.post<{ LISTA_ID: number; productosConPrecio: number }>('/price-lists', data).then(r => r.data),
+
   update: (id: number, data: PriceListInput) =>
-    api.put('/price-lists/' + id, data).then(r => r.data),
+    api.put<{ ok: true; affected?: number }>('/price-lists/' + id, data).then(r => r.data),
+
+  delete: (id: number) =>
+    api.delete<{ mode: 'soft' | 'hard' }>('/price-lists/' + id).then(r => r.data),
 
   getProducts: (id: number, params?: Record<string, any>) =>
     api.get<PaginatedResponse<PriceListProduct>>(`/price-lists/${id}/products`, { params }).then(r => r.data),
@@ -59,4 +78,7 @@ export const priceListApi = {
 
   applyPercentage: (id: number, data: ApplyPercentageInput) =>
     api.post<ApplyPercentageResult>(`/price-lists/${id}/apply-percentage`, data).then(r => r.data),
+
+  roundPrices: (id: number, step: number, direccion: 'arriba' | 'cercano') =>
+    api.post<{ affected: number }>(`/price-lists/${id}/round`, { step, direccion }).then(r => r.data),
 };

@@ -521,8 +521,8 @@ async function searchProductos(search: string, puntoVentaId?: number): Promise<a
 
   const query = `
     SELECT TOP 30 p.PRODUCTO_ID, p.CODIGOPARTICULAR, p.NOMBRE,
-           p.LISTA_1, p.LISTA_2, p.LISTA_3, p.LISTA_4, p.LISTA_5,
            ISNULL(p.LISTA_DEFECTO, 1) AS LISTA_DEFECTO,
+           ISNULL((SELECT TOP 1 plp.PRECIO FROM PRODUCTO_LISTA_PRECIOS plp WHERE plp.PRODUCTO_ID = p.PRODUCTO_ID AND plp.LISTA_ID = ISNULL(p.LISTA_DEFECTO, 1)), 0) AS PRECIO_VENTA,
            p.PRECIO_COMPRA, p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK,
            ISNULL(u.ABREVIACION, 'u') AS UNIDAD_ABREVIACION,
            p.CANTIDAD AS STOCK
@@ -535,7 +535,7 @@ async function searchProductos(search: string, puntoVentaId?: number): Promise<a
 
   return result.recordset.map((r: any) => {
     const listaDefecto = r.LISTA_DEFECTO || 1;
-    const precio = r[`LISTA_${listaDefecto}`] || r.LISTA_1 || 0;
+    const precio = r.PRECIO_VENTA || 0;
     return {
       PRODUCTO_ID: r.PRODUCTO_ID,
       CODIGOPARTICULAR: r.CODIGOPARTICULAR,
@@ -570,15 +570,8 @@ async function searchProductosAdvanced(params: {
   const listaId = params.listaId || 0;
 
   const precioExpr = listaId > 0
-    ? `p.LISTA_${Math.max(1, Math.min(5, listaId))}`
-    : `CASE ISNULL(p.LISTA_DEFECTO, 1)
-         WHEN 1 THEN p.LISTA_1
-         WHEN 2 THEN p.LISTA_2
-         WHEN 3 THEN p.LISTA_3
-         WHEN 4 THEN p.LISTA_4
-         WHEN 5 THEN p.LISTA_5
-         ELSE p.LISTA_1
-       END`;
+    ? `ISNULL((SELECT TOP 1 plp.PRECIO FROM PRODUCTO_LISTA_PRECIOS plp WHERE plp.PRODUCTO_ID = p.PRODUCTO_ID AND plp.LISTA_ID = ${listaId}), 0)`
+    : `ISNULL((SELECT TOP 1 plp.PRECIO FROM PRODUCTO_LISTA_PRECIOS plp WHERE plp.PRODUCTO_ID = p.PRODUCTO_ID AND plp.LISTA_ID = ISNULL(p.LISTA_DEFECTO, 1)), 0)`;
 
   const req = pool.request();
   const searchState = buildAdvancedProductSearch(req, params);

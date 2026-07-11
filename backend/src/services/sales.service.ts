@@ -5,6 +5,24 @@ import { registrarHistorialStock, getCurrentStock, insertStockDeposito } from '.
 import { crearChequeEnCartera } from './cheques.service.js';
 import { buildAdvancedProductSearch } from './productSearch.helper.js';
 
+// Construye la expresión SQL que devuelve el precio de venta del producto.
+// Si listaId > 0 usa esa lista, si no usa LISTA_DEFECTO del producto.
+// Lee desde PRODUCTO_LISTA_PRECIOS (no de columnas hardcoded).
+function precioExprSql(listaId: number): string {
+  if (listaId > 0) {
+    return `ISNULL((SELECT TOP 1 plp.PRECIO FROM PRODUCTO_LISTA_PRECIOS plp WHERE plp.PRODUCTO_ID = p.PRODUCTO_ID AND plp.LISTA_ID = ${listaId}), 0)`;
+  }
+  return `ISNULL((SELECT TOP 1 plp.PRECIO FROM PRODUCTO_LISTA_PRECIOS plp WHERE plp.PRODUCTO_ID = p.PRODUCTO_ID AND plp.LISTA_ID = ISNULL(p.LISTA_DEFECTO, 1)), 0)`;
+}
+
+const PRECIOS_JSON_SELECT = `(
+  SELECT plp.LISTA_ID AS LISTA_ID, plp.PRECIO AS PRECIO
+  FROM PRODUCTO_LISTA_PRECIOS plp
+  WHERE plp.PRODUCTO_ID = p.PRODUCTO_ID
+  ORDER BY plp.LISTA_ID
+  FOR JSON PATH
+) AS PRECIOS_JSON`;
+
 // ═══════════════════════════════════════════════════
 //  Sales Service — Full CRUD + Payment Management
 // ═══════════════════════════════════════════════════
@@ -2007,18 +2025,7 @@ export const salesService = {
   async searchProducts(search: string, listaId: number = 0, limit: number = 20) {
     const pool = await getPool();
 
-    // If listaId is explicitly provided (>0), use that fixed list.
-    // Otherwise (0), use each product's LISTA_DEFECTO.
-    const precioExpr = listaId > 0
-      ? `p.LISTA_${Math.max(1, Math.min(5, listaId))}`
-      : `CASE ISNULL(p.LISTA_DEFECTO, 1)
-           WHEN 1 THEN p.LISTA_1
-           WHEN 2 THEN p.LISTA_2
-           WHEN 3 THEN p.LISTA_3
-           WHEN 4 THEN p.LISTA_4
-           WHEN 5 THEN p.LISTA_5
-           ELSE p.LISTA_1
-         END`;
+    const precioExpr = precioExprSql(listaId);
 
     const tokens = search.trim().split(/\s+/).filter(t => t.length > 0);
     if (tokens.length === 0) return [];
@@ -2035,10 +2042,10 @@ export const salesService = {
 
     const result = await req.query(`
         SELECT DISTINCT TOP (@limit)
-          p.PRODUCTO_ID, p.CODIGOPARTICULAR, p.NOMBRE, 
+          p.PRODUCTO_ID, p.CODIGOPARTICULAR, p.NOMBRE,
           ${precioExpr} AS PRECIO_VENTA,
           ISNULL(p.LISTA_DEFECTO, 1) AS LISTA_DEFECTO,
-          p.LISTA_1, p.LISTA_2, p.LISTA_3, p.LISTA_4, p.LISTA_5,
+          ${PRECIOS_JSON_SELECT},
           p.PRECIO_COMPRA, p.CANTIDAD AS STOCK,
           p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, p.ACTIVO,
           p.IMP_INT, p.TASA_IVA_ID, p.UNIDAD_ID,
@@ -2056,7 +2063,14 @@ export const salesService = {
         ORDER BY p.NOMBRE
       `);
 
-    return result.recordset;
+    return (result.recordset as any[]).map(row => {
+      let precios: { LISTA_ID: number; PRECIO: number }[] = [];
+      if (row.PRECIOS_JSON) {
+        try { precios = JSON.parse(row.PRECIOS_JSON); } catch { precios = []; }
+      }
+      const { PRECIOS_JSON, ...rest } = row;
+      return { ...rest, PRECIOS: precios };
+    });
   },
 
   // ── Advanced product search for modal ──────────
@@ -2081,16 +2095,7 @@ export const salesService = {
     const limit = params.limit || 50;
     const listaId = params.listaId || 0;
 
-    const precioExpr = listaId > 0
-      ? `p.LISTA_${Math.max(1, Math.min(5, listaId))}`
-      : `CASE ISNULL(p.LISTA_DEFECTO, 1)
-           WHEN 1 THEN p.LISTA_1
-           WHEN 2 THEN p.LISTA_2
-           WHEN 3 THEN p.LISTA_3
-           WHEN 4 THEN p.LISTA_4
-           WHEN 5 THEN p.LISTA_5
-           ELSE p.LISTA_1
-         END`;
+    const precioExpr = precioExprSql(listaId);
 
     const req = pool.request();
     const searchState = buildAdvancedProductSearch(req, params);
@@ -2136,7 +2141,7 @@ export const salesService = {
           ISNULL((SELECT TOP 1 NOMBRE FROM CATEGORIAS WHERE CATEGORIA_ID = p.CATEGORIA_ID), '') AS CATEGORIA,
           ${precioExpr} AS PRECIO_VENTA,
           ISNULL(p.LISTA_DEFECTO, 1) AS LISTA_DEFECTO,
-          p.LISTA_1, p.LISTA_2, p.LISTA_3, p.LISTA_4, p.LISTA_5,
+          ${PRECIOS_JSON_SELECT},
           p.PRECIO_COMPRA, p.CANTIDAD AS STOCK,
           p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK,
           p.IMP_INT, p.TASA_IVA_ID, p.UNIDAD_ID,
@@ -2154,7 +2159,14 @@ export const salesService = {
         OPTION (RECOMPILE)
       `);
 
-    return result.recordset;
+    return (result.recordset as any[]).map(row => {
+      let precios: { LISTA_ID: number; PRECIO: number }[] = [];
+      if (row.PRECIOS_JSON) {
+        try { precios = JSON.parse(row.PRECIOS_JSON); } catch { precios = []; }
+      }
+      const { PRECIOS_JSON, ...rest } = row;
+      return { ...rest, PRECIOS: precios };
+    });
   },
 
   // ── Barcode balance (código de balanza) ────────
@@ -2177,16 +2189,7 @@ export const salesService = {
 
     const pool = await getPool();
 
-    const precioExpr = listaId > 0
-      ? `p.LISTA_${Math.max(1, Math.min(5, listaId))}`
-      : `CASE ISNULL(p.LISTA_DEFECTO, 1)
-           WHEN 1 THEN p.LISTA_1
-           WHEN 2 THEN p.LISTA_2
-           WHEN 3 THEN p.LISTA_3
-           WHEN 4 THEN p.LISTA_4
-           WHEN 5 THEN p.LISTA_5
-           ELSE p.LISTA_1
-         END`;
+    const precioExpr = precioExprSql(listaId);
 
     const result = await pool.request()
       .input('pid', sql.Int, parsed.productoId)
@@ -2195,7 +2198,7 @@ export const salesService = {
           p.PRODUCTO_ID, p.CODIGOPARTICULAR, p.NOMBRE,
           ${precioExpr} AS PRECIO_VENTA,
           ISNULL(p.LISTA_DEFECTO, 1) AS LISTA_DEFECTO,
-          p.LISTA_1, p.LISTA_2, p.LISTA_3, p.LISTA_4, p.LISTA_5,
+          ${PRECIOS_JSON_SELECT},
           p.PRECIO_COMPRA, p.CANTIDAD AS STOCK,
           p.ES_CONJUNTO, p.DESCUENTA_STOCK, p.ACTIVO,
           p.IMP_INT, p.TASA_IVA_ID, p.UNIDAD_ID,
@@ -2210,8 +2213,15 @@ export const salesService = {
 
     if (result.recordset.length === 0) return null;
 
+    const row = result.recordset[0] as any;
+    let precios: { LISTA_ID: number; PRECIO: number }[] = [];
+    if (row.PRECIOS_JSON) {
+      try { precios = JSON.parse(row.PRECIOS_JSON); } catch { precios = []; }
+    }
+    const { PRECIOS_JSON, ...rest } = row;
+
     return {
-      product: result.recordset[0],
+      product: { ...rest, PRECIOS: precios },
       cantidad: parsed.cantidad,
     };
   },

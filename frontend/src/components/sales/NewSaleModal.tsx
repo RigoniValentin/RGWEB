@@ -926,11 +926,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         UNIDAD_NOMBRE: product.UNIDAD_NOMBRE || '',
         DEPOSITO_ID: depositoVentaId || undefined,
         LISTA_ID: product.LISTA_DEFECTO || 1,
-        LISTA_1: product.LISTA_1,
-        LISTA_2: product.LISTA_2,
-        LISTA_3: product.LISTA_3,
-        LISTA_4: product.LISTA_4,
-        LISTA_5: product.LISTA_5,
+        PRECIOS: product.PRECIOS,
       }];
     });
     setSearchText('');
@@ -963,11 +959,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         UNIDAD_NOMBRE: product.UNIDAD_NOMBRE || '',
         DEPOSITO_ID: depositoVentaId || undefined,
         LISTA_ID: product.LISTA_DEFECTO || 1,
-        LISTA_1: product.LISTA_1,
-        LISTA_2: product.LISTA_2,
-        LISTA_3: product.LISTA_3,
-        LISTA_4: product.LISTA_4,
-        LISTA_5: product.LISTA_5,
+        PRECIOS: product.PRECIOS,
       }];
     });
     setSearchText('');
@@ -1163,11 +1155,8 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   };
 
   const getListPrice = (item: CartItem, listaId: number): number => {
-    const map: Record<number, number | undefined> = {
-      1: item.LISTA_1, 2: item.LISTA_2, 3: item.LISTA_3,
-      4: item.LISTA_4, 5: item.LISTA_5,
-    };
-    return map[listaId] ?? item.PRECIO_UNITARIO;
+    const found = item.PRECIOS?.find(p => p.LISTA_ID === listaId);
+    return found?.PRECIO ?? item.PRECIO_UNITARIO;
   };
 
   const handleListaChange = (key: string, newListaId: number) => {
@@ -1466,7 +1455,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         const unitTag = isKg ? 'Peso' : isLt ? 'Volumen' : null;
         const listaId = record.LISTA_ID || 1;
         const listaName = activeListasPrecios.find(l => l.LISTA_ID === listaId)?.NOMBRE || `Lista ${listaId}`;
-        const hasListPrices = record.LISTA_1 != null;
+        const hasListPrices = !!(record.PRECIOS && record.PRECIOS.length > 0);
         return (
           <div className="nsm-cart-product">
             <div className="nsm-cart-product-name">{name}</div>

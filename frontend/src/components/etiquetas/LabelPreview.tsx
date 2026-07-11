@@ -81,14 +81,8 @@ function getLayoutConfig(format: LabelFormat, showBarcode: boolean, is80mm: bool
 }
 
 function getPrice(product: LabelProduct, lista: number): number {
-  switch (lista) {
-    case 1: return product.LISTA_1;
-    case 2: return product.LISTA_2;
-    case 3: return product.LISTA_3;
-    case 4: return product.LISTA_4;
-    case 5: return product.LISTA_5;
-    default: return product.LISTA_1;
-  }
+  const found = product.PRECIOS?.find(p => p.LISTA_ID === lista);
+  return found?.PRECIO ?? 0;
 }
 
 function formatCurrency(value: number): string {

@@ -22,18 +22,11 @@ export interface ProductListingItem {
 }
 
 function getPrecioExpression(listaPrecio: number): string {
-  if (listaPrecio >= 1 && listaPrecio <= 5) {
-    return `ISNULL(p.LISTA_${listaPrecio}, 0)`;
+  if (listaPrecio > 0) {
+    return `ISNULL((SELECT TOP 1 plp.PRECIO FROM PRODUCTO_LISTA_PRECIOS plp WHERE plp.PRODUCTO_ID = p.PRODUCTO_ID AND plp.LISTA_ID = ${listaPrecio}), 0)`;
   }
 
-  return `CASE
-    WHEN ISNULL(p.LISTA_DEFECTO, 1) = 1 THEN ISNULL(p.LISTA_1, 0)
-    WHEN ISNULL(p.LISTA_DEFECTO, 1) = 2 THEN ISNULL(p.LISTA_2, 0)
-    WHEN ISNULL(p.LISTA_DEFECTO, 1) = 3 THEN ISNULL(p.LISTA_3, 0)
-    WHEN ISNULL(p.LISTA_DEFECTO, 1) = 4 THEN ISNULL(p.LISTA_4, 0)
-    WHEN ISNULL(p.LISTA_DEFECTO, 1) = 5 THEN ISNULL(p.LISTA_5, 0)
-    ELSE ISNULL(p.LISTA_1, 0)
-  END`;
+  return `ISNULL((SELECT TOP 1 plp.PRECIO FROM PRODUCTO_LISTA_PRECIOS plp WHERE plp.PRODUCTO_ID = p.PRODUCTO_ID AND plp.LISTA_ID = ISNULL(p.LISTA_DEFECTO, 1)), 0)`;
 }
 
 export const productListingService = {

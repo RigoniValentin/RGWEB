@@ -39,14 +39,46 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// PUT /api/price-lists/:id
-router.put('/:id', async (req: Request, res: Response) => {
+// POST /api/price-lists
+router.post('/', async (req: Request, res: Response) => {
   try {
-      await priceListService.update(parseInt(req.params.id as string, 10), req.body);
-    res.json({ ok: true });
+    const result = await priceListService.create(req.body);
+    res.status(201).json(result);
   } catch (err: any) {
     const status = err.name === 'ValidationError' ? 400 : 500;
     res.status(status).json({ error: err.message });
+  }
+});
+
+// PUT /api/price-lists/:id
+router.put('/:id', async (req: Request, res: Response) => {
+  try {
+      const result = await priceListService.update(parseInt(req.params.id as string, 10), req.body);
+    res.json({ ok: true, ...result });
+  } catch (err: any) {
+    const status = err.name === 'ValidationError' ? 400 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// DELETE /api/price-lists/:id
+router.delete('/:id', async (req: Request, res: Response) => {
+  try {
+    const result = await priceListService.delete(parseInt(req.params.id as string, 10));
+    res.json(result);
+  } catch (err: any) {
+    const status = err.name === 'ValidationError' ? 400 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// GET /api/price-lists/next-code
+router.get('/next-code', async (_req: Request, res: Response) => {
+  try {
+    const code = await priceListService.getNextCode();
+    res.json({ code });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -89,6 +121,21 @@ router.patch('/:id/products/:productId', async (req: Request, res: Response) => 
 router.post('/:id/apply-percentage', async (req: Request, res: Response) => {
   try {
       const result = await priceListService.applyPercentage(parseInt(req.params.id as string, 10), req.body);
+    res.json(result);
+  } catch (err: any) {
+    const status = err.name === 'ValidationError' ? 400 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// POST /api/price-lists/:id/round
+router.post('/:id/round', async (req: Request, res: Response) => {
+  try {
+    const result = await priceListService.roundPrices(
+      parseInt(req.params.id as string, 10),
+      Number(req.body.step),
+      req.body.direccion,
+    );
     res.json(result);
   } catch (err: any) {
     const status = err.name === 'ValidationError' ? 400 : 500;

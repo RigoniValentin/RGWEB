@@ -160,11 +160,6 @@ export interface Producto {
   STOCK_MINIMO: number | null;
   UNIDAD_ID: number | null;
   ACTIVO: boolean;
-  LISTA_1: number;
-  LISTA_2: number;
-  LISTA_3: number;
-  LISTA_4: number;
-  LISTA_5: number;
   LISTA_DEFECTO: number | null;
   COSTO_USD: number | null;
   TASA_IVA_ID: number | null;
@@ -176,12 +171,22 @@ export interface Producto {
   FECHA_VENCIMIENTO: string | null;
   MARGEN_INDIVIDUAL: boolean | null;
   VENTA_WEB?: boolean;
+  // Precios por lista (cargados vía JOIN con PRODUCTO_LISTA_PRECIOS)
+  PRECIOS?: PrecioLista[];
   // Joined
   CATEGORIA_NOMBRE?: string;
   MARCA_NOMBRE?: string;
   UNIDAD_NOMBRE?: string;
   UNIDAD_ABREVIACION?: string;
   codigosBarras?: string[];
+}
+
+// ── Precios por lista (PRODUCTO_LISTA_PRECIOS) ─────
+export interface PrecioLista {
+  LISTA_ID: number;
+  PRECIO: number;
+  /** Margen individual override. NULL = usar margen default de la lista. */
+  MARGEN_INDIVIDUAL?: number | null;
 }
 
 // ── Categorías ───────────────────────────────────
@@ -460,11 +465,7 @@ export interface ProductoSearch {
   NOMBRE: string;
   PRECIO_VENTA: number;
   LISTA_DEFECTO: number;
-  LISTA_1: number;
-  LISTA_2: number;
-  LISTA_3: number;
-  LISTA_4: number;
-  LISTA_5: number;
+  PRECIOS: PrecioLista[];
   PRECIO_COMPRA: number;
   STOCK: number;
   ES_CONJUNTO: boolean | null;

@@ -5,6 +5,8 @@ import { webhookDispatcher } from './webhook.dispatcher.js';
 
 // ═══════════════════════════════════════════════════
 //  Product Service — Full CRUD + Bulk Operations
+//  Refactor: precios viven en PRODUCTO_LISTA_PRECIOS,
+//  no en columnas LISTA_X de PRODUCTOS.
 // ═══════════════════════════════════════════════════
 
 export interface ProductFilter {
@@ -19,6 +21,11 @@ export interface ProductFilter {
   listaDefecto?: number;
   orderBy?: string;
   orderDir?: 'ASC' | 'DESC';
+}
+
+export interface ProductPrecioInput {
+  LISTA_ID: number;
+  PRECIO: number;
 }
 
 export interface ProductInput {
@@ -38,19 +45,15 @@ export interface ProductInput {
   ES_SERVICIO?: boolean;
   DESCUENTA_STOCK?: boolean;
   ACTIVO?: boolean;
-  LISTA_1?: number;
-  LISTA_2?: number;
-  LISTA_3?: number;
-  LISTA_4?: number;
-  LISTA_5?: number;
   LISTA_DEFECTO?: number | null;
   FECHA_VENCIMIENTO?: string | null;
   MARGEN_INDIVIDUAL?: boolean | null;
   VENTA_WEB?: boolean;
+  /** Mapa { LISTA_ID → PRECIO } para asignar precios por lista. */
+  precios?: Record<number, number>;
   codigosBarras?: string[];
   depositos?: { DEPOSITO_ID: number; CANTIDAD: number }[];
   proveedores?: number[];
-  margenes?: number[];  // [MARGEN_LISTA_1 .. MARGEN_LISTA_5]
 }
 
 export interface InlineEditInput {
@@ -73,6 +76,91 @@ export interface BulkPriceInput {
   redondeo?: 'ninguno' | '50' | '100' | 'entero';
 }
 
+async function upsertPrecios(
+  tx: any,
+  productoId: number,
+  precios: Record<number, number> | undefined,
+) {
+  if (!precios) return;
+  for (const [listaIdStr, precio] of Object.entries(precios)) {
+    const listaId = Number(listaIdStr);
+    if (!Number.isInteger(listaId) || listaId < 1) continue;
+    const precioNum = Number(precio) || 0;
+    if (precioNum <= 0) {
+      await tx.request()
+        .input('prodId', sql.Int, productoId)
+        .input('listaId', sql.Int, listaId)
+        .query('DELETE FROM PRODUCTO_LISTA_PRECIOS WHERE PRODUCTO_ID = @prodId AND LISTA_ID = @listaId');
+    } else {
+      await tx.request()
+        .input('prodId', sql.Int, productoId)
+        .input('listaId', sql.Int, listaId)
+        .input('precio', sql.Decimal(18, 4), precioNum)
+        .query(`
+          MERGE PRODUCTO_LISTA_PRECIOS AS target
+          USING (SELECT @prodId AS PRODUCTO_ID, @listaId AS LISTA_ID, @precio AS PRECIO) AS src
+          ON target.PRODUCTO_ID = src.PRODUCTO_ID AND target.LISTA_ID = src.LISTA_ID
+          WHEN MATCHED THEN
+            UPDATE SET PRECIO = src.PRECIO, FECHA_ACTUALIZACION = GETDATE()
+          WHEN NOT MATCHED THEN
+            INSERT (PRODUCTO_ID, LISTA_ID, PRECIO)
+            VALUES (src.PRODUCTO_ID, src.LISTA_ID, src.PRECIO);
+        `);
+    }
+  }
+}
+
+// Setea/limpia MARGEN_INDIVIDUAL en PRODUCTO_LISTA_PRECIOS para un (producto, lista).
+// Si el margen real (precio/costo - 1) difiere del margen default de la lista
+// más allá de la tolerancia, marca el override. Si no, lo limpia (NULL).
+// Acepta cualquier listaId (no hay restricción a 1..5).
+const MARGEN_INDIVIDUAL_TOLERANCE = 0.5;
+
+async function setMargenIndividual(
+  req: any,
+  productoId: number,
+  listaId: number,
+  precio: number,
+  precioCompra: number,
+) {
+  // Precio 0 o costo 0 → sin override (no podemos calcular margen)
+  if (precio <= 0 || precioCompra <= 0) {
+    await req
+      .input('productoId', sql.Int, productoId)
+      .input('listaId', sql.Int, listaId)
+      .query(`
+        UPDATE PRODUCTO_LISTA_PRECIOS
+        SET MARGEN_INDIVIDUAL = NULL
+        WHERE LISTA_ID = @listaId AND PRODUCTO_ID = @productoId
+      `);
+    return;
+  }
+
+  await req
+    .input('productoId', sql.Int, productoId)
+    .input('listaId', sql.Int, listaId)
+    .input('precio', sql.Decimal(18, 4), precio)
+    .input('precioCompra', sql.Decimal(18, 4), precioCompra)
+    .query(`
+      DECLARE @margenReal DECIMAL(9, 4);
+      DECLARE @margenDefault DECIMAL(9, 4);
+
+      SELECT @margenDefault = ISNULL(MARGEN, 0)
+      FROM LISTA_PRECIOS
+      WHERE LISTA_ID = @listaId;
+
+      SET @margenReal = ROUND(((@precio / @precioCompra) - 1) * 100, 4);
+
+      UPDATE PRODUCTO_LISTA_PRECIOS
+      SET MARGEN_INDIVIDUAL = CASE
+        WHEN ABS(@margenReal - @margenDefault) > ${MARGEN_INDIVIDUAL_TOLERANCE}
+          THEN @margenReal
+        ELSE NULL
+      END
+      WHERE LISTA_ID = @listaId AND PRODUCTO_ID = @productoId;
+    `);
+}
+
 export const productService = {
   // ── List with pagination & filters ─────────────
   async getAll(filter: ProductFilter = {}): Promise<PaginatedResult<Producto>> {
@@ -91,14 +179,12 @@ export const productService = {
     }
     if (filter.search) {
       const searchTrim = filter.search.trim();
-      // Auto-detección de PRODUCTO_ID / código de barras / código de balanza
       if (/^\d+$/.test(searchTrim)) {
         joinCodBarras = true;
         where += ' AND (p.PRODUCTO_ID = @searchProductId OR p.CODIGOPARTICULAR = @searchCode OR cb.CODIGO_BARRAS = @searchCode)';
         params.push({ name: 'searchProductId', type: sql.Int, value: Number(searchTrim) });
         params.push({ name: 'searchCode', type: sql.NVarChar, value: searchTrim });
       } else {
-        // Solo busca en NOMBRE (sin joins → mucho más rápido)
         const tokens = searchTrim.split(/\s+/).filter(t => t.length > 0);
         tokens.forEach((token, i) => {
           where += ` AND (p.NOMBRE LIKE @t${i} OR p.CODIGOPARTICULAR LIKE @t${i})`;
@@ -138,23 +224,20 @@ export const productService = {
     const validCols: Record<string, string> = {
       id: 'p.PRODUCTO_ID',
       nombre: 'p.NOMBRE', codigo: 'p.CODIGOPARTICULAR', categoria: 'c.NOMBRE',
-      marca: 'm.NOMBRE', precio: 'p.PRECIO_COMPRA', lista1: 'p.LISTA_1', stock: '(SELECT ISNULL(SUM(sd2.CANTIDAD),0) FROM STOCK_DEPOSITOS sd2 WHERE sd2.PRODUCTO_ID = p.PRODUCTO_ID)',
+      marca: 'm.NOMBRE', precio: 'p.PRECIO_COMPRA', stock: '(SELECT ISNULL(SUM(sd2.CANTIDAD),0) FROM STOCK_DEPOSITOS sd2 WHERE sd2.PRODUCTO_ID = p.PRODUCTO_ID)',
     };
     const orderByKey = (filter.orderBy || 'nombre').toLowerCase();
     const orderCol = validCols[orderByKey] || 'p.NOMBRE';
     const orderDir = filter.orderDir === 'DESC' ? 'DESC' : 'ASC';
 
-    // Joins condicionales — solo cuando son estrictamente necesarios
     const joinCategoria = orderByKey === 'categoria';
     const joinMarca = orderByKey === 'marca';
     const codBarrasJoin = joinCodBarras ? 'LEFT JOIN PRODUCTOS_COD_BARRAS cb ON p.PRODUCTO_ID = cb.PRODUCTO_ID' : '';
     const categoriaJoin = joinCategoria ? 'LEFT JOIN CATEGORIAS c ON p.CATEGORIA_ID = c.CATEGORIA_ID' : '';
     const marcaJoin = joinMarca ? 'LEFT JOIN MARCAS m ON p.MARCA_ID = m.MARCA_ID' : '';
-    // DISTINCT solo cuando un join 1-a-N (cb) puede inflar filas
     const distinct = joinCodBarras ? 'DISTINCT' : '';
     const countExpr = joinCodBarras ? 'COUNT(DISTINCT p.PRODUCTO_ID)' : 'COUNT(*)';
 
-    // Ejecutar count + data en paralelo (latencia ≈ la mayor de las dos)
     const [countResult, dataResult] = await Promise.all([
       bind(pool.request()).query(`
         SELECT ${countExpr} as total
@@ -173,7 +256,6 @@ export const productService = {
             (SELECT ISNULL(SUM(sd2.CANTIDAD),0) FROM STOCK_DEPOSITOS sd2 WHERE sd2.PRODUCTO_ID = p.PRODUCTO_ID) AS CANTIDAD,
             p.CATEGORIA_ID, p.PRECIO_COMPRA, p.MARCA_ID,
             p.STOCK_MINIMO, p.UNIDAD_ID, p.ACTIVO,
-            p.LISTA_1, p.LISTA_2, p.LISTA_3, p.LISTA_4, p.LISTA_5,
             p.LISTA_DEFECTO, p.COSTO_USD, p.TASA_IVA_ID,
             p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, p.PRECIO_COMPRA_BASE, p.IMP_INT,
             p.FECHA_VENCIMIENTO, p.MARGEN_INDIVIDUAL,
@@ -181,7 +263,14 @@ export const productService = {
             (SELECT TOP 1 NOMBRE FROM CATEGORIAS WHERE CATEGORIA_ID = p.CATEGORIA_ID) AS CATEGORIA_NOMBRE,
             (SELECT TOP 1 NOMBRE FROM MARCAS WHERE MARCA_ID = p.MARCA_ID) AS MARCA_NOMBRE,
             u.NOMBRE AS UNIDAD_NOMBRE,
-            u.ABREVIACION AS UNIDAD_ABREVIACION
+            u.ABREVIACION AS UNIDAD_ABREVIACION,
+            (
+              SELECT plp.LISTA_ID AS LISTA_ID, plp.PRECIO AS PRECIO
+              FROM PRODUCTO_LISTA_PRECIOS plp
+              WHERE plp.PRODUCTO_ID = p.PRODUCTO_ID
+              ORDER BY plp.LISTA_ID
+              FOR JSON PATH
+            ) AS PRECIOS_JSON
           FROM PRODUCTOS p
           LEFT JOIN UNIDADES_MEDIDA u ON p.UNIDAD_ID = u.UNIDAD_ID
           ${categoriaJoin}
@@ -197,7 +286,17 @@ export const productService = {
 
     const total = countResult.recordset[0].total;
 
-    return { data: dataResult.recordset, total, page, pageSize };
+    // Mapear PRECIOS_JSON → PRECIOS
+    const data = (dataResult.recordset as any[]).map(row => {
+      let precios: { LISTA_ID: number; PRECIO: number }[] = [];
+      if (row.PRECIOS_JSON) {
+        try { precios = JSON.parse(row.PRECIOS_JSON); } catch { precios = []; }
+      }
+      const { PRECIOS_JSON, ...rest } = row;
+      return { ...rest, PRECIOS: precios };
+    });
+
+    return { data, total, page, pageSize };
   },
 
   // ── Get by ID (full detail) ────────────────────
@@ -233,26 +332,22 @@ export const productService = {
               FROM PRODUCTOS_PROVEEDORES pp JOIN PROVEEDORES pr ON pp.PROVEEDOR_ID = pr.PROVEEDOR_ID
               WHERE pp.PRODUCTO_ID = @id`);
 
-    // Fetch product margins
-    const margenesResult = await pool.request().input('id', sql.Int, id)
-      .query(`SELECT MARGEN_LISTA_1, MARGEN_LISTA_2, MARGEN_LISTA_3, MARGEN_LISTA_4, MARGEN_LISTA_5
-              FROM PRODUCTO_MARGENES WHERE PRODUCTO_ID = @id`);
-    let margenes: number[] = [0, 0, 0, 0, 0];
-    if (margenesResult.recordset.length > 0) {
-      const m = margenesResult.recordset[0];
-      margenes = [m.MARGEN_LISTA_1, m.MARGEN_LISTA_2, m.MARGEN_LISTA_3, m.MARGEN_LISTA_4, m.MARGEN_LISTA_5];
-    }
+    // Precios por lista con su margen individual override (si difiere del default).
+    const preciosResult = await pool.request().input('id', sql.Int, id)
+      .query(`SELECT LISTA_ID, PRECIO, MARGEN_INDIVIDUAL
+              FROM PRODUCTO_LISTA_PRECIOS
+              WHERE PRODUCTO_ID = @id
+              ORDER BY LISTA_ID`);
 
     return {
       ...result.recordset[0],
       codigosBarras: cbResult.recordset.map((r: any) => r.CODIGO_BARRAS),
       proveedores: provResult.recordset,
       stockDepositos: stockResult.recordset,
-      margenes,
+      precios: preciosResult.recordset as { LISTA_ID: number; PRECIO: number; MARGEN_INDIVIDUAL: number | null }[],
     };
   },
 
-  // ── Get stock by product ───────────────────────
   async getStockByProduct(productoId: number, puntoVentaId?: number) {
     const pool = await getPool();
     const result = await pool.request()
@@ -271,13 +366,11 @@ export const productService = {
     return result.recordset;
   },
 
-  // ── Create product ─────────────────────────────
   async create(input: ProductInput, usuarioId?: number) {
     const pool = await getPool();
     const tx = pool.transaction();
     await tx.begin();
     try {
-      // Check duplicate code if a custom one is provided
       if (input.CODIGOPARTICULAR?.trim()) {
         const dup = await tx.request()
           .input('code', sql.NVarChar, input.CODIGOPARTICULAR.trim())
@@ -304,12 +397,7 @@ export const productService = {
         .input('esServicio', sql.Bit, input.ES_SERVICIO ? 1 : 0)
         .input('descuentaStock', sql.Bit, input.ES_SERVICIO ? 0 : (input.DESCUENTA_STOCK !== false ? 1 : 0))
         .input('activo', sql.Bit, input.ACTIVO !== false ? 1 : 0)
-        .input('lista1', sql.Decimal(18, 4), input.LISTA_1 || 0)
-        .input('lista2', sql.Decimal(18, 4), input.LISTA_2 || 0)
-        .input('lista3', sql.Decimal(18, 4), input.LISTA_3 || 0)
-        .input('lista4', sql.Decimal(18, 4), input.LISTA_4 || 0)
-        .input('lista5', sql.Decimal(18, 4), input.LISTA_5 || 0)
-        .input('listaDefecto', sql.Int, input.LISTA_DEFECTO || 1)
+        .input('listaDefecto', sql.Int, input.LISTA_DEFECTO || null)
         .input('fechaVenc', sql.Date, input.FECHA_VENCIMIENTO || null)
         .input('margenInd', sql.Bit, input.MARGEN_INDIVIDUAL ? 1 : 0)
         .input('ventaWeb', sql.Bit, input.VENTA_WEB ? 1 : 0)
@@ -318,13 +406,13 @@ export const productService = {
             CODIGOPARTICULAR, NOMBRE, DESCRIPCION, CATEGORIA_ID, MARCA_ID, UNIDAD_ID,
             PRECIO_COMPRA, COSTO_USD, PRECIO_COMPRA_BASE, STOCK_MINIMO, TASA_IVA_ID, IMP_INT,
             ES_CONJUNTO, ES_SERVICIO, DESCUENTA_STOCK, ACTIVO, CANTIDAD,
-            LISTA_1, LISTA_2, LISTA_3, LISTA_4, LISTA_5, LISTA_DEFECTO,
+            LISTA_DEFECTO,
             FECHA_VENCIMIENTO, MARGEN_INDIVIDUAL, VENTA_WEB
           ) VALUES (
             @codigo, @nombre, @descripcion, @categoriaId, @marcaId, @unidadId,
             @precioCompra, @costoUsd, @precioCompraBase, @stockMinimo, @tasaIvaId, @impInt,
             @esConjunto, @esServicio, @descuentaStock, @activo, 0,
-            @lista1, @lista2, @lista3, @lista4, @lista5, @listaDefecto,
+            @listaDefecto,
             @fechaVenc, @margenInd, @ventaWeb
           );
           SELECT SCOPE_IDENTITY() AS PRODUCTO_ID;
@@ -332,13 +420,15 @@ export const productService = {
 
       const productoId = result.recordset[0].PRODUCTO_ID;
 
-      // If no custom code was provided, auto-assign CODIGOPARTICULAR = PRODUCTO_ID
       if (!input.CODIGOPARTICULAR?.trim()) {
         await tx.request()
           .input('prodId', sql.Int, productoId)
           .input('codPart', sql.NVarChar, String(productoId))
           .query(`UPDATE PRODUCTOS SET CODIGOPARTICULAR = @codPart WHERE PRODUCTO_ID = @prodId`);
       }
+
+      // Insertar precios por lista
+      await upsertPrecios(tx, productoId, input.precios);
 
       if (input.codigosBarras?.length) {
         for (const cb of input.codigosBarras) {
@@ -352,11 +442,9 @@ export const productService = {
 
       if (input.depositos?.length) {
         for (const dep of input.depositos) {
-          // Insert into PRODUCTO_DEPOSITOS (relationship table)
           await tx.request()
             .input('prodId', sql.Int, productoId).input('depId', sql.Int, dep.DEPOSITO_ID)
             .query(`INSERT INTO PRODUCTO_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID) VALUES (@prodId, @depId)`);
-          // Insert into STOCK_DEPOSITOS (stock tracking table)
           const maxId = await tx.request().query(`SELECT ISNULL(MAX(ITEM_ID), 0) + 1 AS nextId FROM STOCK_DEPOSITOS`);
           const nextItemId = maxId.recordset[0].nextId;
           await tx.request()
@@ -383,18 +471,10 @@ export const productService = {
         }
       }
 
-      // Insert product margins
-      const margenes = input.margenes || [0, 0, 0, 0, 0];
-      while (margenes.length < 5) margenes.push(0);
-      await tx.request()
-        .input('prodId', sql.Int, productoId)
-        .input('m1', sql.Decimal(18, 4), margenes[0])
-        .input('m2', sql.Decimal(18, 4), margenes[1])
-        .input('m3', sql.Decimal(18, 4), margenes[2])
-        .input('m4', sql.Decimal(18, 4), margenes[3])
-        .input('m5', sql.Decimal(18, 4), margenes[4])
-        .query(`INSERT INTO PRODUCTO_MARGENES (PRODUCTO_ID, MARGEN_LISTA_1, MARGEN_LISTA_2, MARGEN_LISTA_3, MARGEN_LISTA_4, MARGEN_LISTA_5)
-                VALUES (@prodId, @m1, @m2, @m3, @m4, @m5)`);
+      // NOTA: PRODUCTO_MARGENES quedó deprecada. Los márgenes individuales
+      // viven en PRODUCTO_LISTA_PRECIOS.MARGEN_INDIVIDUAL y se setean al
+      // asignar un precio explícito. El bulk insert de precios de arriba
+      // (precios) no marca overrides — son precios calculados del margen default.
 
       await tx.commit();
       return { PRODUCTO_ID: productoId };
@@ -404,13 +484,11 @@ export const productService = {
     }
   },
 
-  // ── Update product ─────────────────────────────
   async update(id: number, input: ProductInput, usuarioId?: number) {
     const pool = await getPool();
     const tx = pool.transaction();
     await tx.begin();
     try {
-      // Build dynamic SET — only update columns that are explicitly provided
       const fieldMap: { column: string; param: string; type: any; value: any; key: keyof ProductInput }[] = [
         { column: 'CODIGOPARTICULAR', param: 'codigo', type: sql.NVarChar, value: input.CODIGOPARTICULAR, key: 'CODIGOPARTICULAR' },
         { column: 'NOMBRE', param: 'nombre', type: sql.NVarChar, value: input.NOMBRE, key: 'NOMBRE' },
@@ -428,18 +506,12 @@ export const productService = {
         { column: 'ES_SERVICIO', param: 'esServicio', type: sql.Bit, value: input.ES_SERVICIO ? 1 : 0, key: 'ES_SERVICIO' },
         { column: 'DESCUENTA_STOCK', param: 'descuentaStock', type: sql.Bit, value: input.ES_SERVICIO ? 0 : (input.DESCUENTA_STOCK !== false ? 1 : 0), key: 'DESCUENTA_STOCK' },
         { column: 'ACTIVO', param: 'activo', type: sql.Bit, value: input.ACTIVO !== false ? 1 : 0, key: 'ACTIVO' },
-        { column: 'LISTA_1', param: 'lista1', type: sql.Decimal(18, 4), value: input.LISTA_1 || 0, key: 'LISTA_1' },
-        { column: 'LISTA_2', param: 'lista2', type: sql.Decimal(18, 4), value: input.LISTA_2 || 0, key: 'LISTA_2' },
-        { column: 'LISTA_3', param: 'lista3', type: sql.Decimal(18, 4), value: input.LISTA_3 || 0, key: 'LISTA_3' },
-        { column: 'LISTA_4', param: 'lista4', type: sql.Decimal(18, 4), value: input.LISTA_4 || 0, key: 'LISTA_4' },
-        { column: 'LISTA_5', param: 'lista5', type: sql.Decimal(18, 4), value: input.LISTA_5 || 0, key: 'LISTA_5' },
         { column: 'LISTA_DEFECTO', param: 'listaDefecto', type: sql.Int, value: input.LISTA_DEFECTO || null, key: 'LISTA_DEFECTO' },
         { column: 'FECHA_VENCIMIENTO', param: 'fechaVenc', type: sql.Date, value: input.FECHA_VENCIMIENTO || null, key: 'FECHA_VENCIMIENTO' },
         { column: 'MARGEN_INDIVIDUAL', param: 'margenInd', type: sql.Bit, value: input.MARGEN_INDIVIDUAL ? 1 : 0, key: 'MARGEN_INDIVIDUAL' },
         { column: 'VENTA_WEB', param: 'ventaWeb', type: sql.Bit, value: input.VENTA_WEB ? 1 : 0, key: 'VENTA_WEB' },
       ];
 
-      // Only include fields that were explicitly sent in the input
       const toUpdate = fieldMap.filter(f => f.key in input);
 
       if (toUpdate.length > 0) {
@@ -447,6 +519,22 @@ export const productService = {
         for (const f of toUpdate) req.input(f.param, f.type, f.value);
         const setClauses = toUpdate.map(f => `${f.column}=@${f.param}`).join(', ');
         await req.query(`UPDATE PRODUCTOS SET ${setClauses} WHERE PRODUCTO_ID = @id`);
+      }
+
+      // Actualizar precios por lista
+      if (input.precios !== undefined) {
+        await upsertPrecios(tx, id, input.precios);
+
+        // Sincronizar MARGEN_INDIVIDUAL por cada (lista, producto) tras editar precio.
+        // Si el margen real difiere del default de la lista se marca como override.
+        const pcResult = await tx.request().input('id', sql.Int, id)
+          .query('SELECT ISNULL(PRECIO_COMPRA, 0) AS PC FROM PRODUCTOS WHERE PRODUCTO_ID = @id');
+        const pc = pcResult.recordset[0]?.PC || 0;
+        for (const [listaIdStr, precio] of Object.entries(input.precios)) {
+          const listaId = Number(listaIdStr);
+          const precioNum = Number(precio) || 0;
+          await setMargenIndividual(tx.request(), id, listaId, precioNum, pc);
+        }
       }
 
       if (input.codigosBarras !== undefined) {
@@ -460,7 +548,6 @@ export const productService = {
       }
 
       if (input.depositos !== undefined) {
-        // Capture old stock per deposit before clearing
         const oldStockRows = await tx.request().input('id', sql.Int, id)
           .query(`SELECT DEPOSITO_ID, CANTIDAD FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @id`);
         const oldStockMap = new Map<number, number>();
@@ -468,15 +555,12 @@ export const productService = {
           oldStockMap.set(row.DEPOSITO_ID, parseFloat(row.CANTIDAD));
         }
 
-        // Clear both relationship and stock tables
         await tx.request().input('id', sql.Int, id).query(`DELETE FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @id`);
         await tx.request().input('id2', sql.Int, id).query(`DELETE FROM PRODUCTO_DEPOSITOS WHERE PRODUCTO_ID = @id2`);
         for (const dep of (input.depositos || [])) {
-          // Insert into PRODUCTO_DEPOSITOS (relationship table)
           await tx.request()
             .input('prodId', sql.Int, id).input('depId', sql.Int, dep.DEPOSITO_ID)
             .query(`INSERT INTO PRODUCTO_DEPOSITOS (PRODUCTO_ID, DEPOSITO_ID) VALUES (@prodId, @depId)`);
-          // Insert into STOCK_DEPOSITOS (stock tracking table)
           const maxId = await tx.request().query(`SELECT ISNULL(MAX(ITEM_ID), 0) + 1 AS nextId FROM STOCK_DEPOSITOS`);
           const nextItemId = maxId.recordset[0].nextId;
           await tx.request()
@@ -507,40 +591,13 @@ export const productService = {
         }
       }
 
-      // Update or insert product margins
-      if (input.margenes !== undefined) {
-        const margenes = input.margenes || [0, 0, 0, 0, 0];
-        while (margenes.length < 5) margenes.push(0);
-        const existing = await tx.request().input('id', sql.Int, id)
-          .query(`SELECT 1 FROM PRODUCTO_MARGENES WHERE PRODUCTO_ID = @id`);
-        if (existing.recordset.length > 0) {
-          await tx.request()
-            .input('id', sql.Int, id)
-            .input('m1', sql.Decimal(18, 4), margenes[0])
-            .input('m2', sql.Decimal(18, 4), margenes[1])
-            .input('m3', sql.Decimal(18, 4), margenes[2])
-            .input('m4', sql.Decimal(18, 4), margenes[3])
-            .input('m5', sql.Decimal(18, 4), margenes[4])
-            .query(`UPDATE PRODUCTO_MARGENES SET MARGEN_LISTA_1=@m1, MARGEN_LISTA_2=@m2, MARGEN_LISTA_3=@m3, MARGEN_LISTA_4=@m4, MARGEN_LISTA_5=@m5 WHERE PRODUCTO_ID = @id`);
-        } else {
-          await tx.request()
-            .input('id', sql.Int, id)
-            .input('m1', sql.Decimal(18, 4), margenes[0])
-            .input('m2', sql.Decimal(18, 4), margenes[1])
-            .input('m3', sql.Decimal(18, 4), margenes[2])
-            .input('m4', sql.Decimal(18, 4), margenes[3])
-            .input('m5', sql.Decimal(18, 4), margenes[4])
-            .query(`INSERT INTO PRODUCTO_MARGENES (PRODUCTO_ID, MARGEN_LISTA_1, MARGEN_LISTA_2, MARGEN_LISTA_3, MARGEN_LISTA_4, MARGEN_LISTA_5) VALUES (@id, @m1, @m2, @m3, @m4, @m5)`);
-        }
-      }
+      // NOTA: PRODUCTO_MARGENES está deprecada. El margen individual se maneja
+      // vía PRODUCTO_LISTA_PRECIOS.MARGEN_INDIVIDUAL al editar precios.
 
       await tx.commit();
 
-      // Notificar al webhook dispatcher si cambiaron campos relevantes para la tienda.
-      // Cubre el caso de cambio de precio (LISTA_1) o activación de VENTA_WEB sin
-      // cambio de stock en depósitos (que ya lo notifica registrarHistorialStock).
       const webRelevantChanged =
-        ('LISTA_1'    in input) ||
+        ('precios'    in input) ||
         ('VENTA_WEB'  in input) ||
         ('ACTIVO'     in input) ||
         ('NOMBRE'     in input);
@@ -548,7 +605,7 @@ export const productService = {
         try {
           webhookDispatcher.notifyStockChange(id);
         } catch {
-          // fire-and-forget, nunca bloquea ni rompe la edición
+          // fire-and-forget
         }
       }
     } catch (err) {
@@ -557,7 +614,6 @@ export const productService = {
     }
   },
 
-  // ── Delete (soft if used, hard otherwise) ──────
   async delete(id: number) {
     const pool = await getPool();
     const check = await pool.request().input('id', sql.Int, id).query(`
@@ -579,7 +635,7 @@ export const productService = {
       await tx.request().input('id', sql.Int, id).query(`DELETE FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @id`);
       await tx.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTO_DEPOSITOS WHERE PRODUCTO_ID = @id`);
       await tx.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTOS_PROVEEDORES WHERE PRODUCTO_ID = @id`);
-      await tx.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTO_MARGENES WHERE PRODUCTO_ID = @id`);
+      await tx.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTO_LISTA_PRECIOS WHERE PRODUCTO_ID = @id`);
       await tx.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTOS WHERE PRODUCTO_ID = @id`);
       await tx.commit();
       return { mode: 'hard' as const };
@@ -589,55 +645,58 @@ export const productService = {
     }
   },
 
-  // ── Inline cell edit ───────────────────────────
+  // Inline cell edit para columnas simples. Edits de precio se manejan
+  // con la convención de campo: `precio_LISTA_<ID>`.
   async inlineEdit(input: InlineEditInput) {
     const pool = await getPool();
-    const allowed: Record<string, any> = {
+    const allowedSimple: Record<string, any> = {
       CODIGOPARTICULAR: sql.NVarChar, NOMBRE: sql.NVarChar,
       PRECIO_COMPRA: sql.Decimal(18, 4),
-      LISTA_1: sql.Decimal(18, 4), LISTA_2: sql.Decimal(18, 4), LISTA_3: sql.Decimal(18, 4),
-      LISTA_4: sql.Decimal(18, 4), LISTA_5: sql.Decimal(18, 4),
     };
-    const colType = allowed[input.campo];
-    if (!colType) throw Object.assign(new Error(`Campo no editable: ${input.campo}`), { name: 'ValidationError' });
-    await pool.request().input('id', sql.Int, input.PRODUCTO_ID).input('val', colType, input.valor)
-      .query(`UPDATE PRODUCTOS SET ${input.campo} = @val WHERE PRODUCTO_ID = @id`);
-
-    // Recalculate margin when a LISTA price is changed
-    if (/^LISTA_[1-5]$/.test(input.campo)) {
-      const listaIdx = parseInt(input.campo.replace('LISTA_', ''), 10);
-      const newPrice = Number(input.valor) || 0;
-
-      const info = await pool.request().input('id', sql.Int, input.PRODUCTO_ID)
-        .query(`SELECT ISNULL(p.PRECIO_COMPRA, 0) AS PRECIO_COMPRA
-                FROM PRODUCTOS p
-                WHERE p.PRODUCTO_ID = @id`);
-      const costo = info.recordset[0]?.PRECIO_COMPRA || 0;
-
-      if (costo > 0) {
-        const margen = Math.round(((newPrice / costo) - 1) * 100 * 10000) / 10000;
-        const margenCol = `MARGEN_LISTA_${listaIdx}`;
-
-        const exists = await pool.request().input('id', sql.Int, input.PRODUCTO_ID)
-          .query(`SELECT 1 AS E FROM PRODUCTO_MARGENES WHERE PRODUCTO_ID = @id`);
-
-        if (exists.recordset.length > 0) {
-          await pool.request()
-            .input('id', sql.Int, input.PRODUCTO_ID)
-            .input('m', sql.Decimal(9, 4), margen)
-            .query(`UPDATE PRODUCTO_MARGENES SET ${margenCol} = @m WHERE PRODUCTO_ID = @id`);
-        } else {
-          await pool.request()
-            .input('id', sql.Int, input.PRODUCTO_ID)
-            .input('m', sql.Decimal(9, 4), margen)
-            .query(`INSERT INTO PRODUCTO_MARGENES (PRODUCTO_ID, MARGEN_LISTA_1, MARGEN_LISTA_2, MARGEN_LISTA_3, MARGEN_LISTA_4, MARGEN_LISTA_5)
-                    VALUES (@id, ${listaIdx === 1 ? '@m' : '0'}, ${listaIdx === 2 ? '@m' : '0'}, ${listaIdx === 3 ? '@m' : '0'}, ${listaIdx === 4 ? '@m' : '0'}, ${listaIdx === 5 ? '@m' : '0'})`);
-        }
-      }
+    const simpleColType = allowedSimple[input.campo];
+    if (simpleColType) {
+      await pool.request()
+        .input('id', sql.Int, input.PRODUCTO_ID)
+        .input('val', simpleColType, input.valor)
+        .query(`UPDATE PRODUCTOS SET ${input.campo} = @val WHERE PRODUCTO_ID = @id`);
+      return;
     }
+
+    // precio_LISTA_<ID>: actualiza precio en PRODUCTO_LISTA_PRECIOS
+    // y recalcula MARGEN_INDIVIDUAL según desviación vs margen default.
+    const listaMatch = /^precio_LISTA_(\d+)$/.exec(input.campo);
+    if (listaMatch) {
+      const listaId = Number(listaMatch[1]);
+      const newPrice = Number(input.valor) || 0;
+      const req = pool.request()
+        .input('id', sql.Int, input.PRODUCTO_ID)
+        .input('listaId', sql.Int, listaId)
+        .input('precio', sql.Decimal(18, 4), newPrice);
+      if (newPrice <= 0) {
+        await req.query('DELETE FROM PRODUCTO_LISTA_PRECIOS WHERE PRODUCTO_ID = @id AND LISTA_ID = @listaId');
+      } else {
+        await req.query(`
+          MERGE PRODUCTO_LISTA_PRECIOS AS target
+          USING (SELECT @id AS PRODUCTO_ID, @listaId AS LISTA_ID, @precio AS PRECIO) AS src
+          ON target.PRODUCTO_ID = src.PRODUCTO_ID AND target.LISTA_ID = src.LISTA_ID
+          WHEN MATCHED THEN
+            UPDATE SET PRECIO = src.PRECIO, FECHA_ACTUALIZACION = GETDATE()
+          WHEN NOT MATCHED THEN
+            INSERT (PRODUCTO_ID, LISTA_ID, PRECIO) VALUES (src.PRODUCTO_ID, src.LISTA_ID, src.PRECIO);
+        `);
+      }
+
+      // Sincronizar MARGEN_INDIVIDUAL (override si difiere del margen default de la lista)
+      const info = await pool.request().input('id', sql.Int, input.PRODUCTO_ID)
+        .query(`SELECT ISNULL(PRECIO_COMPRA, 0) AS PC FROM PRODUCTOS WHERE PRODUCTO_ID = @id`);
+      const pc = info.recordset[0]?.PC || 0;
+      await setMargenIndividual(pool.request(), input.PRODUCTO_ID, listaId, newPrice, pc);
+      return;
+    }
+
+    throw Object.assign(new Error(`Campo no editable: ${input.campo}`), { name: 'ValidationError' });
   },
 
-  // ── Bulk assign ────────────────────────────────
   async bulkAssign(input: BulkAssignInput) {
     const pool = await getPool();
     const { productoIds, campo, valor } = input;
@@ -670,7 +729,6 @@ export const productService = {
     throw Object.assign(new Error(`Campo no válido: ${campo}`), { name: 'ValidationError' });
   },
 
-  // ── Bulk delete ────────────────────────────────
   async bulkDelete(productoIds: number[]) {
     const pool = await getPool();
     let deleted = 0, deactivated = 0;
@@ -689,7 +747,7 @@ export const productService = {
         await pool.request().input('id', sql.Int, id).query(`DELETE FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @id`);
         await pool.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTO_DEPOSITOS WHERE PRODUCTO_ID = @id`);
         await pool.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTOS_PROVEEDORES WHERE PRODUCTO_ID = @id`);
-        await pool.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTO_MARGENES WHERE PRODUCTO_ID = @id`);
+        await pool.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTO_LISTA_PRECIOS WHERE PRODUCTO_ID = @id`);
         await pool.request().input('id', sql.Int, id).query(`DELETE FROM PRODUCTOS WHERE PRODUCTO_ID = @id`);
         deleted++;
       }
@@ -697,13 +755,12 @@ export const productService = {
     return { deleted, deactivated };
   },
 
-  // ── Bulk generate prices from cost ─────────────
+  // Genera precios en PRODUCTO_LISTA_PRECIOS a partir del costo × margen
   async bulkGeneratePrices(input: BulkPriceInput) {
     const pool = await getPool();
     const { productoIds, listaId, margen, fuente, redondeo } = input;
-    if (listaId < 1 || listaId > 5) throw new Error('Lista inválida (1-5)');
+    if (listaId < 1) throw new Error('Lista inválida');
     const costoCol = fuente === 'USD' ? 'COSTO_USD' : 'PRECIO_COMPRA';
-    const listaCol = `LISTA_${listaId}`;
     let affected = 0;
 
     for (const prodId of productoIds) {
@@ -718,14 +775,24 @@ export const productService = {
         case '50': precio = Math.ceil(precio / 50) * 50; break;
         case '100': precio = Math.ceil(precio / 100) * 100; break;
       }
-      await pool.request().input('id', sql.Int, prodId).input('precio', sql.Decimal(18, 4), precio)
-        .query(`UPDATE PRODUCTOS SET ${listaCol} = @precio WHERE PRODUCTO_ID = @id`);
+      await pool.request()
+        .input('id', sql.Int, prodId)
+        .input('listaId', sql.Int, listaId)
+        .input('precio', sql.Decimal(18, 4), precio)
+        .query(`
+          MERGE PRODUCTO_LISTA_PRECIOS AS target
+          USING (SELECT @id AS PRODUCTO_ID, @listaId AS LISTA_ID, @precio AS PRECIO) AS src
+          ON target.PRODUCTO_ID = src.PRODUCTO_ID AND target.LISTA_ID = src.LISTA_ID
+          WHEN MATCHED THEN
+            UPDATE SET PRECIO = src.PRECIO, FECHA_ACTUALIZACION = GETDATE()
+          WHEN NOT MATCHED THEN
+            INSERT (PRODUCTO_ID, LISTA_ID, PRECIO) VALUES (src.PRODUCTO_ID, src.LISTA_ID, src.PRECIO);
+        `);
       affected++;
     }
     return { affected };
   },
 
-  // ── Copy product ───────────────────────────────
   async copy(sourceId: number) {
     const pool = await getPool();
     const src = await pool.request().input('id', sql.Int, sourceId)
@@ -733,7 +800,6 @@ export const productService = {
     if (src.recordset.length === 0) throw new Error('Producto origen no encontrado');
     const s = src.recordset[0];
 
-    // Generate a unique CODIGOPARTICULAR: try "(copia)", then "(copia 2)", "(copia 3)", ...
     const MAX_LEN = 50;
     const BASE_SUFFIX = ' (copia)';
     const baseCode = (s.CODIGOPARTICULAR as string).substring(0, MAX_LEN - BASE_SUFFIX.length);
@@ -764,11 +830,6 @@ export const productService = {
       .input('esConjunto', sql.Bit, s.ES_CONJUNTO ? 1 : 0)
       .input('esServicio', sql.Bit, s.ES_SERVICIO ? 1 : 0)
       .input('descuentaStock', sql.Bit, s.DESCUENTA_STOCK ? 1 : 0)
-      .input('lista1', sql.Decimal(18, 4), s.LISTA_1 || 0)
-      .input('lista2', sql.Decimal(18, 4), s.LISTA_2 || 0)
-      .input('lista3', sql.Decimal(18, 4), s.LISTA_3 || 0)
-      .input('lista4', sql.Decimal(18, 4), s.LISTA_4 || 0)
-      .input('lista5', sql.Decimal(18, 4), s.LISTA_5 || 0)
       .input('listaDefecto', sql.Int, s.LISTA_DEFECTO)
       .input('fechaVenc', sql.Date, s.FECHA_VENCIMIENTO)
       .input('margenInd', sql.Bit, s.MARGEN_INDIVIDUAL ? 1 : 0)
@@ -777,45 +838,37 @@ export const productService = {
           CODIGOPARTICULAR, NOMBRE, DESCRIPCION, CATEGORIA_ID, MARCA_ID, UNIDAD_ID,
           PRECIO_COMPRA, COSTO_USD, PRECIO_COMPRA_BASE, STOCK_MINIMO, TASA_IVA_ID, IMP_INT,
           ES_CONJUNTO, ES_SERVICIO, DESCUENTA_STOCK, ACTIVO, CANTIDAD,
-          LISTA_1, LISTA_2, LISTA_3, LISTA_4, LISTA_5, LISTA_DEFECTO,
+          LISTA_DEFECTO,
           FECHA_VENCIMIENTO, MARGEN_INDIVIDUAL
         ) VALUES (
           @codigo, @nombre, @descripcion, @categoriaId, @marcaId, @unidadId,
           @precioCompra, @costoUsd, @precioCompraBase, @stockMinimo, @tasaIvaId, @impInt,
           @esConjunto, @esServicio, @descuentaStock, 1, 0,
-          @lista1, @lista2, @lista3, @lista4, @lista5, @listaDefecto,
+          @listaDefecto,
           @fechaVenc, @margenInd
         );
         SELECT SCOPE_IDENTITY() AS PRODUCTO_ID;
       `);
     const newId = result.recordset[0].PRODUCTO_ID;
 
-    // Copy margins from source product
-    const srcMargenes = await pool.request().input('srcId', sql.Int, sourceId)
-      .query(`SELECT MARGEN_LISTA_1, MARGEN_LISTA_2, MARGEN_LISTA_3, MARGEN_LISTA_4, MARGEN_LISTA_5
-              FROM PRODUCTO_MARGENES WHERE PRODUCTO_ID = @srcId`);
-    if (srcMargenes.recordset.length > 0) {
-      const m = srcMargenes.recordset[0];
-      await pool.request()
-        .input('prodId', sql.Int, newId)
-        .input('m1', sql.Decimal(18, 4), m.MARGEN_LISTA_1 || 0)
-        .input('m2', sql.Decimal(18, 4), m.MARGEN_LISTA_2 || 0)
-        .input('m3', sql.Decimal(18, 4), m.MARGEN_LISTA_3 || 0)
-        .input('m4', sql.Decimal(18, 4), m.MARGEN_LISTA_4 || 0)
-        .input('m5', sql.Decimal(18, 4), m.MARGEN_LISTA_5 || 0)
-        .query(`INSERT INTO PRODUCTO_MARGENES (PRODUCTO_ID, MARGEN_LISTA_1, MARGEN_LISTA_2, MARGEN_LISTA_3, MARGEN_LISTA_4, MARGEN_LISTA_5)
-                VALUES (@prodId, @m1, @m2, @m3, @m4, @m5)`);
-    } else {
-      await pool.request()
-        .input('prodId', sql.Int, newId)
-        .query(`INSERT INTO PRODUCTO_MARGENES (PRODUCTO_ID, MARGEN_LISTA_1, MARGEN_LISTA_2, MARGEN_LISTA_3, MARGEN_LISTA_4, MARGEN_LISTA_5)
-                VALUES (@prodId, 0, 0, 0, 0, 0)`);
-    }
+    // Copiar precios desde PRODUCTO_LISTA_PRECIOS
+    await pool.request()
+      .input('newId', sql.Int, newId)
+      .input('srcId', sql.Int, sourceId)
+      .query(`
+        INSERT INTO PRODUCTO_LISTA_PRECIOS (LISTA_ID, PRODUCTO_ID, PRECIO)
+        SELECT LISTA_ID, @newId, PRECIO
+        FROM PRODUCTO_LISTA_PRECIOS
+        WHERE PRODUCTO_ID = @srcId
+      `);
+
+    // NOTA: PRODUCTO_MARGENES está deprecada. El margen individual ahora
+    // vive en PRODUCTO_LISTA_PRECIOS.MARGEN_INDIVIDUAL, que ya fue copiado
+    // arriba (la copia SELECT * incluye todas las columnas).
 
     return { PRODUCTO_ID: newId };
   },
 
-  // ── Get tax rates ──────────────────────────────
   async getTasasImpuestos() {
     const pool = await getPool();
     const result = await pool.request().query(`
@@ -827,7 +880,7 @@ export const productService = {
     return result.recordset;
   },
 
-  // ── Get products for label printing ────────────
+  // Para impresión de etiquetas: devuelve producto + todos sus precios por lista
   async getForLabels(filter: { search?: string; categoriaId?: number; marcaId?: number } = {}) {
     const pool = await getPool();
 
@@ -858,10 +911,16 @@ export const productService = {
     const result = await req.query(`
       SELECT DISTINCT
         p.PRODUCTO_ID, p.CODIGOPARTICULAR, p.NOMBRE,
-        p.LISTA_1, p.LISTA_2, p.LISTA_3, p.LISTA_4, p.LISTA_5,
         p.LISTA_DEFECTO,
         c.NOMBRE AS CATEGORIA_NOMBRE,
-        (SELECT TOP 1 CODIGO_BARRAS FROM PRODUCTOS_COD_BARRAS WHERE PRODUCTO_ID = p.PRODUCTO_ID) AS CODIGO_BARRAS
+        (SELECT TOP 1 CODIGO_BARRAS FROM PRODUCTOS_COD_BARRAS WHERE PRODUCTO_ID = p.PRODUCTO_ID) AS CODIGO_BARRAS,
+        (
+          SELECT plp.LISTA_ID AS LISTA_ID, plp.PRECIO AS PRECIO
+          FROM PRODUCTO_LISTA_PRECIOS plp
+          WHERE plp.PRODUCTO_ID = p.PRODUCTO_ID
+          ORDER BY plp.LISTA_ID
+          FOR JSON PATH
+        ) AS PRECIOS_JSON
       FROM PRODUCTOS p
       LEFT JOIN CATEGORIAS c ON p.CATEGORIA_ID = c.CATEGORIA_ID
       LEFT JOIN MARCAS m ON p.MARCA_ID = m.MARCA_ID
@@ -870,6 +929,13 @@ export const productService = {
       ORDER BY p.NOMBRE
     `);
 
-    return result.recordset;
+    return (result.recordset as any[]).map(row => {
+      let precios: { LISTA_ID: number; PRECIO: number }[] = [];
+      if (row.PRECIOS_JSON) {
+        try { precios = JSON.parse(row.PRECIOS_JSON); } catch { precios = []; }
+      }
+      const { PRECIOS_JSON, ...rest } = row;
+      return { ...rest, PRECIOS: precios };
+    });
   },
 };

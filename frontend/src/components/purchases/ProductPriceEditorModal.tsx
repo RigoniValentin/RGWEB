@@ -1,23 +1,21 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Modal, InputNumber, Button, Space, Typography, Divider,
-  Tag, Tooltip, message, Segmented, Descriptions,
+  Tag, Tooltip, message,
 } from 'antd';
 import {
   SaveOutlined, ReloadOutlined, UndoOutlined,
-  PercentageOutlined, StarFilled,
+  PercentageOutlined, StarFilled, EditOutlined, CloseOutlined,
 } from '@ant-design/icons';
 import type { PriceCheckProduct } from '../../services/purchases.api';
 import { fmtMoney, fmtNum } from '../../utils/format';
 
-const { Text } = Typography;
+const { Text, Title } = Typography;
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
-
+const MARGEN_TOLERANCE = 0.5;
 const roundToMultiple = (value: number, multiple: number) =>
   Math.round(value / multiple) * multiple;
-
-type MarginSource = 'individual' | 'lista';
 
 interface Props {
   open: boolean;
@@ -27,127 +25,111 @@ interface Props {
   onClose: () => void;
   onSave: (update: {
     PRODUCTO_ID: number;
-    LISTA_1: number; LISTA_2: number; LISTA_3: number;
-    LISTA_4: number; LISTA_5: number;
+    precios: { LISTA_ID: number; PRECIO: number }[];
   }) => void;
-}
-
-interface PriceState {
-  LISTA_1: number; LISTA_2: number; LISTA_3: number;
-  LISTA_4: number; LISTA_5: number;
 }
 
 export function ProductPriceEditorModal({
   open, product, listNames, listMargins, onClose, onSave,
 }: Props) {
-  const [prices, setPrices] = useState<PriceState>({ LISTA_1: 0, LISTA_2: 0, LISTA_3: 0, LISTA_4: 0, LISTA_5: 0 });
-  const [origPrices, setOrigPrices] = useState<PriceState>({ LISTA_1: 0, LISTA_2: 0, LISTA_3: 0, LISTA_4: 0, LISTA_5: 0 });
-  const [marginSource, setMarginSource] = useState<MarginSource>('individual');
-  // Per-row margin overrides (when user edits the margin input directly).
-  // null = use configured (product or list). Number = override.
-  const [editedMargins, setEditedMargins] = useState<Record<number, number | null>>({
-    1: null, 2: null, 3: null, 4: null, 5: null,
-  });
+  const [prices, setPrices] = useState<Record<number, number>>({});
+  const [origPrices, setOrigPrices] = useState<Record<number, number>>({});
 
   useEffect(() => {
     if (product && open) {
-      const p: PriceState = {
-        LISTA_1: product.LISTA_1,
-        LISTA_2: product.LISTA_2,
-        LISTA_3: product.LISTA_3,
-        LISTA_4: product.LISTA_4,
-        LISTA_5: product.LISTA_5,
-      };
-      setPrices(p);
-      setOrigPrices(p);
-      setMarginSource(product.TIENE_MARGENES_INDIV ? 'individual' : 'lista');
-      setEditedMargins({ 1: null, 2: null, 3: null, 4: null, 5: null });
+      const init: Record<number, number> = {};
+      for (const p of product.precios) init[p.LISTA_ID] = p.PRECIO;
+      setPrices(init);
+      setOrigPrices(init);
     }
   }, [product, open]);
 
-  // COSTO = PRECIO_COMPRA (costo con impuestos), used directly for margin calculations
+  const listasActivas = useMemo(
+    () => Object.keys(listNames).map(Number).sort((a, b) => a - b),
+    [listNames],
+  );
+
   const costoMargenBase = useMemo(() => {
     if (!product) return 0;
     return product.COSTO;
   }, [product]);
 
-  // Get the margin for a list depending on source (or per-row override)
-  const getConfiguredMargin = useCallback((listNum: number): number => {
-    if (!product) return 0;
-    const override = editedMargins[listNum];
-    if (override != null) return override;
-    if (marginSource === 'individual') {
-      return (product as any)[`MARGEN_${listNum}`] || 0;
-    }
-    return listMargins[listNum] || 0;
-  }, [product, marginSource, listMargins, editedMargins]);
-
-  // Calculate actual margin from current price (based on cost without IVA)
-  const getActualMargin = useCallback((listNum: number): number => {
-    const price = (prices as any)[`LISTA_${listNum}`] || 0;
+  const getActualMargin = useCallback((listaId: number): number => {
+    const precio = prices[listaId] || 0;
     if (costoMargenBase <= 0) return 0;
-    return r2(((price / costoMargenBase) - 1) * 100);
+    return r2(((precio / costoMargenBase) - 1) * 100);
   }, [prices, costoMargenBase]);
 
+  const matchesDefault = useCallback((listaId: number): boolean => {
+    const margenDefault = listMargins[listaId] || 0;
+    const actual = getActualMargin(listaId);
+    if (costoMargenBase <= 0) return true;
+    return Math.abs(actual - margenDefault) <= MARGEN_TOLERANCE;
+  }, [listMargins, getActualMargin, costoMargenBase]);
+
   const isModified = useMemo(() => {
-    for (let i = 1; i <= 5; i++) {
-      const curr = (prices as any)[`LISTA_${i}`] || 0;
-      const orig = (origPrices as any)[`LISTA_${i}`] || 0;
-      if (Math.abs(curr - orig) > 0.01) return true;
+    for (const id of new Set([...Object.keys(prices), ...Object.keys(origPrices)].map(Number))) {
+      if (Math.abs((prices[id] || 0) - (origPrices[id] || 0)) > 0.01) return true;
     }
     return false;
   }, [prices, origPrices]);
 
-  const recalcFromMargins = useCallback(() => {
-    if (!product) return;
-    const newPrices: any = { ...prices };
-    for (let i = 1; i <= 5; i++) {
-      const margen = getConfiguredMargin(i);
-      newPrices[`LISTA_${i}`] = r2(costoMargenBase * (1 + margen / 100));
+  const modifiedCount = useMemo(() => {
+    let n = 0;
+    for (const id of new Set([...Object.keys(prices), ...Object.keys(origPrices)].map(Number))) {
+      if (Math.abs((prices[id] || 0) - (origPrices[id] || 0)) > 0.01) n++;
     }
-    setPrices(newPrices);
-    message.info('Precios recalculados según márgenes');
-  }, [product, costoMargenBase, getConfiguredMargin, prices]);
+    return n;
+  }, [prices, origPrices]);
 
-  const resetPrices = useCallback(() => {
-    setPrices({ ...origPrices });
-  }, [origPrices]);
-
-  const updatePrice = (listNum: number, value: number) => {
-    setPrices(prev => ({ ...prev, [`LISTA_${listNum}`]: r2(value) }));
+  const updatePrice = (listaId: number, value: number | null) => {
+    setPrices(prev => ({ ...prev, [listaId]: r2(value || 0) }));
   };
 
-  // Edit the configured margin directly → recalculates the price
-  const updateMargin = (listNum: number, margin: number) => {
-    setEditedMargins(prev => ({ ...prev, [listNum]: margin }));
-    const newPrice = r2(costoMargenBase * (1 + margin / 100));
-    setPrices(prev => ({ ...prev, [`LISTA_${listNum}`]: newPrice }));
-  };
-
-  const roundPrice = (listNum: number, multiple: number) => {
+  const roundPrice = (listaId: number, multiple: number) => {
     setPrices(prev => {
-      const curr = (prev as any)[`LISTA_${listNum}`] || 0;
-      return { ...prev, [`LISTA_${listNum}`]: roundToMultiple(curr, multiple) };
+      const curr = prev[listaId] || 0;
+      return { ...prev, [listaId]: roundToMultiple(curr, multiple) };
     });
   };
 
+  const recalcFromListMargins = useCallback(() => {
+    if (!product) return;
+    if (costoMargenBase <= 0) {
+      message.warning('El costo debe ser mayor a 0 para recalcular');
+      return;
+    }
+    const newPrices: Record<number, number> = {};
+    for (const id of listasActivas) {
+      const margen = listMargins[id] || 0;
+      newPrices[id] = r2(costoMargenBase * (1 + margen / 100));
+    }
+    setPrices(newPrices);
+    message.info('Precios recalculados desde márgenes default de cada lista');
+  }, [product, costoMargenBase, listMargins, listasActivas]);
+
   const roundAll = (multiple: number) => {
     setPrices(prev => {
-      const updated: any = { ...prev };
-      for (let i = 1; i <= 5; i++) {
-        updated[`LISTA_${i}`] = roundToMultiple(updated[`LISTA_${i}`] || 0, multiple);
+      const updated = { ...prev };
+      for (const id of listasActivas) {
+        const curr = updated[id] || 0;
+        updated[id] = roundToMultiple(curr, multiple);
       }
       return updated;
     });
     message.info(`Precios redondeados a múltiplos de $${multiple}`);
   };
 
+  const resetPrices = useCallback(() => {
+    setPrices({ ...origPrices });
+  }, [origPrices]);
+
   const handleSave = () => {
     if (!product) return;
-    onSave({
-      PRODUCTO_ID: product.PRODUCTO_ID,
-      ...prices,
-    });
+    const precios = listasActivas
+      .map(id => ({ LISTA_ID: id, PRECIO: prices[id] || 0 }))
+      .filter(p => p.PRECIO > 0);
+    onSave({ PRODUCTO_ID: product.PRODUCTO_ID, precios });
   };
 
   if (!product) return null;
@@ -156,18 +138,219 @@ export function ProductPriceEditorModal({
     <Modal
       open={open}
       onCancel={onClose}
-      title={
-        <div>
-          <Text type="secondary" style={{ fontSize: 12 }}>{product.CODIGO}</Text>
-          <div style={{ fontSize: 16 }}>{product.DESCRIPCION}</div>
-        </div>
-      }
-      width={480}
+      footer={null}
+      width="95vw"
+      style={{ maxWidth: 1100 }}
       centered
       destroyOnClose
-      styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
-      footer={
-        <Space style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+      closable={false}
+      className="new-sale-modal"
+      styles={{ body: { padding: 0, overflow: 'hidden' } }}
+    >
+      {/* ── Dark header bar ───────────────────────── */}
+      <div className="nsm-header">
+        <div className="nsm-header-left">
+          <EditOutlined className="nsm-header-icon" />
+          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
+            <Text type="secondary" style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontFamily: 'monospace' }}>
+              #{product.CODIGO}
+            </Text>
+            <Title level={5} style={{ margin: 0, color: '#fff' }}>
+              {product.DESCRIPCION}
+            </Title>
+          </div>
+          {isModified && (
+            <Tag color="green" style={{ margin: 0, fontWeight: 600 }}>
+              {modifiedCount} cambio{modifiedCount > 1 ? 's' : ''}
+            </Tag>
+          )}
+        </div>
+        <Button
+          type="text"
+          onClick={onClose}
+          icon={<CloseOutlined />}
+          style={{ color: 'rgba(255,255,255,0.7)', fontSize: 18 }}
+        />
+      </div>
+
+      {/* ── Toolbar ──────────────────────────────── */}
+      <div style={{
+        padding: '12px 20px 8px',
+        display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+      }}>
+        <Tooltip title="Recalcular todos los precios usando el margen default de cada lista">
+          <Button size="small" icon={<ReloadOutlined />} onClick={recalcFromListMargins}>
+            Recalcular desde listas
+          </Button>
+        </Tooltip>
+        <Tooltip title="Deshacer todos los cambios no guardados">
+          <Button size="small" icon={<UndoOutlined />} onClick={resetPrices} disabled={!isModified}>
+            Deshacer
+          </Button>
+        </Tooltip>
+        <Divider type="vertical" style={{ margin: '0 4px' }} />
+        <Tooltip title="Redondear todos los precios al múltiplo de $50">
+          <Button size="small" onClick={() => roundAll(50)}>Red. $50</Button>
+        </Tooltip>
+        <Tooltip title="Redondear todos los precios al múltiplo de $100">
+          <Button size="small" onClick={() => roundAll(100)}>Red. $100</Button>
+        </Tooltip>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <Tag color="blue">Costo {fmtMoney(product.COSTO)}</Tag>
+          {product.IMP_INTERNO > 0 && (
+            <Tag color="default">Imp.Int {fmtMoney(product.IMP_INTERNO)}</Tag>
+          )}
+          {product.IVA_ALICUOTA > 0 && (
+            <Tag color="default">IVA {product.IVA_ALICUOTA}%</Tag>
+          )}
+          <Tag color="default">Base margen {fmtMoney(costoMargenBase)}</Tag>
+        </div>
+      </div>
+
+      {/* ── Grid de listas ───────────────────────── */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))',
+        gap: 10,
+        padding: '4px 20px 12px',
+        maxHeight: 'calc(100dvh - 280px)', overflowY: 'auto',
+      }}>
+        {listasActivas.map(listaId => {
+          const name = listNames[listaId] || `Lista ${listaId}`;
+          const margenDefault = listMargins[listaId] || 0;
+          const currPrice = prices[listaId] || 0;
+          const origPrice = origPrices[listaId] || 0;
+          const changed = Math.abs(currPrice - origPrice) > 0.01;
+          const actualMargin = getActualMargin(listaId);
+          const matches = matchesDefault(listaId);
+          const isDefaultList = product.LISTA_DEFECTO === listaId;
+
+          // Color de fondo: predeterminada (dorado) > modificada (verde) > normal
+          let bgColor = '#fafafa';
+          let borderColor = '#f0f0f0';
+          let borderWidth = '1px';
+          if (changed) { bgColor = '#f6ffed'; borderColor = '#b7eb8f'; }
+          if (isDefaultList) {
+            borderColor = '#EABD23';
+            borderWidth = '2px';
+            if (currPrice > 0) bgColor = matches ? 'rgba(234,189,35,0.08)' : '#fff7e6';
+          }
+
+          return (
+            <div
+              key={listaId}
+              style={{
+                display: 'flex', flexDirection: 'column', gap: 8,
+                padding: '12px 14px', borderRadius: 10,
+                backgroundColor: bgColor,
+                border: `${borderWidth} solid ${borderColor}`,
+                position: 'relative',
+                boxShadow: isDefaultList ? '0 0 0 2px rgba(234,189,35,0.15)' : 'none',
+              }}
+            >
+              {/* Header */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                  {isDefaultList && (
+                    <StarFilled style={{ fontSize: 11, color: '#EABD23' }} />
+                  )}
+                  <Text
+                    strong
+                    style={{
+                      fontSize: 13,
+                      color: isDefaultList ? '#876800' : undefined,
+                    }}
+                    ellipsis={{ tooltip: name }}
+                  >
+                    {name}
+                  </Text>
+                  {isDefaultList && (
+                    <Tag color="gold" style={{ margin: 0, fontSize: 9, lineHeight: '14px', padding: '0 4px' }}>
+                      Pred.
+                    </Tag>
+                  )}
+                </div>
+                <Space size={3} wrap>
+                  <Tooltip title="Margen default configurado en la lista">
+                    <Tag color="geekblue" style={{ margin: 0, fontSize: 10, padding: '0 5px' }}>
+                      <PercentageOutlined /> Default {fmtNum(margenDefault)}%
+                    </Tag>
+                  </Tooltip>
+                  {currPrice > 0 && (
+                    <Tooltip title="Margen calculado del precio actual vs costo">
+                      <Tag color="default" style={{ margin: 0, fontSize: 10, padding: '0 5px' }}>
+                        Actual {fmtNum(actualMargin)}%
+                      </Tag>
+                    </Tooltip>
+                  )}
+                </Space>
+              </div>
+
+              {/* Price input (grande) */}
+              <InputNumber
+                value={currPrice}
+                min={0}
+                step={0.01}
+                controls={false}
+                prefix="$"
+                placeholder="Sin precio"
+                onChange={v => updatePrice(listaId, v)}
+                style={{
+                  width: '100%',
+                  fontWeight: changed ? 700 : 500,
+                  fontSize: 16,
+                }}
+                size="large"
+              />
+
+              {/* Original + round buttons */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 20 }}>
+                <Text type="secondary" style={{ fontSize: 10 }}>
+                  {changed ? `Original: $${origPrice.toFixed(2)}` : (origPrice > 0 ? `— $${origPrice.toFixed(2)} —` : ' ')}
+                </Text>
+                <Space size={2}>
+                  <Tooltip title="Redondear a múltiplos de $50">
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<EditOutlined style={{ fontSize: 10 }} />}
+                      onClick={() => roundPrice(listaId, 50)}
+                      style={{ fontSize: 10, padding: '0 6px', height: 22 }}
+                    >
+                      50
+                    </Button>
+                  </Tooltip>
+                  <Tooltip title="Redondear a múltiplos de $100">
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<EditOutlined style={{ fontSize: 10 }} />}
+                      onClick={() => roundPrice(listaId, 100)}
+                      style={{ fontSize: 10, padding: '0 6px', height: 22 }}
+                    >
+                      100
+                    </Button>
+                  </Tooltip>
+                </Space>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Footer ────────────────────────────────── */}
+      <div style={{
+        padding: '12px 20px',
+        borderTop: '1px solid #f0f0f0',
+        background: '#fafafa',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      }}>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {isModified
+            ? `${modifiedCount} lista(s) con precios modificados.`
+            : 'Sin cambios pendientes.'}
+        </Text>
+        <Space>
           <Button onClick={onClose}>Cancelar</Button>
           <Button
             type="primary"
@@ -179,166 +362,7 @@ export function ProductPriceEditorModal({
             Guardar precios
           </Button>
         </Space>
-      }
-    >
-      {/* Product info */}
-      <Descriptions size="small" column={2} style={{ marginBottom: 16 }}>
-        <Descriptions.Item label="Costo">{fmtMoney(product.COSTO)}</Descriptions.Item>
-        <Descriptions.Item label="Imp. Interno">
-          {product.IMP_INTERNO > 0 ? fmtMoney(product.IMP_INTERNO) : '—'}
-        </Descriptions.Item>
-        <Descriptions.Item label="IVA">{product.IVA_ALICUOTA}%</Descriptions.Item>
-        <Descriptions.Item label="Base p/ margen">{fmtMoney(costoMargenBase)}</Descriptions.Item>
-      </Descriptions>
-
-      {/* Margin source selector */}
-      <div style={{ marginBottom: 16 }}>
-        <Text type="secondary" style={{ display: 'block', marginBottom: 6, fontSize: 12 }}>
-          Origen de márgenes
-        </Text>
-        <Segmented
-          value={marginSource}
-          onChange={val => setMarginSource(val as MarginSource)}
-          block
-          options={[
-            {
-              value: 'individual',
-              label: 'Margen individual',
-            },
-            {
-              value: 'lista',
-              label: 'Margen de lista',
-            },
-          ]}
-        />
       </div>
-
-      {/* Action buttons */}
-      <Space style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
-        <Space size="small">
-          <Button size="small" icon={<ReloadOutlined />} onClick={recalcFromMargins}>
-            Recalcular
-          </Button>
-          <Button size="small" icon={<UndoOutlined />} onClick={resetPrices} disabled={!isModified}>
-            Deshacer
-          </Button>
-        </Space>
-        <Space size="small">
-          <Button size="small" onClick={() => roundAll(50)}>Red. $50</Button>
-          <Button size="small" onClick={() => roundAll(100)}>Red. $100</Button>
-        </Space>
-      </Space>
-
-      <Divider style={{ margin: '8px 0' }} />
-
-      {/* Price rows */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {[1, 2, 3, 4, 5].map(i => {
-          const name = listNames[i] || `Lista ${i}`;
-          const configMargin = getConfiguredMargin(i);
-          const actualMargin = getActualMargin(i);
-          const origPrice = (origPrices as any)[`LISTA_${i}`] || 0;
-          const currPrice = (prices as any)[`LISTA_${i}`] || 0;
-          const changed = Math.abs(currPrice - origPrice) > 0.01;
-          const marginDiff = Math.abs(actualMargin - configMargin) > 0.5;
-          const isDefault = product.LISTA_DEFECTO === i;
-
-          // Background/border priority: default list > changed > normal
-          let bgColor = '#fafafa';
-          let borderStyle = '1px solid #f0f0f0';
-          if (changed) { bgColor = '#f6ffed'; borderStyle = '1px solid #b7eb8f'; }
-          if (isDefault) {
-            bgColor = changed ? '#fffbe6' : 'rgba(234, 189, 35, 0.10)';
-            borderStyle = '2px solid var(--rg-gold, #EABD23)';
-          }
-
-          return (
-            <div
-              key={i}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '8px 12px', borderRadius: 8,
-                backgroundColor: bgColor,
-                border: borderStyle,
-                boxShadow: isDefault ? '0 0 0 2px rgba(234,189,35,0.20)' : 'none',
-                position: 'relative',
-              }}
-            >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Text strong style={{ fontSize: 13 }}>{name}</Text>
-                  {isDefault && (
-                    <Tag color="gold" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 6px' }}>
-                      <StarFilled style={{ fontSize: 10 }} /> Lista por defecto
-                    </Tag>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 4, alignItems: 'center' }}>
-                  <Tooltip title="Margen configurado — editable: cambia el precio automáticamente">
-                    <InputNumber
-                      value={configMargin}
-                      min={-99}
-                      max={1000}
-                      step={0.5}
-                      controls={false}
-                      size="small"
-                      suffix="%"
-                      prefix={<PercentageOutlined style={{ fontSize: 10, color: configMargin < 5 ? '#cf1322' : configMargin < 15 ? '#d46b08' : '#389e0d' }} />}
-                      onChange={v => {
-                        const m = v ?? 0;
-                        updateMargin(i, m);
-                      }}
-                      style={{ width: 95, fontSize: 12 }}
-                    />
-                  </Tooltip>
-                  {marginDiff && (
-                    <Tooltip title="Margen real según precio actual (difiere del configurado)">
-                      <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>
-                        actual: {fmtNum(actualMargin)}%
-                      </Tag>
-                    </Tooltip>
-                  )}
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <InputNumber
-                  value={currPrice}
-                  min={0}
-                  step={0.01}
-                  controls={false}
-                  prefix="$"
-                  onChange={v => updatePrice(i, v || 0)}
-                  style={{
-                    width: 130,
-                    fontWeight: changed ? 700 : 400,
-                  }}
-                />
-                <Space size={0}>
-                  <Tooltip title="Redondear a $50">
-                    <Button type="text" size="small" onClick={() => roundPrice(i, 50)} style={{ fontSize: 11, padding: '0 4px' }}>
-                      50
-                    </Button>
-                  </Tooltip>
-                  <Tooltip title="Redondear a $100">
-                    <Button type="text" size="small" onClick={() => roundPrice(i, 100)} style={{ fontSize: 11, padding: '0 4px' }}>
-                      100
-                    </Button>
-                  </Tooltip>
-                </Space>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {isModified && (
-        <>
-          <Divider style={{ margin: '12px 0 8px' }} />
-          <Text type="success" style={{ fontSize: 12 }}>
-            Hay cambios de precio pendientes. Al guardar se actualizarán también los márgenes individuales.
-          </Text>
-        </>
-      )}
     </Modal>
   );
 }

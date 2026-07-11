@@ -21,11 +21,7 @@ export interface CartItem {
   DEPOSITO_ID?: number;
   LISTA_ID?: number;
   DESDE_REMITO?: boolean;
-  LISTA_1?: number;
-  LISTA_2?: number;
-  LISTA_3?: number;
-  LISTA_4?: number;
-  LISTA_5?: number;
+  PRECIOS?: { LISTA_ID: number; PRECIO: number }[];
 }
 
 export type ModalStep = 'cart' | 'cobro';

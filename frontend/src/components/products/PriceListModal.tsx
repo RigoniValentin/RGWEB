@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Modal, InputNumber, Typography, Space, Tag, App, Segmented,
-  Button, Divider, Tooltip, Spin, Select, Dropdown,
+  Button, Divider, Tooltip, Spin, Select, Dropdown, Tabs,
 } from 'antd';
 import {
   DollarOutlined, ReloadOutlined, UndoOutlined, PercentageOutlined,
@@ -10,7 +10,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { catalogApi } from '../../services/catalog.api';
 import { productApi } from '../../services/product.api';
-import type { Producto } from '../../types';
+import type { ListaPrecio, Producto } from '../../types';
 
 const { Text } = Typography;
 
@@ -29,10 +29,10 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
   const { message } = App.useApp();
   const [costo, setCosto] = useState(0);
   const [origCosto, setOrigCosto] = useState(0);
-  const [prices, setPrices] = useState<Record<string, number>>({});
-  const [origPrices, setOrigPrices] = useState<Record<string, number>>({});
-  const [margenes, setMargenes] = useState<number[]>([0, 0, 0, 0, 0]);
-  const [origMargenes, setOrigMargenes] = useState<number[]>([0, 0, 0, 0, 0]);
+  const [precios, setPrecios] = useState<Record<number, number>>({});
+  const [origPrecios, setOrigPrecios] = useState<Record<number, number>>({});
+  const [margenes, setMargenes] = useState<Record<number, number>>({});
+  const [origMargenes, setOrigMargenes] = useState<Record<number, number>>({});
   const [marginSource, setMarginSource] = useState<MarginSource>('individual');
   const [listaDefecto, setListaDefecto] = useState<number | null>(null);
   const [origListaDefecto, setOrigListaDefecto] = useState<number | null>(null);
@@ -44,13 +44,11 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
     queryFn: () => catalogApi.getListasPrecios(),
   });
 
-  // List margins from LISTA_PRECIOS (global defaults)
-  const listMargins = useMemo<number[]>(() => {
-    if (!listas) return [0, 0, 0, 0, 0];
-    return listas.slice(0, 5).map(l => l.MARGEN || 0);
-  }, [listas]);
+  const listasActivas = useMemo<ListaPrecio[]>(
+    () => (listas ?? []).filter(l => l.ACTIVA),
+    [listas],
+  );
 
-  // Fetch product detail (with margins) when modal opens
   useEffect(() => {
     if (product && open) {
       setLoading(true);
@@ -59,136 +57,117 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
         setCosto(c);
         setOrigCosto(c);
 
-        const initial: Record<string, number> = {};
-        for (let i = 1; i <= 5; i++) {
-          initial[`LISTA_${i}`] = (d as any)[`LISTA_${i}`] ?? 0;
+        const initPrecios: Record<number, number> = {};
+        const initOrigPrecios: Record<number, number> = {};
+        for (const p of (d.precios ?? [])) {
+          initPrecios[p.LISTA_ID] = p.PRECIO;
+          initOrigPrecios[p.LISTA_ID] = p.PRECIO;
         }
-        setPrices(initial);
-        setOrigPrices(initial);
+        setPrecios(initPrecios);
+        setOrigPrecios(initOrigPrecios);
 
         setListaDefecto(d.LISTA_DEFECTO ?? null);
         setOrigListaDefecto(d.LISTA_DEFECTO ?? null);
 
-        // Calculate margins from cost/prices (like ProductFormModal does)
-        // More reliable than stored margins which may be stale
-        const storedMargenes = d.margenes || [0, 0, 0, 0, 0];
-        const hasStoredMargenes = storedMargenes.some((m: number) => m > 0);
-        let initMargenes: number[];
-
+        const initMargenes: Record<number, number> = {};
         if (c > 0) {
-          initMargenes = [1, 2, 3, 4, 5].map(i => {
-            const precio = (d as any)[`LISTA_${i}`] || 0;
-            return precio > 0 ? r2(((precio / c) - 1) * 100) : 0;
-          });
-        } else {
-          // No cost — use stored margins or list defaults
-          initMargenes = hasStoredMargenes
-            ? storedMargenes
-            : (listas?.slice(0, 5).map(l => l.MARGEN || 0) || [0, 0, 0, 0, 0]);
+          for (const p of (d.precios ?? [])) {
+            initMargenes[p.LISTA_ID] = p.PRECIO > 0 ? r2(((p.PRECIO / c) - 1) * 100) : 0;
+          }
         }
-
         setMargenes(initMargenes);
-        setOrigMargenes(initMargenes);
-        // Default to individual if product has stored margins or MARGEN_INDIVIDUAL flag
-        setMarginSource((hasStoredMargenes || d.MARGEN_INDIVIDUAL) ? 'individual' : 'lista');
+        setOrigMargenes({ ...initMargenes });
+        const hasStored = Object.values(initMargenes).some(v => v > 0);
+        setMarginSource(hasStored || d.MARGEN_INDIVIDUAL ? 'individual' : 'lista');
       }).finally(() => setLoading(false));
     }
-  }, [product, open, listas]);
+  }, [product, open]);
 
   const isModified = useMemo(() => {
     if (Math.abs(costo - origCosto) > 0.01) return true;
     if (listaDefecto !== origListaDefecto) return true;
-    for (let i = 1; i <= 5; i++) {
-      const curr = prices[`LISTA_${i}`] || 0;
-      const orig = origPrices[`LISTA_${i}`] || 0;
-      if (Math.abs(curr - orig) > 0.01) return true;
+    for (const id of new Set([...Object.keys(precios), ...Object.keys(origPrecios)].map(Number))) {
+      if (Math.abs((precios[id] || 0) - (origPrecios[id] || 0)) > 0.01) return true;
     }
     return false;
-  }, [costo, origCosto, prices, origPrices, listaDefecto, origListaDefecto]);
+  }, [costo, origCosto, precios, origPrecios, listaDefecto, origListaDefecto]);
 
-  // Recalculate all prices from configured margins (individual or lista depending on source)
   const recalcFromMargins = useCallback(() => {
     if (costo <= 0) {
       message.warning('El costo debe ser mayor a 0 para recalcular');
       return;
     }
-    // Use original stored margins for individual, or list defaults
-    const sourceMargins = marginSource === 'individual' ? origMargenes : listMargins;
-    const newPrices: Record<string, number> = {};
-    const newMargenes = [...sourceMargins];
-    for (let i = 0; i < 5; i++) {
-      const margen = sourceMargins[i] || 0;
-      newPrices[`LISTA_${i + 1}`] = r2(costo * (1 + margen / 100));
-      newMargenes[i] = margen;
+    const newPrecios: Record<number, number> = {};
+    const newMargenes: Record<number, number> = {};
+    for (const lista of listasActivas) {
+      const id = lista.LISTA_ID;
+      const margen = marginSource === 'individual'
+        ? (origMargenes[id] || 0)
+        : (lista.MARGEN || 0);
+      newPrecios[id] = r2(costo * (1 + margen / 100));
+      newMargenes[id] = margen;
     }
-    setPrices(newPrices);
+    setPrecios(newPrecios);
     setMargenes(newMargenes);
     message.info('Precios recalculados según márgenes');
-  }, [costo, origMargenes, marginSource, listMargins, message]);
+  }, [costo, origMargenes, marginSource, listasActivas, message]);
 
-  // Reset to original values
   const resetAll = useCallback(() => {
     setCosto(origCosto);
-    setPrices({ ...origPrices });
-    setMargenes([...origMargenes]);
+    setPrecios({ ...origPrecios });
+    setMargenes({ ...origMargenes });
     setListaDefecto(origListaDefecto);
-  }, [origCosto, origPrices, origMargenes, origListaDefecto]);
+  }, [origCosto, origPrecios, origMargenes, origListaDefecto]);
 
-  // Handle margin change → recalculate that list's price
-  const handleMargenChange = useCallback((idx: number, value: number | null) => {
-    const newMargenes = [...margenes];
-    newMargenes[idx] = value ?? 0;
-    setMargenes(newMargenes);
+  const handleMargenChange = useCallback((listaId: number, value: number | null) => {
+    const margen = value ?? 0;
+    setMargenes(prev => ({ ...prev, [listaId]: margen }));
     if (costo > 0) {
-      const precio = r2(costo * (1 + (newMargenes[idx] || 0) / 100));
-      setPrices(prev => ({ ...prev, [`LISTA_${idx + 1}`]: precio }));
+      const precio = r2(costo * (1 + margen / 100));
+      setPrecios(prev => ({ ...prev, [listaId]: precio }));
     }
-  }, [margenes, costo]);
+  }, [costo]);
 
-  // Handle price change → reverse-calculate margin
-  const handlePriceChange = useCallback((listNum: number, value: number | null) => {
+  const handlePriceChange = useCallback((listaId: number, value: number | null) => {
     const precio = value ?? 0;
-    setPrices(prev => ({ ...prev, [`LISTA_${listNum}`]: precio }));
-    const newMargenes = [...margenes];
+    setPrecios(prev => ({ ...prev, [listaId]: precio }));
     if (costo > 0 && precio > 0) {
-      newMargenes[listNum - 1] = r2(((precio / costo) - 1) * 100);
+      setMargenes(prev => ({ ...prev, [listaId]: r2(((precio / costo) - 1) * 100) }));
     } else {
-      newMargenes[listNum - 1] = 0;
+      setMargenes(prev => ({ ...prev, [listaId]: 0 }));
     }
-    setMargenes(newMargenes);
-  }, [costo, margenes]);
+  }, [costo]);
 
-  // Handle cost change → recalculate all prices using current margins
   const handleCostoChange = useCallback((value: number | null) => {
     const newCosto = value ?? 0;
     setCosto(newCosto);
     if (newCosto > 0) {
-      const newPrices: Record<string, number> = {};
-      for (let i = 0; i < 5; i++) {
-        newPrices[`LISTA_${i + 1}`] = r2(newCosto * (1 + (margenes[i] || 0) / 100));
+      const newPrecios: Record<number, number> = {};
+      for (const idStr of Object.keys(margenes)) {
+        const id = Number(idStr);
+        newPrecios[id] = r2(newCosto * (1 + (margenes[id] || 0) / 100));
       }
-      setPrices(newPrices);
+      setPrecios(newPrecios);
     }
   }, [margenes]);
 
   const handleRedondearPrecios = useCallback((step: number) => {
-    const newPrices: Record<string, number> = {};
-    const newMargenes = [...margenes];
-    for (let i = 0; i < 5; i++) {
-      const precio = prices[`LISTA_${i + 1}`] || 0;
+    const newPrecios: Record<number, number> = { ...precios };
+    const newMargenes: Record<number, number> = { ...margenes };
+    for (const idStr of Object.keys(precios)) {
+      const id = Number(idStr);
+      const precio = precios[id] || 0;
       if (precio > 0) {
         const redondeado = Math.ceil(precio / step) * step;
-        newPrices[`LISTA_${i + 1}`] = redondeado;
+        newPrecios[id] = redondeado;
         if (costo > 0) {
-          newMargenes[i] = r2(((redondeado / costo) - 1) * 100);
+          newMargenes[id] = r2(((redondeado / costo) - 1) * 100);
         }
-      } else {
-        newPrices[`LISTA_${i + 1}`] = precio;
       }
     }
-    setPrices(prev => ({ ...prev, ...newPrices }));
+    setPrecios(newPrecios);
     setMargenes(newMargenes);
-  }, [prices, margenes, costo]);
+  }, [precios, margenes, costo]);
 
   const handleSave = async () => {
     if (!product || !isModified) {
@@ -197,16 +176,16 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
     }
     setSaving(true);
     try {
+      // Sincronizar márgenes individuales (1..5) con los valores actuales
+      const margenesLegacy: number[] = [];
+      for (let i = 1; i <= 5; i++) margenesLegacy.push(margenes[i] || 0);
+
       await productApi.update(product.PRODUCTO_ID, {
         PRECIO_COMPRA: costo,
-        LISTA_1: prices.LISTA_1,
-        LISTA_2: prices.LISTA_2,
-        LISTA_3: prices.LISTA_3,
-        LISTA_4: prices.LISTA_4,
-        LISTA_5: prices.LISTA_5,
+        precios,
         LISTA_DEFECTO: listaDefecto,
-        MARGEN_INDIVIDUAL: true,
-        margenes,
+        MARGEN_INDIVIDUAL: marginSource === 'individual',
+        margenes: margenesLegacy,
       });
       message.success('Precios actualizados');
       onSaved();
@@ -218,6 +197,94 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
     }
   };
 
+  const renderTabContent = (lista: ListaPrecio) => {
+    const id = lista.LISTA_ID;
+    const isDefault = listaDefecto === id;
+    const origPrice = origPrecios[id] || 0;
+    const currPrice = precios[id] || 0;
+    const changed = Math.abs(currPrice - origPrice) > 0.01;
+    const currMargen = margenes[id] || 0;
+    const configMargin = marginSource === 'individual'
+      ? (origMargenes[id] || 0)
+      : (lista.MARGEN || 0);
+    const actualMargin = costo > 0 && currPrice > 0
+      ? r2(((currPrice / costo) - 1) * 100)
+      : 0;
+    const marginDiff = Math.abs(actualMargin - configMargin) > 0.5;
+
+    return (
+      <div style={{ paddingTop: 8 }}>
+        <Space size={6} style={{ marginBottom: 12 }}>
+          {isDefault && <Tag color="gold">Lista predeterminada</Tag>}
+          <Tooltip title={`Margen ${marginSource === 'individual' ? 'individual' : 'de lista'}`}>
+            <Tag color={configMargin < 5 ? 'red' : configMargin < 15 ? 'orange' : 'green'}>
+              <PercentageOutlined /> {configMargin.toFixed(1)}%
+            </Tag>
+          </Tooltip>
+          {marginDiff && (
+            <Tooltip title="Margen real calculado desde precio actual">
+              <Tag color="blue">→ {actualMargin.toFixed(1)}%</Tag>
+            </Tooltip>
+          )}
+        </Space>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 4 }}>
+              Margen %
+            </Text>
+            <InputNumber
+              value={currMargen}
+              onChange={v => handleMargenChange(id, v)}
+              precision={2}
+              suffix="%"
+              controls={false}
+              style={{ width: '100%' }}
+              size="large"
+            />
+          </div>
+          <div>
+            <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 4 }}>
+              Precio $
+            </Text>
+            <InputNumber
+              value={currPrice}
+              onChange={v => handlePriceChange(id, v)}
+              min={0}
+              precision={2}
+              prefix="$"
+              controls={false}
+              style={{
+                width: '100%',
+                fontWeight: changed ? 700 : 400,
+              }}
+              size="large"
+            />
+            {changed && (
+              <Text type="warning" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
+                Original: ${origPrice.toFixed(2)}
+              </Text>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const tabItems = listasActivas.map(lista => ({
+    key: String(lista.LISTA_ID),
+    label: (
+      <Space size={4}>
+        <span>{lista.NOMBRE}</span>
+        {listaDefecto === lista.LISTA_ID && <Tag color="gold" style={{ margin: 0, fontSize: 10 }}>Pred.</Tag>}
+        {Math.abs((precios[lista.LISTA_ID] || 0) - (origPrecios[lista.LISTA_ID] || 0)) > 0.01 && (
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#EABD23', display: 'inline-block' }} />
+        )}
+      </Space>
+    ),
+    children: renderTabContent(lista),
+  }));
+
   return (
     <Modal
       title={<span><DollarOutlined /> Listas de Precios</span>}
@@ -228,7 +295,7 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
       okText={isModified ? 'Guardar' : 'Cerrar'}
       cancelText="Cancelar"
       destroyOnHidden
-      width={540}
+      width={520}
       className="rg-modal"
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
     >
@@ -243,7 +310,6 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
               <Text strong>{product.CODIGOPARTICULAR}</Text> — {product.NOMBRE}
             </Text>
 
-            {/* Costo + Lista predeterminada */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
               <Text strong style={{ fontSize: 13, whiteSpace: 'nowrap' }}>Costo</Text>
               <InputNumber
@@ -266,11 +332,10 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
                 placeholder="—"
                 style={{ width: 130 }}
                 size="middle"
-                options={listas?.slice(0, 5).map((l, i) => ({ label: l.NOMBRE, value: i + 1 }))}
+                options={listasActivas.map(l => ({ label: l.NOMBRE, value: l.LISTA_ID }))}
               />
             </div>
 
-            {/* Margin source selector + actions */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
               <Segmented
                 value={marginSource}
@@ -307,93 +372,7 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
 
             <Divider style={{ margin: '4px 0 10px' }} />
 
-            {/* Header row */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 10px', marginBottom: 4 }}>
-              <div style={{ flex: 1 }} />
-              <Text type="secondary" style={{ width: 90, textAlign: 'center', fontSize: 11 }}>Margen %</Text>
-              <Text type="secondary" style={{ width: 130, textAlign: 'center', fontSize: 11 }}>Precio $</Text>
-            </div>
-
-            {/* Price rows */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {[1, 2, 3, 4, 5].map(i => {
-                const listName = listas?.[i - 1]?.NOMBRE || `Lista ${i}`;
-                const isDefault = listaDefecto === i;
-                const origPrice = origPrices[`LISTA_${i}`] || 0;
-                const currPrice = prices[`LISTA_${i}`] || 0;
-                const changed = Math.abs(currPrice - origPrice) > 0.01;
-                const currMargen = margenes[i - 1] || 0;
-                // Configured margin from selected source
-                const configMargin = marginSource === 'individual'
-                  ? origMargenes[i - 1] || 0
-                  : (listMargins[i - 1] || 0);
-                // Actual margin from current price/cost
-                const actualMargin = costo > 0 && currPrice > 0
-                  ? r2(((currPrice / costo) - 1) * 100)
-                  : 0;
-                const marginDiff = Math.abs(actualMargin - configMargin) > 0.5;
-
-                return (
-                  <div
-                    key={i}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 8,
-                      padding: '6px 10px', borderRadius: 8,
-                      background: changed ? 'rgba(234,189,35,0.08)' : 'rgba(255,255,255,0.03)',
-                      border: `1px solid ${changed ? 'rgba(234,189,35,0.3)' : 'rgba(255,255,255,0.08)'}`,
-                    }}
-                  >
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <Space size={4}>
-                        <Text strong style={{ fontSize: 13 }}>{listName}</Text>
-                        {isDefault && <Tag color="gold" style={{ fontSize: 10, lineHeight: '16px', margin: 0 }}>Pred.</Tag>}
-                      </Space>
-                      <div style={{ display: 'flex', gap: 4, marginTop: 2 }}>
-                        <Tooltip title={`Margen ${marginSource === 'individual' ? 'individual' : 'de lista'}`}>
-                          <Tag
-                            color={configMargin < 5 ? 'red' : configMargin < 15 ? 'orange' : 'green'}
-                            style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}
-                          >
-                            <PercentageOutlined /> {configMargin.toFixed(1)}%
-                          </Tag>
-                        </Tooltip>
-                        {marginDiff && (
-                          <Tooltip title="Margen actual">
-                            <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>
-                              → {actualMargin.toFixed(1)}%
-                            </Tag>
-                          </Tooltip>
-                        )}
-                      </div>
-                    </div>
-
-                    <InputNumber
-                      value={currMargen}
-                      onChange={v => handleMargenChange(i - 1, v)}
-                      precision={2}
-                      suffix="%"
-                      controls={false}
-                      style={{ width: 90 }}
-                      size="small"
-                    />
-
-                    <InputNumber
-                      value={currPrice}
-                      onChange={v => handlePriceChange(i, v)}
-                      min={0}
-                      precision={2}
-                      prefix="$"
-                      controls={false}
-                      style={{
-                        width: 130,
-                        fontWeight: changed ? 700 : 400,
-                      }}
-                      size="middle"
-                    />
-                  </div>
-                );
-              })}
-            </div>
+            <Tabs items={tabItems} type="card" size="small" />
 
             {isModified && (
               <>

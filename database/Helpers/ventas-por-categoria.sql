@@ -1,0 +1,15 @@
+-- Ventas totales agrupadas por categoría de producto.
+-- Toma el precio unitario de VENTAS_ITEMS (precio de venta al momento).
+-- SQL Server / SesamoDB
+
+SELECT
+    ISNULL(c.NOMBRE, 'Sin categoría') AS CATEGORIA,
+    COUNT(DISTINCT v.VENTA_ID)        AS CANTIDAD_VENTAS,
+    ISNULL(SUM(vi.CANTIDAD), 0)       AS UNIDADES_VENDIDAS,
+    ISNULL(SUM(vi.CANTIDAD * vi.PRECIO_UNITARIO), 0) AS TOTAL_VENDIDO
+FROM VENTAS_ITEMS vi
+JOIN VENTAS v        ON vi.VENTA_ID   = v.VENTA_ID
+JOIN PRODUCTOS p     ON vi.PRODUCTO_ID = p.PRODUCTO_ID
+LEFT JOIN CATEGORIAS c ON p.CATEGORIA_ID = c.CATEGORIA_ID
+GROUP BY c.NOMBRE
+ORDER BY TOTAL_VENDIDO DESC;

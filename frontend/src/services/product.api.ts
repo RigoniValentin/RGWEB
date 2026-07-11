@@ -18,18 +18,17 @@ export interface ProductInput {
   ES_SERVICIO?: boolean;
   DESCUENTA_STOCK?: boolean;
   ACTIVO?: boolean;
-  LISTA_1?: number;
-  LISTA_2?: number;
-  LISTA_3?: number;
-  LISTA_4?: number;
-  LISTA_5?: number;
   LISTA_DEFECTO?: number | null;
   FECHA_VENCIMIENTO?: string | null;
   MARGEN_INDIVIDUAL?: boolean | null;
+  VENTA_WEB?: boolean;
+  /** Mapa { LISTA_ID → PRECIO } para asignar precios por lista. */
+  precios?: Record<number, number>;
   codigosBarras?: string[];
   depositos?: { DEPOSITO_ID: number; CANTIDAD: number }[];
   proveedores?: number[];
-  margenes?: number[];  // [MARGEN_LISTA_1 .. MARGEN_LISTA_5]
+  /** [MARGEN_LISTA_1..5] — tabla legacy */
+  margenes?: number[];
 }
 
 export interface ProductDetail extends Producto {
@@ -38,7 +37,7 @@ export interface ProductDetail extends Producto {
   stockDepositos: (StockDeposito & { DEPOSITO_NOMBRE: string })[];
   TASA_IVA_NOMBRE?: string;
   TASA_IVA_PORCENTAJE?: number;
-  margenes?: number[];
+  precios: { LISTA_ID: number; PRECIO: number; MARGEN_INDIVIDUAL?: number | null }[];
 }
 
 export interface TasaImpuesto {

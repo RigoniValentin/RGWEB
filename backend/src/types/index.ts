@@ -126,11 +126,6 @@ export interface Producto {
   STOCK_MINIMO: number | null;
   UNIDAD_ID: number | null;
   ACTIVO: boolean;
-  LISTA_1: number;
-  LISTA_2: number;
-  LISTA_3: number;
-  LISTA_4: number;
-  LISTA_5: number;
   LISTA_DEFECTO: number | null;
   COSTO_USD: number | null;
   MARGEN_INDIVIDUAL: boolean | null;
@@ -145,12 +140,22 @@ export interface Producto {
   MARCA_NOMBRE?: string;
   UNIDAD_NOMBRE?: string;
   UNIDAD_ABREVIACION?: string;
+  // Precios por lista (cargados vía JOIN con PRODUCTO_LISTA_PRECIOS)
+  PRECIOS?: PrecioLista[];
 }
 
 export interface ProductoCodBarras {
   ID: number;
   PRODUCTO_ID: number;
   CODIGO_BARRAS: string;
+}
+
+// ── Precios por lista (PRODUCTO_LISTA_PRECIOS) ─────
+export interface PrecioLista {
+  LISTA_ID: number;
+  PRECIO: number;
+  /** Margen individual override. NULL = usar margen default de la lista. */
+  MARGEN_INDIVIDUAL?: number | null;
 }
 
 // ── Categorías ───────────────────────────────────

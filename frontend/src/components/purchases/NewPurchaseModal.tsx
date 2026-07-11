@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Modal, Input, Select, Button, InputNumber, Table, Space, Typography,
   Divider, message, Tag, Checkbox, Segmented, Badge, Switch, DatePicker, Tooltip,
-  Collapse,
+  Popover,
 } from 'antd';
 import {
   SearchOutlined, DeleteOutlined, ShoppingCartOutlined,
@@ -10,6 +10,7 @@ import {
   ArrowLeftOutlined, CheckCircleOutlined,
   DollarOutlined, CreditCardOutlined, WalletOutlined,
   BankOutlined, InboxOutlined, CalendarOutlined, QuestionCircleOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
@@ -93,8 +94,11 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const [montosPorMetodo, setMontosPorMetodo] = useState<Record<number, number>>({});
   const [metodoModalOpen, setMetodoModalOpen] = useState(false);
   const [metodoModalSelection, setMetodoModalSelection] = useState<number[]>([]);
+  const [multiMetodoPopoverOpen, setMultiMetodoPopoverOpen] = useState(false);
   const [destinoPago, setDestinoPago] = useState<'CAJA_CENTRAL' | 'CAJA'>('CAJA_CENTRAL');
   const efectivoRef = useRef<any>(null);
+  const primerMontoRef = useRef<any>(null);
+  const montoRapidoRef = useRef<any>(null);
 
   // Cheques de cartera a egresar como pago
   const [chequesIds, setChequesIds] = useState<number[]>([]);
@@ -391,6 +395,16 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     return () => clearTimeout(timer);
   }, [lastAddedKey, isDetallada]);
 
+  // Auto-focus first amount input when the multi-method popover opens
+  useEffect(() => {
+    if (!multiMetodoPopoverOpen) return;
+    if (selectedMetodos.length < 2) return;
+    const timer = setTimeout(() => {
+      primerMontoRef.current?.focus();
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [multiMetodoPopoverOpen, selectedMetodos.length]);
+
   // Helper: focus a field ref and select its value
   const focusField = (key: string, field: string) => {
     setTimeout(() => {
@@ -616,6 +630,12 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       });
       setMetodoModalOpen(false);
       setStep('pago');
+      if (metodoModalSelection.length === 1) {
+        setTimeout(() => montoRapidoRef.current?.focus(), 50);
+      } else {
+        setMultiMetodoPopoverOpen(true);
+        setTimeout(() => primerMontoRef.current?.focus(), 150);
+      }
     },
   });
 
@@ -1067,7 +1087,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                 rowKey="key"
                 pagination={false}
                 size="middle"
-                scroll={{ y: 'calc(100vh - 340px)' }}
+                scroll={{ y: 'calc(100vh - 270px)' }}
               />
             )}
           </div>
@@ -1076,447 +1096,458 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
         {/* ══ RIGHT COLUMN — Config / Pago ═══════ */}
         <div className="nsm-sidebar">
           {step === 'cart' ? (
-            /* ── STEP 1: Cart configuration ───────── */
-            <>
-              <div className="npm-sidebar-scroll">
-              {/* Proveedor */}
-              <div className="nsm-field-group">
-                <label className="nsm-label">
-                  <ShopOutlined style={{ marginRight: 6 }} />
-                  Proveedor
-                </label>
-                <Select
-                  showSearch
-                  placeholder="Seleccionar proveedor"
-                  optionFilterProp="label"
-                  value={proveedorId}
-                  onChange={val => setProveedorId(val)}
-                  style={{ width: '100%' }}
-                  size="large"
-                  options={proveedores.map(p => ({
-                    value: p.PROVEEDOR_ID,
-                    label: `${p.CODIGOPARTICULAR} - ${p.NOMBRE}`,
-                  }))}
-                />
-                {(() => {
-                  const prov = proveedores.find(p => p.PROVEEDOR_ID === proveedorId);
-                  if (!prov) return null;
-                  const cond = (prov.CONDICION_IVA || '').toUpperCase();
-                  const esMono = cond.includes('MONOTRIBUT');
-                  const esExento = cond.includes('EXENT') || cond.includes('CONSUMIDOR');
-                  const noDiscrimina = esMono || esExento;
-                  if (!cond) return null;
-                  return (
-                    <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <Tag color={noDiscrimina ? 'orange' : 'blue'} style={{ margin: 0, fontSize: 11 }}>
-                        {prov.CONDICION_IVA}
-                      </Tag>
-                      {noDiscrimina && (
-                        <Tooltip
-                          title="Este proveedor no discrimina IVA en sus comprobantes. Por lo tanto, el costo sin impuestos coincidirá con el costo con impuestos al cargar la compra."
-                        >
-                          <Text type="warning" style={{ fontSize: 11 }}>
-                            ⓘ No discrimina IVA
-                          </Text>
-                        </Tooltip>
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* Depósito */}
-              <div className="nsm-field-group">
-                <label className="nsm-label">
-                  <InboxOutlined style={{ marginRight: 6 }} />
-                  Depósito
-                </label>
-                <Select
-                  placeholder="Depósito"
-                  value={depositoId}
-                  onChange={val => setDepositoId(val)}
-                  style={{ width: '100%' }}
-                  size="large"
-                  options={depositos.map(d => ({
-                    value: d.DEPOSITO_ID,
-                    label: d.NOMBRE,
-                  }))}
-                />
-              </div>
-
-              {/* Fecha */}
-              <div className="nsm-field-group">
-                <label className="nsm-label">
-                  <CalendarOutlined style={{ marginRight: 6 }} />
-                  Fecha
-                </label>
-                <DatePicker
-                  value={fechaCompra}
-                  onChange={value => setFechaCompra(value || dayjs())}
-                  format="DD/MM/YYYY"
-                  allowClear={false}
-                  style={{ width: '100%' }}
-                  size="large"
-                />
-              </div>
-
-              {/* Comprobante */}
-              <div className="nsm-field-group">
-                <label className="nsm-label">
-                  <FileTextOutlined style={{ marginRight: 6 }} />
-                  Comprobante
-                </label>
-                <Select
-                  value={tipoComprobante}
-                  onChange={val => {
-                    setTipoComprobante(val);
-                    if (val === 'FA') {
-                      setTipoCarga('detallada');
-                      setIvaIncluido(true);
-                    } else {
-                      setIvaManual(0);
-                      setIvaIncluido(true);
-                    }
-                  }}
-                  style={{ width: '100%' }}
-                  size="large"
-                  options={[
-                    { value: 'FA', label: 'Factura A' },
-                    { value: 'FB', label: 'Factura B' },
-                    { value: 'FC', label: 'Factura C' },
-                    { value: 'FM', label: 'Factura M' },
-                    { value: 'X', label: 'Comprobante X' },
-                  ]}
-                />
-                <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
-                  <Input
-                    value={ptoVta}
-                    onChange={e => setPtoVta(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
-                    onBlur={() => setPtoVta(prev => prev.padStart(4, '0'))}
-                    onFocus={e => e.target.select()}
-                    style={{ width: 65, fontFamily: 'monospace', textAlign: 'center', letterSpacing: 1 }}
-                    maxLength={4}
-                    size="large"
-                  />
-                  <span style={{ fontFamily: 'monospace', fontSize: 16, userSelect: 'none' }}>-</span>
-                  <Input
-                    value={nroComprobante}
-                    onChange={e => setNroComprobante(e.target.value.replace(/[^0-9]/g, '').slice(0, 8))}
-                    onBlur={() => setNroComprobante(prev => prev.padStart(8, '0'))}
-                    onFocus={e => e.target.select()}
-                    style={{ flex: 1, fontFamily: 'monospace', textAlign: 'center', letterSpacing: 1 }}
-                    maxLength={8}
-                    size="large"
-                  />
-                </div>
-              </div>
-
-              {/* Tipo de carga */}
-              <div className="nsm-field-group">
-                <label className="nsm-label">Tipo de carga</label>
-                <Segmented
-                  value={tipoCarga}
-                  onChange={val => {
-                    const v = val as 'simple' | 'detallada';
-                    if (v === 'simple' && isFacturaA) {
-                      message.info('Factura A requiere carga detallada');
-                      return;
-                    }
-                    setTipoCarga(v);
-                    if (cart.length > 0) setCart([]);
-                  }}
-                  options={[
-                    { value: 'detallada', label: 'Detallada' },
-                    { value: 'simple', label: 'Simple' },
-                  ]}
-                  size="middle"
-                  block
-                />
-              </div>
-
-              {/* Options */}
-              <div className="nsm-field-group">
-                {isFacturaA && !isDetallada && (
-                  <Checkbox checked={ivaIncluido} onChange={e => setIvaIncluido(e.target.checked)} style={{ marginBottom: 8, display: 'block' }}>
-                    IVA incluido
-                  </Checkbox>
-                )}
-                <div className="nsm-switch-row">
-                  <Switch
-                    size="default"
-                    checked={esCtaCorriente}
-                    onChange={setEsCtaCorriente}
-                  />
-                  <span className="nsm-switch-label">
-                    <SwapOutlined style={{ marginRight: 6 }} />
-                    Cuenta Corriente
-                    <Tooltip title="Si el proveedor no tiene cuenta corriente, se creará automáticamente al finalizar la operación.">
-                      <QuestionCircleOutlined style={{ marginLeft: 6, color: '#8c8c8c', cursor: 'help' }} />
-                    </Tooltip>
+            /* ── STEP 1: Cart footer ────────────────── */
+            <div className="nsm-footer-content">
+              {/* ── Left zone: stats + totals + config ── */}
+              <div className="nsm-footer-zone nsm-footer-zone-totals">
+                {/* Quick stats */}
+                <Space size={16} wrap>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <Text type="secondary" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600 }}>Ítems</Text>
+                    <Badge
+                      count={totalItems}
+                      showZero
+                      style={{ backgroundColor: totalItems > 0 ? '#EABD23' : '#d9d9d9', color: '#1E1F22', fontWeight: 600 }}
+                    />
                   </span>
-                </div>
-              </div>
-
-              {/* Percepciones */}
-              <div className="nsm-field-group">
-                <label className="nsm-label">Percepciones e impuestos</label>
-                {isFacturaA && !isDetallada && (
-                  <div style={{ marginBottom: 8 }}>
-                    <Text type="secondary" style={{ fontSize: 11 }}>IVA manual</Text>
-                    <InputNumber
-                      size="small"
-                      value={ivaManual}
-                      min={0}
-                      onChange={val => setIvaManual(val || 0)}
-                      style={{ width: '100%' }}
-                      prefix="$"
-                      controls={false}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <Text type="secondary" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600 }}>Unidades</Text>
+                    <Badge
+                      count={totalUnits}
+                      showZero
+                      style={{ backgroundColor: totalUnits > 0 ? '#EABD23' : '#d9d9d9', color: '#1E1F22', fontWeight: 600 }}
                     />
+                  </span>
+                </Space>
+
+                {/* Subtotal + extras if any */}
+                {(isDetallada || percepcionIva > 0 || percepcionIibb > 0 || dtoGral > 0) && (
+                  <div className="nsm-footer-summary-inline">
+                    <span className="label">Subtotal</span>
+                    <span className="value">{fmtMoney(subtotal)}</span>
                   </div>
                 )}
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <div style={{ flex: 1 }}>
-                    <Text type="secondary" style={{ fontSize: 11 }}>Perc. IVA</Text>
-                    <InputNumber
-                      size="small"
-                      value={percepcionIva}
-                      min={0}
-                      onChange={val => setPercepcionIva(val || 0)}
-                      style={{ width: '100%' }}
-                      prefix="$"
-                      controls={false}
-                    />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <Text type="secondary" style={{ fontSize: 11 }}>Perc. IIBB</Text>
-                    <InputNumber
-                      size="small"
-                      value={percepcionIibb}
-                      min={0}
-                      onChange={val => setPercepcionIibb(val || 0)}
-                      style={{ width: '100%' }}
-                      prefix="$"
-                      controls={false}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Descuento general (%) */}
-              <div className="nsm-field-group">
-                <label className="nsm-label">Descuento General %</label>
-                <InputNumber
-                  size="small"
-                  value={dtoGral}
-                  min={0}
-                  max={100}
-                  step={0.5}
-                  onChange={val => setDtoGral(val || 0)}
-                  style={{ width: '100%' }}
-                  suffix="%"
-                  controls={false}
-                />
-              </div>
-
-              {/* Actualizar costos / precios / stock */}
-              <div className="nsm-field-group" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <Checkbox checked={actualizarStock} onChange={e => setActualizarStock(e.target.checked)}>
-                  Actualizar stock
-                </Checkbox>
-                <Checkbox checked={actualizarCostos} onChange={e => setActualizarCostos(e.target.checked)}>
-                  Actualizar costos
-                </Checkbox>
-                <Checkbox checked={actualizarPrecios} onChange={e => setActualizarPrecios(e.target.checked)} disabled={!actualizarCostos}>
-                  Actualizar precios
-                </Checkbox>
-              </div>
-
-              <Divider style={{ margin: '10px 0' }} />
-
-              {/* Stats */}
-              <div className="nsm-stats">
-                <div className="nsm-stat">
-                  <Text type="secondary" style={{ fontSize: 12 }}>Ítems</Text>
-                  <Badge
-                    count={totalItems}
-                    showZero
-                    style={{ backgroundColor: totalItems > 0 ? '#EABD23' : '#d9d9d9', color: '#1E1F22', fontWeight: 600 }}
-                  />
-                </div>
-                <div className="nsm-stat">
-                  <Text type="secondary" style={{ fontSize: 12 }}>Unidades</Text>
-                  <Badge
-                    count={totalUnits}
-                    showZero
-                    style={{ backgroundColor: totalUnits > 0 ? '#EABD23' : '#d9d9d9', color: '#1E1F22', fontWeight: 600 }}
-                  />
-                </div>
-              </div>
-              </div>{/* /npm-sidebar-scroll */}
-
-              {/* Totals */}
-              <div className="nsm-totals-box">
-                <div className="nsm-total-line">
-                  <Text type="secondary">Subtotal</Text>
-                  <Text>{fmtMoney(subtotal)}</Text>
-                </div>
                 {isDetallada && isFacturaA && ivaCalculado > 0 && (
-                  <div className="nsm-total-line">
-                    <Text type="secondary">IVA</Text>
-                    <Text>{fmtMoney(r2(ivaCalculado))}</Text>
+                  <div className="nsm-footer-summary-inline">
+                    <span className="label">IVA</span>
+                    <span className="value">{fmtMoney(r2(ivaCalculado))}</span>
                   </div>
                 )}
                 {!isDetallada && isFacturaA && ivaManual > 0 && (
-                  <div className="nsm-total-line">
-                    <Text type="secondary">IVA</Text>
-                    <Text>{fmtMoney(ivaManual)}</Text>
+                  <div className="nsm-footer-summary-inline">
+                    <span className="label">IVA</span>
+                    <span className="value">{fmtMoney(ivaManual)}</span>
                   </div>
                 )}
                 {isDetallada && impInternoCalculado > 0 && (
-                  <div className="nsm-total-line">
-                    <Text type="secondary">Imp. Int.</Text>
-                    <Text>{fmtMoney(r2(impInternoCalculado))}</Text>
+                  <div className="nsm-footer-summary-inline">
+                    <span className="label">Imp. Int.</span>
+                    <span className="value">{fmtMoney(r2(impInternoCalculado))}</span>
                   </div>
                 )}
                 {percepcionIva > 0 && (
-                  <div className="nsm-total-line">
-                    <Text type="secondary">Perc. IVA</Text>
-                    <Text>{fmtMoney(percepcionIva)}</Text>
+                  <div className="nsm-footer-summary-inline">
+                    <span className="label">Perc. IVA</span>
+                    <span className="value">{fmtMoney(percepcionIva)}</span>
                   </div>
                 )}
                 {percepcionIibb > 0 && (
-                  <div className="nsm-total-line">
-                    <Text type="secondary">Perc. IIBB</Text>
-                    <Text>{fmtMoney(percepcionIibb)}</Text>
+                  <div className="nsm-footer-summary-inline">
+                    <span className="label">Perc. IIBB</span>
+                    <span className="value">{fmtMoney(percepcionIibb)}</span>
                   </div>
                 )}
                 {dtoGral > 0 && (
-                  <div className="nsm-total-line">
-                    <Text type="secondary">Dto. Gral. ({dtoGral}%)</Text>
-                    <Text style={{ color: '#cf1322' }}>− {fmtMoney(descuentoGralImporte)}</Text>
+                  <div className="nsm-footer-summary-inline">
+                    <span className="label">Dto. {dtoGral}%</span>
+                    <span className="value" style={{ color: '#ff4d4f', fontSize: 14 }}>− {fmtMoney(descuentoGralImporte)}</span>
                   </div>
                 )}
-                <Divider style={{ margin: '8px 0' }} />
-                <div className="nsm-total-final">
-                  <span>TOTAL</span>
-                  <span className="nsm-total-amount">{fmtMoney(total)}</span>
+
+                {/* Total */}
+                <div className="nsm-footer-summary-inline gold">
+                  <span className="label">TOTAL</span>
+                  <span className="value" style={{ fontSize: 26 }}>{fmtMoney(total)}</span>
                 </div>
+
+                {/* ── Config Popover ── */}
+                <Popover
+                  trigger="click"
+                  placement="topRight"
+                  destroyTooltipOnHide
+                  content={
+                    <div className="nsm-config-popover">
+                      {/* Proveedor */}
+                      <div className="nsm-field-group">
+                        <label className="nsm-label">
+                          <ShopOutlined style={{ marginRight: 6 }} />
+                          Proveedor
+                        </label>
+                        <Select
+                          showSearch
+                          placeholder="Seleccionar proveedor"
+                          optionFilterProp="label"
+                          value={proveedorId}
+                          onChange={val => setProveedorId(val)}
+                          style={{ width: '100%' }}
+                          size="middle"
+                          options={proveedores.map(p => ({
+                            value: p.PROVEEDOR_ID,
+                            label: `${p.CODIGOPARTICULAR} - ${p.NOMBRE}`,
+                          }))}
+                        />
+                        {(() => {
+                          const prov = proveedores.find(p => p.PROVEEDOR_ID === proveedorId);
+                          if (!prov) return null;
+                          const cond = (prov.CONDICION_IVA || '').toUpperCase();
+                          const esMono = cond.includes('MONOTRIBUT');
+                          const esExento = cond.includes('EXENT') || cond.includes('CONSUMIDOR');
+                          const noDiscrimina = esMono || esExento;
+                          if (!cond) return null;
+                          return (
+                            <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <Tag color={noDiscrimina ? 'orange' : 'blue'} style={{ margin: 0, fontSize: 11 }}>
+                                {prov.CONDICION_IVA}
+                              </Tag>
+                              {noDiscrimina && (
+                                <Tooltip
+                                  title="Este proveedor no discrimina IVA en sus comprobantes. Por lo tanto, el costo sin impuestos coincidirá con el costo con impuestos al cargar la compra."
+                                >
+                                  <Text type="warning" style={{ fontSize: 11 }}>
+                                    ⓘ No discrimina IVA
+                                  </Text>
+                                </Tooltip>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Depósito */}
+                      <div className="nsm-field-group">
+                        <label className="nsm-label">
+                          <InboxOutlined style={{ marginRight: 6 }} />
+                          Depósito
+                        </label>
+                        <Select
+                          placeholder="Depósito"
+                          value={depositoId}
+                          onChange={val => setDepositoId(val)}
+                          style={{ width: '100%' }}
+                          size="middle"
+                          options={depositos.map(d => ({
+                            value: d.DEPOSITO_ID,
+                            label: d.NOMBRE,
+                          }))}
+                        />
+                      </div>
+
+                      {/* Fecha */}
+                      <div className="nsm-field-group">
+                        <label className="nsm-label">
+                          <CalendarOutlined style={{ marginRight: 6 }} />
+                          Fecha
+                        </label>
+                        <DatePicker
+                          value={fechaCompra}
+                          onChange={value => setFechaCompra(value || dayjs())}
+                          format="DD/MM/YYYY"
+                          allowClear={false}
+                          style={{ width: '100%' }}
+                          size="middle"
+                        />
+                      </div>
+
+                      {/* Comprobante */}
+                      <div className="nsm-field-group">
+                        <label className="nsm-label">
+                          <FileTextOutlined style={{ marginRight: 6 }} />
+                          Comprobante
+                        </label>
+                        <Select
+                          value={tipoComprobante}
+                          onChange={val => {
+                            setTipoComprobante(val);
+                            if (val === 'FA') {
+                              setTipoCarga('detallada');
+                              setIvaIncluido(true);
+                            } else {
+                              setIvaManual(0);
+                              setIvaIncluido(true);
+                            }
+                          }}
+                          style={{ width: '100%' }}
+                          size="middle"
+                          options={[
+                            { value: 'FA', label: 'Factura A' },
+                            { value: 'FB', label: 'Factura B' },
+                            { value: 'FC', label: 'Factura C' },
+                            { value: 'FM', label: 'Factura M' },
+                            { value: 'X', label: 'Comprobante X' },
+                          ]}
+                        />
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                          <Input
+                            value={ptoVta}
+                            onChange={e => setPtoVta(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+                            onBlur={() => setPtoVta(prev => prev.padStart(4, '0'))}
+                            onFocus={e => e.target.select()}
+                            style={{ width: 65, fontFamily: 'monospace', textAlign: 'center', letterSpacing: 1 }}
+                            maxLength={4}
+                          />
+                          <span style={{ fontFamily: 'monospace', fontSize: 16, userSelect: 'none' }}>-</span>
+                          <Input
+                            value={nroComprobante}
+                            onChange={e => setNroComprobante(e.target.value.replace(/[^0-9]/g, '').slice(0, 8))}
+                            onBlur={() => setNroComprobante(prev => prev.padStart(8, '0'))}
+                            onFocus={e => e.target.select()}
+                            style={{ flex: 1, fontFamily: 'monospace', textAlign: 'center', letterSpacing: 1 }}
+                            maxLength={8}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Tipo de carga */}
+                      <div className="nsm-field-group">
+                        <label className="nsm-label">Tipo de carga</label>
+                        <Segmented
+                          value={tipoCarga}
+                          onChange={val => {
+                            const v = val as 'simple' | 'detallada';
+                            if (v === 'simple' && isFacturaA) {
+                              message.info('Factura A requiere carga detallada');
+                              return;
+                            }
+                            setTipoCarga(v);
+                            if (cart.length > 0) setCart([]);
+                          }}
+                          options={[
+                            { value: 'detallada', label: 'Detallada' },
+                            { value: 'simple', label: 'Simple' },
+                          ]}
+                          size="middle"
+                          block
+                        />
+                      </div>
+
+                      {/* Opciones */}
+                      <div className="nsm-field-group">
+                        {isFacturaA && !isDetallada && (
+                          <Checkbox checked={ivaIncluido} onChange={e => setIvaIncluido(e.target.checked)} style={{ marginBottom: 8, display: 'block' }}>
+                            IVA incluido
+                          </Checkbox>
+                        )}
+                        <div className="nsm-switch-row">
+                          <Switch
+                            size="small"
+                            checked={esCtaCorriente}
+                            onChange={setEsCtaCorriente}
+                          />
+                          <span className="nsm-switch-label">
+                            <SwapOutlined style={{ marginRight: 6 }} />
+                            Cuenta Corriente
+                            <Tooltip title="Si el proveedor no tiene cuenta corriente, se creará automáticamente al finalizar la operación.">
+                              <QuestionCircleOutlined style={{ marginLeft: 6, color: '#8c8c8c', cursor: 'help' }} />
+                            </Tooltip>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Percepciones */}
+                      <div className="nsm-field-group">
+                        <label className="nsm-label">Percepciones e impuestos</label>
+                        {isFacturaA && !isDetallada && (
+                          <div style={{ marginBottom: 8 }}>
+                            <Text type="secondary" style={{ fontSize: 11 }}>IVA manual</Text>
+                            <InputNumber
+                              size="small"
+                              value={ivaManual}
+                              min={0}
+                              onChange={val => setIvaManual(val || 0)}
+                              style={{ width: '100%' }}
+                              prefix="$"
+                              controls={false}
+                            />
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <Text type="secondary" style={{ fontSize: 11 }}>Perc. IVA</Text>
+                            <InputNumber
+                              size="small"
+                              value={percepcionIva}
+                              min={0}
+                              onChange={val => setPercepcionIva(val || 0)}
+                              style={{ width: '100%' }}
+                              prefix="$"
+                              controls={false}
+                            />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <Text type="secondary" style={{ fontSize: 11 }}>Perc. IIBB</Text>
+                            <InputNumber
+                              size="small"
+                              value={percepcionIibb}
+                              min={0}
+                              onChange={val => setPercepcionIibb(val || 0)}
+                              style={{ width: '100%' }}
+                              prefix="$"
+                              controls={false}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Descuento general */}
+                      <div className="nsm-field-group">
+                        <label className="nsm-label">Descuento General %</label>
+                        <InputNumber
+                          size="small"
+                          value={dtoGral}
+                          min={0}
+                          max={100}
+                          step={0.5}
+                          onChange={val => setDtoGral(val || 0)}
+                          style={{ width: '100%' }}
+                          suffix="%"
+                          controls={false}
+                        />
+                      </div>
+
+                      {/* Actualizar costos / precios / stock */}
+                      <div className="nsm-field-group" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <Checkbox checked={actualizarStock} onChange={e => setActualizarStock(e.target.checked)}>
+                          Actualizar stock
+                        </Checkbox>
+                        <Checkbox checked={actualizarCostos} onChange={e => setActualizarCostos(e.target.checked)}>
+                          Actualizar costos
+                        </Checkbox>
+                        <Checkbox checked={actualizarPrecios} onChange={e => setActualizarPrecios(e.target.checked)} disabled={!actualizarCostos}>
+                          Actualizar precios
+                        </Checkbox>
+                      </div>
+                    </div>
+                  }
+                >
+                  <Button
+                    icon={<SettingOutlined />}
+                    size="large"
+                  >
+                    {(() => {
+                      const prov = proveedores.find(p => p.PROVEEDOR_ID === proveedorId);
+                      return prov
+                        ? `Compra: ${prov.NOMBRE}`
+                        : 'Configurar compra';
+                    })()}
+                  </Button>
+                </Popover>
               </div>
 
-              {/* Action buttons */}
-              <div className="nsm-actions">
+              {/* ── Right zone: actions ── */}
+              <div className="nsm-footer-zone nsm-footer-zone-actions">
                 {esCtaCorriente ? (
                   <Button
-                    block
+                    type="primary"
                     size="large"
                     onClick={goToPayment}
                     loading={checkingSaldo}
                     disabled={cart.length === 0 || !proveedorId}
-                    style={{ height: 48 }}
+                    style={{ height: 56, minWidth: 220, fontSize: 16, fontWeight: 700 }}
                   >
                     Registrar Compra (Cta. Cte.)
                   </Button>
                 ) : (
                   <Button
                     type="primary"
-                    block
                     size="large"
                     className="btn-gold nsm-btn-cobrar"
                     onClick={goToPayment}
                     disabled={cart.length === 0 || !proveedorId}
                     icon={<ShoppingCartOutlined />}
+                    style={{ height: 56, minWidth: 220, fontSize: 16, fontWeight: 700 }}
                   >
                     Pagar {fmtMoney(total)}
                   </Button>
                 )}
               </div>
-            </>
+            </div>
           ) : (
-            /* ── STEP 2: Payment ──────────────────── */
-            <>
-              <div className="npm-sidebar-scroll">
-              {/* Total a pagar */}
-              <div className="nsm-cobro-total-box">
-                <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  Total a pagar
-                </Text>
-                <div className="nsm-cobro-total-amount">{fmtMoney(total)}</div>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  {totalItems} ítem{totalItems !== 1 ? 's' : ''} · {totalUnits} unidad{totalUnits !== 1 ? 'es' : ''}
-                </Text>
-              </div>
-
-              <Divider style={{ margin: '12px 0' }} />
-
-              {/* Payment summary - always visible */}
-              <div style={{ marginBottom: 12 }}>
-                <div className="nsm-summary-grid">
-                  <div className="nsm-summary-mini-box accent-gold">
-                    <span className="mini-box-label">Total a pagar</span>
-                    <span className="mini-box-amount">{fmtMoney(total)}</span>
-                  </div>
-                  <div className="nsm-summary-mini-box accent-blue">
-                    <span className="mini-box-label">Total abonado</span>
-                    <span className="mini-box-amount">{fmtMoney(totalRecibido)}</span>
-                  </div>
+            /* ── STEP 2: Cobro footer ───────────────── */
+            <div className="nsm-footer-content">
+              {/* ── Zone 1: Totals + Status ── */}
+              <div className="nsm-footer-zone nsm-footer-zone-totals">
+                <div className="nsm-footer-summary-inline gold">
+                  <span className="label">Total</span>
+                  <span className="value" style={{ fontSize: 22 }}>{fmtMoney(total)}</span>
                 </div>
-
+                <div className="nsm-footer-summary-inline blue">
+                  <span className="label">Abonado</span>
+                  <span className="value" style={{ fontSize: 22 }}>{fmtMoney(totalRecibido)}</span>
+                </div>
+                {/* Status pill */}
                 {vuelto > 0 ? (
-                  <div className="nsm-summary-status-box status-success">
-                    <span className="status-label">Vuelto a recibir</span>
+                  <div className="nsm-footer-status status-success">
+                    <span className="status-label">Vuelto</span>
                     <span className="status-amount">{fmtMoney(vuelto)}</span>
                   </div>
                 ) : totalRecibido < total ? (
-                  <div className="nsm-summary-status-box status-danger">
-                    <span className="status-label">Faltan abonar</span>
+                  <div className="nsm-footer-status status-danger">
+                    <span className="status-label">Faltan</span>
                     <span className="status-amount">{fmtMoney(total - totalRecibido)}</span>
                   </div>
                 ) : !soloEfectivo && totalRecibido > total ? (
-                  <div className="nsm-summary-status-box status-warning">
-                    <span className="status-label">Exceso (Monto debe ser exacto)</span>
+                  <div className="nsm-footer-status status-warning">
+                    <span className="status-label">Exceso</span>
                     <span className="status-amount">{fmtMoney(totalRecibido - total)}</span>
                   </div>
                 ) : (
-                  <div className="nsm-summary-status-box status-success">
-                    <span className="status-label">Estado del pago</span>
-                    <span className="status-amount" style={{ fontSize: 20 }}>PAGO EXACTO</span>
+                  <div className="nsm-footer-status status-success">
+                    <span className="status-label">Estado</span>
+                    <span className="status-amount" style={{ fontSize: 14 }}>PAGO EXACTO</span>
                   </div>
                 )}
               </div>
 
-              {/* Payment methods + destination - collapsible */}
-              <Collapse
-                ghost
-                className="nsm-collapse-panel"
-                items={[{
-                  key: 'metodos',
-                  label: (
-                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--rg-text-light)' }}>
-                      Método de pago
-                      <span style={{ marginLeft: 8 }}>
-                        {selectedMetodos.map(id => {
-                          const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
-                          return m ? (
-                            <Tag key={id} style={{ marginRight: 4, padding: '2px 8px', fontSize: 11 }}>
-                              {m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined /> : m.CATEGORIA === 'CHEQUES' ? <BankOutlined /> : <CreditCardOutlined />}
-                              {' '}{m.NOMBRE}
-                            </Tag>
-                          ) : null;
-                        })}
-                      </span>
-                    </span>
-                  ),
-                  children: (
-                    <div>
-                      <div style={{ marginBottom: 8 }}>
-                        <Button type="link" size="small" onClick={() => {
-                          setMetodoModalSelection([...selectedMetodos]);
-                          setMetodoModalOpen(true);
-                        }}>Cambiar métodos</Button>
+              {/* ── Zone 2: Amount Input + Methods ── */}
+              <div className="nsm-footer-zone">
+                {/* Method tags (clickable to open modal) */}
+                <Popover
+                  trigger="click"
+                  placement="top"
+                  destroyTooltipOnHide
+                  open={multiMetodoPopoverOpen}
+                  onOpenChange={(open) => setMultiMetodoPopoverOpen(open)}
+                  content={
+                    <div className="nsm-config-popover">
+                      <div className="nsm-field-group">
+                        <label className="nsm-label">Métodos de pago</label>
+                        <div className="nsm-method-tags-inline">
+                          {selectedMetodos.map(id => {
+                            const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+                            return m ? (
+                              <Tag key={id} color={m.CATEGORIA === 'EFECTIVO' ? 'gold' : m.CATEGORIA === 'CHEQUES' ? 'purple' : 'blue'}>
+                                {m.CATEGORIA === 'EFECTIVO' ? <DollarOutlined /> : m.CATEGORIA === 'CHEQUES' ? <BankOutlined /> : <CreditCardOutlined />}
+                                {' '}{m.NOMBRE}
+                              </Tag>
+                            ) : null;
+                          })}
+                        </div>
+                        <Button
+                          type="link"
+                          size="small"
+                          style={{ padding: 0, marginTop: 6 }}
+                          onClick={() => {
+                            setMultiMetodoPopoverOpen(false);
+                            setMetodoModalSelection([...selectedMetodos]);
+                            setMetodoModalOpen(true);
+                          }}
+                        >
+                          Cambiar métodos
+                        </Button>
                       </div>
 
                       {/* Amount inputs per selected method (multi) */}
-                      {selectedMetodos.length > 1 && selectedMetodos.map(id => {
+                      {selectedMetodos.length > 1 && selectedMetodos.map((id, idx) => {
                         const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
                         if (!m) return null;
                         if (m.CATEGORIA === 'CHEQUES') {
@@ -1559,19 +1590,21 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                               {m.NOMBRE}
                             </label>
                             <InputNumber
+                              ref={idx === 0 ? primerMontoRef : undefined}
                               value={montosPorMetodo[id] || 0}
                               min={0}
                               step={100}
-                              size="large"
+                              size="middle"
                               style={{ width: '100%' }}
                               formatter={v => `$ ${v}`}
                               onChange={v => setMontosPorMetodo(prev => ({ ...prev, [id]: v || 0 }))}
+                              onPressEnter={() => { if (pagoValido) handleSubmit(); }}
                             />
                           </div>
                         );
                       })}
 
-                      {/* Single method selected: one editable input (or picker if CHEQUES) */}
+                      {/* Single method: inline amount input (or picker if CHEQUES) */}
                       {selectedMetodos.length === 1 && (() => {
                         const id = selectedMetodos[0]!;
                         const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
@@ -1588,7 +1621,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                                   icon={<BankOutlined />}
                                   onClick={() => setChequePickerOpen(true)}
                                   style={{ flex: 1 }}
-                                  size="large"
+                                  size="middle"
                                 >
                                   {chequesIds.length > 0
                                     ? `${chequesIds.length} cheque${chequesIds.length === 1 ? '' : 's'} — ${fmtMoney(chequesTotal)}`
@@ -1599,7 +1632,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                                     danger
                                     icon={<DeleteOutlined />}
                                     onClick={() => { setChequesIds([]); setChequesTotal(0); }}
-                                    size="large"
+                                    size="middle"
                                   />
                                 )}
                               </div>
@@ -1620,14 +1653,12 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                               value={montosPorMetodo[id] || 0}
                               min={0}
                               step={100}
-                              size="large"
+                              size="middle"
                               style={{ width: '100%' }}
                               formatter={v => `$ ${v}`}
                               onChange={v => setMontosPorMetodo(prev => ({ ...prev, [id]: v || 0 }))}
+                              onPressEnter={() => { if (pagoValido) handleSubmit(); }}
                               autoFocus
-                              onPressEnter={() => {
-                                if (pagoValido) handleSubmit();
-                              }}
                             />
                             {m.CATEGORIA === 'EFECTIVO' && (
                               <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
@@ -1643,7 +1674,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                         );
                       })()}
 
-                      {/* Payment destination */}
+                      {/* Origen del pago */}
                       <div className="nsm-field-group" style={{ marginTop: 12 }}>
                         <label className="nsm-label">Origen del pago</label>
                         <Segmented
@@ -1678,38 +1709,62 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                         )}
                       </div>
                     </div>
-                  ),
-                }]}
-              />
+                  }
+                >
+                  <Button size="large" icon={<WalletOutlined />}>
+                    {selectedMetodos.length === 0
+                      ? 'Método de pago'
+                      : selectedMetodos.map(id => {
+                          const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+                          return m?.NOMBRE;
+                        }).join(' + ')}
+                  </Button>
+                </Popover>
 
-              <Divider style={{ margin: '8px 0' }} />
-              </div>{/* /npm-sidebar-scroll */}
+                {/* Quick amount input for the active method (if single) */}
+                {selectedMetodos.length === 1 && (() => {
+                  const id = selectedMetodos[0]!;
+                  return (
+                    <InputNumber
+                      ref={montoRapidoRef}
+                      value={montosPorMetodo[id] || 0}
+                      min={0}
+                      step={100}
+                      size="large"
+                      style={{ width: 180 }}
+                      placeholder="Monto"
+                      formatter={v => `$ ${v}`}
+                      onChange={v => setMontosPorMetodo(prev => ({ ...prev, [id]: v || 0 }))}
+                      onPressEnter={() => { if (pagoValido) handleSubmit(); }}
+                    />
+                  );
+                })()}
+              </div>
 
-              {/* Cobro action buttons */}
-              <div className="nsm-actions">
+              {/* ── Zone 3: Actions ── */}
+              <div className="nsm-footer-zone nsm-footer-zone-actions" style={{ gridColumn: 2 }}>
+                <Button
+                  size="large"
+                  onClick={() => { setStep('cart'); setMultiMetodoPopoverOpen(false); }}
+                  icon={<ArrowLeftOutlined />}
+                  style={{ height: 56 }}
+                >
+                  Volver
+                </Button>
                 <Button
                   type="primary"
-                  block
                   size="large"
                   className="btn-gold nsm-btn-cobrar"
                   onClick={handleSubmit}
                   loading={createMutation.isPending}
                   disabled={!pagoValido}
                   icon={<CheckCircleOutlined />}
+                  style={{ height: 56, minWidth: 200, fontSize: 16, fontWeight: 700 }}
                 >
                   Confirmar Compra
                 </Button>
-                <Button
-                  block
-                  size="large"
-                  onClick={() => setStep('cart')}
-                  icon={<ArrowLeftOutlined />}
-                  style={{ height: 44 }}
-                >
-                  Volver al detalle
-                </Button>
               </div>
-            </>
+            </div>
           )}
         </div>
       </div>

@@ -4,6 +4,13 @@ import type {
   PaginatedResponse, ProductoSearchCompra, ProductoSearch, ProveedorCompra, Deposito, MetodoPago,
 } from '../types';
 
+/** Precio de un producto en una lista, con su margen individual override. */
+export interface PrecioEnCheck {
+  LISTA_ID: number;
+  PRECIO: number;
+  MARGEN_INDIVIDUAL: number | null;
+}
+
 export interface PriceCheckProduct {
   PRODUCTO_ID: number;
   CODIGO: string;
@@ -11,18 +18,11 @@ export interface PriceCheckProduct {
   COSTO: number;
   IMP_INTERNO: number;
   IVA_ALICUOTA: number;
-  MARGEN_1: number;
-  MARGEN_2: number;
-  MARGEN_3: number;
-  MARGEN_4: number;
-  MARGEN_5: number;
-  LISTA_1: number;
-  LISTA_2: number;
-  LISTA_3: number;
-  LISTA_4: number;
-  LISTA_5: number;
   LISTA_DEFECTO: number | null;
-  TIENE_MARGENES_INDIV: boolean | number;
+  /** Precios por lista (dinámico, soporta N listas). */
+  precios: PrecioEnCheck[];
+  /** True si el producto tiene al menos un MARGEN_INDIVIDUAL != null. */
+  TIENE_MARGENES_INDIV: boolean;
 }
 
 export interface PriceCheckData {
@@ -35,11 +35,7 @@ export interface PriceCheckData {
 
 export interface PriceCheckUpdate {
   PRODUCTO_ID: number;
-  LISTA_1: number;
-  LISTA_2: number;
-  LISTA_3: number;
-  LISTA_4: number;
-  LISTA_5: number;
+  precios: { LISTA_ID: number; PRECIO: number }[];
 }
 
 export const purchasesApi = {
