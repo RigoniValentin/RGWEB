@@ -1,9 +1,6 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  Input, Select, Button, Table, Typography, Space, App, Tag, Checkbox,
-  Card, Tooltip, Empty, Dropdown,
-} from 'antd';
+import { Input, Select, Button, Table, Typography, Space, Tag, Checkbox, Card, Tooltip, Empty, Dropdown } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, PrinterOutlined,
@@ -15,6 +12,7 @@ import { catalogApi } from '../services/catalog.api';
 import type { LabelProduct, LabelFormat, LabelConfig } from '../utils/labelPdf';
 import { generateA4PDF, generate80mmPDF } from '../utils/labelPdf';
 import { LabelPreview } from '../components/etiquetas/LabelPreview';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text } = Typography;
 
@@ -32,7 +30,6 @@ const FORMAT_OPTIONS: { value: LabelFormat; label: string; desc: string }[] = [
 ];
 
 export function EtiquetasPage() {
-  const { message } = App.useApp();
 
   // ── Search & filters ──
   const [search, setSearch] = useState('');
@@ -100,8 +97,8 @@ export function EtiquetasPage() {
       const toAdd = products.filter(p => !existing.has(p.PRODUCTO_ID));
       return [...prev, ...toAdd];
     });
-    message.success(`Productos visibles agregados`);
-  }, [products, message]);
+    notify.success(`Productos visibles agregados`);
+  }, [products]);
 
   const clearAll = useCallback(() => {
     setSelected([]);
@@ -117,7 +114,7 @@ export function EtiquetasPage() {
   // ── PDF generation ──
   const handleExport = useCallback((type: 'a4' | '80mm') => {
     if (selected.length === 0) {
-      message.warning('Seleccione al menos un producto');
+      notify.warning('Seleccione al menos un producto');
       return;
     }
     try {
@@ -126,20 +123,20 @@ export function EtiquetasPage() {
         : generate80mmPDF(selected, labelConfig);
       const suffix = type === 'a4' ? 'A4' : '80mm';
       doc.save(`Etiquetas_${suffix}_${new Date().toISOString().slice(0, 10)}.pdf`);
-      message.success('PDF generado exitosamente');
+      notify.success('PDF generado exitosamente');
     } catch (err) {
-      message.error('Error al generar PDF');
+      notify.error('Error al generar PDF');
       console.error(err);
     }
-  }, [selected, labelConfig, message]);
+  }, [selected, labelConfig]);
 
   const handlePreview = useCallback(() => {
     if (selected.length === 0) {
-      message.warning('Seleccione al menos un producto');
+      notify.warning('Seleccione al menos un producto');
       return;
     }
     setPreviewOpen(true);
-  }, [selected, message]);
+  }, [selected]);
 
   // ── Available products columns ──
   const prodColumns: ColumnsType<LabelProduct> = [

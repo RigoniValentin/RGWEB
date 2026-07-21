@@ -1,9 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  Table, Typography, Tag, Space, Button, Select, Drawer, Spin,
-  Descriptions, Empty, message,
-} from 'antd';
+import { Table, Typography, Tag, Space, Button, Select, Drawer, Spin, Descriptions, Empty } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
   EyeOutlined, PrinterOutlined, DollarOutlined, ReloadOutlined,
@@ -21,6 +18,7 @@ import type { PedidoParaVenta } from '../components/sales/NewSaleModal';
 import type { ComandaListItem, PedidoItem } from '../types';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text } = Typography;
 
@@ -71,7 +69,7 @@ export function ListadoComandasPage() {
   const handlePrint = async (pedidoId: number) => {
     try {
       const data = await mesasApi.getComandaData(pedidoId);
-      if (!data) { message.error('No se encontraron datos'); return; }
+      if (!data) { notify.error('No se encontraron datos'); return; }
       const itemsHtml = (data.items || []).map((item: any) =>
         `<tr>
           <td style="padding:2px 0">${item.NOMBRE}</td>
@@ -106,7 +104,7 @@ export function ListadoComandasPage() {
       iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:none;visibility:hidden';
       document.body.appendChild(iframe);
       const doc = iframe.contentDocument || iframe.contentWindow?.document;
-      if (!doc || !iframe.contentWindow) { message.error('Error de impresión'); document.body.removeChild(iframe); return; }
+      if (!doc || !iframe.contentWindow) { notify.error('Error de impresión'); document.body.removeChild(iframe); return; }
       doc.open(); doc.write(html); doc.close();
       iframe.contentWindow.onafterprint = () => { document.body.removeChild(iframe); };
       setTimeout(() => {
@@ -114,13 +112,13 @@ export function ListadoComandasPage() {
         iframe.contentWindow?.print();
         setTimeout(() => { if (iframe.parentNode) document.body.removeChild(iframe); }, 60000);
       }, 200);
-    } catch { message.error('Error al imprimir comanda'); }
+    } catch { notify.error('Error al imprimir comanda'); }
   };
 
   const handleFacturar = async (pedidoId: number) => {
     try {
       const pedido = await mesasApi.getPedidoById(pedidoId);
-      if (!pedido) { message.error('No se encontró el pedido'); return; }
+      if (!pedido) { notify.error('No se encontró el pedido'); return; }
       setPasarVentaModal({
         PEDIDO_ID: pedido.PEDIDO_ID,
         MESA_ID: pedido.MESA_ID ?? 0,
@@ -133,7 +131,7 @@ export function ListadoComandasPage() {
           LISTA_PRECIO_SELECCIONADA: i.LISTA_PRECIO_SELECCIONADA,
         })),
       });
-    } catch { message.error('Error al cargar pedido'); }
+    } catch { notify.error('Error al cargar pedido'); }
   };
 
   // ── Stats ──

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Table, Space, Typography, Tag, Drawer, Descriptions, Spin,
-  Button, Input, Popconfirm, message, Checkbox, Modal, Tooltip, Badge,
+  Button, Input, Popconfirm, Checkbox, Modal, Tooltip, Badge,
 } from 'antd';
 import {
   EyeOutlined, PlusOutlined, DeleteOutlined, DollarOutlined,
@@ -35,6 +35,7 @@ import type { Venta, VentaDetalle } from '../types';
 import { ExportButtons, type ExportColumn } from '../components/ExportButtons';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { notify, extractErrorMessage } from '../utils/notify';
 
 const { Title, Text } = Typography;
 
@@ -174,12 +175,12 @@ export function SalesPage() {
     mutationFn: (id: number) => salesApi.delete(id),
     onSuccess: () => {
       invalidateInventoryQueries(queryClient);
-      message.success('Venta eliminada');
+      notify.success('Venta eliminada');
       refetch();
       if (drawerOpen) { setDrawerOpen(false); setSelectedId(null); }
     },
     onError: (err: any) => {
-      message.error(err.response?.data?.error || 'Error al eliminar');
+      notify.error(extractErrorMessage(err, 'Error al eliminar'));
     },
   });
 
@@ -187,12 +188,12 @@ export function SalesPage() {
   const unpayMutation = useMutation({
     mutationFn: (id: number) => salesApi.unpay(id),
     onSuccess: () => {
-      message.success('Cobro removido');
+      notify.success('Cobro removido');
       refetch();
       queryClient.invalidateQueries({ queryKey: ['sale'] });
     },
     onError: (err: any) => {
-      message.error(err.response?.data?.error || 'Error al quitar cobro');
+      notify.error(extractErrorMessage(err, 'Error al quitar cobro'));
     },
   });
 
@@ -285,24 +286,24 @@ export function SalesPage() {
   // ── Send WhatsApp ──────────────────────────────
   const handleSendWhatsApp = async () => {
     if (!wspVentaId || !wspTelefono.trim()) {
-      message.warning('Ingrese un número de teléfono');
+      notify.warning('Ingrese un número de teléfono');
       return;
     }
     const digits = wspTelefono.replace(/\D/g, '');
     if (digits.length < 10) {
-      message.warning('El teléfono debe tener al menos 10 dígitos');
+      notify.warning('El teléfono debe tener al menos 10 dígitos');
       return;
     }
     setWspSending(true);
     try {
       await salesApi.sendWhatsApp(wspVentaId, wspTelefono, wspNombre || 'Cliente');
-      message.success('Detalle enviado por WhatsApp');
+      notify.success('Detalle enviado por WhatsApp');
       setWspModalOpen(false);
       // Refresh detail to show updated NRO_ENVIO_DETALLE
       queryClient.invalidateQueries({ queryKey: ['sale', wspVentaId] });
       setWspVentaId(null);
     } catch (err: any) {
-      message.error(err.response?.data?.error || 'Error al enviar WhatsApp');
+      notify.error(extractErrorMessage(err, 'Error al enviar WhatsApp'));
     } finally {
       setWspSending(false);
     }
@@ -314,7 +315,7 @@ export function SalesPage() {
     try {
       const result = await salesApi.facturar(ventaId);
       if (result.success) {
-        message.success(
+        notify.success(
           `Factura emitida: ${result.tipo_comprobante} Nº ${result.comprobante_nro} — CAE: ${result.cae}`,
           6
         );
@@ -322,13 +323,13 @@ export function SalesPage() {
         refetch();
         queryClient.invalidateQueries({ queryKey: ['sale', ventaId] });
       } else {
-        message.error(
+        notify.error(
           `Error al facturar: ${(result.errores || []).join(', ') || 'Error desconocido'}`,
           8
         );
       }
     } catch (err: any) {
-      message.error(`Error al emitir factura: ${err.response?.data?.error || err.message}`, 8);
+      notify.error(`Error al emitir factura: ${err.response?.data?.error || err.message}`, 8);
     } finally {
       setFacturando(false);
     }
@@ -342,7 +343,7 @@ export function SalesPage() {
       ]);
       await generateFacturaPdf(facturaData, copias, logoDataUrl);
     } catch (err: any) {
-      message.error(err.response?.data?.error || 'Error al generar PDF de factura');
+      notify.error(extractErrorMessage(err, 'Error al generar PDF de factura'));
     }
   };
 
@@ -351,7 +352,7 @@ export function SalesPage() {
       const facturaData = await salesApi.getFacturaData(ventaId);
       printFacturaTicket(facturaData);
     } catch (err: any) {
-      message.error(err.response?.data?.error || 'Error al generar ticket de factura');
+      notify.error(extractErrorMessage(err, 'Error al generar ticket de factura'));
     }
   };
 

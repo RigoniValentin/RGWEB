@@ -1,8 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import {
-  Modal, Select, Button, InputNumber, Table, Space, Typography,
-  Radio, message, Tag, Input, Empty, Alert, Steps, Spin, Checkbox,
-} from 'antd';
+import { Modal, Select, Button, InputNumber, Table, Space, Typography, Radio, Tag, Input, Empty, Alert, Steps, Spin, Checkbox } from 'antd';
 import {
   FileExclamationOutlined, UndoOutlined,
   DollarOutlined, PercentageOutlined, UserOutlined,
@@ -18,6 +15,7 @@ import { fmtComprobanteTipo, fmtMoney, fmtNum } from '../../utils/format';
 import { invalidateInventoryQueries } from '../../utils/invalidateInventoryQueries';
 import { usePaymentMethodKeyboardNavigation } from '../../hooks/usePaymentMethodKeyboardNavigation';
 import type { MetodoPago } from '../../types';
+import { notify } from '../../utils/notify.ts';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -314,20 +312,20 @@ export function NewNCVentaModal({ open, onClose, onSuccess, preselectedVentaId, 
       if (result.fiscal?.success) {
         msg += ` — Fiscal: ${result.fiscal.tipo_comprobante} ${result.fiscal.comprobante_nro}`;
       } else if (result.fiscal && !result.fiscal.success) {
-        message.warning(`NC creada pero error fiscal: ${result.fiscal.errores?.join(', ') || result.fiscal.error || 'Error desconocido'}`, 8);
+        notify.warning(`NC creada pero error fiscal: ${result.fiscal.errores?.join(', ') || result.fiscal.error || 'Error desconocido'}`, 8);
       }
-      message.success(msg, 6);
+      notify.success(msg, 6);
       onSuccess();
     },
     onError: (err: any) => {
-      message.error(err.response?.data?.error || 'Error al crear NC');
+      notify.error(err.response?.data?.error || 'Error al crear NC');
     },
   });
 
   const handleSubmit = () => {
     if (!clienteId || !ventaId) return;
     if (montoNC <= 0) {
-      message.warning('El monto de la NC debe ser mayor a 0');
+      notify.warning('El monto de la NC debe ser mayor a 0');
       return;
     }
 
@@ -344,7 +342,7 @@ export function NewNCVentaModal({ open, onClose, onSuccess, preselectedVentaId, 
       : undefined;
 
     if (esConItems && (!items || items.length === 0)) {
-      message.warning('Seleccioná al menos un ítem con cantidad a devolver');
+      notify.warning('Seleccioná al menos un ítem con cantidad a devolver');
       return;
     }
 

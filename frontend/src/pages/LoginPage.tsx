@@ -1,11 +1,12 @@
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Typography, App, Alert, Space } from 'antd';
+import { Form, Input, Button, Typography, Alert, Space } from 'antd';
 import { UserOutlined, LockOutlined, LockFilled, ExclamationCircleFilled, CheckCircleFilled, WarningFilled, SendOutlined, KeyOutlined } from '@ant-design/icons';
 import { authApi } from '../services/auth.api';
 import { useAuthStore } from '../store/authStore';
 import { RGLogo } from '../components/RGLogo';
 import type { LicenseStatus } from '../types';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text } = Typography;
 
@@ -33,7 +34,7 @@ function formatDateTime(value: string) {
 }
 
 export function LoginPage() {
-  const { message } = App.useApp();
+
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [errorState, setErrorState] = useState<ErrorState>(null);
@@ -61,12 +62,12 @@ export function LoginPage() {
       setAuth(user, token, permisos, puntosVenta, roles);
 
       if (license?.state === 'warning') {
-        message.warning(license.message);
+        notify.warning(license.message);
       }
 
       if (user.DEBE_CAMBIAR_CLAVE) {
         setSuccessState({ name: user.NOMBRE_COMPLETO || user.NOMBRE, mustChangePassword: true });
-        message.warning('Ingresaste correctamente, pero debés cambiar tu contraseña.');
+        notify.warning('Ingresaste correctamente, pero debés cambiar tu contraseña.');
         setTimeout(() => navigate('/dashboard'), 1800);
       } else {
         setSuccessState({ name: user.NOMBRE_COMPLETO || user.NOMBRE, mustChangePassword: false });
@@ -135,11 +136,11 @@ export function LoginPage() {
       const result = await authApi.requestLicenseActivationCode(values);
       setActivationState({ activationId: result.activationId, expiresAt: result.expiresAt });
       setActivationCode('');
-      message.success('Código solicitado. Revisá WhatsApp con soporte.');
+      notify.success('Código solicitado. Revisá WhatsApp con soporte.');
     } catch (err: any) {
       const serverMsg: string = err.response?.data?.error || 'No se pudo solicitar el código.';
       const retryAfter = err.response?.data?.retryAfterSeconds;
-      message.error(retryAfter ? `${serverMsg} Intentá nuevamente en ${retryAfter} segundos.` : serverMsg);
+      notify.error(retryAfter ? `${serverMsg} Intentá nuevamente en ${retryAfter} segundos.` : serverMsg);
     } finally {
       setRequestingCode(false);
     }
@@ -149,7 +150,7 @@ export function LoginPage() {
     if (!activationState) return;
     const code = activationCode.trim();
     if (code.length < 6) {
-      message.warning('Ingresá el código de 6 dígitos.');
+      notify.warning('Ingresá el código de 6 dígitos.');
       return;
     }
 
@@ -159,10 +160,10 @@ export function LoginPage() {
       setErrorState(null);
       setActivationState(null);
       setActivationCode('');
-      message.success('Licencia activada por 31 días.');
+      notify.success('Licencia activada por 31 días.');
       setTimeout(() => form.submit(), 700);
     } catch (err: any) {
-      message.error(err.response?.data?.error || 'No se pudo activar la licencia.');
+      notify.error(err.response?.data?.error || 'No se pudo activar la licencia.');
     } finally {
       setActivatingLicense(false);
     }

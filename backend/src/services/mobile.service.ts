@@ -11,7 +11,7 @@ import { registrarHistorialStock } from './stockHistorial.helper.js';
 const DEPOSITO_DEFAULT_ID = 1; // DEPOSITO CENTRAL
 
 export interface MobileProductDTO {
-  id: number;
+  PRODUCTO_ID: number;
   name: string;
   stock: number;
   price: number;
@@ -64,7 +64,7 @@ export const mobileService = {
       .input('barcode', sql.NVarChar, barcode)
       .query(`
         SELECT TOP 1
-          p.PRODUCTO_ID AS id,
+          p.PRODUCTO_ID AS PRODUCTO_ID,
           p.NOMBRE      AS name,
           ISNULL((SELECT SUM(sd.CANTIDAD) FROM STOCK_DEPOSITOS sd WHERE sd.PRODUCTO_ID = p.PRODUCTO_ID), 0) AS stock,
           ISNULL((SELECT TOP 1 plp.PRECIO FROM PRODUCTO_LISTA_PRECIOS plp WHERE plp.PRODUCTO_ID = p.PRODUCTO_ID AND plp.LISTA_ID = ISNULL(p.LISTA_DEFECTO, 1)), 0) AS price
@@ -76,7 +76,7 @@ export const mobileService = {
     if (result.recordset.length === 0) return null;
     const row = result.recordset[0];
     return {
-      id: row.id,
+      PRODUCTO_ID: row.PRODUCTO_ID,
       name: row.name,
       stock: Number(row.stock) || 0,
       price: Number(row.price) || 0,

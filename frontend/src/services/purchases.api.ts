@@ -80,4 +80,45 @@ export const purchasesApi = {
 
   savePriceCheck: (updates: PriceCheckUpdate[]) =>
     api.post<{ updated: number }>('/purchases/price-check', { updates }).then(r => r.data),
+
+  /** Remitos de entrada sin compra asociada, para selector en Nueva Compra.
+   *  Si se pasa proveedorId, filtra solo los remitos de ese proveedor. */
+  getRemitosSinCompraAsociada: (proveedorId?: number) =>
+    api
+      .get<
+        {
+          REMITO_ID: number;
+          TIPO: string;
+          FECHA: string;
+          PTO_VTA: string;
+          NRO_REMITO: string;
+          PROVEEDOR_ID: number | null;
+          TOTAL: number;
+          OBSERVACIONES: string | null;
+          PROVEEDOR_NOMBRE: string | null;
+        }[]
+      >('/remitos/sin-compra', { params: proveedorId ? { proveedorId } : {} })
+      .then(r => r.data),
+
+  /** Items de un remito, listos para auto-cargar en el cart de una compra. */
+  getRemitoItemsParaCompra: (remitoId: number) =>
+    api
+      .get<
+        {
+          PRODUCTO_ID: number;
+          CANTIDAD: number;
+          PRECIO_UNITARIO: number;
+          PRODUCTO_NOMBRE: string;
+          PRODUCTO_CODIGO: string;
+          IVA_ALICUOTA: number;
+          PRECIO_COMPRA: number;
+          STOCK: number;
+          IMP_INT: number;
+          TASA_IVA_ID: number | null;
+          UNIDAD_ID: number | null;
+          UNIDAD_NOMBRE: string;
+          UNIDAD_ABREVIACION: string;
+        }[]
+      >(`/remitos/${remitoId}/items-para-compra`)
+      .then(r => r.data),
 };

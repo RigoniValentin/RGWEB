@@ -15,7 +15,7 @@
  * mapear la grilla visual a una exportación sin código extra.
  */
 import { useState, useCallback } from 'react';
-import { Button, Tooltip, App } from 'antd';
+import { Button, Tooltip } from 'antd';
 import {
   FilePdfOutlined,
   FileExcelOutlined,
@@ -25,6 +25,7 @@ import {
 import { exportToPdf } from '../utils/exportPdf';
 import { exportToExcel } from '../utils/exportExcel';
 import { ExportModal } from './ExportModal';
+import { notify } from '../utils/notify.ts';
 
 
 /**
@@ -84,7 +85,7 @@ export function ExportButtons<T = any>(props: ExportButtonsProps<T>) {
     variant = 'compact', fileName, sheetName, disabled,
     pdfLabel = 'PDF', excelLabel = 'Excel', showQuantitySelector = false,
   } = props;
-  const { message } = App.useApp();
+
   const [pdfLoading, setPdfLoading] = useState(false);
   const [xlsxLoading, setXlsxLoading] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -104,20 +105,20 @@ export function ExportButtons<T = any>(props: ExportButtonsProps<T>) {
         setPdfLoading(true);
         await new Promise(r => setTimeout(r, 30));
         exportToPdf({ title, subtitle, meta, columns, data: exportData, fileName, footerSummary });
-        message.success(`PDF generado (${exportData.length} registro${exportData.length === 1 ? '' : 's'})`);
+        notify.success(`PDF generado (${exportData.length} registro${exportData.length === 1 ? '' : 's'})`);
       } else {
         setXlsxLoading(true);
         await new Promise(r => setTimeout(r, 30));
         exportToExcel({ title, subtitle, columns, data: exportData, fileName, sheetName, footerSummary });
-        message.success(`Excel generado (${exportData.length} registro${exportData.length === 1 ? '' : 's'})`);
+        notify.success(`Excel generado (${exportData.length} registro${exportData.length === 1 ? '' : 's'})`);
       }
     } catch (err: any) {
-      message.error(err?.message || 'Error al generar exportación');
+      notify.error(err?.message || 'Error al generar exportación');
     } finally {
       setPdfLoading(false);
       setXlsxLoading(false);
     }
-  }, [title, subtitle, meta, columns, fileName, sheetName, footerSummary, message]);
+  }, [title, subtitle, meta, columns, fileName, sheetName, footerSummary]);
 
   const handlePdf = useCallback(async () => {
     if (isDisabled) return;
@@ -288,7 +289,7 @@ export function ExportDropdown<T = any>(props: ExportDropdownProps<T>) {
     fileName, sheetName, disabled, label = 'Exportar',
     pdfLabel = 'PDF', excelLabel = 'Excel', showQuantitySelector = false,
   } = props;
-  const { message } = App.useApp();
+
   const [pdfLoading, setPdfLoading] = useState(false);
   const [xlsxLoading, setXlsxLoading] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -304,20 +305,20 @@ export function ExportDropdown<T = any>(props: ExportDropdownProps<T>) {
         setPdfLoading(true);
         await new Promise(r => setTimeout(r, 30));
         exportToPdf({ title, subtitle, meta, columns, data: exportData, fileName, footerSummary });
-        message.success(`PDF generado (${exportData.length} registro${exportData.length === 1 ? '' : 's'})`);
+        notify.success(`PDF generado (${exportData.length} registro${exportData.length === 1 ? '' : 's'})`);
       } else {
         setXlsxLoading(true);
         await new Promise(r => setTimeout(r, 30));
         exportToExcel({ title, subtitle, columns, data: exportData, fileName, sheetName, footerSummary });
-        message.success(`Excel generado (${exportData.length} registro${exportData.length === 1 ? '' : 's'})`);
+        notify.success(`Excel generado (${exportData.length} registro${exportData.length === 1 ? '' : 's'})`);
       }
     } catch (err: any) {
-      message.error(err?.message || 'Error al generar exportación');
+      notify.error(err?.message || 'Error al generar exportación');
     } finally {
       setPdfLoading(false);
       setXlsxLoading(false);
     }
-  }, [title, subtitle, meta, columns, fileName, sheetName, footerSummary, message]);
+  }, [title, subtitle, meta, columns, fileName, sheetName, footerSummary]);
 
   const handlePdf = useCallback(async () => {
     if (isDisabled) return;

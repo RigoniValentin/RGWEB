@@ -1,8 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import {
-  Modal, Button, Space, Typography, Input,
-  Tag, message, Tooltip,
-} from 'antd';
+import { Modal, Button, Space, Typography, Input, Tag, Tooltip } from 'antd';
 import {
   SaveOutlined, SearchOutlined,
   CheckCircleOutlined, EditOutlined, PercentageOutlined, CloseOutlined,
@@ -11,6 +8,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { purchasesApi, type PriceCheckProduct, type PriceCheckUpdate } from '../../services/purchases.api';
 import { ProductPriceEditorModal } from './ProductPriceEditorModal';
 import { fmtMoney, fmtNum } from '../../utils/format';
+import { notify } from '../../utils/notify.ts';
 
 const { Text, Title } = Typography;
 
@@ -60,11 +58,11 @@ export function PriceCheckModal({ open, compraId, onClose }: Props) {
   const saveMutation = useMutation({
     mutationFn: (updates: PriceCheckUpdate[]) => purchasesApi.savePriceCheck(updates),
     onSuccess: (result) => {
-      message.success(`Se actualizaron los precios de ${result.updated} producto(s)`);
+      notify.success(`Se actualizaron los precios de ${result.updated} producto(s)`);
       onClose();
     },
     onError: (err: any) => {
-      message.error(err.response?.data?.error || 'Error al guardar precios');
+      notify.error(err.response?.data?.error || 'Error al guardar precios');
     },
   });
 
@@ -99,7 +97,7 @@ export function PriceCheckModal({ open, compraId, onClose }: Props) {
     }));
     setEditorOpen(false);
     setEditorProduct(null);
-    message.success('Precios del producto actualizados');
+    notify.success('Precios del producto actualizados');
   }, []);
 
   const openEditor = useCallback((record: ProductRow) => {

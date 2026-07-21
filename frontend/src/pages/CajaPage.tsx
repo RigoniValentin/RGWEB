@@ -1,11 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Table, Space, Typography, Tag, Drawer, Descriptions, Spin,
-  Button, Input, Select, InputNumber, Popconfirm, message, Card, Row, Col,
-  Statistic, Modal, Form, Radio, Divider, Alert,
-} from 'antd';
+import { Table, Space, Typography, Tag, Drawer, Descriptions, Spin, Button, Input, Select, InputNumber, Popconfirm, Card, Row, Col, Statistic, Modal, Form, Radio, Divider, Alert } from 'antd';
 import {
   PlusOutlined, LockOutlined, UnlockOutlined, EyeOutlined,
   ArrowUpOutlined, ArrowDownOutlined,
@@ -25,6 +21,7 @@ import type { Caja, CajaItem, DesgloseMetodo } from '../types';
 import { ExportButtons, type ExportColumn } from '../components/ExportButtons';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { notify } from '../utils/notify.ts';
 
 
 const { Title, Text } = Typography;
@@ -181,7 +178,7 @@ export function CajaPage() {
       });
     },
     onSuccess: (data) => {
-      message.success(`Caja #${data.CAJA_ID} abierta exitosamente`);
+      notify.success(`Caja #${data.CAJA_ID} abierta exitosamente`);
       setAbrirModalOpen(false);
       setMontoApertura(0);
       invalidateAll();
@@ -201,7 +198,7 @@ export function CajaPage() {
         },
       });
     },
-    onError: (err: any) => message.error(err.response?.data?.error || 'Error al abrir caja'),
+    onError: (err: any) => notify.error(err.response?.data?.error || 'Error al abrir caja'),
   });
 
   const cerrarMutation = useMutation({
@@ -215,7 +212,7 @@ export function CajaPage() {
       });
     },
     onSuccess: () => {
-      message.success('Caja cerrada exitosamente');
+      notify.success('Caja cerrada exitosamente');
       setCerrarModalOpen(false);
       setCerrarCajaId(null);
       setDepositoMode('none');
@@ -224,7 +221,7 @@ export function CajaPage() {
       invalidateAll();
       if (drawerOpen) { queryClient.invalidateQueries({ queryKey: ['caja', selectedId] }); }
     },
-    onError: (err: any) => message.error(err.response?.data?.error || 'Error al cerrar caja'),
+    onError: (err: any) => notify.error(err.response?.data?.error || 'Error al cerrar caja'),
   });
 
   const ieMutation = useMutation({
@@ -234,24 +231,24 @@ export function CajaPage() {
       descripcion: ieDescripcion,
     }),
     onSuccess: () => {
-      message.success(`${ieType === 'INGRESO' ? 'Ingreso' : 'Egreso'} registrado`);
+      notify.success(`${ieType === 'INGRESO' ? 'Ingreso' : 'Egreso'} registrado`);
       setIeModalOpen(false);
       setIeMonto(0);
       setIeDescripcion('');
       invalidateAll();
     },
-    onError: (err: any) => message.error(err.response?.data?.error || 'Error al registrar'),
+    onError: (err: any) => notify.error(err.response?.data?.error || 'Error al registrar'),
   });
 
   const deleteItemMutation = useMutation({
     mutationFn: ({ cajaId, itemId }: { cajaId: number; itemId: number }) =>
       cajaApi.deleteItem(cajaId, itemId),
     onSuccess: () => {
-      message.success('Ítem eliminado');
+      notify.success('Ítem eliminado');
       queryClient.invalidateQueries({ queryKey: ['caja', selectedId] });
       invalidateAll();
     },
-    onError: (err: any) => message.error(err.response?.data?.error || 'Error al eliminar'),
+    onError: (err: any) => notify.error(err.response?.data?.error || 'Error al eliminar'),
   });
 
 
@@ -1002,7 +999,7 @@ export function CajaPage() {
         onClose={() => setFondoModalOpen(false)}
         onSuccess={() => {
           setFondoModalOpen(false);
-          message.success('Transferencia realizada');
+          notify.success('Transferencia realizada');
           invalidateAll();
         }}
         preselectedCajaId={miCaja?.CAJA_ID}

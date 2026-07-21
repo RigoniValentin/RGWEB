@@ -1,10 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Table, Space, Input, Typography, Button, App, Descriptions, Modal,
-  Statistic, Card, Row, Col, Tooltip, Popconfirm, Tag,
-} from 'antd';
+import { Table, Space, Input, Typography, Button, Descriptions, Modal, Statistic, Card, Row, Col, Tooltip, Popconfirm, Tag } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
@@ -20,11 +17,12 @@ import { useTabStore } from '../store/tabStore';
 import { useAuthStore } from '../store/authStore';
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
 import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text } = Typography;
 
 export function ExpensesPage() {
-  const { message } = App.useApp();
+
   const qc = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
@@ -68,13 +66,13 @@ export function ExpensesPage() {
   const eliminarMut = useMutation({
     mutationFn: (gastoId: number) => expensesApi.eliminar(gastoId),
     onSuccess: () => {
-      message.success('Gasto eliminado');
+      notify.success('Gasto eliminado');
       qc.invalidateQueries({ queryKey: ['expenses'] });
       qc.invalidateQueries({ queryKey: ['expenses-metodos-totales'] });
       qc.invalidateQueries({ queryKey: ['caja-central-mov'] });
       qc.invalidateQueries({ queryKey: ['caja-central-totales'] });
     },
-    onError: (err: any) => message.error(err.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err.response?.data?.error || err.message),
   });
 
   // ── Handlers ────────────────────────────────────

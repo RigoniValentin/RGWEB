@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  App, Button, Card, Col, Divider, Form, Input, InputNumber, Modal, Radio, Row,
-  Select, Space, Spin, Statistic, Switch, Table, Tag, Tooltip, Typography,
-} from 'antd';
+import { App, Button, Card, Col, Divider, Form, Input, InputNumber, Modal, Radio, Row, Select, Space, Spin, Statistic, Switch, Table, Tag, Tooltip, Typography } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
   DeleteOutlined, EditOutlined, FilterOutlined, PercentageOutlined,
@@ -14,11 +11,12 @@ import { useTabStore } from '../store/tabStore';
 import { fmtMoney, fmtNum } from '../utils/format';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { notify } from '../utils/notify.ts';
 
 const { Title } = Typography;
 
 export function PriceListsPage() {
-  const { message, modal } = App.useApp();
+  const { modal } = App.useApp();
   const qc = useQueryClient();
 
   const [listPage, setListPage] = useState(1);
@@ -147,7 +145,7 @@ export function PriceListsPage() {
       onOk: async () => {
         try {
           const result = await priceListApi.delete(record.LISTA_ID);
-          message.success(
+          notify.success(
             result.mode === 'soft'
               ? 'Lista desactivada (tiene precios o productos asociados)'
               : 'Lista eliminada'
@@ -155,7 +153,7 @@ export function PriceListsPage() {
           if (editId === record.LISTA_ID) setEditId(null);
           invalidate();
         } catch (err: any) {
-          message.error(err?.response?.data?.error || 'Error al eliminar la lista');
+          notify.error(err?.response?.data?.error || 'Error al eliminar la lista');
         }
       },
     });
@@ -193,7 +191,7 @@ export function PriceListsPage() {
       if (recalcularPorMargen && redondeoStep && redondeoDireccion) {
         msg += ` y redondeados a ${fmtNum(redondeoStep)} (${redondeoDireccion === 'arriba' ? 'hacia arriba' : 'al más cercano'})`;
       }
-      message.success(msg);
+      notify.success(msg);
       setFormOpen(false);
       setRedondeoOpen(false);
       listForm.resetFields();
@@ -202,7 +200,7 @@ export function PriceListsPage() {
       setRedondeoContext(null);
       invalidate();
     } catch (err: any) {
-      message.error(err?.response?.data?.error || 'Error al guardar la lista');
+      notify.error(err?.response?.data?.error || 'Error al guardar la lista');
     } finally {
       setSaving(false);
     }
@@ -232,9 +230,9 @@ export function PriceListsPage() {
       const result = await priceListApi.roundPrices(listaId, redondeoStep, redondeoDireccion);
       const dirLabel = redondeoDireccion === 'arriba' ? 'hacia arriba' : 'al más cercano';
       if (result.affected === 0) {
-        message.info(`La lista no tiene productos con precio para redondear.`);
+        notify.info(`La lista no tiene productos con precio para redondear.`);
       } else {
-        message.success(
+        notify.success(
           `Precios redondeados: ${result.affected} producto(s) a múltiplos de ${fmtMoney(redondeoStep)} (${dirLabel})`
         );
       }
@@ -242,7 +240,7 @@ export function PriceListsPage() {
       setRedondeoContext(null);
       invalidate();
     } catch (err: any) {
-      message.error(err?.response?.data?.error || 'Error al redondear precios');
+      notify.error(err?.response?.data?.error || 'Error al redondear precios');
     } finally {
       setSaving(false);
     }
@@ -310,13 +308,13 @@ export function PriceListsPage() {
         if (result.productosConPrecio > 0) {
           msg += ` · ${result.productosConPrecio} producto(s) con precio inicial`;
         }
-        message.success(msg);
+        notify.success(msg);
         setFormOpen(false);
         listForm.resetFields();
         setOriginalMargen(0);
         invalidate();
       } catch (err: any) {
-        message.error(err?.response?.data?.error || 'Error al crear la lista');
+        notify.error(err?.response?.data?.error || 'Error al crear la lista');
       } finally {
         setSaving(false);
       }
@@ -377,12 +375,12 @@ export function PriceListsPage() {
             if (result.margenActualizado && result.margenNuevo != null) {
               msg += ` · Margen: ${fmtNum(result.margenAnterior ?? margenActual)}% → ${fmtNum(result.margenNuevo)}%`;
             }
-            message.success(msg);
+            notify.success(msg);
             setApplyOpen(false);
             applyForm.resetFields();
             invalidate();
           } catch (err: any) {
-            message.error(err?.response?.data?.error || 'Error al actualizar precios');
+            notify.error(err?.response?.data?.error || 'Error al actualizar precios');
           } finally {
             setApplying(false);
           }

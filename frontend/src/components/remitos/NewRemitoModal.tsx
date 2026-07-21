@@ -1,8 +1,5 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import {
-  Modal, Select, Button, InputNumber, Table, Space, Typography,
-  message, Input, DatePicker, Divider, Checkbox, Radio,
-} from 'antd';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Modal, Select, Button, InputNumber, Table, Space, Typography, Input, DatePicker, Divider, Checkbox, Radio } from 'antd';
 import {
   DeleteOutlined, SearchOutlined,
   ImportOutlined, ExportOutlined, PrinterOutlined,
@@ -10,18 +7,21 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { remitosApi } from '../../services/remitos.api';
 import { settingsApi } from '../../services/settings.api';
-import type { RemitoInput, RemitoItemInput, ProductoSearch } from '../../types';
-import { fmtMoney, fmtNum } from '../../utils/format';
+import type { RemitoInput, ProductoSearch } from '../../types';
+import { fmtNum } from '../../utils/format';
 import { ProductSearchModal } from '../ProductSearchModal';
 import { generateRemitoPdf, type CopiasTipo } from './remitoPdf.js';
 import { invalidateInventoryQueries } from '../../utils/invalidateInventoryQueries';
 import dayjs from 'dayjs';
+import { notify } from '../../utils/notify.ts';
 
 const { Text } = Typography;
 const { TextArea } = Input;
 
-interface RemitoItemRow extends RemitoItemInput {
+interface RemitoItemRow {
   key: string;
+  PRODUCTO_ID: number;
+  CANTIDAD: number;
   NOMBRE?: string;
   CODIGO?: string;
   STOCK?: number;
@@ -108,7 +108,7 @@ export function NewRemitoModal({ open, tipo, onClose, onSuccess }: Props) {
     mutationFn: (data: RemitoInput) => remitosApi.create(data),
     onSuccess: async (result) => {
       invalidateInventoryQueries(queryClient);
-      message.success(`Remito ${tipo} ${result.PTO_VTA}-${result.NRO_REMITO} creado`);
+      notify.success(`Remito ${tipo} ${result.PTO_VTA}-${result.NRO_REMITO} creado`);
       if (printAfterCreate && result.REMITO_ID) {
         try {
           const [detail, empresa, logoDataUrl] = await Promise.all([
@@ -118,13 +118,13 @@ export function NewRemitoModal({ open, tipo, onClose, onSuccess }: Props) {
           ]);
           generateRemitoPdf(detail, empresa, printCopias, logoDataUrl);
         } catch {
-          message.warning('Remito creado pero no se pudo generar el PDF');
+          notify.warning('Remito creado pero no se pudo generar el PDF');
         }
       }
       onSuccess();
     },
     onError: (err: any) => {
-      message.error(err.response?.data?.error || 'Error al crear remito');
+      notify.error(err.response?.data?.error || 'Error al crear remito');
     },
   });
 
@@ -144,7 +144,6 @@ export function NewRemitoModal({ open, tipo, onClose, onSuccess }: Props) {
       key: `${product.PRODUCTO_ID}-${Date.now()}`,
       PRODUCTO_ID: product.PRODUCTO_ID,
       CANTIDAD: 1,
-      PRECIO_UNITARIO: tipo === 'SALIDA' ? product.PRECIO_VENTA : product.PRECIO_COMPRA,
       NOMBRE: product.NOMBRE,
       CODIGO: product.CODIGOPARTICULAR,
       STOCK: product.STOCK,
@@ -216,21 +215,10 @@ export function NewRemitoModal({ open, tipo, onClose, onSuccess }: Props) {
     setItems(prev => prev.map(i => i.key === key ? { ...i, CANTIDAD: cantidad } : i));
   };
 
-  // Update item price
-  const updatePrice = (key: string, precio: number) => {
-    setItems(prev => prev.map(i => i.key === key ? { ...i, PRECIO_UNITARIO: precio } : i));
-  };
-
-  // Totals
-  const subtotal = useMemo(() =>
-    items.reduce((sum, i) => sum + (i.PRECIO_UNITARIO || 0) * i.CANTIDAD, 0),
-    [items]
-  );
-
   // Submit
   const handleSubmit = () => {
     if (items.length === 0) {
-      message.warning('Agregue al menos un producto');
+      notify.warning('Agregue al menos un producto');
       return;
     }
 
@@ -249,8 +237,7 @@ export function NewRemitoModal({ open, tipo, onClose, onSuccess }: Props) {
       items: items.map(i => ({
         PRODUCTO_ID: i.PRODUCTO_ID,
         CANTIDAD: i.CANTIDAD,
-        PRECIO_UNITARIO: i.PRECIO_UNITARIO || 0,
-        DEPOSITO_ID: i.DEPOSITO_ID || depositoId || undefined,
+        DEPOSITO_ID: depositoId || undefined,
       })),
     };
 
@@ -259,14 +246,14 @@ export function NewRemitoModal({ open, tipo, onClose, onSuccess }: Props) {
 
   // Item table columns
   const itemColumns = [
-    { title: 'Código', dataIndex: 'CODIGO', width: 80, align: 'center' as const },
+    { title: 'Código', dataIndex: 'CODIGO', width: 100, align: 'center' as const },
     { title: 'Producto', dataIndex: 'NOMBRE', ellipsis: true },
     {
-      title: 'Stock', dataIndex: 'STOCK', width: 80, align: 'center' as const,
+      title: 'Stock', dataIndex: 'STOCK', width: 90, align: 'center' as const,
       render: (v: number) => <Text type={v <= 0 ? 'danger' : undefined}>{fmtNum(v)}</Text>,
     },
     {
-      title: 'Cantidad', width: 110,
+      title: 'Cantidad', width: 140,
       render: (_: any, record: RemitoItemRow) => (
         <InputNumber
           min={0.01}
@@ -275,30 +262,12 @@ export function NewRemitoModal({ open, tipo, onClose, onSuccess }: Props) {
           onChange={v => updateQuantity(record.key, v || 1)}
           size="small"
           style={{ width: '100%' }}
+          addonAfter={record.UNIDAD_ABREVIACION || 'u'}
         />
       ),
     },
     {
-      title: 'P. Unitario', width: 120,
-      render: (_: any, record: RemitoItemRow) => (
-        <InputNumber
-          min={0}
-          step={0.01}
-          value={record.PRECIO_UNITARIO}
-          onChange={v => updatePrice(record.key, v || 0)}
-          size="small"
-          style={{ width: '100%' }}
-          formatter={v => `$ ${v}`}
-        />
-      ),
-    },
-    {
-      title: 'Subtotal', width: 125, align: 'center' as const,
-      render: (_: any, record: RemitoItemRow) =>
-        fmtMoney((record.PRECIO_UNITARIO || 0) * record.CANTIDAD),
-    },
-    {
-      title: '', width: 40,
+      title: '', width: 50,
       render: (_: any, record: RemitoItemRow) => (
         <Button type="text" danger size="small" icon={<DeleteOutlined />}
           onClick={() => removeItem(record.key)} />
@@ -319,8 +288,7 @@ export function NewRemitoModal({ open, tipo, onClose, onSuccess }: Props) {
       width={900}
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       footer={
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-          <Text strong style={{ fontSize: 16 }}>Total: {fmtMoney(subtotal)}</Text>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <Space style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
             <Checkbox checked={printAfterCreate} onChange={e => setPrintAfterCreate(e.target.checked)}>
               <Space size={4}>

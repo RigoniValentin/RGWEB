@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Table, Space, Input, Typography, Button, Modal, App,
-  Tooltip, Spin, Form, Tag, Select,
-} from 'antd';
+import { Table, Space, Input, Typography, Button, Modal, Tooltip, Spin, Form, Tag, Select } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
@@ -15,11 +12,12 @@ import { useTabStore } from '../store/tabStore';
 import type { Deposito } from '../types';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { notify } from '../utils/notify.ts';
 
 const { Title } = Typography;
 
 export function DepositsPage() {
-  const { message } = App.useApp();
+
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -110,7 +108,7 @@ export function DepositsPage() {
 
   const handleDelete = (record: Deposito) => {
     if (record.DEPOSITO_ID === 1) {
-      message.warning('No se puede eliminar el DEPOSITO CENTRAL, ya que es el que se toma por defecto. Si desea puede modificarle el nombre.');
+      notify.warning('No se puede eliminar el DEPOSITO CENTRAL, ya que es el que se toma por defecto. Si desea puede modificarle el nombre.');
       return;
     }
     Modal.confirm({
@@ -122,10 +120,10 @@ export function DepositsPage() {
       onOk: async () => {
         try {
           await depositApi.delete(record.DEPOSITO_ID);
-          message.success('Depósito eliminado');
+          notify.success('Depósito eliminado');
           invalidate();
         } catch (err: any) {
-          message.error(err?.response?.data?.error || 'Error al eliminar');
+          notify.error(err?.response?.data?.error || 'Error al eliminar');
         }
       },
     });
@@ -145,10 +143,10 @@ export function DepositsPage() {
 
       if (editId) {
         await depositApi.update(editId, payload);
-        message.success('Depósito actualizado');
+        notify.success('Depósito actualizado');
       } else {
         await depositApi.create(payload);
-        message.success('Depósito creado');
+        notify.success('Depósito creado');
       }
 
       setFormOpen(false);
@@ -156,7 +154,7 @@ export function DepositsPage() {
       invalidate();
     } catch (err: any) {
       if (err?.response?.data?.error) {
-        message.error(err.response.data.error);
+        notify.error(err.response.data.error);
       }
     } finally {
       setSaving(false);

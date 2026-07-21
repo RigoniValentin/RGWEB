@@ -1,11 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Table, Space, Typography, Tag, Card, Row, Col,
-  Statistic, Button, Input, InputNumber, message,
-  Modal, Form, Select, Switch, Tabs, Tooltip, Descriptions, Divider,
-} from 'antd';
+import { Table, Space, Typography, Tag, Card, Row, Col, Statistic, Button, Input, InputNumber, Modal, Form, Select, Switch, Tabs, Tooltip, Descriptions, Divider } from 'antd';
 import {
   ArrowUpOutlined, ArrowDownOutlined,
   PlusOutlined, DeleteOutlined, ReloadOutlined, SwapOutlined, EyeOutlined,
@@ -25,6 +21,7 @@ import type { MovimientoCaja, CajaCentralTotales, CajaCentralCierreDetalle, Desg
 import { ExportButtons, type ExportColumn } from '../components/ExportButtons';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { notify } from '../utils/notify.ts';
 
 
 const { Title, Text } = Typography;
@@ -142,7 +139,7 @@ export function CajaCentralPage() {
       setCierreMetodos(metodos);
       setCierreDetalleOpen(true);
     } catch (err: any) {
-      message.error(err.response?.data?.error || 'Error al cargar el detalle de cierre');
+      notify.error(err.response?.data?.error || 'Error al cargar el detalle de cierre');
     }
   };
   // ── Mutations ──────────────────────────────────
@@ -169,21 +166,21 @@ export function CajaCentralPage() {
       });
     },
     onSuccess: () => {
-      message.success('Movimiento registrado');
+      notify.success('Movimiento registrado');
       setNuevoModalOpen(false);
       resetNuevoForm();
       invalidateAll();
     },
-    onError: (err: any) => message.error(err.response?.data?.error || 'Error al registrar'),
+    onError: (err: any) => notify.error(err.response?.data?.error || 'Error al registrar'),
   });
 
   const eliminarMutation = useMutation({
     mutationFn: (id: number) => cajaCentralApi.eliminarMovimiento(id),
     onSuccess: () => {
-      message.success('Movimiento eliminado');
+      notify.success('Movimiento eliminado');
       invalidateAll();
     },
-    onError: (err: any) => message.error(err.response?.data?.error || 'Error al eliminar'),
+    onError: (err: any) => notify.error(err.response?.data?.error || 'Error al eliminar'),
   });
 
   const resetNuevoForm = () => {
@@ -702,7 +699,7 @@ export function CajaCentralPage() {
         onClose={() => setFondoModalOpen(false)}
         onSuccess={() => {
           setFondoModalOpen(false);
-          message.success('Transferencia realizada');
+          notify.success('Transferencia realizada');
           invalidateAll();
         }}
       />

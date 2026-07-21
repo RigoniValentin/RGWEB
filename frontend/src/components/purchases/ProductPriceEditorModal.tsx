@@ -1,14 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import {
-  Modal, InputNumber, Button, Space, Typography, Divider,
-  Tag, Tooltip, message,
-} from 'antd';
+import { Modal, InputNumber, Button, Space, Typography, Divider, Tag, Tooltip } from 'antd';
 import {
   SaveOutlined, ReloadOutlined, UndoOutlined,
   PercentageOutlined, StarFilled, EditOutlined, CloseOutlined,
 } from '@ant-design/icons';
 import type { PriceCheckProduct } from '../../services/purchases.api';
 import { fmtMoney, fmtNum } from '../../utils/format';
+import { notify } from '../../utils/notify.ts';
 
 const { Text, Title } = Typography;
 
@@ -34,6 +32,7 @@ export function ProductPriceEditorModal({
 }: Props) {
   const [prices, setPrices] = useState<Record<number, number>>({});
   const [origPrices, setOrigPrices] = useState<Record<number, number>>({});
+  const [editingMarginFor, setEditingMarginFor] = useState<number | null>(null);
 
   useEffect(() => {
     if (product && open) {
@@ -86,6 +85,16 @@ export function ProductPriceEditorModal({
     setPrices(prev => ({ ...prev, [listaId]: r2(value || 0) }));
   };
 
+  const updateMargin = (listaId: number, value: number | null) => {
+    const margen = value || 0;
+    if (costoMargenBase <= 0) {
+      notify.warning('El costo debe ser mayor a 0 para calcular el margen');
+      return;
+    }
+    const newPrice = r2(costoMargenBase * (1 + margen / 100));
+    setPrices(prev => ({ ...prev, [listaId]: newPrice }));
+  };
+
   const roundPrice = (listaId: number, multiple: number) => {
     setPrices(prev => {
       const curr = prev[listaId] || 0;
@@ -96,7 +105,7 @@ export function ProductPriceEditorModal({
   const recalcFromListMargins = useCallback(() => {
     if (!product) return;
     if (costoMargenBase <= 0) {
-      message.warning('El costo debe ser mayor a 0 para recalcular');
+      notify.warning('El costo debe ser mayor a 0 para recalcular');
       return;
     }
     const newPrices: Record<number, number> = {};
@@ -105,7 +114,7 @@ export function ProductPriceEditorModal({
       newPrices[id] = r2(costoMargenBase * (1 + margen / 100));
     }
     setPrices(newPrices);
-    message.info('Precios recalculados desde márgenes default de cada lista');
+    notify.info('Precios recalculados desde márgenes default de cada lista');
   }, [product, costoMargenBase, listMargins, listasActivas]);
 
   const roundAll = (multiple: number) => {
@@ -117,7 +126,7 @@ export function ProductPriceEditorModal({
       }
       return updated;
     });
-    message.info(`Precios redondeados a múltiplos de $${multiple}`);
+    notify.info(`Precios redondeados a múltiplos de $${multiple}`);
   };
 
   const resetPrices = useCallback(() => {
@@ -273,15 +282,40 @@ export function ProductPriceEditorModal({
                 <Space size={3} wrap>
                   <Tooltip title="Margen default configurado en la lista">
                     <Tag color="geekblue" style={{ margin: 0, fontSize: 10, padding: '0 5px' }}>
-                      <PercentageOutlined /> Default {fmtNum(margenDefault)}%
+                      Default {fmtNum(margenDefault)}%
                     </Tag>
                   </Tooltip>
                   {currPrice > 0 && (
-                    <Tooltip title="Margen calculado del precio actual vs costo">
-                      <Tag color="default" style={{ margin: 0, fontSize: 10, padding: '0 5px' }}>
-                        Actual {fmtNum(actualMargin)}%
-                      </Tag>
-                    </Tooltip>
+                    editingMarginFor === listaId ? (
+                      <InputNumber
+                        autoFocus
+                        value={actualMargin}
+                        min={-100}
+                        step={1}
+                        controls={false}
+                        suffix="%"
+                        size="small"
+                        style={{ width: 90, fontSize: 11 }}
+                        onChange={v => updateMargin(listaId, v)}
+                        onBlur={() => setEditingMarginFor(null)}
+                        onPressEnter={() => setEditingMarginFor(null)}
+                      />
+                    ) : (
+                      <Tooltip title={costoMargenBase > 0 ? 'Click para editar el margen (recalcula el precio)' : 'Se requiere costo válido'}>
+                        <Tag
+                          color={matches ? 'green' : 'default'}
+                          style={{
+                            margin: 0, fontSize: 10, padding: '0 5px',
+                            cursor: costoMargenBase > 0 ? 'pointer' : 'default',
+                          }}
+                          onClick={() => {
+                            if (costoMargenBase > 0) setEditingMarginFor(listaId);
+                          }}
+                        >
+                          <PercentageOutlined /> Actual {fmtNum(actualMargin)}%
+                        </Tag>
+                      </Tooltip>
+                    )
                   )}
                 </Space>
               </div>

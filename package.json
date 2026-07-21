@@ -14,5 +14,8 @@
   },
   "devDependencies": {
     "concurrently": "^9.1.0"
+  },
+  "dependencies": {
+    "sileo": "^0.1.5"
   }
 }

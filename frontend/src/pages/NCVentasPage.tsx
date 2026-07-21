@@ -1,11 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import {
-  Table, Space, Typography, Tag, Drawer, Descriptions, Spin, Alert,
-  Button, Input, Popconfirm, message, Select, Statistic, Card, Row, Col,
-  Tooltip, Modal,
-} from 'antd';
+import { Table, Space, Typography, Tag, Drawer, Descriptions, Spin, Alert, Button, Input, Popconfirm, Select, Statistic, Card, Row, Col, Tooltip, Modal } from 'antd';
 import {
   EyeOutlined, PlusOutlined, StopOutlined,
   SearchOutlined, ReloadOutlined,
@@ -22,6 +18,7 @@ import { useNavigationStore } from '../store/navigationStore';
 import { fmtMoney, fmtNum, statFormatter } from '../utils/format';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text } = Typography;
 
@@ -133,12 +130,12 @@ export function NCVentasPage() {
   const anularMutation = useMutation({
     mutationFn: (id: number) => ncVentasApi.anular(id),
     onSuccess: (data) => {
-      message.success(`NC #${data.NC_ID} anulada — ND #${data.ND_ID} generada`);
+      notify.success(`NC #${data.NC_ID} anulada — ND #${data.ND_ID} generada`);
       refetch();
       if (drawerOpen) { setDrawerOpen(false); setSelectedId(null); }
     },
     onError: (err: any) => {
-      message.error(err.response?.data?.error || 'Error al anular');
+      notify.error(err.response?.data?.error || 'Error al anular');
     },
   });
 
@@ -147,15 +144,15 @@ export function NCVentasPage() {
     mutationFn: (id: number) => ncVentasApi.emitirFiscal(id),
     onSuccess: (data, ncId) => {
       if (data.success) {
-        message.success(`NC fiscal emitida: ${data.comprobante_nro} — CAE: ${data.cae}`);
+        notify.success(`NC fiscal emitida: ${data.comprobante_nro} — CAE: ${data.cae}`);
       } else {
-        message.error(`Error al emitir NC fiscal: ${data.errores?.join(', ') || data.error || 'Error desconocido'}`);
+        notify.error(`Error al emitir NC fiscal: ${data.errores?.join(', ') || data.error || 'Error desconocido'}`);
       }
       refetch();
       setSelectedId(ncId);
     },
     onError: (err: any) => {
-      message.error(err.response?.data?.error || 'Error al emitir NC fiscal');
+      notify.error(err.response?.data?.error || 'Error al emitir NC fiscal');
     },
   });
 

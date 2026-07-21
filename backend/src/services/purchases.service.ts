@@ -58,6 +58,10 @@ export interface CompraInput {
   ACTUALIZAR_STOCK?: boolean;
   DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
   PUNTO_VENTA_ID?: number | null;
+  /** Si viene, indica que esta compra se origina en un remito de entrada.
+   *  El backend forzará ACTUALIZAR_STOCK=false (el remito ya ajustó stock)
+   *  y vinculará bidireccionalmente COMPRAS.REMITO_ID ↔ REMITOS.COMPRA_ID. */
+  REMITO_ID?: number | null;
   /** IDs de cheques EN_CARTERA a egresar como pago (endoso). El backend
    *  marca cada cheque como EGRESADO con DESTINO_TIPO='COMPRA'. */
   cheques_ids?: number[];
@@ -111,6 +115,23 @@ async function ensureComprasDtoGralColumn(pool: any): Promise<void> {
     )
     BEGIN
       ALTER TABLE COMPRAS ADD DTO_GRAL DECIMAL(5,2) NULL;
+    END
+  `);
+  // REMITO_ID — vínculo opcional con REMITOS (remito de entrada que origina la compra)
+  await pool.request().query(`
+    IF NOT EXISTS (
+      SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_NAME = 'COMPRAS' AND COLUMN_NAME = 'REMITO_ID'
+    )
+    BEGIN
+      ALTER TABLE COMPRAS ADD REMITO_ID INT NULL;
+    END
+    IF NOT EXISTS (
+      SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_COMPRAS_REMITO'
+    )
+    BEGIN
+      ALTER TABLE COMPRAS ADD CONSTRAINT FK_COMPRAS_REMITO
+        FOREIGN KEY (REMITO_ID) REFERENCES REMITOS(REMITO_ID);
     END
   `);
   _comprasDtoGralColumnReady = true;
@@ -717,6 +738,7 @@ export const purchasesService = {
         ISNULL(c.IVA_TOTAL, 0) AS IVA_TOTAL,
         ISNULL(c.BONIFICACION_TOTAL, 0) AS BONIFICACION_TOTAL,
         ISNULL(c.IMP_INT_GRAVA_IVA, 0) AS IMP_INT_GRAVA_IVA,
+        c.REMITO_ID,
         p.NOMBRE AS PROVEEDOR_NOMBRE,
         p.CODIGOPARTICULAR AS PROVEEDOR_CODIGO
       FROM COMPRAS c WITH (NOLOCK)
@@ -752,6 +774,7 @@ export const purchasesService = {
           ISNULL(c.IVA_TOTAL, 0) AS IVA_TOTAL,
           ISNULL(c.BONIFICACION_TOTAL, 0) AS BONIFICACION_TOTAL,
           ISNULL(c.IMP_INT_GRAVA_IVA, 0) AS IMP_INT_GRAVA_IVA,
+          c.REMITO_ID,
           p.NOMBRE AS PROVEEDOR_NOMBRE,
           p.CODIGOPARTICULAR AS PROVEEDOR_CODIGO
         FROM COMPRAS c
@@ -813,6 +836,45 @@ export const purchasesService = {
 
     try {
       const fechaCompra = parseFechaCompra(input.FECHA_COMPRA);
+
+      // ── 0. Si viene REMITO_ID, validar y forzar ACTUALIZAR_STOCK=false ──
+      // El remito de entrada ya incrementó el stock; la compra no debe hacerlo
+      // de nuevo. Vinculamos bidireccionalmente REMITOS.COMPRA_ID ↔ COMPRAS.REMITO_ID.
+      if (input.REMITO_ID) {
+        const remitoCheck = await tx.request()
+          .input('rid', sql.Int, input.REMITO_ID)
+          .query(`SELECT REMITO_ID, TIPO, ANULADO, COMPRA_ID, PROVEEDOR_ID FROM REMITOS WHERE REMITO_ID = @rid`);
+        if (remitoCheck.recordset.length === 0) {
+          throw Object.assign(new Error('El remito asociado no existe'), { name: 'ValidationError' });
+        }
+        const rem = remitoCheck.recordset[0];
+        if (rem.TIPO !== 'ENTRADA') {
+          throw Object.assign(
+            new Error('Solo se pueden asociar remitos de ENTRADA a una compra'),
+            { name: 'ValidationError' }
+          );
+        }
+        if (rem.ANULADO) {
+          throw Object.assign(
+            new Error('El remito asociado está anulado'),
+            { name: 'ValidationError' }
+          );
+        }
+        if (rem.COMPRA_ID) {
+          throw Object.assign(
+            new Error('El remito ya está asociado a otra compra'),
+            { name: 'ValidationError' }
+          );
+        }
+        if (rem.PROVEEDOR_ID && rem.PROVEEDOR_ID !== input.PROVEEDOR_ID) {
+          throw Object.assign(
+            new Error('El proveedor del remito no coincide con el de la compra'),
+            { name: 'ValidationError' }
+          );
+        }
+        // Forzar ACTUALIZAR_STOCK=false (el remito ya ajustó stock).
+        input.ACTUALIZAR_STOCK = false;
+      }
 
       // ── 1. Calculate totals from items ──
       // Non-FA comprobantes (FB, FC, etc.) don't discriminate IVA
@@ -918,6 +980,7 @@ export const purchasesService = {
         .input('fechaCompra', sql.DateTime, fechaCompra)
         .input('montoAnticipo', sql.Decimal(18, 2), montoAnticipo)
         .input('dtoGral', sql.Decimal(5, 2), dtoGral)
+        .input('remitoId', sql.Int, input.REMITO_ID || null)
         .query(`
           INSERT INTO COMPRAS (
             COMPRA_ID, PROVEEDOR_ID, FECHA_COMPRA, TOTAL, ES_CTA_CORRIENTE,
@@ -925,16 +988,24 @@ export const purchasesService = {
             COBRADA, PTO_VTA, NRO_COMPROBANTE, PRECIOS_SIN_IVA,
             IMP_INT_GRAVA_IVA, PERCEPCION_IVA, PERCEPCION_IIBB,
             IMPUESTO_INTERNO, IVA_TOTAL, BONIFICACION_TOTAL, MONTO_ANTICIPO,
-            DTO_GRAL
+            DTO_GRAL, REMITO_ID
           ) VALUES (
             @compraId, @proveedorId, @fechaCompra, @total, @esCtaCorriente,
             @montoEfectivo, @montoDigital, @vuelto, @tipoComprobante,
             @cobrada, @ptoVta, @nroComprobante, @preciosSinIva,
             @impIntGravaIva, @percIVA, @percIIBB,
             @impInterno, @ivaTotal, @bonifTotal, @montoAnticipo,
-            @dtoGral
+            @dtoGral, @remitoId
           );
         `);
+
+      // ── 3.0.bis Si hay REMITO_ID, vincular REMITOS.COMPRA_ID ← compraId ──
+      if (input.REMITO_ID) {
+        await tx.request()
+          .input('cid', sql.Int, compraId)
+          .input('rid', sql.Int, input.REMITO_ID)
+          .query(`UPDATE REMITOS SET COMPRA_ID = @cid WHERE REMITO_ID = @rid`);
+      }
 
       // ── 3. INSERT COMPRAS_ITEMS + increment stock ──
       for (const item of input.items) {
@@ -1232,7 +1303,7 @@ export const purchasesService = {
 
       const existing = await tx.request()
         .input('id', sql.Int, id)
-        .query(`SELECT COMPRA_ID, ES_CTA_CORRIENTE, PROVEEDOR_ID, TOTAL
+        .query(`SELECT COMPRA_ID, ES_CTA_CORRIENTE, PROVEEDOR_ID, TOTAL, REMITO_ID
                 FROM COMPRAS WHERE COMPRA_ID = @id`);
 
       if (existing.recordset.length === 0) {
@@ -1240,6 +1311,31 @@ export const purchasesService = {
       }
 
       const oldCompra = existing.recordset[0];
+      const previousRemitoId: number | null = oldCompra.REMITO_ID || null;
+
+      // ── 0. Validar REMITO_ID entrante ──
+      if (input.REMITO_ID !== undefined && input.REMITO_ID !== null && input.REMITO_ID !== previousRemitoId) {
+        const remitoCheck = await tx.request()
+          .input('rid', sql.Int, input.REMITO_ID)
+          .query(`SELECT REMITO_ID, TIPO, ANULADO, COMPRA_ID, PROVEEDOR_ID FROM REMITOS WHERE REMITO_ID = @rid`);
+        if (remitoCheck.recordset.length === 0) {
+          throw Object.assign(new Error('El remito asociado no existe'), { name: 'ValidationError' });
+        }
+        const rem = remitoCheck.recordset[0];
+        if (rem.TIPO !== 'ENTRADA') {
+          throw Object.assign(new Error('Solo se pueden asociar remitos de ENTRADA a una compra'), { name: 'ValidationError' });
+        }
+        if (rem.ANULADO) {
+          throw Object.assign(new Error('El remito asociado está anulado'), { name: 'ValidationError' });
+        }
+        if (rem.COMPRA_ID && rem.COMPRA_ID !== id) {
+          throw Object.assign(new Error('El remito ya está asociado a otra compra'), { name: 'ValidationError' });
+        }
+        if (rem.PROVEEDOR_ID && rem.PROVEEDOR_ID !== input.PROVEEDOR_ID) {
+          throw Object.assign(new Error('El proveedor del remito no coincide con el de la compra'), { name: 'ValidationError' });
+        }
+        input.ACTUALIZAR_STOCK = false;
+      }
 
       // Block update if active NCs exist (stock already adjusted by the NC)
       try {
@@ -1375,6 +1471,7 @@ export const purchasesService = {
         .input('ivaTotal', sql.Decimal(18, 2), r2(ivaTotal))
         .input('bonifTotal', sql.Decimal(18, 2), r2(bonifTotal))
         .input('dtoGral', sql.Decimal(5, 2), dtoGral)
+        .input('remitoId', sql.Int, input.REMITO_ID !== undefined ? input.REMITO_ID : previousRemitoId)
         .query(`
           UPDATE COMPRAS SET
             PROVEEDOR_ID=@proveedorId, FECHA_COMPRA=@fechaCompra, TOTAL=@total,
@@ -1386,9 +1483,28 @@ export const purchasesService = {
             PERCEPCION_IVA=@percIVA, PERCEPCION_IIBB=@percIIBB,
             IMPUESTO_INTERNO=@impInterno, IVA_TOTAL=@ivaTotal,
             BONIFICACION_TOTAL=@bonifTotal,
-            DTO_GRAL=@dtoGral
+            DTO_GRAL=@dtoGral,
+            REMITO_ID=@remitoId
           WHERE COMPRA_ID = @id
         `);
+
+      // ── 5b. Mantener vínculo bidireccional REMITOS.COMPRA_ID ↔ COMPRAS.REMITO_ID ──
+      const newRemitoId: number | null = input.REMITO_ID !== undefined
+        ? (input.REMITO_ID || null)
+        : previousRemitoId;
+      if (previousRemitoId !== newRemitoId) {
+        if (previousRemitoId) {
+          await tx.request()
+            .input('rid', sql.Int, previousRemitoId)
+            .query(`UPDATE REMITOS SET COMPRA_ID = NULL WHERE REMITO_ID = @rid`);
+        }
+        if (newRemitoId) {
+          await tx.request()
+            .input('cid', sql.Int, id)
+            .input('rid', sql.Int, newRemitoId)
+            .query(`UPDATE REMITOS SET COMPRA_ID = @cid WHERE REMITO_ID = @rid`);
+        }
+      }
 
       // ── 6. Insert new items + increment stock ──
       for (const item of input.items) {
@@ -1623,7 +1739,7 @@ export const purchasesService = {
     try {
       const existing = await tx.request()
         .input('id', sql.Int, id)
-        .query(`SELECT COMPRA_ID, ES_CTA_CORRIENTE, PROVEEDOR_ID, TOTAL
+        .query(`SELECT COMPRA_ID, ES_CTA_CORRIENTE, PROVEEDOR_ID, TOTAL, REMITO_ID
                 FROM COMPRAS WHERE COMPRA_ID = @id`);
 
       if (existing.recordset.length === 0) {
@@ -1631,6 +1747,14 @@ export const purchasesService = {
       }
 
       const compra = existing.recordset[0];
+
+      // Si la compra está asociada a un remito, limpiar el vínculo bidireccional
+      // para permitir que el remito siga usándose (anularlo o asociarlo a otra compra).
+      if (compra.REMITO_ID) {
+        await tx.request()
+          .input('rid', sql.Int, compra.REMITO_ID)
+          .query(`UPDATE REMITOS SET COMPRA_ID = NULL WHERE REMITO_ID = @rid`);
+      }
 
       // Block delete if active NCs exist (stock already adjusted by the NC)
       try {

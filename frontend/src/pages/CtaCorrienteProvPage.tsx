@@ -1,9 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Table, Space, Input, Typography, Tag, Button, App, Modal, Descriptions,
-  Drawer, DatePicker, Segmented, Statistic, Card, Row, Col, Tooltip, Popconfirm,
-} from 'antd';
+import { Table, Space, Input, Typography, Tag, Button, App, Modal, Descriptions, Drawer, DatePicker, Segmented, Statistic, Card, Row, Col, Tooltip, Popconfirm } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
@@ -24,6 +21,7 @@ import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { NuevaOrdenPagoModal } from '../components/ctaCorriente/NuevaOrdenPagoModal';
 import { useNavigationStore } from '../store/navigationStore';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -31,7 +29,7 @@ const { RangePicker } = DatePicker;
 type DateFilter = 'mes' | 'todos' | 'personalizado';
 
 export function CtaCorrienteProvPage() {
-  const { message, modal } = App.useApp();
+  const { modal } = App.useApp();
   const qc = useQueryClient();
 
   // ── List state ──────────────────────────────────
@@ -110,7 +108,7 @@ export function CtaCorrienteProvPage() {
     if (record) {
       handleView(record);
     } else {
-      message.info('El proveedor no tiene habilitada la Cuenta Corriente');
+      notify.info('El proveedor no tiene habilitada la Cuenta Corriente');
     }
   }, [navEvent, proveedores]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -132,22 +130,22 @@ export function CtaCorrienteProvPage() {
   const crearCuentaMut = useMutation({
     mutationFn: (proveedorId: number) => ctaCorrienteProvApi.crearCuenta(proveedorId),
     onSuccess: () => {
-      message.success('Cuenta corriente creada');
+      notify.success('Cuenta corriente creada');
       qc.invalidateQueries({ queryKey: ['cta-corriente-prov-list'] });
     },
-    onError: (err: any) => message.error(err.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err.response?.data?.error || err.message),
   });
 
   const eliminarOrdenPagoMut = useMutation({
     mutationFn: (pagoId: number) => ctaCorrienteProvApi.eliminarOrdenPago(pagoId),
     onSuccess: () => {
-      message.success('Orden de pago eliminada');
+      notify.success('Orden de pago eliminada');
       qc.invalidateQueries({ queryKey: ['cta-prov-ordenes-pago'] });
       qc.invalidateQueries({ queryKey: ['cta-prov-movimientos'] });
       qc.invalidateQueries({ queryKey: ['cta-corriente-prov-list'] });
       invalidateCashQueries(qc);
     },
-    onError: (err: any) => message.error(err.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err.response?.data?.error || err.message),
   });
 
   // ── Handlers ────────────────────────────────────

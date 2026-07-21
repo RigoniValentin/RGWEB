@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Modal, Input, Select, Button, InputNumber, Table, Space, Typography,
-  Divider, Spin, Switch, message, Badge, Tag, Checkbox, Popover, Tabs, Tooltip,
+  Divider, Spin, Switch, Badge, Tag, Checkbox, Popover, Tabs, Tooltip,
 } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, ShoppingCartOutlined,
@@ -34,6 +34,7 @@ import { FilePdfOutlined } from '@ant-design/icons';
 import type { ReceiptData } from '../../utils/printReceipt';
 import type { ProductoSearch, VentaInput, ClienteVenta, RemitoPendiente } from '../../types';
 import { ProductSearchModal } from '../ProductSearchModal';
+import { notify, extractErrorMessage } from '../../utils/notify';
 
 const { Title, Text } = Typography;
 
@@ -622,18 +623,18 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       // Show appropriate message based on anticipo usage
       if (result.MONTO_ANTICIPO && result.MONTO_ANTICIPO > 0) {
         if (result.COBRADA) {
-          message.success(
+          notify.success(
             `Venta #${result.VENTA_ID} creada — Total: ${fmtMoney(result.TOTAL)}. Cobrada con saldo de cta corriente.`,
             5
           );
         } else {
-          message.success(
+          notify.success(
             `Venta #${result.VENTA_ID} creada — Total: ${fmtMoney(result.TOTAL)}. Anticipo aplicado: ${fmtMoney(result.MONTO_ANTICIPO)}. Pendiente: ${fmtMoney(result.TOTAL - result.MONTO_ANTICIPO)}`,
             5
           );
         }
       } else {
-        message.success(`Venta #${result.VENTA_ID} creada — Total: ${fmtMoney(result.TOTAL)}`);
+        notify.success(`Venta #${result.VENTA_ID} creada — Total: ${fmtMoney(result.TOTAL)}`);
       }
 
       // Track whether FE succeeded
@@ -646,7 +647,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
           const feResult = await salesApi.facturar(result.VENTA_ID);
           if (feResult.success) {
             feSuccess = true;
-            message.success(
+            notify.success(
               `Factura emitida: ${feResult.tipo_comprobante} Nº ${feResult.comprobante_nro} — CAE: ${feResult.cae}`,
               6
             );
@@ -664,16 +665,16 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                 printFacturaTicket(facturaData);
               }
             } catch (printErr: any) {
-              message.warning('Factura emitida, pero no se pudo generar el PDF/ticket: ' + (printErr.message || ''));
+              notify.warning('Factura emitida, pero no se pudo generar el PDF/ticket: ' + (printErr.message || ''));
             }
           } else {
-            message.error(
+            notify.error(
               `Error al facturar: ${(feResult.errores || []).join(', ') || 'Error desconocido'}`,
               8
             );
           }
         } catch (err: any) {
-          message.error(`Error al emitir factura: ${err.response?.data?.error || err.message}`, 8);
+          notify.error(`Error al emitir factura: ${err.response?.data?.error || err.message}`, 8);
         } finally {
           setFacturando(false);
         }
@@ -743,7 +744,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       }
     },
     onError: (err: any) => {
-      message.error(err.response?.data?.error || 'Error al crear la venta');
+      notify.error(extractErrorMessage(err, 'Error al crear la venta'));
     },
     onSettled: (_data, _error, variables) => {
       if (variables?.draftId && !completedDraftIdsRef.current.has(variables.draftId)) {
@@ -783,7 +784,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     const context = getActiveSubmitContext();
     if (!context) return;
     if (createMutation.isPending || facturando || isActiveDraftSubmitLocked()) {
-      message.info('La venta ya se está procesando');
+      notify.info('La venta ya se está procesando');
       return;
     }
     submittingDraftIdsRef.current.add(context.draftId);
@@ -800,26 +801,26 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   // ── Send WhatsApp ──
   const handleSendWhatsApp = async () => {
     if (!pendingVentaId || !wspTelefono.trim()) {
-      message.warning('Ingrese un número de teléfono');
+      notify.warning('Ingrese un número de teléfono');
       return;
     }
     // Validate: at least 10 digits
     const digits = wspTelefono.replace(/\D/g, '');
     if (digits.length < 10) {
-      message.warning('El teléfono debe tener al menos 10 dígitos');
+      notify.warning('El teléfono debe tener al menos 10 dígitos');
       return;
     }
     setWspSending(true);
     try {
       await salesApi.sendWhatsApp(pendingVentaId, wspTelefono, wspNombre || 'Cliente');
-      message.success('Detalle enviado por WhatsApp');
+      notify.success('Detalle enviado por WhatsApp');
       setWspModalOpen(false);
       setPendingVentaId(null);
       const draftIdToReset = pendingWhatsappDraftId;
       setPendingWhatsappDraftId(null);
       resetForm(draftIdToReset || undefined);
     } catch (err: any) {
-      message.error(err.response?.data?.error || 'Error al enviar WhatsApp');
+      notify.error(err.response?.data?.error || 'Error al enviar WhatsApp');
     } finally {
       setWspSending(false);
     }
@@ -893,7 +894,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     options?: { focusPrice?: boolean; focusSearch?: boolean }
   ) => {
     if (!depositoVentaId && product.DESCUENTA_STOCK !== false) {
-      message.warning('Seleccione un depósito para descontar stock');
+      notify.warning('Seleccione un depósito para descontar stock');
       return;
     }
 
@@ -939,7 +940,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   // Does NOT set lastAddedKey so the search input stays focused for the next scan
   const addBalanzaProduct = useCallback((product: ProductoSearch, cantidad: number) => {
     if (!depositoVentaId && product.DESCUENTA_STOCK !== false) {
-      message.warning('Seleccione un depósito para descontar stock');
+      notify.warning('Seleccione un depósito para descontar stock');
       return;
     }
 
@@ -1000,9 +1001,9 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       }
       setCart(allItems);
       setSelectedRemitoIds(remitoIds);
-      message.success(`Se cargaron ${allItems.length} producto(s) desde ${remitoIds.length} remito(s)`);
+      notify.success(`Se cargaron ${allItems.length} producto(s) desde ${remitoIds.length} remito(s)`);
     } catch (err: any) {
-      message.error('Error al cargar productos del remito');
+      notify.error('Error al cargar productos del remito');
     } finally {
       setLoadingRemitoItems(false);
     }
@@ -1062,7 +1063,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     searchTimeoutRef.current = setTimeout(() => {
       if (searchAbortRef.current === controller) {
         controller.abort();
-        message.warning('La búsqueda demoró demasiado. Intente nuevamente.');
+        notify.warning('La búsqueda demoró demasiado. Intente nuevamente.');
       }
     }, 15000);
 
@@ -1087,16 +1088,16 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         if (!isStillActive()) return;
         if (data && data.product) {
           addBalanzaProduct(data.product, data.cantidad);
-          message.success(`${data.product.NOMBRE} — ${data.cantidad.toFixed(3)} kg`);
+          notify.success(`${data.product.NOMBRE} — ${data.cantidad.toFixed(3)} kg`);
         } else {
-          message.warning('Producto de balanza no encontrado');
+          notify.warning('Producto de balanza no encontrado');
         }
       }).catch((err: any) => {
         if (controller.signal.aborted) return;
         if (!isStillActive()) return;
         const code = err?.code || err?.name;
         if (code === 'ERR_CANCELED' || code === 'CanceledError' || code === 'AbortError') return;
-        message.error('Error al buscar producto de balanza');
+        notify.error('Error al buscar producto de balanza');
       }).finally(finishLifecycle);
       return;
     }
@@ -1139,7 +1140,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         if (!isStillActive()) return;
         const code = err?.code || err?.name;
         if (code === 'ERR_CANCELED' || code === 'CanceledError' || code === 'AbortError') return;
-        message.error('No se pudo buscar el producto. Verifique la conexión.');
+        notify.error('No se pudo buscar el producto. Verifique la conexión.');
       })
       .finally(finishLifecycle);
   }, [searchText, addProduct, addBalanzaProduct, cancelInFlightSearch, setProductSearchInitial, setProductSearchOpen, setSearchText]);
@@ -1197,7 +1198,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const ensureDepositoParaVenta = useCallback(() => {
     const faltaDeposito = cart.some(item => !item.DESDE_REMITO && !(item.DEPOSITO_ID || depositoVentaId));
     if (faltaDeposito) {
-      message.warning('Seleccione un depósito antes de continuar con la venta');
+      notify.warning('Seleccione un depósito antes de continuar con la venta');
       return false;
     }
     return true;
@@ -1206,7 +1207,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   const ensureCantidadesValidas = useCallback(() => {
     const itemsSinCantidad = cart.filter(item => !item.CANTIDAD || item.CANTIDAD <= 0);
     if (itemsSinCantidad.length > 0) {
-      message.warning(`Hay ${itemsSinCantidad.length === 1 ? 'un producto' : `${itemsSinCantidad.length} productos`} con cantidad 0. Ingrese una cantidad válida antes de continuar.`);
+      notify.warning(`Hay ${itemsSinCantidad.length === 1 ? 'un producto' : `${itemsSinCantidad.length} productos`} con cantidad 0. Ingrese una cantidad válida antes de continuar.`);
       return false;
     }
     return true;
@@ -1215,11 +1216,11 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
   // Submit sale
   const handleSubmit = async (cobrar: boolean) => {
     if (saleSubmitBusy) {
-      message.info('La venta ya se está procesando');
+      notify.info('La venta ya se está procesando');
       return;
     }
     if (cart.length === 0) {
-      message.warning('Agregue al menos un producto');
+      notify.warning('Agregue al menos un producto');
       return;
     }
 
@@ -1301,7 +1302,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
 
   const handleConfirmCobro = () => {
     if (saleSubmitBusy) {
-      message.info('La venta ya se está procesando');
+      notify.info('La venta ya se está procesando');
       return;
     }
     if (!pagoValido) return;
@@ -1412,7 +1413,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         e.preventDefault();
         e.stopImmediatePropagation();
         if (drafts.length >= 10) {
-          message.warning('Máximo 10 borradores simultáneos');
+          notify.warning('Máximo 10 borradores simultáneos');
         } else {
           createDraft();
         }
@@ -1841,7 +1842,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
               if (saleSubmitBusy) return;
               if (action === 'add') {
                 if (drafts.length >= 10) {
-                  message.warning('Máximo 10 borradores simultáneos');
+                  notify.warning('Máximo 10 borradores simultáneos');
                 } else {
                   createDraft();
                 }
@@ -2885,12 +2886,12 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         salesApi.getBalanzaProduct(code).then(data => {
           if (data && data.product) {
             addBalanzaProduct(data.product, data.cantidad);
-            message.success(`${data.product.NOMBRE} — ${data.cantidad.toFixed(3)} kg`);
+            notify.success(`${data.product.NOMBRE} — ${data.cantidad.toFixed(3)} kg`);
           } else {
-            message.warning('Producto de balanza no encontrado');
+            notify.warning('Producto de balanza no encontrado');
           }
         }).catch(() => {
-          message.error('Error al buscar producto de balanza');
+          notify.error('Error al buscar producto de balanza');
         });
       }}
     />

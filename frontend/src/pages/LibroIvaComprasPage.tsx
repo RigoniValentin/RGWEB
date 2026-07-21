@@ -1,9 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  Table, Space, Typography, Button, Card, Row, Col, Statistic, Select,
-  Switch, Tag, Tooltip, App, Divider, Badge,
-} from 'antd';
+import { Table, Space, Typography, Button, Card, Row, Col, Statistic, Select, Switch, Tag, Tooltip, Divider, Badge } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
   ReloadOutlined, FileExcelOutlined, FileTextOutlined,
@@ -19,6 +16,7 @@ import {
 } from '../services/libroIvaCompras.api';
 import { fmtMoney } from '../utils/format';
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text } = Typography;
 
@@ -36,7 +34,6 @@ const TIPO_COMPROBANTE_OPTIONS = [
 ];
 
 export function LibroIvaComprasPage() {
-  const { message } = App.useApp();
 
   // ── Filtros ──────────────────────────────────────
   const [datePreset, setDatePreset] = useState<DatePreset | undefined>('mes');
@@ -93,7 +90,7 @@ export function LibroIvaComprasPage() {
   // ── Export Excel (CSV) ───────────────────────────
   const handleExportExcel = () => {
     if (!comprobantes?.length) {
-      message.warning('No hay datos para exportar');
+      notify.warning('No hay datos para exportar');
       return;
     }
     const headers = [
@@ -119,13 +116,13 @@ export function LibroIvaComprasPage() {
     ]);
     const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(';')).join('\n');
     downloadFile(csv, `LibroIVA_Compras_${dayjs(fechaDesde).format('YYYYMM')}.csv`, 'text/csv;charset=utf-8');
-    message.success('Archivo exportado');
+    notify.success('Archivo exportado');
   };
 
   // ── Export CITI (AFIP) ───────────────────────────
   const handleExportCiti = async () => {
     if (!comprobantes?.length) {
-      message.warning('No hay datos para exportar');
+      notify.warning('No hay datos para exportar');
       return;
     }
     try {
@@ -135,9 +132,9 @@ export function LibroIvaComprasPage() {
       setTimeout(() => {
         downloadFile(data.alicuotas, `COMPRAS_ALIC_${periodo}.txt`, 'text/plain');
       }, 500);
-      message.success('Archivos CITI exportados (Comprobantes + Alícuotas)');
+      notify.success('Archivos CITI exportados (Comprobantes + Alícuotas)');
     } catch {
-      message.error('Error al exportar archivos CITI');
+      notify.error('Error al exportar archivos CITI');
     }
   };
 

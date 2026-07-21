@@ -15,6 +15,7 @@ export interface ApiKey {
   REVOKED_AT: string | null;
   CREATED_BY: number | null;
   NOTAS: string | null;
+  EXPIRES_AT: string | null;
 }
 
 export interface ApiKeyCreated extends ApiKey {

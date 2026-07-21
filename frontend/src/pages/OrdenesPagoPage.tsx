@@ -1,9 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Table, Space, Input, Typography, Button, App, Descriptions, Modal,
-  Statistic, Card, Row, Col, Tooltip, Popconfirm, Tag,
-} from 'antd';
+import { Table, Space, Input, Typography, Button, Descriptions, Modal, Statistic, Card, Row, Col, Tooltip, Popconfirm, Tag } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
@@ -21,11 +18,12 @@ import { printOrdenPago } from '../utils/printOrdenPago';
 import { NuevaOrdenPagoGeneralModal } from '../components/ordenesPago/NuevaOrdenPagoGeneralModal';
 import { useTabStore } from '../store/tabStore';
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text } = Typography;
 
 export function OrdenesPagoPage() {
-  const { message } = App.useApp();
+
   const qc = useQueryClient();
 
   // ── Filters ─────────────────────────────────────
@@ -58,7 +56,7 @@ export function OrdenesPagoPage() {
   const eliminarMut = useMutation({
     mutationFn: (pagoId: number) => ordenesPagoApi.eliminarOrdenPago(pagoId),
     onSuccess: () => {
-      message.success('Orden de pago eliminada');
+      notify.success('Orden de pago eliminada');
       qc.invalidateQueries({ queryKey: ['ordenes-pago-general'] });
       qc.invalidateQueries({ queryKey: ['ordenes-pago-metodos-totales'] });
       qc.invalidateQueries({ queryKey: ['cta-prov-ordenes-pago'] });
@@ -66,7 +64,7 @@ export function OrdenesPagoPage() {
       qc.invalidateQueries({ queryKey: ['cta-corriente-prov-list'] });
       invalidateCashQueries(qc);
     },
-    onError: (err: any) => message.error(err.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err.response?.data?.error || err.message),
   });
 
   // ── Handlers ────────────────────────────────────
@@ -105,7 +103,7 @@ export function OrdenesPagoPage() {
       const data = await ordenesPagoApi.getReciboData(pagoId);
       await printOrdenPago(data);
     } catch {
-      message.error('No se pudo generar la orden de pago');
+      notify.error('No se pudo generar la orden de pago');
     }
   };
 

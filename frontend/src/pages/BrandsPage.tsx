@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Table, Space, Input, Typography, Tag, Select, Button, Modal, App,
-  Tooltip, Spin, Form, Switch,
-} from 'antd';
+import { Table, Space, Input, Typography, Tag, Select, Button, Modal, Tooltip, Spin, Form, Switch } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
@@ -14,11 +11,12 @@ import { useTabStore } from '../store/tabStore';
 import type { Marca } from '../types';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { notify } from '../utils/notify.ts';
 
 const { Title } = Typography;
 
 export function BrandsPage() {
-  const { message } = App.useApp();
+
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -101,14 +99,14 @@ export function BrandsPage() {
       onOk: async () => {
         try {
           const result = await brandApi.delete(record.MARCA_ID);
-          message.success(
+          notify.success(
             result.mode === 'soft'
               ? 'Marca desactivada (tiene productos asociados)'
               : 'Marca eliminada'
           );
           invalidate();
         } catch (err: any) {
-          message.error(err?.response?.data?.error || 'Error al eliminar');
+          notify.error(err?.response?.data?.error || 'Error al eliminar');
         }
       },
     });
@@ -127,10 +125,10 @@ export function BrandsPage() {
 
       if (editId) {
         await brandApi.update(editId, payload);
-        message.success('Marca actualizada');
+        notify.success('Marca actualizada');
       } else {
         await brandApi.create(payload);
-        message.success('Marca creada');
+        notify.success('Marca creada');
       }
 
       setFormOpen(false);
@@ -138,7 +136,7 @@ export function BrandsPage() {
       invalidate();
     } catch (err: any) {
       if (err?.response?.data?.error) {
-        message.error(err.response.data.error);
+        notify.error(err.response.data.error);
       }
     } finally {
       setSaving(false);

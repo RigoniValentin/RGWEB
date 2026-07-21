@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Modal, Form, Input, InputNumber, DatePicker, Space, Typography, App, Divider, Segmented, Button, Tag,
-} from 'antd';
+import { Modal, Form, Input, InputNumber, DatePicker, Space, Typography, Divider, Segmented, Button, Tag } from 'antd';
 import {
   BankOutlined, InboxOutlined, WalletOutlined, CheckCircleOutlined,
   DollarOutlined, CreditCardOutlined, DeleteOutlined,
@@ -18,6 +16,7 @@ import { ChequePicker } from '../cheques/ChequePicker';
 import { useAuthStore } from '../../store/authStore';
 import { usePaymentMethodKeyboardNavigation } from '../../hooks/usePaymentMethodKeyboardNavigation';
 import type { MetodoPagoItem } from '../../types';
+import { notify } from '../../utils/notify.ts';
 
 const { Text } = Typography;
 
@@ -34,7 +33,7 @@ interface Props {
 export function NuevaOrdenPagoModal({
   open, ctaCorrienteId, proveedorId, proveedorNombre, pagoId, onSuccess, onCancel,
 }: Props) {
-  const { message } = App.useApp();
+
   const [form] = Form.useForm();
   const isEdit = pagoId !== null;
   const puntoVentaActivo = useAuthStore(s => s.puntoVentaActivo);
@@ -187,7 +186,7 @@ export function NuevaOrdenPagoModal({
   const crearMut = useMutation({
     mutationFn: (data: OrdenPagoInput) => ctaCorrienteProvApi.crearOrdenPago(ctaCorrienteId, data),
     onSuccess: (result) => {
-      message.success('Orden de pago registrada exitosamente');
+      notify.success('Orden de pago registrada exitosamente');
       if (chequesIds.length > 0) {
         queryClient.invalidateQueries({ queryKey: ['cheques'] });
         queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
@@ -205,25 +204,25 @@ export function NuevaOrdenPagoModal({
             const data = await ordenesPagoApi.getReciboData(result.PAGO_ID);
             await printOrdenPago(data);
           } catch {
-            message.error('No se pudo generar la orden de pago');
+            notify.error('No se pudo generar la orden de pago');
           }
         },
       });
     },
-    onError: (err: any) => message.error(err.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err.response?.data?.error || err.message),
   });
 
   const actualizarMut = useMutation({
     mutationFn: (data: OrdenPagoInput) => ctaCorrienteProvApi.actualizarOrdenPago(ctaCorrienteId, pagoId!, data),
     onSuccess: () => {
-      message.success('Orden de pago modificada exitosamente');
+      notify.success('Orden de pago modificada exitosamente');
       queryClient.invalidateQueries({ queryKey: ['cheques'] });
       queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
       queryClient.invalidateQueries({ queryKey: ['cheques-cartera'] });
       invalidateCashQueries(queryClient);
       onSuccess();
     },
-    onError: (err: any) => message.error(err.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err.response?.data?.error || err.message),
   });
 
   const saving = crearMut.isPending || actualizarMut.isPending;
@@ -234,12 +233,12 @@ export function NuevaOrdenPagoModal({
       const values = await form.validateFields();
 
       if (selectedMetodos.length === 0) {
-        message.warning('Seleccione al menos un método de pago');
+        notify.warning('Seleccione al menos un método de pago');
         return;
       }
 
       if (total <= 0) {
-        message.warning('El total debe ser mayor a cero');
+        notify.warning('El total debe ser mayor a cero');
         return;
       }
 
@@ -254,7 +253,7 @@ export function NuevaOrdenPagoModal({
         return m?.CATEGORIA === 'CHEQUES' && (montosPorMetodo[id] || 0) > 0;
       });
       if (tieneMetodoCheques && chequesIds.length === 0) {
-        message.warning('Seleccione cheques de cartera para el método CHEQUES');
+        notify.warning('Seleccione cheques de cartera para el método CHEQUES');
         return;
       }
 

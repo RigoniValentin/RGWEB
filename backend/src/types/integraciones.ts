@@ -13,6 +13,24 @@ export interface ApiKey {
   REVOKED_AT: Date | null;
   CREATED_BY: number | null;
   NOTAS: string | null;
+  EXPIRES_AT: Date | null;
+}
+
+/** Dispositivo mobile registrado contra una API key. */
+export interface MobileDevice {
+  DEVICE_ID: number;
+  API_KEY_ID: number;
+  DEVICE_NAME: string;
+  DEVICE_UUID: string;
+  REGISTERED_AT: Date;
+  LAST_SEEN_AT: Date | null;
+  LAST_IP: string | null;
+  REVOKED_AT: Date | null;
+  // Joined desde INTEGRACIONES_API_KEYS
+  KEY_PREFIX: string;
+  EXPIRES_AT: Date | null;
+  KEY_REVOKED_AT: Date | null;
+  KEY_ACTIVA: boolean;
 }
 
 export interface ApiKeyCreated extends ApiKey {

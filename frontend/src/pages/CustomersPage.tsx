@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Table, Space, Input, Typography, Tag, Select, Button, Modal, App,
-  Tooltip, Drawer, Spin, Form, Switch, Descriptions, Divider, Row, Col,
-} from 'antd';
+import { Table, Space, Input, Typography, Tag, Select, Button, Modal, Tooltip, Drawer, Spin, Form, Switch, Descriptions, Divider, Row, Col } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
@@ -16,6 +13,7 @@ import { fmtMoney } from '../utils/format';
 import type { Cliente } from '../types';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text } = Typography;
 
@@ -36,7 +34,7 @@ const PROVINCIAS = [
 ];
 
 export function CustomersPage() {
-  const { message } = App.useApp();
+
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -99,7 +97,7 @@ export function CustomersPage() {
   // ── AFIP Padrón lookup ────────────────────────────
   const handleBuscarCuit = async () => {
     const cuit = (form.getFieldValue('NUMERO_DOC') as string || '').replace(/-/g, '');
-    if (!cuit) { message.warning('Ingresá el CUIT antes de buscar'); return; }
+    if (!cuit) { notify.warning('Ingresá el CUIT antes de buscar'); return; }
     setLookingUpCuit(true);
     setNoAlcanzado(false);
     try {
@@ -116,9 +114,9 @@ export function CustomersPage() {
       if (result.codigoPostal) form.setFieldsValue({ CP: result.codigoPostal });
       if (result.rubro) form.setFieldsValue({ RUBRO: result.rubro });
       if (result.fechaNacimiento) form.setFieldsValue({ FECHA_NACIMIENTO: result.fechaNacimiento });
-      message.success('Datos importados desde AFIP');
+      notify.success('Datos importados desde AFIP');
     } catch (err: any) {
-      message.error(err?.response?.data?.error || 'No se pudo consultar el padrón de AFIP');
+      notify.error(err?.response?.data?.error || 'No se pudo consultar el padrón de AFIP');
     } finally {
       setLookingUpCuit(false);
     }
@@ -176,7 +174,7 @@ export function CustomersPage() {
 
   const handleDelete = (record: Cliente) => {
     if (record.CLIENTE_ID === 1) {
-      message.warning('No se puede eliminar el cliente CONSUMIDOR FINAL');
+      notify.warning('No se puede eliminar el cliente CONSUMIDOR FINAL');
       return;
     }
     Modal.confirm({
@@ -188,14 +186,14 @@ export function CustomersPage() {
       onOk: async () => {
         try {
           const result = await customerApi.delete(record.CLIENTE_ID);
-          message.success(
+          notify.success(
             result.mode === 'soft'
               ? 'Cliente desactivado (tiene ventas asociadas)'
               : 'Cliente eliminado'
           );
           invalidate();
         } catch (err: any) {
-          message.error(err?.response?.data?.error || 'Error al eliminar');
+          notify.error(err?.response?.data?.error || 'Error al eliminar');
         }
       },
     });
@@ -226,10 +224,10 @@ export function CustomersPage() {
 
       if (editId) {
         await customerApi.update(editId, payload);
-        message.success('Cliente actualizado');
+        notify.success('Cliente actualizado');
       } else {
         await customerApi.create(payload);
-        message.success('Cliente creado');
+        notify.success('Cliente creado');
       }
 
       setFormOpen(false);
@@ -237,7 +235,7 @@ export function CustomersPage() {
       invalidate();
     } catch (err: any) {
       if (err?.response?.data?.error) {
-        message.error(err.response.data.error);
+        notify.error(err.response.data.error);
       }
     } finally {
       setSaving(false);

@@ -1,0 +1,118 @@
+/* ==========================================================================
+   Sileo RG — Overrides de paleta y tipografía para que los toasts luzcan
+   nativos de Río Gestión. Mantiene 1-a-1 la física de spring y las
+   animaciones nativas; solo reasigna colores y tipografía.
+
+   Orden de prioridad CSS:
+     1) sileo/styles.css (preset nativo)
+     2) este archivo (RG overrides)
+   ========================================================================== */
+
+/* ── Paleta de estados: oro RG para success/warning/loading ─────────────── */
+/* Success, warning y loading usan la paleta dorada de Río Gestión para que
+   los toasts se integren con la identidad visual del sidebar.
+   Error mantiene el rojo (universalmente reconocible).
+   Info y action mantienen los azules/violetas Ant para diferenciarlos. */
+:root {
+  --sileo-state-success: #EABD23; /* gold RG (principal) */
+  --sileo-state-error:   #ff4d4f; /* rojo Ant */
+  --sileo-state-warning: #D4A720; /* gold RG oscuro (diferencia de success) */
+  --sileo-state-loading: #EABD23; /* gold RG */
+  --sileo-state-info:    #1677ff; /* azul Ant */
+  --sileo-state-action:  #722ED1; /* violeta Ant */
+}
+
+/* ── Tipografía RG (Inter) y contenedor del viewport ─────────────────────── */
+[data-sileo-viewport] {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    sans-serif;
+}
+
+/* ── Aumentamos ligeramente el ancho por defecto para textos en español ──── */
+:root {
+  --sileo-width: 380px;
+}
+
+/* ── Título: usamos peso 600 y sin text-transform: capitalize (español) ─── */
+[data-sileo-title] {
+  font-weight: 600;
+  text-transform: none;
+  font-size: 0.85rem;
+  line-height: 1.15rem;
+}
+
+/* Descripción */
+[data-sileo-description] {
+  font-size: 0.85rem;
+  line-height: 1.2rem;
+  padding: 0.85rem 1rem 0.25rem;
+}
+
+/* ── Z-index: encima del header sticky / sidebar, debajo de modales antd ── */
+[data-sileo-viewport] {
+  z-index: 1100;
+}
+
+/* ── Action button ────────────────────────────────────────────────────── */
+[data-sileo-button] {
+  font-weight: 600;
+}
+
+/* ── Loading spinner: usa el gold RG ───────────────────────────────────── */
+[data-sileo-icon='spin'] {
+  color: var(--sileo-state-loading);
+}
+
+/* ── Asegurar que el viewport no quede tapado por el sidebar en mobile ─── */
+@media (max-width: 768px) {
+  :root {
+    --sileo-width: calc(100vw - 32px);
+  }
+}
+
+/* ==========================================================================
+   FIX: Badge visualmente integrado con el morph pill
+   ==========================================================================
+   El morph SVG de Sileo no siempre extiende su forma para incluir el badge
+   cuando los mensajes son cortos ("Producto actualizado"). En esos casos el
+   badge (con el check) queda visualmente "colgando" fuera del pill oscuro.
+
+   Solución: hacemos que el badge tenga el MISMO fondo que el morph pill
+   (#1a1a1a) para que ambos elementos se vean como una sola pieza continua,
+   diferenciándolo solo con un anillo dorado (ring) y el ícono en gold RG.
+
+   De este modo, aunque geométricamente el badge quede al borde o ligeramente
+   fuera del morph path, visualmente luce como una sola unidad coherente.
+   ────────────────────────────────────────────────────────────────────────── */
+
+[data-sileo-toast] [data-sileo-badge] {
+  /* Mismo fill que el morph (THEME_FILLS.light = #1a1a1a) */
+  background-color: #1a1a1a !important;
+  /* Ring dorado del estado (gold RG) para indicar tipo success/loading/etc */
+  box-shadow:
+    0 0 0 2px var(--_c),
+    0 1px 4px rgba(0, 0, 0, 0.25);
+  /* Tamaño ligeramente mayor para mejor lectura */
+  height: 26px;
+  width: 26px;
+  border-radius: 9999px;
+  /* El ícono hereda currentColor y le decimos qué color usar */
+  color: var(--_c) !important;
+}
+
+[data-sileo-toast] [data-sileo-badge] svg {
+  color: var(--_c) !important;
+  stroke: var(--_c) !important;
+  fill: none;
+}
+
+/* Header: Asegurar que tenga el mismo padding y que el badge tenga
+   suficiente aire respecto al title */
+[data-sileo-header] {
+  padding: 0.5rem 0.6rem;
+}
+
+/* El header-inner alinea badge + title; dejamos un gap cómodo */
+[data-sileo-header-inner] {
+  gap: 0.6rem;
+}

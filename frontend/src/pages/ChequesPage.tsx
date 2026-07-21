@@ -1,8 +1,5 @@
 import { useMemo, useState } from 'react';
-import {
-  Table, Card, Space, Input, Select, Button, Tag, Typography, App,
-  Modal, Form, InputNumber, DatePicker, Row, Col, Statistic,
-} from 'antd';
+import { Table, Card, Space, Input, Select, Button, Tag, Typography, Modal, Form, InputNumber, DatePicker, Row, Col, Statistic } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
   SearchOutlined, ReloadOutlined, PlusOutlined, BankOutlined,
@@ -18,6 +15,7 @@ import type { Banco, Cheque, ChequeEstado } from '../types';
 import { useAuthStore } from '../store/authStore';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text } = Typography;
 
@@ -36,7 +34,7 @@ const ESTADO_LABELS: Record<ChequeEstado, string> = {
 };
 
 export function ChequesPage() {
-  const { message } = App.useApp();
+
   const qc = useQueryClient();
   const puntoVentaActivo = useAuthStore(s => s.puntoVentaActivo);
 
@@ -107,25 +105,25 @@ export function ChequesPage() {
       return chequesApi.create(values);
     },
     onSuccess: () => {
-      message.success(editing ? 'Cheque actualizado' : 'Cheque creado');
+      notify.success(editing ? 'Cheque actualizado' : 'Cheque creado');
       setFormOpen(false);
       setEditing(null);
       form.resetFields();
       invalidate();
     },
     onError: (err: any) => {
-      message.error(err?.response?.data?.error || 'Error al guardar el cheque');
+      notify.error(err?.response?.data?.error || 'Error al guardar el cheque');
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => chequesApi.delete(id),
     onSuccess: () => {
-      message.success('Cheque anulado');
+      notify.success('Cheque anulado');
       invalidate();
     },
     onError: (err: any) => {
-      message.error(err?.response?.data?.error || 'No se pudo anular el cheque');
+      notify.error(err?.response?.data?.error || 'No se pudo anular el cheque');
     },
   });
 
@@ -133,14 +131,14 @@ export function ChequesPage() {
     mutationFn: (payload: { chequeIds: number[]; estadoDestino: 'DEPOSITADO' | 'ANULADO'; descripcion?: string; destinoDesc?: string }) =>
       chequesApi.salidaMasiva(payload),
     onSuccess: (res) => {
-      message.success(`${res.procesados} cheque(s) procesados — ${fmtMoney(res.total)}`);
+      notify.success(`${res.procesados} cheque(s) procesados — ${fmtMoney(res.total)}`);
       setSalidaOpen(false);
       setSelectedIds([]);
       salidaForm.resetFields();
       invalidate();
     },
     onError: (err: any) => {
-      message.error(err?.response?.data?.error || 'Error en la salida de cheques');
+      notify.error(err?.response?.data?.error || 'Error en la salida de cheques');
     },
   });
 

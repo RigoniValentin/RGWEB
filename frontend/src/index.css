@@ -1577,6 +1577,72 @@ body {
   display: none;
 }
 
+/* ────────────────────────────────────────────────────────
+   Comprobante bar — top of NewPurchaseModal body
+   ──────────────────────────────────────────────────────── */
+.npm-comprobante-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 12px 20px 0;
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--rg-border);
+  border-left: 3px solid var(--rg-gold);
+  background: linear-gradient(180deg, #ffffff 0%, #fbfbfb 100%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: border-color 0.25s ease, background 0.25s ease;
+}
+.npm-comprobante-bar.is-configured {
+  border-left-color: #52c41a;
+  background: linear-gradient(180deg, #fcfff7 0%, #ffffff 100%);
+}
+.npm-comprobante-bar.is-pending {
+  border-left-color: var(--rg-gold);
+  background: linear-gradient(180deg, #fffbef 0%, #ffffff 100%);
+}
+
+.npm-comprobante-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+.npm-comprobante-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+.npm-comprobante-bar.is-configured .npm-comprobante-icon {
+  color: #52c41a;
+}
+.npm-comprobante-bar.is-pending .npm-comprobante-icon {
+  color: var(--rg-gold);
+}
+.npm-comprobante-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.npm-comprobante-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--rg-text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.npm-comprobante-label .anticon {
+  color: var(--rg-gold);
+  font-size: 11px;
+}
+
 /* Two-column body */
 .nsm-body {
   display: flex;
@@ -1714,6 +1780,283 @@ body {
 .nsm-empty-icon {
   font-size: 64px;
   color: #e0e0e0;
+}
+
+/* ────────────────────────────────────────────────────────
+   Comprobante config modal (separate fullscreen modal)
+   Uses .new-sale-modal base class for consistent styling.
+   ──────────────────────────────────────────────────────── */
+
+/* Body */
+.ccm-body {
+  padding: 18px 24px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+}
+
+/* Section title */
+.ccm-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ccm-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--rg-text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.ccm-section-title .anticon {
+  color: var(--rg-gold);
+  font-size: 13px;
+}
+
+/* Field */
+.ccm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.ccm-field .ant-select,
+.ccm-field .ant-picker,
+.ccm-field .ant-input,
+.ccm-field .ccm-numero .ant-input {
+  width: 100%;
+}
+.ccm-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--rg-text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.ccm-label .anticon {
+  color: var(--rg-gold);
+  font-size: 12px;
+}
+.ccm-required {
+  color: #ff4d4f;
+  font-weight: 800;
+  margin-left: 1px;
+}
+
+/* Numeración */
+.ccm-numero {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+}
+.ccm-numero-sep {
+  font-family: 'Courier New', monospace;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--rg-text-light);
+  user-select: none;
+}
+
+/* Grid layouts */
+.ccm-grid {
+  display: grid;
+  gap: 12px 14px;
+}
+.ccm-grid-required {
+  grid-template-columns: minmax(220px, 1.6fr) 130px 150px minmax(200px, 1.4fr);
+}
+.ccm-grid-secondary {
+  grid-template-columns: minmax(220px, 1.5fr) 200px minmax(220px, 1.5fr);
+}
+
+/* Switch & update row */
+.ccm-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  height: 40px;
+  background: #fff;
+  border: 1px solid var(--rg-border);
+  border-radius: 8px;
+}
+.ccm-switch-label {
+  font-size: 13px;
+  color: var(--rg-text);
+  font-weight: 500;
+}
+.ccm-update-row {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  height: 40px;
+  padding: 0 4px;
+}
+
+/* Proveedor tag */
+.ccm-prov-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: -2px;
+}
+
+/* Advanced */
+.ccm-advanced {
+  border-top: 1px dashed var(--rg-border);
+  padding-top: 12px;
+}
+.ccm-advanced-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rg-text-light);
+  cursor: pointer;
+  padding: 4px 0;
+  user-select: none;
+  transition: color 0.2s;
+}
+.ccm-advanced-trigger:hover {
+  color: var(--rg-gold);
+}
+.ccm-advanced-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 1fr;
+  gap: 12px 16px;
+  margin-top: 10px;
+  padding: 12px;
+  background: #fafafa;
+  border-radius: 10px;
+  border: 1px solid #f0f0f0;
+  align-items: start;
+}
+.ccm-advanced-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Percepciones row — input pair aligned at top */
+.ccm-perc-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.ccm-perc-row .ant-input-number {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Compact remito card (advanced section) */
+.ccm-remito-card {
+  border: 1px solid var(--rg-gold);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fffbef 0%, #ffffff 100%);
+  padding: 8px 10px;
+}
+.ccm-remito-card-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.ccm-remito-card-icon {
+  font-size: 16px;
+  color: var(--rg-gold-dark);
+  flex-shrink: 0;
+}
+.ccm-remito-card-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  overflow: hidden;
+}
+.ccm-remito-card-hint {
+  font-size: 14px;
+  color: var(--rg-gold-dark);
+  cursor: help;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+.ccm-remito-card-hint:hover {
+  color: var(--rg-gold);
+  background: rgba(234, 189, 35, 0.08);
+}
+
+/* Footer */
+.ccm-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 24px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7f7f7 100%);
+  border-top: 1px solid var(--rg-border);
+  flex-wrap: wrap;
+}
+.ccm-footer-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 260px;
+}
+.ccm-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.ccm-check .anticon {
+  font-size: 13px;
+}
+.ccm-check.done {
+  color: #52c41a;
+}
+.ccm-check.pending {
+  color: var(--rg-text-light);
+  opacity: 0.7;
+}
+
+/* Responsive */
+@media (max-width: 1100px) {
+  .ccm-grid-required,
+  .ccm-grid-secondary {
+    grid-template-columns: 1fr 1fr;
+  }
+  .ccm-advanced-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 640px) {
+  .ccm-grid-required,
+  .ccm-grid-secondary {
+    grid-template-columns: 1fr;
+  }
+  .ccm-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .ccm-footer-checklist {
+    min-width: 0;
+  }
 }
 
 /* Bottom footer — full-width horizontal bar */
@@ -2245,6 +2588,53 @@ body {
   box-shadow: 0 2px 8px rgba(234, 189, 35, 0.35);
 }
 
+/* ── Segmented Light (filters with gold accents) ── */
+.rg-segmented-light.ant-segmented {
+  background: #fff;
+  border-radius: 10px;
+  padding: 3px;
+  border: 1px solid var(--rg-border);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.rg-segmented-light .ant-segmented-item {
+  border-radius: 8px;
+  color: var(--rg-text-light);
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.rg-segmented-light .ant-segmented-item:hover:not(.ant-segmented-item-selected) {
+  color: var(--rg-text) !important;
+  background: rgba(234, 189, 35, 0.08) !important;
+}
+
+.rg-segmented-light .ant-segmented-item-selected {
+  background: linear-gradient(135deg, var(--rg-gold), var(--rg-gold-dark)) !important;
+  color: var(--rg-black) !important;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(234, 189, 35, 0.4);
+}
+
+.rg-segmented-light .ant-segmented-item-selected:hover {
+  color: var(--rg-black) !important;
+}
+
+.rg-segmented-light .ant-segmented-item-selected .ant-segmented-item-icon,
+.rg-segmented-light .ant-segmented-item-selected .anticon {
+  color: var(--rg-black) !important;
+}
+
+.rg-segmented-light .ant-segmented-item .ant-segmented-item-icon,
+.rg-segmented-light .ant-segmented-item .anticon {
+  color: inherit;
+}
+
+.rg-segmented-light .ant-segmented-thumb {
+  background: linear-gradient(135deg, var(--rg-gold), var(--rg-gold-dark)) !important;
+  box-shadow: 0 2px 6px rgba(234, 189, 35, 0.4);
+}
+
 /* Responsive: stack on narrow screens */
 @media (max-width: 900px) {
   .nsm-body {
@@ -2257,6 +2647,11 @@ body {
     border-left: none;
     border-top: 1px solid var(--rg-border);
   }
+}
+
+/* Responsive: comprobante config grid */
+@media (max-width: 1200px) {
+  /* (no longer used; ccm-* handles responsive below) */
 }
 
 /* Responsive: footer on narrow screens */

@@ -1,8 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import {
-  Modal, Select, Button, InputNumber, Table, Space, Typography,
-  Radio, message, Tag, Input, Empty, Alert, Steps, Spin,
-} from 'antd';
+import { Modal, Select, Button, InputNumber, Table, Space, Typography, Radio, Tag, Input, Empty, Alert, Steps, Spin } from 'antd';
 import {
   FileExclamationOutlined, UndoOutlined,
   DollarOutlined, PercentageOutlined, ShopOutlined,
@@ -18,6 +15,7 @@ import { fmtComprobanteTipo, fmtMoney, fmtNum } from '../../utils/format';
 import { invalidateInventoryQueries } from '../../utils/invalidateInventoryQueries';
 import { usePaymentMethodKeyboardNavigation } from '../../hooks/usePaymentMethodKeyboardNavigation';
 import type { MetodoPago } from '../../types';
+import { notify } from '../../utils/notify.ts';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -298,18 +296,18 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
     mutationFn: (data: NCCompraInput) => ncComprasApi.create(data),
     onSuccess: (result) => {
       invalidateInventoryQueries(queryClient);
-      message.success(`NC #${result.NC_ID} creada por ${fmtMoney(result.MONTO)}`);
+      notify.success(`NC #${result.NC_ID} creada por ${fmtMoney(result.MONTO)}`);
       onSuccess();
     },
     onError: (err: any) => {
-      message.error(err.response?.data?.error || 'Error al crear NC');
+      notify.error(err.response?.data?.error || 'Error al crear NC');
     },
   });
 
   const handleSubmit = () => {
     if (!proveedorId || !compraId) return;
     if (montoNC <= 0) {
-      message.warning('El monto de la NC debe ser mayor a 0');
+      notify.warning('El monto de la NC debe ser mayor a 0');
       return;
     }
 
@@ -326,7 +324,7 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
       : undefined;
 
     if (esConItems && (!items || items.length === 0)) {
-      message.warning('Seleccioná al menos un ítem con cantidad a devolver');
+      notify.warning('Seleccioná al menos un ítem con cantidad a devolver');
       return;
     }
 

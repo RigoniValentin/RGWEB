@@ -1,13 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Table, Space, Typography, Tag, Drawer, Descriptions, Spin, Alert,
-  Button, Input, Popconfirm, message, Checkbox, Badge,
-} from 'antd';
+import { Table, Space, Typography, Tag, Drawer, Descriptions, Spin, Alert, Button, Input, Popconfirm, Checkbox, Badge } from 'antd';
 import {
   EyeOutlined, PlusOutlined, DeleteOutlined,
   SearchOutlined, ReloadOutlined, SwapOutlined,
-  CheckCircleOutlined,
+  CheckCircleOutlined, LinkOutlined,
 } from '@ant-design/icons';
 import { usePurchaseDraftStore } from '../store/purchaseDraftStore';
 import { useNavigate } from 'react-router-dom';
@@ -24,6 +21,7 @@ import { fmtComprobanteTipo, fmtMoney, fmtNum } from '../utils/format';
 import type { Compra, CompraDetalle } from '../types';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text } = Typography;
 
@@ -113,12 +111,12 @@ export function PurchasesPage() {
     mutationFn: (id: number) => purchasesApi.delete(id),
     onSuccess: () => {
       invalidateInventoryQueries(queryClient);
-      message.success('Compra eliminada');
+      notify.success('Compra eliminada');
       refetch();
       if (drawerOpen) { setDrawerOpen(false); setSelectedId(null); }
     },
     onError: (err: any) => {
-      message.error(err.response?.data?.error || 'Error al eliminar');
+      notify.error(err.response?.data?.error || 'Error al eliminar');
     },
   });
 
@@ -393,6 +391,26 @@ export function PurchasesPage() {
               <Descriptions.Item label="Precios sin IVA">
                 {detail.PRECIOS_SIN_IVA ? 'Sí' : 'No'}
               </Descriptions.Item>
+              {detail.REMITO_ID && (
+                <Descriptions.Item label="Remito origen" span={2}>
+                  <Tag
+                    color="gold"
+                    style={{ fontSize: 13, cursor: 'pointer' }}
+                    onClick={() => {
+                      setDrawerOpen(false);
+                      setSelectedId(null);
+                      openTab({ key: '/remitos', label: 'Remitos', closable: true });
+                      navTo('/remitos', { remitoId: detail.REMITO_ID });
+                      navigate('/remitos');
+                    }}
+                  >
+                    <LinkOutlined /> Remito #{detail.REMITO_ID}
+                  </Tag>
+                  <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+                    Esta compra se originó en un remito de entrada. Stock ya ajustado por el remito.
+                  </Text>
+                </Descriptions.Item>
+              )}
               {detail.metodos_pago && detail.metodos_pago.length > 0 ? (
                 <Descriptions.Item label="Métodos de Pago" span={2}>
                   <Space direction="vertical" size={2}>

@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Table, Space, Input, Typography, Button, Modal, App,
-  Tooltip, Spin, Form, Tag, Switch, Transfer, Radio,
-} from 'antd';
+import { Table, Space, Input, Typography, Button, Modal, Tooltip, Spin, Form, Tag, Switch, Transfer, Radio } from 'antd';
 import type { TableColumnType } from 'antd';
 import type { TransferDirection } from 'antd/es/transfer';
 import {
@@ -17,11 +14,12 @@ import { useTabStore } from '../store/tabStore';
 import type { PuntoVenta } from '../types';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text } = Typography;
 
 export function PuntosVentaPage() {
-  const { message } = App.useApp();
+
   const qc = useQueryClient();
 
   // Listing state
@@ -130,7 +128,7 @@ export function PuntosVentaPage() {
 
   const handleDelete = (record: PuntoVenta) => {
     if (record.PUNTO_VENTA_ID === 1) {
-      message.warning('No se puede eliminar el Punto de Venta por defecto.');
+      notify.warning('No se puede eliminar el Punto de Venta por defecto.');
       return;
     }
     Modal.confirm({
@@ -142,10 +140,10 @@ export function PuntosVentaPage() {
       onOk: async () => {
         try {
           await puntoVentaApi.delete(record.PUNTO_VENTA_ID);
-          message.success('Punto de venta eliminado');
+          notify.success('Punto de venta eliminado');
           invalidate();
         } catch (err: any) {
-          message.error(err?.response?.data?.error || 'Error al eliminar');
+          notify.error(err?.response?.data?.error || 'Error al eliminar');
         }
       },
     });
@@ -168,10 +166,10 @@ export function PuntosVentaPage() {
 
       if (editId) {
         await puntoVentaApi.update(editId, payload);
-        message.success('Punto de venta actualizado');
+        notify.success('Punto de venta actualizado');
       } else {
         await puntoVentaApi.create(payload);
-        message.success('Punto de venta creado');
+        notify.success('Punto de venta creado');
       }
 
       setFormOpen(false);
@@ -179,7 +177,7 @@ export function PuntosVentaPage() {
       resetForm();
       invalidate();
     } catch (err: any) {
-      if (err?.response?.data?.error) message.error(err.response.data.error);
+      if (err?.response?.data?.error) notify.error(err.response.data.error);
     } finally {
       setSaving(false);
     }

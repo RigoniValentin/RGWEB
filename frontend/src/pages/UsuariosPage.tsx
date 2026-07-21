@@ -1,11 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Table, Space, Typography, Tag, Card, Row, Col, Statistic,
-  Button, Input, Select, Switch, Tabs, Tooltip, Modal, Form,
-  Drawer, Checkbox, Divider, Badge, Alert,
-  InputNumber, Collapse, App,
-} from 'antd';
+import { Table, Space, Typography, Tag, Card, Row, Col, Statistic, Button, Input, Select, Switch, Tabs, Tooltip, Modal, Form, Drawer, Checkbox, Divider, Badge, Alert, InputNumber, Collapse, App } from 'antd';
 import {
   UserOutlined, LockOutlined, DeleteOutlined,
   EditOutlined, PlusOutlined, ReloadOutlined, SafetyOutlined,
@@ -24,6 +19,7 @@ import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -52,7 +48,7 @@ function fmtDate(d?: string | null) {
 function PermisosDrawer({ userId, nombre, open, onClose }: {
   userId: number; nombre: string; open: boolean; onClose: () => void;
 }) {
-  const { message, modal } = App.useApp();
+  const { modal } = App.useApp();
   const qc = useQueryClient();
   const [modulo, setModulo] = useState<string | undefined>();
 
@@ -66,16 +62,16 @@ function PermisosDrawer({ userId, nombre, open, onClose }: {
     mutationFn: ({ permisoId, activo }: { permisoId: number; activo: boolean | null }) =>
       usuariosApi.setPermisoOverride(userId, permisoId, activo),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['user-permisos', userId] }),
-    onError: () => message.error('Error al actualizar permiso'),
+    onError: () => notify.error('Error al actualizar permiso'),
   });
 
   const clearOverridesMutation = useMutation({
     mutationFn: () => usuariosApi.clearPermisoOverrides(userId),
     onSuccess: () => {
-      message.success('Permisos restablecidos al rol');
+      notify.success('Permisos restablecidos al rol');
       qc.invalidateQueries({ queryKey: ['user-permisos', userId] });
     },
-    onError: () => message.error('Error al restablecer permisos'),
+    onError: () => notify.error('Error al restablecer permisos'),
   });
 
   const hasOverrides = permisos.some(p => p.OVERRIDE !== null);
@@ -198,7 +194,7 @@ function PermisosDrawer({ userId, nombre, open, onClose }: {
 
 // ─ Role permissions drawer ────────────────────────────────────────────────────
 function RolPermisoDrawer({ rolId, open, onClose }: { rolId: number | null; open: boolean; onClose: () => void }) {
-  const { message } = App.useApp();
+
   const qc = useQueryClient();
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [dirty, setDirty] = useState(false);
@@ -232,14 +228,14 @@ function RolPermisoDrawer({ rolId, open, onClose }: { rolId: number | null; open
       if (sobreescribirUsuarios) await usuariosApi.clearRoleUserOverrides(rolId!);
     },
     onSuccess: () => {
-      message.success(sobreescribirUsuarios
+      notify.success(sobreescribirUsuarios
         ? 'Permisos del rol actualizados y sobreescrituras individuales eliminadas'
         : 'Permisos del rol actualizados');
       setDirty(false);
       setSobreescribirUsuarios(false);
       qc.invalidateQueries({ queryKey: ['rol-detail', rolId] });
     },
-    onError: () => message.error('Error al guardar'),
+    onError: () => notify.error('Error al guardar'),
   });
 
   const grouped = useMemo(() => {
@@ -341,7 +337,7 @@ function RolPermisoDrawer({ rolId, open, onClose }: { rolId: number | null; open
 
 // ─── main page ────────────────────────────────────────────────────────────────
 export function UsuariosPage() {
-  const { message } = App.useApp();
+
   const qc = useQueryClient();
 
   // ── Tab ────────────────────────────────────────────────────────────────────
@@ -446,25 +442,25 @@ export function UsuariosPage() {
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: UpdateUsuarioInput }) => usuariosApi.update(id, data),
-    onError: (e: any) => message.error(e.response?.data?.error || 'Error al actualizar'),
+    onError: (e: any) => notify.error(e.response?.data?.error || 'Error al actualizar'),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => usuariosApi.delete(id),
-    onSuccess: () => { message.success('Usuario eliminado'); invalidateUsers(); },
-    onError: () => message.error('Error al eliminar usuario'),
+    onSuccess: () => { notify.success('Usuario eliminado'); invalidateUsers(); },
+    onError: () => notify.error('Error al eliminar usuario'),
   });
 
   const bloqueoMutation = useMutation({
     mutationFn: ({ id, bloquear }: { id: number; bloquear: boolean }) => usuariosApi.toggleBloqueo(id, bloquear),
-    onSuccess: (_, { bloquear }) => { message.success(bloquear ? 'Usuario bloqueado' : 'Usuario desbloqueado'); invalidateUsers(); },
-    onError: () => message.error('Error'),
+    onSuccess: (_, { bloquear }) => { notify.success(bloquear ? 'Usuario bloqueado' : 'Usuario desbloqueado'); invalidateUsers(); },
+    onError: () => notify.error('Error'),
   });
 
   const policyMutation = useMutation({
     mutationFn: (data: Partial<PoliticaSeguridad>) => usuariosApi.updatePolitica(data),
-    onSuccess: () => { message.success('Política actualizada'); qc.invalidateQueries({ queryKey: ['politica-seguridad'] }); setPolicySaving(false); },
-    onError: () => { message.error('Error al guardar política'); setPolicySaving(false); },
+    onSuccess: () => { notify.success('Política actualizada'); qc.invalidateQueries({ queryKey: ['politica-seguridad'] }); setPolicySaving(false); },
+    onError: () => { notify.error('Error al guardar política'); setPolicySaving(false); },
   });
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -511,7 +507,7 @@ export function UsuariosPage() {
         if (rolIds !== undefined) await usuariosApi.setRoles(editUserId, rolIds);
         if (sobreescribirPermisos) await usuariosApi.clearPermisoOverrides(editUserId);
         await usuariosApi.setPuntosVenta(editUserId, { pvIds: pvIds ?? [], preferidoId: pvPreferido ?? null });
-        message.success('Usuario actualizado');
+        notify.success('Usuario actualizado');
         closeUserModal();
         invalidateUsers();
       } else {
@@ -519,7 +515,7 @@ export function UsuariosPage() {
         if (pvIds?.length) {
           await usuariosApi.setPuntosVenta(result.USUARIO_ID, { pvIds, preferidoId: pvPreferido ?? null });
         }
-        message.success('Usuario creado');
+        notify.success('Usuario creado');
         closeUserModal();
         invalidateUsers();
       }

@@ -659,6 +659,14 @@ export const productService = {
         .input('id', sql.Int, input.PRODUCTO_ID)
         .input('val', simpleColType, input.valor)
         .query(`UPDATE PRODUCTOS SET ${input.campo} = @val WHERE PRODUCTO_ID = @id`);
+
+      if (input.campo === 'NOMBRE') {
+        try {
+          webhookDispatcher.notifyStockChange(input.PRODUCTO_ID);
+        } catch {
+          // fire-and-forget
+        }
+      }
       return;
     }
 

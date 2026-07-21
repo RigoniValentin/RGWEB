@@ -4,9 +4,10 @@ import path from 'path';
 import { mobileController } from './mobile.controller.js';
 import { PENDING_UPLOADS_DIR, mobileService } from '../services/mobile.service.js';
 import { authService } from '../services/auth.service.js';
-import { authMiddleware, AuthRequest } from '../middleware/auth.js';
+import { mobileAuthMiddleware, MobileAuthRequest } from '../middleware/mobileAuth.js';
 import { cajaService } from '../services/caja.service.js';
 import { aiService, ChatMessage } from '../services/ai.service.js';
+import { remitosService } from '../services/remitos.service.js';
 import { config } from '../config/index.js';
 
 // ═══════════════════════════════════════════════════
@@ -88,8 +89,8 @@ router.get('/health', (_req, res) => {
 });
 
 // ── GET /api/mobile/caja/mi-caja — detalle completo de la caja abierta ──
-// Requiere JWT (el mismo token que el login mobile devuelve).
-router.get('/caja/mi-caja', authMiddleware as any, async (req: AuthRequest, res: Response, next: NextFunction) => {
+// Acepta JWT o API key de device mobile registrado.
+router.get('/caja/mi-caja', mobileAuthMiddleware as any, async (req: MobileAuthRequest, res: Response, next: NextFunction) => {
   try {
     const caja = await cajaService.getCajaAbierta(req.user!.id);
     if (!caja) {
@@ -127,7 +128,7 @@ router.get('/caja/mi-caja', authMiddleware as any, async (req: AuthRequest, res:
 });
 
 // ── POST /api/mobile/ai/chat — chat con asistente IA con acceso a la DB ──
-router.post('/ai/chat', authMiddleware as any, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/ai/chat', mobileAuthMiddleware as any, async (req: MobileAuthRequest, res: Response, next: NextFunction) => {
   try {
     const { messages } = req.body ?? {};
     if (!Array.isArray(messages) || messages.length === 0) {
@@ -158,6 +159,90 @@ router.post('/ai/chat', authMiddleware as any, async (req: AuthRequest, res: Res
     }
     next(err);
   }
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  Remitos desde Mobile — Recepción de mercadería en depósito
+//  Todos requieren JWT (login del operador mobile) y delegan a
+//  remitosService para reusar toda la lógica de stock/auditoría.
+// ═══════════════════════════════════════════════════════════════
+
+// GET /api/mobile/remitos/proveedores — proveedores activos para picker
+router.get('/remitos/proveedores', mobileAuthMiddleware as any, async (_req: MobileAuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const data = await remitosService.getProveedores();
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// GET /api/mobile/remitos/depositos — depósitos para picker
+router.get('/remitos/depositos', mobileAuthMiddleware as any, async (_req: MobileAuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const data = await remitosService.getDepositos();
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// GET /api/mobile/remitos/search-products?search=...&limit=20 — búsqueda de productos
+router.get('/remitos/search-products', mobileAuthMiddleware as any, async (req: MobileAuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const search = (req.query.search as string) || '';
+    const limit = parseInt(req.query.limit as string) || 20;
+    if (!search.trim()) {
+      res.json([]);
+      return;
+    }
+    const data = await remitosService.searchProducts(search, limit);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// POST /api/mobile/remitos — crear remito de entrada (TIPO forzado, PENDIENTE sin stock)
+router.post('/remitos', mobileAuthMiddleware as any, async (req: MobileAuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const usuarioId = req.user?.id;
+    if (!usuarioId) {
+      res.status(401).json({ error: 'Usuario no autenticado' });
+      return;
+    }
+    // Forzar TIPO='ENTRADA', ESTADO='PENDIENTE' y ORIGEN='MOBILE'.
+    // El stock NO se aplica hasta que se confirme desde RG WEB.
+    const input = {
+      ...req.body,
+      TIPO: 'ENTRADA' as const,
+      ESTADO: 'PENDIENTE' as const,
+      ORIGEN: 'MOBILE' as const,
+    };
+    const result = await remitosService.create(input, usuarioId);
+    res.status(201).json(result);
+  } catch (err: any) {
+    const status = err?.name === 'ValidationError' ? 400 : 500;
+    res.status(status).json({ error: err?.message ?? 'Error al crear el remito' });
+  }
+});
+
+// GET /api/mobile/remitos/:id — detalle del remito recién creado (para generar PDF)
+router.get('/remitos/:id', mobileAuthMiddleware as any, async (req: MobileAuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = parseInt(req.params.id as string);
+    if (!id || isNaN(id)) {
+      res.status(400).json({ error: 'ID de remito inválido' });
+      return;
+    }
+    const data = await remitosService.getById(id);
+    res.json(data);
+  } catch (err: any) {
+    const status = err?.name === 'ValidationError' ? 404 : 500;
+    res.status(status).json({ error: err?.message ?? 'Error al obtener el remito' });
+  }
+});
+
+// GET /api/mobile/remitos/empresa/data — datos fiscales para encabezado del PDF
+router.get('/remitos/empresa/data', mobileAuthMiddleware as any, async (_req: MobileAuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const data = await remitosService.getEmpresaData();
+    res.json(data);
+  } catch (err) { next(err); }
 });
 
 export default router;

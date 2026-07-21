@@ -1,9 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  Table, Space, Typography, Button, Card, Row, Col, Statistic, Select,
-  Switch, Tag, Tooltip, App, Divider, Badge,
-} from 'antd';
+import { Table, Space, Typography, Button, Card, Row, Col, Statistic, Select, Switch, Tag, Tooltip, Divider, Badge } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
   ReloadOutlined, FileExcelOutlined, FileTextOutlined,
@@ -19,6 +16,7 @@ import {
 } from '../services/libroIvaVentas.api';
 import { fmtMoney } from '../utils/format';
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text } = Typography;
 
@@ -36,7 +34,6 @@ const TIPO_COMPROBANTE_OPTIONS = [
 ];
 
 export function LibroIvaVentasPage() {
-  const { message } = App.useApp();
 
   // ── Filters ─────────────────────────────────────
   const [datePreset, setDatePreset] = useState<DatePreset | undefined>('mes');
@@ -93,7 +90,7 @@ export function LibroIvaVentasPage() {
   // ── Export Excel (client-side via CSV) ──────────
   const handleExportExcel = () => {
     if (!comprobantes?.length) {
-      message.warning('No hay datos para exportar');
+      notify.warning('No hay datos para exportar');
       return;
     }
     const headers = ['Fecha', 'Tipo Comp.', 'PV', 'Número', 'CAE', 'Cliente', 'CUIT/DNI',
@@ -114,13 +111,13 @@ export function LibroIvaVentasPage() {
     ]);
     const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(';')).join('\n');
     downloadFile(csv, `LibroIVA_Ventas_${dayjs(fechaDesde).format('YYYYMM')}.csv`, 'text/csv;charset=utf-8');
-    message.success('Archivo exportado');
+    notify.success('Archivo exportado');
   };
 
   // ── Export CITI (AFIP) ──────────────────────────
   const handleExportCiti = async () => {
     if (!comprobantes?.length) {
-      message.warning('No hay datos para exportar');
+      notify.warning('No hay datos para exportar');
       return;
     }
     try {
@@ -130,9 +127,9 @@ export function LibroIvaVentasPage() {
       setTimeout(() => {
         downloadFile(data.alicuotas, `VENTAS_ALIC_${periodo}.txt`, 'text/plain');
       }, 500);
-      message.success('Archivos CITI exportados (Comprobantes + Alícuotas)');
+      notify.success('Archivos CITI exportados (Comprobantes + Alícuotas)');
     } catch {
-      message.error('Error al exportar archivos CITI');
+      notify.error('Error al exportar archivos CITI');
     }
   };
 

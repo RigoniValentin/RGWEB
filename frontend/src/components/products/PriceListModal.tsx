@@ -1,8 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import {
-  Modal, InputNumber, Typography, Space, Tag, App, Segmented,
-  Button, Divider, Tooltip, Spin, Select, Dropdown, Tabs,
-} from 'antd';
+import { Modal, InputNumber, Typography, Space, Tag, Segmented, Button, Divider, Tooltip, Spin, Select, Dropdown, Tabs } from 'antd';
 import {
   DollarOutlined, ReloadOutlined, UndoOutlined, PercentageOutlined,
   VerticalAlignTopOutlined,
@@ -11,6 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { catalogApi } from '../../services/catalog.api';
 import { productApi } from '../../services/product.api';
 import type { ListaPrecio, Producto } from '../../types';
+import { notify } from '../../utils/notify.ts';
 
 const { Text } = Typography;
 
@@ -26,7 +24,7 @@ interface Props {
 type MarginSource = 'individual' | 'lista';
 
 export function PriceListModal({ open, product, onClose, onSaved }: Props) {
-  const { message } = App.useApp();
+
   const [costo, setCosto] = useState(0);
   const [origCosto, setOrigCosto] = useState(0);
   const [precios, setPrecios] = useState<Record<number, number>>({});
@@ -94,7 +92,7 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
 
   const recalcFromMargins = useCallback(() => {
     if (costo <= 0) {
-      message.warning('El costo debe ser mayor a 0 para recalcular');
+      notify.warning('El costo debe ser mayor a 0 para recalcular');
       return;
     }
     const newPrecios: Record<number, number> = {};
@@ -109,8 +107,8 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
     }
     setPrecios(newPrecios);
     setMargenes(newMargenes);
-    message.info('Precios recalculados según márgenes');
-  }, [costo, origMargenes, marginSource, listasActivas, message]);
+    notify.info('Precios recalculados según márgenes');
+  }, [costo, origMargenes, marginSource, listasActivas]);
 
   const resetAll = useCallback(() => {
     setCosto(origCosto);
@@ -187,11 +185,11 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
         MARGEN_INDIVIDUAL: marginSource === 'individual',
         margenes: margenesLegacy,
       });
-      message.success('Precios actualizados');
+      notify.success('Precios actualizados');
       onSaved();
       onClose();
     } catch (err: any) {
-      message.error(err?.response?.data?.error || 'Error al guardar precios');
+      notify.error(err?.response?.data?.error || 'Error al guardar precios');
     } finally {
       setSaving(false);
     }

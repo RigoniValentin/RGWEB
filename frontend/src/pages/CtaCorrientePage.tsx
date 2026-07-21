@@ -1,9 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Table, Space, Input, Typography, Tag, Button, App, Modal, Descriptions,
-  Drawer, DatePicker, Segmented, Statistic, Card, Row, Col, Tooltip, Popconfirm,
-} from 'antd';
+import { Table, Space, Input, Typography, Tag, Button, App, Modal, Descriptions, Drawer, DatePicker, Segmented, Statistic, Card, Row, Col, Tooltip, Popconfirm } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
@@ -24,6 +21,7 @@ import { NuevaCobranzaModal } from '../components/ctaCorriente/NuevaCobranzaModa
 import { useNavigationStore } from '../store/navigationStore';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -31,7 +29,7 @@ const { RangePicker } = DatePicker;
 type DateFilter = 'mes' | 'todos' | 'personalizado';
 
 export function CtaCorrientePage() {
-  const { message, modal } = App.useApp();
+  const { modal } = App.useApp();
   const qc = useQueryClient();
 
   // ── List state ──────────────────────────────────
@@ -103,7 +101,7 @@ export function CtaCorrientePage() {
     if (record) {
       handleView(record);
     } else {
-      message.info('El cliente no tiene habilitada la Cuenta Corriente');
+      notify.info('El cliente no tiene habilitada la Cuenta Corriente');
     }
   }, [navEvent, clientes]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -125,22 +123,22 @@ export function CtaCorrientePage() {
   const crearCuentaMut = useMutation({
     mutationFn: (clienteId: number) => ctaCorrienteApi.crearCuenta(clienteId),
     onSuccess: () => {
-      message.success('Cuenta corriente creada');
+      notify.success('Cuenta corriente creada');
       qc.invalidateQueries({ queryKey: ['cta-corriente-list'] });
     },
-    onError: (err: any) => message.error(err.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err.response?.data?.error || err.message),
   });
 
   const eliminarCobranzaMut = useMutation({
     mutationFn: (pagoId: number) => ctaCorrienteApi.eliminarCobranza(pagoId),
     onSuccess: () => {
-      message.success('Cobranza eliminada');
+      notify.success('Cobranza eliminada');
       qc.invalidateQueries({ queryKey: ['cta-cobranzas'] });
       qc.invalidateQueries({ queryKey: ['cta-movimientos'] });
       qc.invalidateQueries({ queryKey: ['cta-corriente-list'] });
       invalidateCashQueries(qc);
     },
-    onError: (err: any) => message.error(err.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err.response?.data?.error || err.message),
   });
 
   // ── Handlers ────────────────────────────────────

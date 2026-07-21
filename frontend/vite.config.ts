@@ -63,6 +63,7 @@ export default defineConfig({
           if (id.includes('/react/') || id.endsWith('/react') || id.includes('react-router')) return 'vendor-react';
           if (id.includes('@ant-design/icons')) return 'vendor-icons';
           if (id.includes('rc-') || id.includes('antd') || id.includes('@rc-component')) return 'vendor-antd';
+          if (id.includes('node_modules/sileo/') || id.includes('node_modules/motion/')) return 'vendor-sileo';
           if (id.includes('jspdf') || id.includes('canvg') || id.includes('html2canvas')) return 'vendor-pdf';
           if (id.includes('jsbarcode') || id.includes('qrcode')) return 'vendor-codes';
           if (id.includes('@tanstack')) return 'vendor-query';

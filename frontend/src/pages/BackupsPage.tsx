@@ -1,9 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  App, Button, Card, Form, Input, InputNumber, Modal, Space, Switch, Table,
-  Tag, Tooltip, Typography, Row, Col, Alert, Popconfirm, Tabs,
-} from 'antd';
+import { Button, Card, Form, Input, InputNumber, Modal, Space, Switch, Table, Tag, Tooltip, Typography, Row, Col, Alert, Popconfirm, Tabs } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
   CloudDownloadOutlined, CloudUploadOutlined, DeleteOutlined, PlayCircleOutlined,
@@ -15,6 +12,7 @@ import { backupsApi, type BackupConfig, type BackupRecord, type RestoreRecord } 
 import { RestoreBackupModal } from '../components/backups/RestoreBackupModal';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -52,7 +50,7 @@ const CRON_PRESETS: { label: string; value: string; desc: string }[] = [
 ];
 
 export function BackupsPage() {
-  const { message } = App.useApp();
+
   const qc = useQueryClient();
   const [configOpen, setConfigOpen] = useState(false);
   const [restoreOpen, setRestoreOpen] = useState(false);
@@ -82,48 +80,48 @@ export function BackupsPage() {
   // ── Mutations ───────────────────────────────────
   const runMut = useMutation({
     mutationFn: () => backupsApi.run(),
-    onMutate: () => { message.loading({ content: 'Ejecutando backup...', key: 'bk', duration: 0 }); },
+    onMutate: () => { notify.loading({ content: 'Ejecutando backup...', key: 'bk', duration: 0 }); },
     onSuccess: (rec) => {
-      message.success({ content: `Backup completado: ${rec.ARCHIVO_NOMBRE}`, key: 'bk' });
+      notify.success({ content: `Backup completado: ${rec.ARCHIVO_NOMBRE}`, key: 'bk' });
       qc.invalidateQueries({ queryKey: ['backups-list'] });
       qc.invalidateQueries({ queryKey: ['backups-config'] });
     },
     onError: (err: any) => {
-      message.error({ content: err?.response?.data?.error || err.message, key: 'bk', duration: 6 });
+      notify.error({ content: err?.response?.data?.error || err.message, key: 'bk', duration: 6 });
     },
   });
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => backupsApi.delete(id),
     onSuccess: () => {
-      message.success('Backup eliminado');
+      notify.success('Backup eliminado');
       qc.invalidateQueries({ queryKey: ['backups-list'] });
     },
-    onError: (err: any) => message.error(err?.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err?.response?.data?.error || err.message),
   });
 
   const retentionMut = useMutation({
     mutationFn: () => backupsApi.applyRetention(),
     onSuccess: (r) => {
-      message.success(`Retención aplicada: ${r.eliminados} eliminados`);
+      notify.success(`Retención aplicada: ${r.eliminados} eliminados`);
       qc.invalidateQueries({ queryKey: ['backups-list'] });
     },
-    onError: (err: any) => message.error(err?.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err?.response?.data?.error || err.message),
   });
 
   const saveConfigMut = useMutation({
     mutationFn: (v: Partial<BackupConfig>) => backupsApi.updateConfig(v),
     onSuccess: () => {
-      message.success('Configuración guardada');
+      notify.success('Configuración guardada');
       qc.invalidateQueries({ queryKey: ['backups-config'] });
       setConfigOpen(false);
     },
-    onError: (err: any) => message.error(err?.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err?.response?.data?.error || err.message),
   });
 
   // ── Handlers ────────────────────────────────────
   const handleDownloadBackup = (r: BackupRecord) => {
-    backupsApi.download(r.BACKUP_ID, r.ARCHIVO_NOMBRE).catch(e => message.error(e.message));
+    backupsApi.download(r.BACKUP_ID, r.ARCHIVO_NOMBRE).catch(e => notify.error(e.message));
   };
 
   const handleRestoreBackup = (r: BackupRecord) => {

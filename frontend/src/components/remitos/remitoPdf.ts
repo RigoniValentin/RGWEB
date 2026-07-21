@@ -30,8 +30,8 @@ export function generateRemitoPdf(
 
 // ── Helpers ─────────────────────────────────────────
 
-const fmtMoney = (v: number) =>
-  new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+const fmtNum = (v: number) =>
+  new Intl.NumberFormat('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 4 }).format(v);
 const fmtDate = (d: string) => dayjs(d).format('DD/MM/YYYY');
 
 const BLACK = '#000000';
@@ -213,24 +213,20 @@ function renderRemitoCopy(
   doc.rect(marginL, destTop, contentW, destH);
 
   // ┌─────────────────────────────────────────────────────────┐
-  // │ ITEMS TABLE                                             │
+  // │ ITEMS TABLE (solo Código, Producto y Cantidad)          │
   // └─────────────────────────────────────────────────────────┘
   const tableTop = destTop + destH + 2;
   const colWidths = {
-    codigo: 28,
-    producto: contentW - 28 - 22 - 22 - 28 - 28,
-    cantidad: 22,
-    uMedida: 22,
-    precioUnit: 28,
-    subtotal: 28,
+    codigo: 30,
+    producto: contentW - 30 - 30 - 26,
+    cantidad: 30,
+    uMedida: 26,
   };
   const colPositions = {
     codigo: marginL,
     producto: marginL + colWidths.codigo,
     cantidad: marginL + colWidths.codigo + colWidths.producto,
-    uMedida: marginL + colWidths.codigo + colWidths.producto + colWidths.cantidad,
-    precioUnit: marginL + colWidths.codigo + colWidths.producto + colWidths.cantidad + colWidths.uMedida,
-    subtotal: marginL + contentW - colWidths.subtotal,
+    uMedida: marginL + contentW - colWidths.uMedida,
   };
 
   // Table header
@@ -244,8 +240,6 @@ function renderRemitoCopy(
   doc.line(colPositions.producto, tableTop, colPositions.producto, tableTop + thH);
   doc.line(colPositions.cantidad, tableTop, colPositions.cantidad, tableTop + thH);
   doc.line(colPositions.uMedida, tableTop, colPositions.uMedida, tableTop + thH);
-  doc.line(colPositions.precioUnit, tableTop, colPositions.precioUnit, tableTop + thH);
-  doc.line(colPositions.subtotal, tableTop, colPositions.subtotal, tableTop + thH);
 
   doc.setFontSize(7);
   doc.setFont('helvetica', 'bold');
@@ -255,8 +249,6 @@ function renderRemitoCopy(
   doc.text('Producto / Servicio', colPositions.producto + 2, thY);
   doc.text('Cantidad', colPositions.cantidad + colWidths.cantidad / 2, thY, { align: 'center' });
   doc.text('U. medida', colPositions.uMedida + colWidths.uMedida / 2, thY, { align: 'center' });
-  doc.text('Precio Unit.', colPositions.precioUnit + colWidths.precioUnit / 2, thY, { align: 'center' });
-  doc.text('Subtotal', colPositions.subtotal + colWidths.subtotal / 2, thY, { align: 'center' });
 
   // Table body
   let y = tableTop + thH;
@@ -265,7 +257,7 @@ function renderRemitoCopy(
   doc.setFontSize(7);
 
   const items = remito.items;
-  const maxBodyY = 230;
+  const maxBodyY = 240;
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i]!;
@@ -283,16 +275,12 @@ function renderRemitoCopy(
       doc.line(colPositions.producto, y, colPositions.producto, y + thH);
       doc.line(colPositions.cantidad, y, colPositions.cantidad, y + thH);
       doc.line(colPositions.uMedida, y, colPositions.uMedida, y + thH);
-      doc.line(colPositions.precioUnit, y, colPositions.precioUnit, y + thH);
-      doc.line(colPositions.subtotal, y, colPositions.subtotal, y + thH);
       doc.setFontSize(7);
       doc.setFont('helvetica', 'bold');
       doc.text('Código', colPositions.codigo + 2, y + 5.5);
       doc.text('Producto / Servicio', colPositions.producto + 2, y + 5.5);
       doc.text('Cantidad', colPositions.cantidad + colWidths.cantidad / 2, y + 5.5, { align: 'center' });
       doc.text('U. medida', colPositions.uMedida + colWidths.uMedida / 2, y + 5.5, { align: 'center' });
-      doc.text('Precio Unit.', colPositions.precioUnit + colWidths.precioUnit / 2, y + 5.5, { align: 'center' });
-      doc.text('Subtotal', colPositions.subtotal + colWidths.subtotal / 2, y + 5.5, { align: 'center' });
       doc.setFont('helvetica', 'normal');
       y += thH;
     }
@@ -311,11 +299,9 @@ function renderRemitoCopy(
     const textY = y + 5;
     doc.setTextColor(BLACK);
     doc.text(item.PRODUCTO_CODIGO || '', colPositions.codigo + 2, textY);
-    doc.text((item.PRODUCTO_NOMBRE || '').substring(0, 55), colPositions.producto + 2, textY);
-    doc.text(fmtMoney(item.CANTIDAD), colPositions.cantidad + colWidths.cantidad - 3, textY, { align: 'right' });
+    doc.text((item.PRODUCTO_NOMBRE || '').substring(0, 70), colPositions.producto + 2, textY);
+    doc.text(fmtNum(item.CANTIDAD), colPositions.cantidad + colWidths.cantidad - 3, textY, { align: 'right' });
     doc.text(item.UNIDAD_ABREVIACION || 'u', colPositions.uMedida + colWidths.uMedida / 2, textY, { align: 'center' });
-    doc.text(fmtMoney(item.PRECIO_UNITARIO), colPositions.precioUnit + colWidths.precioUnit - 3, textY, { align: 'right' });
-    doc.text(fmtMoney(item.TOTAL_PRODUCTO), colPositions.subtotal + colWidths.subtotal - 3, textY, { align: 'right' });
 
     y += rowH;
   }
@@ -326,40 +312,9 @@ function renderRemitoCopy(
   doc.line(marginL, y, marginL + contentW, y);
 
   // ┌─────────────────────────────────────────────────────────┐
-  // │ TOTALS BOX (bottom area, like factura)                  │
-  // └─────────────────────────────────────────────────────────┘
-  const totalsTop = Math.max(y + 4, 240);
-  const totalsW = contentW;
-  const totalsH = 30;
-  doc.setDrawColor(BLACK);
-  doc.setLineWidth(0.3);
-  doc.rect(marginL, totalsTop, totalsW, totalsH);
-
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(BLACK);
-
-  const rightCol = marginL + totalsW - 4;
-  const labelCol = marginL + totalsW - 65;
-
-  doc.setFont('helvetica', 'bold');
-  doc.text('Subtotal: $', labelCol, totalsTop + 10, { align: 'right' });
-  doc.setFont('helvetica', 'normal');
-  doc.text(fmtMoney(remito.SUBTOTAL), rightCol, totalsTop + 10, { align: 'right' });
-
-  doc.setLineWidth(0.2);
-  doc.line(labelCol - 25, totalsTop + 14, marginL + totalsW - 2, totalsTop + 14);
-
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
-  doc.text('Importe Total: $', labelCol, totalsTop + 22, { align: 'right' });
-  doc.setFont('helvetica', 'normal');
-  doc.text(fmtMoney(remito.TOTAL), rightCol, totalsTop + 22, { align: 'right' });
-
-  // ┌─────────────────────────────────────────────────────────┐
   // │ FOOTER — signature lines + page number                  │
   // └─────────────────────────────────────────────────────────┘
-  const footerY = totalsTop + totalsH + 10;
+  const footerY = Math.max(y + 14, 250);
 
   // Signature lines
   doc.setDrawColor('#999999');

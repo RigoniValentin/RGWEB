@@ -36,12 +36,23 @@ export interface PurchaseDraft {
   actualizarStock: boolean;
   percepcionIva: number;
   percepcionIibb: number;
-  tipoCarga: 'simple' | 'detallada';
+  dtoGral: number;
   impIntGravaIva: boolean;
   step: PurchaseModalStep;
   selectedMetodos: number[];
   montosPorMetodo: Record<number, number>;
   destinoPago: 'CAJA_CENTRAL' | 'CAJA';
+  /** ID del remito de entrada asociado (opcional). Si está, el backend
+   *  forzará ACTUALIZAR_STOCK=false (el remito ya ajustó stock). */
+  remitoId: number | null;
+  /** Snapshot del remito seleccionado, para mostrar el resumen en el modal. */
+  remitoSnap: {
+    REMITO_ID: number;
+    PTO_VTA: string;
+    NRO_REMITO: string;
+    FECHA: string;
+    TOTAL: number;
+  } | null;
 }
 
 const EMPTY_DRAFT: PurchaseDraft = {
@@ -60,12 +71,14 @@ const EMPTY_DRAFT: PurchaseDraft = {
   actualizarStock: true,
   percepcionIva: 0,
   percepcionIibb: 0,
-  tipoCarga: 'detallada',
+  dtoGral: 0,
   impIntGravaIva: false,
   step: 'cart',
   selectedMetodos: [],
   montosPorMetodo: {},
   destinoPago: 'CAJA_CENTRAL',
+  remitoId: null,
+  remitoSnap: null,
 };
 
 interface PurchaseDraftState {
@@ -107,7 +120,7 @@ export const usePurchaseDraftStore = create<PurchaseDraftState>()(
     }),
     {
       name: 'rg-purchase-draft',
-      version: 1,
+      version: 2,
       partialize: (state) => ({ draft: state.draft }),
     }
   )

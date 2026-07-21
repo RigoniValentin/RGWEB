@@ -1,16 +1,11 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import {
-  Modal, Input, Select, Button, InputNumber, Table, Space, Typography,
-  Divider, message, Tag, Checkbox, Segmented, Badge, Switch, DatePicker, Tooltip,
-  Popover,
-} from 'antd';
+import { Modal, Input, Button, InputNumber, Table, Space, Typography, Divider, Tag, Badge, Tooltip, Popover, Segmented } from 'antd';
 import {
   SearchOutlined, DeleteOutlined, ShoppingCartOutlined,
-  ShopOutlined, FileTextOutlined, SwapOutlined,
-  ArrowLeftOutlined, CheckCircleOutlined,
+  FileTextOutlined, ArrowLeftOutlined, CheckCircleOutlined,
   DollarOutlined, CreditCardOutlined, WalletOutlined,
-  BankOutlined, InboxOutlined, CalendarOutlined, QuestionCircleOutlined,
-  SettingOutlined,
+  BankOutlined, InboxOutlined, SettingOutlined,
+  WarningOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
@@ -20,11 +15,14 @@ import { fmtMoney } from '../../utils/format';
 import type { CompraItemInput, CompraInput, ProductoSearchCompra, ProductoSearch, MetodoPagoItem } from '../../types';
 import { ProductSearchModal } from '../ProductSearchModal';
 import { ChequePicker } from '../cheques/ChequePicker';
+import { RemitoPickerModal } from './RemitoPickerModal';
+import { ComprobanteConfigModal } from './ComprobanteConfigModal';
 import { usePurchaseDraftStore } from '../../store/purchaseDraftStore';
 import { useAuthStore } from '../../store/authStore';
 import { invalidateInventoryQueries } from '../../utils/invalidateInventoryQueries';
 import { usePaymentMethodKeyboardNavigation } from '../../hooks/usePaymentMethodKeyboardNavigation';
 import type { PurchaseCartItem } from '../../store/purchaseDraftStore';
+import { notify } from '../../utils/notify.ts';
 
 const { Title, Text } = Typography;
 
@@ -73,10 +71,17 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const [actualizarCostos, setActualizarCostos] = useState(true);
   const [actualizarPrecios, setActualizarPrecios] = useState(true);
   const [actualizarStock, setActualizarStock] = useState(true);
+
+  // ── Remito de entrada asociado (opcional) ──────────
+  const [remitoId, setRemitoId] = useState<number | null>(null);
+  const [remitoSnap, setRemitoSnap] = useState<{
+    REMITO_ID: number; PTO_VTA: string; NRO_REMITO: string; FECHA: string; TOTAL: number;
+  } | null>(null);
+  const [remitoPickerOpen, setRemitoPickerOpen] = useState(false);
+  const [comprobanteModalOpen, setComprobanteModalOpen] = useState(false);
   const [percepcionIva, setPercepcionIva] = useState(0);
   const [percepcionIibb, setPercepcionIibb] = useState(0);
   const [dtoGral, setDtoGral] = useState(0);
-  const [tipoCarga, setTipoCarga] = useState<'simple' | 'detallada'>('detallada');
   const [impIntGravaIva, setImpIntGravaIva] = useState(false);
   const [searchText, setSearchText] = useState('');
   const searchRef = useRef<any>(null);
@@ -104,6 +109,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const [chequesIds, setChequesIds] = useState<number[]>([]);
   const [chequesTotal, setChequesTotal] = useState(0);
   const [chequePickerOpen, setChequePickerOpen] = useState(false);
+  const lastProcessedRemitoIdRef = useRef<number | null>(null);
 
   // Saldo CTA CTE state
   const [saldoModalOpen, setSaldoModalOpen] = useState(false);
@@ -182,12 +188,47 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     return m?.CATEGORIA === 'DIGITAL';
   });
 
+  /**
+   * El comprobante se considera "configurado" cuando el usuario eligió
+   * proveedor, tipo de comprobante (siempre tiene default) y cargó numeración
+   * real (pto vta y nro). Hasta entonces, el carrito queda bloqueado.
+   */
+  const comprobanteConfigurado = useMemo(() => {
+    if (!proveedorId) return false;
+    if (!ptoVta || ptoVta === '0000') return false;
+    if (!nroComprobante || nroComprobante === '00000000') return false;
+    return true;
+  }, [proveedorId, ptoVta, nroComprobante]);
+
   // Set default deposit
   useEffect(() => {
     if (depositos.length > 0 && !depositoId) {
       setDepositoId(depositos[0]!.DEPOSITO_ID);
     }
   }, [depositos]);
+
+  // ── Re-sync comprobante state from draft (used after config modal closes) ──
+  const resyncComprobanteFromDraft = useCallback(() => {
+    const d = usePurchaseDraftStore.getState().draft;
+    setProveedorId(d.proveedorId);
+    if (d.depositoId !== null) setDepositoId(d.depositoId);
+    setTipoComprobante(d.tipoComprobante);
+    setFechaCompra(dayjs(d.fechaCompra));
+    setPtoVta(d.ptoVta);
+    setNroComprobante(d.nroComprobante);
+    setEsCtaCorriente(d.esCtaCorriente);
+    setIvaIncluido(d.ivaIncluido);
+    setIvaManual(d.ivaManual);
+    setActualizarCostos(d.actualizarCostos);
+    setActualizarPrecios(d.actualizarPrecios);
+    setActualizarStock(d.actualizarStock ?? true);
+    setPercepcionIva(d.percepcionIva);
+    setPercepcionIibb(d.percepcionIibb);
+    setDtoGral(d.dtoGral);
+    setImpIntGravaIva(d.impIntGravaIva);
+    setRemitoId(d.remitoId ?? null);
+    setRemitoSnap(d.remitoSnap ?? null);
+  }, []);
 
   // ── Restore draft when modal opens ─────────────
   useEffect(() => {
@@ -196,32 +237,60 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       const d = usePurchaseDraftStore.getState().draft;
       if (d.cart.length > 0) {
         setCart(d.cart as CartItem[]);
-        setProveedorId(d.proveedorId);
-        if (d.depositoId !== null) setDepositoId(d.depositoId);
-        setTipoComprobante(d.tipoComprobante);
-        setFechaCompra((d as any).fechaCompra ? dayjs((d as any).fechaCompra) : dayjs());
-        setPtoVta(d.ptoVta);
-        setNroComprobante(d.nroComprobante);
-        setEsCtaCorriente(d.esCtaCorriente);
-        setIvaIncluido(d.ivaIncluido);
-        setIvaManual(d.ivaManual);
-        setActualizarCostos(d.actualizarCostos);
-        setActualizarPrecios(d.actualizarPrecios);
-        setActualizarStock(d.actualizarStock ?? true);
-        setPercepcionIva(d.percepcionIva);
-        setPercepcionIibb(d.percepcionIibb);
-        setTipoCarga(d.tipoCarga);
-        setImpIntGravaIva(d.impIntGravaIva);
         setStep(d.step);
         setSelectedMetodos(d.selectedMetodos);
         setMontosPorMetodo(d.montosPorMetodo);
         setDestinoPago(d.destinoPago);
       }
+      resyncComprobanteFromDraft();
+      lastProcessedRemitoIdRef.current = d.remitoId ?? null;
     }
     if (!open) {
       draftInitialized.current = false;
+      lastProcessedRemitoIdRef.current = null;
     }
-  }, [open]);
+  }, [open, resyncComprobanteFromDraft]);
+
+  // ── When comprobante modal closes, re-sync our state from the draft ──
+  const wasComprobanteOpen = useRef(false);
+  useEffect(() => {
+    if (comprobanteModalOpen) {
+      wasComprobanteOpen.current = true;
+    } else if (wasComprobanteOpen.current) {
+      wasComprobanteOpen.current = false;
+      if (open) {
+        resyncComprobanteFromDraft();
+        const d = usePurchaseDraftStore.getState().draft;
+        const newRemitoId = d.remitoId ?? null;
+        if (newRemitoId !== null && newRemitoId !== lastProcessedRemitoIdRef.current) {
+          lastProcessedRemitoIdRef.current = newRemitoId;
+          purchasesApi.getRemitoItemsParaCompra(newRemitoId).then(itemsRemito => {
+            const newCart: CartItem[] = itemsRemito.map((it: any, idx: number) => ({
+              key: `remito-${it.PRODUCTO_ID}-${Date.now()}-${idx}`,
+              PRODUCTO_ID: it.PRODUCTO_ID,
+              PRECIO_COMPRA: it.PRECIO_COMPRA || 0,
+              CANTIDAD: it.CANTIDAD,
+              DEPOSITO_ID: d.depositoId || undefined,
+              BONIFICACION: 0,
+              IMP_INTERNOS: it.IMP_INT || 0,
+              IVA_ALICUOTA: (it.IVA_ALICUOTA || 0) / 100,
+              TASA_IVA_ID: it.TASA_IVA_ID || null,
+              NOMBRE: it.PRODUCTO_NOMBRE || '',
+              CODIGO: it.PRODUCTO_CODIGO || '',
+              STOCK: it.STOCK || 0,
+              UNIDAD: it.UNIDAD_ABREVIACION || 'u',
+              IVA_PORCENTAJE: it.IVA_ALICUOTA || 0,
+              PRECIO_FINAL: r2((it.PRECIO_COMPRA || 0) * it.CANTIDAD),
+            }));
+            setCart(newCart);
+            notify.success(`${itemsRemito.length} ítems del remito cargados.`);
+          }).catch(() => {
+            notify.error('No se pudieron cargar los items del remito');
+          });
+        }
+      }
+    }
+  }, [comprobanteModalOpen, open, resyncComprobanteFromDraft]);
 
   // ── Auto-save draft on state changes ───────────
   useEffect(() => {
@@ -230,107 +299,72 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       cart: cart as PurchaseCartItem[],
       proveedorId, depositoId, tipoComprobante, fechaCompra: fechaCompra.toISOString(), ptoVta, nroComprobante,
       esCtaCorriente, ivaIncluido, ivaManual, actualizarCostos, actualizarPrecios, actualizarStock,
-      percepcionIva, percepcionIibb, tipoCarga, impIntGravaIva,
+      percepcionIva, percepcionIibb, dtoGral, impIntGravaIva,
+      remitoId, remitoSnap,
       step, selectedMetodos, montosPorMetodo, destinoPago,
     });
   }, [
     open, cart, proveedorId, depositoId, tipoComprobante, fechaCompra, ptoVta, nroComprobante,
     esCtaCorriente, ivaIncluido, ivaManual, actualizarCostos, actualizarPrecios, actualizarStock,
-    percepcionIva, percepcionIibb, tipoCarga, impIntGravaIva,
+    percepcionIva, percepcionIibb, dtoGral, impIntGravaIva,
     step, selectedMetodos, montosPorMetodo, destinoPago,
   ]);
 
   // ── Product search ─────────────────────────────
-  const isDetallada = tipoCarga === 'detallada';
 
   const handleSelectProduct = useCallback((_value: string, option: any) => {
+    if (!comprobanteConfigurado) {
+      notify.warning('Configure el comprobante antes de agregar productos');
+      return;
+    }
     const p = option.product as ProductoSearchCompra;
     const existingIndex = cart.findIndex(item => item.PRODUCTO_ID === p.PRODUCTO_ID && item.DEPOSITO_ID === depositoId);
 
-    if (isDetallada) {
-      // ── Detailed mode: base price + bonif + imp int ──
-      if (existingIndex >= 0) {
-        const updated = [...cart];
-        const existing = updated[existingIndex]!;
-        const newQty = existing.CANTIDAD + 1;
-        const bonif = existing.BONIFICACION || 0;
-        const netoUnit = existing.PRECIO_COMPRA * (1 - bonif / 100);
-        updated[existingIndex] = {
-          ...existing,
-          CANTIDAD: newQty,
-          PRECIO_FINAL: r2(netoUnit * newQty),
-        };
-        setCart(updated);
-        setLastAddedKey(existing.key);
-      } else {
-        const newKey = `${p.PRODUCTO_ID}-${Date.now()}`;
-        setLastAddedKey(newKey);
-        const newItem: CartItem = {
-          key: newKey,
-          PRODUCTO_ID: p.PRODUCTO_ID,
-          PRECIO_COMPRA: p.PRECIO_COMPRA, // base price (PRECIO_COMPRA_BASE from search)
-          CANTIDAD: 1,
-          DEPOSITO_ID: depositoId || undefined,
-          BONIFICACION: 0,
-          IMP_INTERNOS: p.IMP_INT || 0,
-          IVA_ALICUOTA: p.IVA_PORCENTAJE / 100,
-          TASA_IVA_ID: p.TASA_IVA_ID,
-          NOMBRE: p.NOMBRE,
-          CODIGO: p.CODIGOPARTICULAR,
-          STOCK: p.STOCK,
-          UNIDAD: p.UNIDAD_ABREVIACION || 'u',
-          IVA_PORCENTAJE: p.IVA_PORCENTAJE,
-          PRECIO_FINAL: p.PRECIO_COMPRA, // net = base * 1 qty, no discount
-        };
-        setCart(prev => [...prev, newItem]);
-      }
+    if (existingIndex >= 0) {
+      const updated = [...cart];
+      const existing = updated[existingIndex]!;
+      const newQty = existing.CANTIDAD + 1;
+      const bonif = existing.BONIFICACION || 0;
+      const netoUnit = existing.PRECIO_COMPRA * (1 - bonif / 100);
+      updated[existingIndex] = {
+        ...existing,
+        CANTIDAD: newQty,
+        PRECIO_FINAL: r2(netoUnit * newQty),
+      };
+      setCart(updated);
+      setLastAddedKey(existing.key);
     } else {
-      // ── Simple mode (current behavior): price final / qty ──
-      if (existingIndex >= 0) {
-        const updated = [...cart];
-        const existing = updated[existingIndex]!;
-        const newQty = existing.CANTIDAD + 1;
-        const unitPriceRaw = existing.PRECIO_FINAL / newQty;
-        const ivaAliE = existing.IVA_ALICUOTA || 0;
-        const extractIva = tipoComprobante === 'FA' && ivaIncluido;
-        updated[existingIndex] = {
-          ...existing,
-          CANTIDAD: newQty,
-          PRECIO_COMPRA: extractIva ? unitPriceRaw / (1 + ivaAliE) : unitPriceRaw,
-        };
-        setCart(updated);
-        setLastAddedKey(existing.key);
-      } else {
-        const ivaAliN = p.IVA_PORCENTAJE / 100;
-        const extractIva = tipoComprobante === 'FA' && ivaIncluido;
-        const newKey = `${p.PRODUCTO_ID}-${Date.now()}`;
-        setLastAddedKey(newKey);
-        const newItem: CartItem = {
-          key: newKey,
-          PRODUCTO_ID: p.PRODUCTO_ID,
-          PRECIO_COMPRA: extractIva ? p.PRECIO_COMPRA / (1 + ivaAliN) : p.PRECIO_COMPRA,
-          CANTIDAD: 1,
-          DEPOSITO_ID: depositoId || undefined,
-          BONIFICACION: 0,
-          IMP_INTERNOS: 0,
-          IVA_ALICUOTA: p.IVA_PORCENTAJE / 100,
-          TASA_IVA_ID: p.TASA_IVA_ID,
-          NOMBRE: p.NOMBRE,
-          CODIGO: p.CODIGOPARTICULAR,
-          STOCK: p.STOCK,
-          UNIDAD: p.UNIDAD_ABREVIACION || 'u',
-          IVA_PORCENTAJE: p.IVA_PORCENTAJE,
-          PRECIO_FINAL: p.PRECIO_COMPRA,
-        };
-        setCart(prev => [...prev, newItem]);
-      }
+      const newKey = `${p.PRODUCTO_ID}-${Date.now()}`;
+      setLastAddedKey(newKey);
+      const newItem: CartItem = {
+        key: newKey,
+        PRODUCTO_ID: p.PRODUCTO_ID,
+        PRECIO_COMPRA: p.PRECIO_COMPRA, // base price (PRECIO_COMPRA_BASE from search)
+        CANTIDAD: 1,
+        DEPOSITO_ID: depositoId || undefined,
+        BONIFICACION: 0,
+        IMP_INTERNOS: p.IMP_INT || 0,
+        IVA_ALICUOTA: p.IVA_PORCENTAJE / 100,
+        TASA_IVA_ID: p.TASA_IVA_ID,
+        NOMBRE: p.NOMBRE,
+        CODIGO: p.CODIGOPARTICULAR,
+        STOCK: p.STOCK,
+        UNIDAD: p.UNIDAD_ABREVIACION || 'u',
+        IVA_PORCENTAJE: p.IVA_PORCENTAJE,
+        PRECIO_FINAL: p.PRECIO_COMPRA, // net = base * 1 qty, no discount
+      };
+      setCart(prev => [...prev, newItem]);
     }
 
     setSearchText('');
-  }, [cart, depositoId, tipoComprobante, ivaIncluido, isDetallada]);
+  }, [cart, depositoId, comprobanteConfigurado]);
 
   // Add product from modal search result (adapts ProductoSearch to ProductoSearchCompra)
   const addProductFromSearch = useCallback((product: ProductoSearch) => {
+    if (!comprobanteConfigurado) {
+      notify.warning('Configure el comprobante antes de agregar productos');
+      return;
+    }
     const p: ProductoSearchCompra = {
       PRODUCTO_ID: product.PRODUCTO_ID,
       CODIGOPARTICULAR: product.CODIGOPARTICULAR,
@@ -348,13 +382,17 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       IVA_PORCENTAJE: product.IVA_PORCENTAJE,
     };
     handleSelectProduct(`${p.PRODUCTO_ID}`, { product: p });
-  }, [handleSelectProduct]);
+  }, [handleSelectProduct, comprobanteConfigurado]);
 
   // Handle Enter on search input: quick search or open modal
   const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key !== 'Enter') return;
     const text = searchText.trim();
     if (!text) return;
+    if (!comprobanteConfigurado) {
+      notify.warning('Configure el comprobante antes de buscar productos');
+      return;
+    }
     e.preventDefault();
 
     purchasesApi.searchProducts(text).then(products => {
@@ -377,13 +415,13 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
         setSearchText('');
       }
     });
-  }, [searchText, handleSelectProduct]);
+  }, [searchText, handleSelectProduct, comprobanteConfigurado]);
 
   // Auto-focus first editable field when a new product is added
   useEffect(() => {
     if (!lastAddedKey) return;
     const timer = setTimeout(() => {
-      const firstField = isDetallada ? 'precioCompra' : 'cantidad';
+      const firstField = 'precioCompra';
       const el = fieldRefs.current[lastAddedKey]?.[firstField];
       if (el) {
         el.focus();
@@ -393,7 +431,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       setLastAddedKey(null);
     }, 100);
     return () => clearTimeout(timer);
-  }, [lastAddedKey, isDetallada]);
+  }, [lastAddedKey]);
 
   // Auto-focus first amount input when the multi-method popover opens
   useEffect(() => {
@@ -450,25 +488,13 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       if (item.key !== key) return item;
       const updated = { ...item, [field]: value };
 
-      if (isDetallada) {
-        // Detailed: recalculate net total when base price, qty, or bonif changes
-        if (field === 'PRECIO_COMPRA' || field === 'CANTIDAD' || field === 'BONIFICACION') {
-          const pc = field === 'PRECIO_COMPRA' ? (value as number) : item.PRECIO_COMPRA;
-          const qty = field === 'CANTIDAD' ? (value as number) : item.CANTIDAD;
-          const bonif = field === 'BONIFICACION' ? (value as number) : item.BONIFICACION;
-          const netoUnit = pc * (1 - (bonif || 0) / 100);
-          updated.PRECIO_FINAL = r2(netoUnit * qty);
-        }
-      } else {
-        // Simple: recalculate net unit price when precio final or cantidad changes
-        if (field === 'PRECIO_FINAL' || field === 'CANTIDAD') {
-          const pf = field === 'PRECIO_FINAL' ? (value as number) : item.PRECIO_FINAL;
-          const qty = field === 'CANTIDAD' ? (value as number) : item.CANTIDAD;
-          const unitPrice = qty > 0 ? pf / qty : 0;
-          const extractIva = tipoComprobante === 'FA' && ivaIncluido;
-          const ivaAli = updated.IVA_ALICUOTA || 0;
-          updated.PRECIO_COMPRA = extractIva ? unitPrice / (1 + ivaAli) : unitPrice;
-        }
+      // Recalculate net total when base price, qty, or bonif changes
+      if (field === 'PRECIO_COMPRA' || field === 'CANTIDAD' || field === 'BONIFICACION') {
+        const pc = field === 'PRECIO_COMPRA' ? (value as number) : item.PRECIO_COMPRA;
+        const qty = field === 'CANTIDAD' ? (value as number) : item.CANTIDAD;
+        const bonif = field === 'BONIFICACION' ? (value as number) : item.BONIFICACION;
+        const netoUnit = pc * (1 - (bonif || 0) / 100);
+        updated.PRECIO_FINAL = r2(netoUnit * qty);
       }
       return updated;
     }));
@@ -478,20 +504,6 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     setCart(prev => prev.filter(item => item.key !== key));
   };
 
-  // Recalculate net unit prices when IVA inclusion or comprobante type changes (simple mode only)
-  useEffect(() => {
-    if (cart.length === 0 || isDetallada) return;
-    const extractIva = tipoComprobante === 'FA' && ivaIncluido;
-    setCart(prev => prev.map(item => {
-      const unitPrice = item.CANTIDAD > 0 ? item.PRECIO_FINAL / item.CANTIDAD : 0;
-      const ivaAli = item.IVA_ALICUOTA || 0;
-      return {
-        ...item,
-        PRECIO_COMPRA: extractIva ? unitPrice / (1 + ivaAli) : unitPrice,
-      };
-    }));
-  }, [ivaIncluido, tipoComprobante, isDetallada]);
-
   // ── Total calculations ─────────────────────────
   const isFacturaA = tipoComprobante === 'FA';
 
@@ -500,7 +512,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
 
   // Detailed mode memos
   const ivaCalculado = useMemo(() => {
-    if (!isDetallada || !isFacturaA) return 0;
+    if (!isFacturaA) return 0;
     return cart.reduce((s, item) => {
       const ivaPct = item.IVA_PORCENTAJE ?? 21;
       const impInt = item.IMP_INTERNOS ?? 0;
@@ -509,35 +521,27 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       const baseIva = impIntGravaIva ? (item.PRECIO_FINAL - impIntLine) : item.PRECIO_FINAL;
       return s + baseIva * (ivaPct / 100);
     }, 0);
-  }, [cart, isDetallada, isFacturaA, impIntGravaIva]);
+  }, [cart, isFacturaA, impIntGravaIva]);
 
   const impInternoCalculado = useMemo(() => {
-    if (!isDetallada) return 0;
     return cart.reduce((s, item) => s + ((item as any).IMP_INTERNOS ?? 0) * item.CANTIDAD, 0);
-  }, [cart, isDetallada]);
+  }, [cart]);
 
   const total = useMemo(() => {
-    let t = subtotal;
-    if (isDetallada) {
-      t += ivaCalculado + impInternoCalculado;
-    } else {
-      if (isFacturaA && !ivaIncluido) t += ivaManual;
-    }
+    let t = subtotal + ivaCalculado + impInternoCalculado;
     // General discount % applied on subtotal + IVA (before perceptions)
     if (dtoGral > 0) {
       t = t * (1 - dtoGral / 100);
     }
     t += percepcionIva + percepcionIibb;
     return Math.round(t * 100) / 100;
-  }, [subtotal, isDetallada, isFacturaA, ivaIncluido, ivaManual, ivaCalculado, impInternoCalculado, percepcionIva, percepcionIibb, dtoGral]);
+  }, [subtotal, ivaCalculado, impInternoCalculado, percepcionIva, percepcionIibb, dtoGral]);
 
   const descuentoGralImporte = useMemo(() => {
     if (dtoGral <= 0) return 0;
-    let base = subtotal;
-    if (isDetallada) base += ivaCalculado + impInternoCalculado;
-    else if (isFacturaA && !ivaIncluido) base += ivaManual;
+    const base = subtotal + ivaCalculado + impInternoCalculado;
     return Math.round(base * (dtoGral / 100) * 100) / 100;
-  }, [dtoGral, subtotal, isDetallada, isFacturaA, ivaIncluido, ivaManual, ivaCalculado, impInternoCalculado]);
+  }, [dtoGral, subtotal, ivaCalculado, impInternoCalculado]);
 
   const vuelto = useMemo(() => {
     if (esCtaCorriente) return 0;
@@ -657,7 +661,6 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     setPercepcionIva(0);
     setPercepcionIibb(0);
     setDtoGral(0);
-    setTipoCarga('detallada');
     setImpIntGravaIva(false);
     setSearchText('');
     setStep('cart');
@@ -671,6 +674,10 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     setChequesIds([]);
     setChequesTotal(0);
     setChequePickerOpen(false);
+    setRemitoId(null);
+    setRemitoSnap(null);
+    setRemitoPickerOpen(false);
+    lastProcessedRemitoIdRef.current = null;
   };
 
   // Close modal — purge draft if cart is empty, otherwise keep for next open
@@ -694,18 +701,18 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       // Show appropriate message based on anticipo usage
       if (result.MONTO_ANTICIPO && result.MONTO_ANTICIPO > 0) {
         if (result.COBRADA) {
-          message.success(
+          notify.success(
             `Compra #${result.COMPRA_ID} registrada — Total: ${fmtMoney(result.TOTAL)}. Pagada con saldo de cta corriente.`,
             5
           );
         } else {
-          message.success(
+          notify.success(
             `Compra #${result.COMPRA_ID} registrada — Total: ${fmtMoney(result.TOTAL)}. Anticipo aplicado: ${fmtMoney(result.MONTO_ANTICIPO)}. Pendiente: ${fmtMoney(result.TOTAL - result.MONTO_ANTICIPO)}`,
             5
           );
         }
       } else {
-        message.success(`Compra #${result.COMPRA_ID} registrada — Total: ${fmtMoney(result.TOTAL)}`);
+        notify.success(`Compra #${result.COMPRA_ID} registrada — Total: ${fmtMoney(result.TOTAL)}`);
       }
       const didUpdateCosts = actualizarCostos;
       usePurchaseDraftStore.getState().clearDraft();
@@ -714,24 +721,24 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       onSuccess({ compraId: result.COMPRA_ID, actualizoCostos: didUpdateCosts });
     },
     onError: (err: any) => {
-      message.error(err.response?.data?.error || 'Error al registrar compra');
+      notify.error(err.response?.data?.error || 'Error al registrar compra');
     },
   });
 
   // ── Submit ─────────────────────────────────────
   const handleSubmit = () => {
     if (!proveedorId) {
-      message.warning('Seleccione un proveedor');
+      notify.warning('Seleccione un proveedor');
       return;
     }
     if (cart.length === 0) {
-      message.warning('Agregue al menos un producto');
+      notify.warning('Agregue al menos un producto');
       return;
     }
 
     const itemsSinCantidad = hasItemsWithInvalidCantidad(cart);
     if (itemsSinCantidad.length > 0) {
-      message.warning(`Hay ${itemsSinCantidad.length === 1 ? 'un producto' : `${itemsSinCantidad.length} productos`} con cantidad 0. Ingrese una cantidad válida antes de continuar.`);
+      notify.warning(`Hay ${itemsSinCantidad.length === 1 ? 'un producto' : `${itemsSinCantidad.length} productos`} con cantidad 0. Ingrese una cantidad válida antes de continuar.`);
       return;
     }
 
@@ -779,16 +786,17 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       VUELTO: vueltoFinal,
       COBRADA: !esCtaCorriente,
       PRECIOS_SIN_IVA: isFacturaA,
-      IMP_INT_GRAVA_IVA: isDetallada ? impIntGravaIva : false,
+      IMP_INT_GRAVA_IVA: impIntGravaIva,
       PERCEPCION_IVA: percepcionIva,
       PERCEPCION_IIBB: percepcionIibb,
-      IVA_TOTAL: isDetallada && isFacturaA ? r2(ivaCalculado) : (isFacturaA ? ivaManual : 0),
+      IVA_TOTAL: isFacturaA ? r2(ivaCalculado) : 0,
       DTO_GRAL: dtoGral > 0 ? dtoGral : undefined,
       ACTUALIZAR_COSTOS: actualizarCostos,
       ACTUALIZAR_PRECIOS: actualizarPrecios,
       ACTUALIZAR_STOCK: actualizarStock,
       DESTINO_PAGO: esCtaCorriente ? undefined : destinoPago,
       PUNTO_VENTA_ID: esCtaCorriente ? undefined : puntoVentaActivo,
+      REMITO_ID: remitoId || undefined,
       metodos_pago: metodosPagoInput.length > 0 ? metodosPagoInput : undefined,
       cheques_ids: !esCtaCorriente && chequesIds.length > 0 ? chequesIds : undefined,
       items: cart.map(item => ({
@@ -796,8 +804,8 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
         PRECIO_COMPRA: item.PRECIO_COMPRA,
         CANTIDAD: item.CANTIDAD,
         DEPOSITO_ID: item.DEPOSITO_ID,
-        BONIFICACION: isDetallada ? item.BONIFICACION : 0,
-        IMP_INTERNOS: isDetallada ? item.IMP_INTERNOS : 0,
+        BONIFICACION: item.BONIFICACION,
+        IMP_INTERNOS: item.IMP_INTERNOS,
         IVA_ALICUOTA: item.IVA_ALICUOTA,
         TASA_IVA_ID: item.TASA_IVA_ID,
       })),
@@ -809,11 +817,11 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   // ── Going to payment step ──────────────────────
   const goToPayment = async () => {
     if (!proveedorId) {
-      message.warning('Seleccione un proveedor');
+      notify.warning('Seleccione un proveedor');
       return;
     }
     if (cart.length === 0) {
-      message.warning('Agregue al menos un producto');
+      notify.warning('Agregue al menos un producto');
       return;
     }
 
@@ -857,6 +865,55 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     handleSubmit();
   };
 
+  // ── Remito asociado: aplicar y auto-popular el cart ───
+  const applyRemito = async (remitoSeleccionado: {
+    REMITO_ID: number; PTO_VTA: string; NRO_REMITO: string;
+    FECHA: string; TOTAL: number; PROVEEDOR_ID: number | null;
+  }) => {
+    try {
+      const itemsRemito = await purchasesApi.getRemitoItemsParaCompra(remitoSeleccionado.REMITO_ID);
+      const newCart: CartItem[] = itemsRemito.map((it, idx) => ({
+        key: `remito-${it.PRODUCTO_ID}-${Date.now()}-${idx}`,
+        PRODUCTO_ID: it.PRODUCTO_ID,
+        PRECIO_COMPRA: it.PRECIO_COMPRA || 0,
+        CANTIDAD: it.CANTIDAD,
+        DEPOSITO_ID: depositoId || undefined,
+        BONIFICACION: 0,
+        IMP_INTERNOS: it.IMP_INT || 0,
+        IVA_ALICUOTA: (it.IVA_ALICUOTA || 0) / 100,
+        TASA_IVA_ID: it.TASA_IVA_ID || null,
+        NOMBRE: it.PRODUCTO_NOMBRE || '',
+        CODIGO: it.PRODUCTO_CODIGO || '',
+        STOCK: it.STOCK || 0,
+        UNIDAD: it.UNIDAD_ABREVIACION || 'u',
+        IVA_PORCENTAJE: it.IVA_ALICUOTA || 0,
+        PRECIO_FINAL: r2((it.PRECIO_COMPRA || 0) * it.CANTIDAD),
+      }));
+      setCart(newCart);
+      setRemitoId(remitoSeleccionado.REMITO_ID);
+      lastProcessedRemitoIdRef.current = remitoSeleccionado.REMITO_ID;
+      setRemitoSnap({
+        REMITO_ID: remitoSeleccionado.REMITO_ID,
+        PTO_VTA: remitoSeleccionado.PTO_VTA,
+        NRO_REMITO: remitoSeleccionado.NRO_REMITO,
+        FECHA: remitoSeleccionado.FECHA,
+        TOTAL: remitoSeleccionado.TOTAL,
+      });
+      // Forzar ACTUALIZAR_STOCK=false (el remito ya ajustó stock)
+      setActualizarStock(false);
+      // Si el remito tiene proveedor, autoseleccionarlo
+      if (remitoSeleccionado.PROVEEDOR_ID && !proveedorId) {
+        setProveedorId(remitoSeleccionado.PROVEEDOR_ID);
+      }
+      notify.success(
+        `Remito ${remitoSeleccionado.PTO_VTA}-${remitoSeleccionado.NRO_REMITO} asociado. ${itemsRemito.length} ítems cargados. Stock ya ajustado por el remito.`
+      );
+      setRemitoPickerOpen(false);
+    } catch (err: any) {
+      notify.error(err?.response?.data?.error || 'No se pudieron cargar los items del remito');
+    }
+  };
+
   // ── Item columns ───────────────────────────────
   const productColumn = {
     title: 'PRODUCTO', dataIndex: 'NOMBRE', key: 'name', ellipsis: true,
@@ -884,8 +941,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     ),
   };
 
-  const cartColumns = isDetallada ? [
-    // ── DETAILED MODE COLUMNS ──
+  const cartColumns = [
     productColumn,
     {
       title: 'P. COMPRA', width: 120, align: 'center' as const,
@@ -927,8 +983,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
           onPressEnter={() => focusField(record.key, 'impInternos')}
         />
       ),
-    },
-    {
+    }, {
       title: 'IMP. INT.', width: 100, align: 'center' as const,
       render: (_: unknown, record: CartItem) => (
         <InputNumber
@@ -954,49 +1009,6 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
         <Text strong style={{ fontSize: 14 }}>{fmtMoney(record.PRECIO_FINAL)}</Text>
       ),
     },
-    deleteColumn,
-  ] : [
-    // ── SIMPLE MODE COLUMNS ──
-    productColumn,
-    {
-      title: 'P. UNIT.', width: 110, align: 'center' as const,
-      render: (_: unknown, record: CartItem) => (
-        <Text type="secondary" style={{ fontSize: 13 }}>{fmtMoney(record.PRECIO_COMPRA)}</Text>
-      ),
-    },
-    {
-      title: 'CANT.', dataIndex: 'CANTIDAD', width: 140, align: 'center' as const,
-      render: (_: number, record: CartItem) => (
-        <InputNumber
-          ref={el => { if (el) { if (!fieldRefs.current[record.key]) fieldRefs.current[record.key] = {}; fieldRefs.current[record.key]!.cantidad = el; } }}
-          value={record.CANTIDAD} min={0.01} step={1} size="middle"
-          style={{ width: '100%' }}
-          className="nsm-cart-input"
-          onChange={val => updateCartItem(record.key, 'CANTIDAD', val || 1)}
-          onPressEnter={() => focusField(record.key, 'precioFinal')}
-        />
-      ),
-    },
-    {
-      title: 'PRECIO FINAL', width: 140, align: 'center' as const,
-      render: (_: unknown, record: CartItem) => (
-        <InputNumber
-          ref={el => { if (el) { if (!fieldRefs.current[record.key]) fieldRefs.current[record.key] = {}; fieldRefs.current[record.key]!.precioFinal = el; } }}
-          value={record.PRECIO_FINAL} min={0} step={0.01} size="middle"
-          style={{ width: '100%' }}
-          className="nsm-cart-input"
-          onChange={val => updateCartItem(record.key, 'PRECIO_FINAL', val || 0)}
-          formatter={v => `$ ${v}`}
-          onPressEnter={focusSearch}
-        />
-      ),
-    },
-    ...(isFacturaA ? [{
-      title: 'IVA %', width: 70, align: 'center' as const,
-      render: (_: unknown, record: CartItem) => (
-        <Text type="secondary">{((record.IVA_ALICUOTA || 0) * 100).toFixed(0)}%</Text>
-      ),
-    }] : []),
     deleteColumn,
   ];
 
@@ -1047,6 +1059,53 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
           requestAnimationFrame(() => target.select());
         }
       }}>
+        {/* ══ TOP — Comprobante config bar ══════════ */}
+        {step === 'cart' && (
+          <div className={`npm-comprobante-bar ${comprobanteConfigurado ? 'is-configured' : 'is-pending'}`}>
+            <div className="npm-comprobante-info">
+              <div className="npm-comprobante-icon">
+                {comprobanteConfigurado ? <CheckCircleOutlined /> : <WarningOutlined />}
+              </div>
+              <div className="npm-comprobante-text">
+                <div className="npm-comprobante-label">
+                  <FileTextOutlined /> Comprobante
+                </div>
+                {(() => {
+                  const prov = proveedores.find(p => p.PROVEEDOR_ID === proveedorId);
+                  if (!prov) return (
+                    <Text style={{ fontSize: 13, color: 'var(--rg-gold-dark)', fontWeight: 500 }}>
+                      Sin configurar — definí proveedor, tipo y numeración antes de registrar.
+                    </Text>
+                  );
+                  const tipoLabel =
+                    tipoComprobante === 'FA' ? 'Factura A' :
+                    tipoComprobante === 'FB' ? 'Factura B' :
+                    tipoComprobante === 'FC' ? 'Factura C' :
+                    tipoComprobante === 'FM' ? 'Factura M' : 'Cbte. X';
+                  return (
+                    <Text style={{ fontSize: 13 }}>
+                      <strong>{prov.NOMBRE}</strong>
+                      <span style={{ color: 'var(--rg-text-light)', margin: '0 6px' }}>·</span>
+                      {tipoLabel} {ptoVta}-{nroComprobante}
+                      <span style={{ color: 'var(--rg-text-light)', margin: '0 6px' }}>·</span>
+                      {dayjs(fechaCompra).format('DD/MM/YYYY')}
+                    </Text>
+                  );
+                })()}
+              </div>
+            </div>
+            <Button
+              type="primary"
+              size="middle"
+              icon={<SettingOutlined />}
+              onClick={() => setComprobanteModalOpen(true)}
+              className={comprobanteConfigurado ? 'npm-comprobante-btn-edit' : 'btn-gold npm-comprobante-btn-setup'}
+            >
+              {comprobanteConfigurado ? 'Editar comprobante' : 'Configurar comprobante'}
+            </Button>
+          </div>
+        )}
+
         {/* ══ LEFT COLUMN — Search + Cart ══════════ */}
         <div className="nsm-main">
           <div className="nsm-cart-area">
@@ -1056,15 +1115,18 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                 ref={searchRef}
                 value={searchText}
                 onChange={e => setSearchText(e.target.value)}
-                prefix={<SearchOutlined style={{ fontSize: 16, color: '#EABD23' }} />}
+                prefix={<SearchOutlined style={{ fontSize: 16, color: comprobanteConfigurado ? '#EABD23' : '#d9d9d9' }} />}
                 suffix={
                     <Tag color="default" style={{ margin: 0, fontSize: 11, opacity: 0.5 }}>
                       Enter
                     </Tag>
                 }
-                placeholder="Buscar producto por código o nombre..."
+                placeholder={comprobanteConfigurado
+                  ? 'Buscar producto por código o nombre...'
+                  : 'Configure el comprobante para habilitar la búsqueda...'}
                 size="large"
                 allowClear
+                disabled={!comprobanteConfigurado}
                 className="nsm-search-input"
                 onKeyDown={handleSearchKeyDown}
               />
@@ -1121,25 +1183,19 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                 </Space>
 
                 {/* Subtotal + extras if any */}
-                {(isDetallada || percepcionIva > 0 || percepcionIibb > 0 || dtoGral > 0) && (
+                {(percepcionIva > 0 || percepcionIibb > 0 || dtoGral > 0 || ivaCalculado > 0 || impInternoCalculado > 0) && (
                   <div className="nsm-footer-summary-inline">
                     <span className="label">Subtotal</span>
                     <span className="value">{fmtMoney(subtotal)}</span>
                   </div>
                 )}
-                {isDetallada && isFacturaA && ivaCalculado > 0 && (
+                {isFacturaA && ivaCalculado > 0 && (
                   <div className="nsm-footer-summary-inline">
                     <span className="label">IVA</span>
                     <span className="value">{fmtMoney(r2(ivaCalculado))}</span>
                   </div>
                 )}
-                {!isDetallada && isFacturaA && ivaManual > 0 && (
-                  <div className="nsm-footer-summary-inline">
-                    <span className="label">IVA</span>
-                    <span className="value">{fmtMoney(ivaManual)}</span>
-                  </div>
-                )}
-                {isDetallada && impInternoCalculado > 0 && (
+                {impInternoCalculado > 0 && (
                   <div className="nsm-footer-summary-inline">
                     <span className="label">Imp. Int.</span>
                     <span className="value">{fmtMoney(r2(impInternoCalculado))}</span>
@@ -1170,277 +1226,48 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                   <span className="value" style={{ fontSize: 26 }}>{fmtMoney(total)}</span>
                 </div>
 
-                {/* ── Config Popover ── */}
-                <Popover
-                  trigger="click"
-                  placement="topRight"
-                  destroyTooltipOnHide
-                  content={
-                    <div className="nsm-config-popover">
-                      {/* Proveedor */}
-                      <div className="nsm-field-group">
-                        <label className="nsm-label">
-                          <ShopOutlined style={{ marginRight: 6 }} />
-                          Proveedor
-                        </label>
-                        <Select
-                          showSearch
-                          placeholder="Seleccionar proveedor"
-                          optionFilterProp="label"
-                          value={proveedorId}
-                          onChange={val => setProveedorId(val)}
-                          style={{ width: '100%' }}
-                          size="middle"
-                          options={proveedores.map(p => ({
-                            value: p.PROVEEDOR_ID,
-                            label: `${p.CODIGOPARTICULAR} - ${p.NOMBRE}`,
-                          }))}
-                        />
-                        {(() => {
-                          const prov = proveedores.find(p => p.PROVEEDOR_ID === proveedorId);
-                          if (!prov) return null;
-                          const cond = (prov.CONDICION_IVA || '').toUpperCase();
-                          const esMono = cond.includes('MONOTRIBUT');
-                          const esExento = cond.includes('EXENT') || cond.includes('CONSUMIDOR');
-                          const noDiscrimina = esMono || esExento;
-                          if (!cond) return null;
-                          return (
-                            <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                              <Tag color={noDiscrimina ? 'orange' : 'blue'} style={{ margin: 0, fontSize: 11 }}>
-                                {prov.CONDICION_IVA}
-                              </Tag>
-                              {noDiscrimina && (
-                                <Tooltip
-                                  title="Este proveedor no discrimina IVA en sus comprobantes. Por lo tanto, el costo sin impuestos coincidirá con el costo con impuestos al cargar la compra."
-                                >
-                                  <Text type="warning" style={{ fontSize: 11 }}>
-                                    ⓘ No discrimina IVA
-                                  </Text>
-                                </Tooltip>
-                              )}
-                            </div>
-                          );
-                        })()}
+                {/* ── Comprobante summary chip ── */}
+                <Tooltip
+                  title={
+                    <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                      <div><strong>{(() => {
+                        const prov = proveedores.find(p => p.PROVEEDOR_ID === proveedorId);
+                        return prov?.NOMBRE || 'Sin proveedor';
+                      })()}</strong></div>
+                      <div>
+                        {tipoComprobante === 'FA' ? 'Factura A' : tipoComprobante === 'FB' ? 'Factura B' : tipoComprobante === 'FC' ? 'Factura C' : tipoComprobante === 'FM' ? 'Factura M' : 'Cbte. X'}
+                        {' '}{ptoVta}-{nroComprobante}
                       </div>
-
-                      {/* Depósito */}
-                      <div className="nsm-field-group">
-                        <label className="nsm-label">
-                          <InboxOutlined style={{ marginRight: 6 }} />
-                          Depósito
-                        </label>
-                        <Select
-                          placeholder="Depósito"
-                          value={depositoId}
-                          onChange={val => setDepositoId(val)}
-                          style={{ width: '100%' }}
-                          size="middle"
-                          options={depositos.map(d => ({
-                            value: d.DEPOSITO_ID,
-                            label: d.NOMBRE,
-                          }))}
-                        />
-                      </div>
-
-                      {/* Fecha */}
-                      <div className="nsm-field-group">
-                        <label className="nsm-label">
-                          <CalendarOutlined style={{ marginRight: 6 }} />
-                          Fecha
-                        </label>
-                        <DatePicker
-                          value={fechaCompra}
-                          onChange={value => setFechaCompra(value || dayjs())}
-                          format="DD/MM/YYYY"
-                          allowClear={false}
-                          style={{ width: '100%' }}
-                          size="middle"
-                        />
-                      </div>
-
-                      {/* Comprobante */}
-                      <div className="nsm-field-group">
-                        <label className="nsm-label">
-                          <FileTextOutlined style={{ marginRight: 6 }} />
-                          Comprobante
-                        </label>
-                        <Select
-                          value={tipoComprobante}
-                          onChange={val => {
-                            setTipoComprobante(val);
-                            if (val === 'FA') {
-                              setTipoCarga('detallada');
-                              setIvaIncluido(true);
-                            } else {
-                              setIvaManual(0);
-                              setIvaIncluido(true);
-                            }
-                          }}
-                          style={{ width: '100%' }}
-                          size="middle"
-                          options={[
-                            { value: 'FA', label: 'Factura A' },
-                            { value: 'FB', label: 'Factura B' },
-                            { value: 'FC', label: 'Factura C' },
-                            { value: 'FM', label: 'Factura M' },
-                            { value: 'X', label: 'Comprobante X' },
-                          ]}
-                        />
-                        <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
-                          <Input
-                            value={ptoVta}
-                            onChange={e => setPtoVta(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
-                            onBlur={() => setPtoVta(prev => prev.padStart(4, '0'))}
-                            onFocus={e => e.target.select()}
-                            style={{ width: 65, fontFamily: 'monospace', textAlign: 'center', letterSpacing: 1 }}
-                            maxLength={4}
-                          />
-                          <span style={{ fontFamily: 'monospace', fontSize: 16, userSelect: 'none' }}>-</span>
-                          <Input
-                            value={nroComprobante}
-                            onChange={e => setNroComprobante(e.target.value.replace(/[^0-9]/g, '').slice(0, 8))}
-                            onBlur={() => setNroComprobante(prev => prev.padStart(8, '0'))}
-                            onFocus={e => e.target.select()}
-                            style={{ flex: 1, fontFamily: 'monospace', textAlign: 'center', letterSpacing: 1 }}
-                            maxLength={8}
-                          />
+                      <div>{dayjs(fechaCompra).format('DD/MM/YYYY')}</div>
+                      {depositoId && (
+                        <div>
+                          Depósito: {depositos.find(d => d.DEPOSITO_ID === depositoId)?.NOMBRE}
                         </div>
-                      </div>
-
-                      {/* Tipo de carga */}
-                      <div className="nsm-field-group">
-                        <label className="nsm-label">Tipo de carga</label>
-                        <Segmented
-                          value={tipoCarga}
-                          onChange={val => {
-                            const v = val as 'simple' | 'detallada';
-                            if (v === 'simple' && isFacturaA) {
-                              message.info('Factura A requiere carga detallada');
-                              return;
-                            }
-                            setTipoCarga(v);
-                            if (cart.length > 0) setCart([]);
-                          }}
-                          options={[
-                            { value: 'detallada', label: 'Detallada' },
-                            { value: 'simple', label: 'Simple' },
-                          ]}
-                          size="middle"
-                          block
-                        />
-                      </div>
-
-                      {/* Opciones */}
-                      <div className="nsm-field-group">
-                        {isFacturaA && !isDetallada && (
-                          <Checkbox checked={ivaIncluido} onChange={e => setIvaIncluido(e.target.checked)} style={{ marginBottom: 8, display: 'block' }}>
-                            IVA incluido
-                          </Checkbox>
-                        )}
-                        <div className="nsm-switch-row">
-                          <Switch
-                            size="small"
-                            checked={esCtaCorriente}
-                            onChange={setEsCtaCorriente}
-                          />
-                          <span className="nsm-switch-label">
-                            <SwapOutlined style={{ marginRight: 6 }} />
-                            Cuenta Corriente
-                            <Tooltip title="Si el proveedor no tiene cuenta corriente, se creará automáticamente al finalizar la operación.">
-                              <QuestionCircleOutlined style={{ marginLeft: 6, color: '#8c8c8c', cursor: 'help' }} />
-                            </Tooltip>
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Percepciones */}
-                      <div className="nsm-field-group">
-                        <label className="nsm-label">Percepciones e impuestos</label>
-                        {isFacturaA && !isDetallada && (
-                          <div style={{ marginBottom: 8 }}>
-                            <Text type="secondary" style={{ fontSize: 11 }}>IVA manual</Text>
-                            <InputNumber
-                              size="small"
-                              value={ivaManual}
-                              min={0}
-                              onChange={val => setIvaManual(val || 0)}
-                              style={{ width: '100%' }}
-                              prefix="$"
-                              controls={false}
-                            />
-                          </div>
-                        )}
-                        <div style={{ display: 'flex', gap: 8 }}>
-                          <div style={{ flex: 1 }}>
-                            <Text type="secondary" style={{ fontSize: 11 }}>Perc. IVA</Text>
-                            <InputNumber
-                              size="small"
-                              value={percepcionIva}
-                              min={0}
-                              onChange={val => setPercepcionIva(val || 0)}
-                              style={{ width: '100%' }}
-                              prefix="$"
-                              controls={false}
-                            />
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <Text type="secondary" style={{ fontSize: 11 }}>Perc. IIBB</Text>
-                            <InputNumber
-                              size="small"
-                              value={percepcionIibb}
-                              min={0}
-                              onChange={val => setPercepcionIibb(val || 0)}
-                              style={{ width: '100%' }}
-                              prefix="$"
-                              controls={false}
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Descuento general */}
-                      <div className="nsm-field-group">
-                        <label className="nsm-label">Descuento General %</label>
-                        <InputNumber
-                          size="small"
-                          value={dtoGral}
-                          min={0}
-                          max={100}
-                          step={0.5}
-                          onChange={val => setDtoGral(val || 0)}
-                          style={{ width: '100%' }}
-                          suffix="%"
-                          controls={false}
-                        />
-                      </div>
-
-                      {/* Actualizar costos / precios / stock */}
-                      <div className="nsm-field-group" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <Checkbox checked={actualizarStock} onChange={e => setActualizarStock(e.target.checked)}>
-                          Actualizar stock
-                        </Checkbox>
-                        <Checkbox checked={actualizarCostos} onChange={e => setActualizarCostos(e.target.checked)}>
-                          Actualizar costos
-                        </Checkbox>
-                        <Checkbox checked={actualizarPrecios} onChange={e => setActualizarPrecios(e.target.checked)} disabled={!actualizarCostos}>
-                          Actualizar precios
-                        </Checkbox>
-                      </div>
+                      )}
                     </div>
                   }
                 >
-                  <Button
-                    icon={<SettingOutlined />}
-                    size="large"
+                  <Tag
+                    icon={<FileTextOutlined />}
+                    color={comprobanteConfigurado ? 'success' : 'gold'}
+                    style={{
+                      fontSize: 12,
+                      padding: '4px 10px',
+                      margin: 0,
+                      maxWidth: 280,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
                   >
                     {(() => {
                       const prov = proveedores.find(p => p.PROVEEDOR_ID === proveedorId);
-                      return prov
-                        ? `Compra: ${prov.NOMBRE}`
-                        : 'Configurar compra';
+                      if (!prov) return 'Configurá el comprobante arriba ↑';
+                      const tipoLabel = tipoComprobante === 'FA' ? 'FA' : tipoComprobante === 'FB' ? 'FB' : tipoComprobante === 'FC' ? 'FC' : tipoComprobante === 'FM' ? 'FM' : 'X';
+                      return `${prov.NOMBRE} · ${tipoLabel} ${ptoVta}-${nroComprobante}`;
                     })()}
-                  </Button>
-                </Popover>
+                  </Tag>
+                </Tooltip>
               </div>
 
               {/* ── Right zone: actions ── */}
@@ -1981,6 +1808,21 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       }}
       title="Cheques de cartera para egreso"
     />
+
+    <RemitoPickerModal
+      open={remitoPickerOpen}
+      proveedorId={proveedorId}
+      onClose={() => setRemitoPickerOpen(false)}
+      onSelect={applyRemito}
+    />
+
+    <ComprobanteConfigModal
+      open={comprobanteModalOpen}
+      onClose={() => setComprobanteModalOpen(false)}
+      onContinue={() => setComprobanteModalOpen(false)}
+      mode="edit"
+    />
     </>
   );
 }
+

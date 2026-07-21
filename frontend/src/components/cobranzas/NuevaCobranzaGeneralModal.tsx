@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Modal, Form, Input, InputNumber, DatePicker, Space, Typography, App, Divider, Segmented, Button, Tag, Select,
-} from 'antd';
+import { Modal, Form, Input, InputNumber, DatePicker, Space, Typography, Divider, Segmented, Button, Tag, Select } from 'antd';
 import {
   BankOutlined, InboxOutlined, WalletOutlined, CheckCircleOutlined,
   DollarOutlined, CreditCardOutlined, UserOutlined,
@@ -22,6 +20,7 @@ import { printReciboCobranza } from '../../utils/printReciboCobranza';
 import { useAuthStore } from '../../store/authStore';
 import { usePaymentMethodKeyboardNavigation } from '../../hooks/usePaymentMethodKeyboardNavigation';
 import type { MetodoPagoItem, ChequePayload } from '../../types';
+import { notify } from '../../utils/notify.ts';
 
 const { Text } = Typography;
 
@@ -40,7 +39,7 @@ export function NuevaCobranzaGeneralModal({
   open, pagoId, editClienteId, editCtaCorrienteId, editClienteNombre,
   onSuccess, onCancel,
 }: Props) {
-  const { message } = App.useApp();
+
   const queryClient = useQueryClient();
   const [form] = Form.useForm();
   const isEdit = pagoId !== null;
@@ -216,7 +215,7 @@ export function NuevaCobranzaGeneralModal({
     mutationFn: (data: CobranzaGeneralInput & { ctaId: number }) =>
       cobranzasApi.crearCobranza(data.ctaId, data),
     onSuccess: (result) => {
-      message.success('Cobranza registrada exitosamente');
+      notify.success('Cobranza registrada exitosamente');
       if (metodosCheque.length > 0) {
         queryClient.invalidateQueries({ queryKey: ['cheques'] });
         queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
@@ -234,19 +233,19 @@ export function NuevaCobranzaGeneralModal({
             const data = await cobranzasApi.getReciboData(result.PAGO_ID);
             await printReciboCobranza(data);
           } catch {
-            message.error('No se pudo generar el recibo');
+            notify.error('No se pudo generar el recibo');
           }
         },
       });
     },
-    onError: (err: any) => message.error(err.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err.response?.data?.error || err.message),
   });
 
   const actualizarMut = useMutation({
     mutationFn: (data: CobranzaGeneralInput & { ctaId: number }) =>
       cobranzasApi.actualizarCobranza(data.ctaId, pagoId!, data),
     onSuccess: () => {
-      message.success('Cobranza modificada exitosamente');
+      notify.success('Cobranza modificada exitosamente');
       if (metodosCheque.length > 0) {
         queryClient.invalidateQueries({ queryKey: ['cheques'] });
         queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
@@ -255,7 +254,7 @@ export function NuevaCobranzaGeneralModal({
       invalidateCashQueries(queryClient);
       onSuccess();
     },
-    onError: (err: any) => message.error(err.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err.response?.data?.error || err.message),
   });
 
   const saving = crearMut.isPending || actualizarMut.isPending;
@@ -271,22 +270,22 @@ export function NuevaCobranzaGeneralModal({
       const values = await form.validateFields();
 
       if (!selectedCliente) {
-        message.warning('Seleccione un cliente');
+        notify.warning('Seleccione un cliente');
         return;
       }
 
       if (selectedMetodos.length === 0) {
-        message.warning('Seleccione al menos un método de pago');
+        notify.warning('Seleccione al menos un método de pago');
         return;
       }
 
       if (total <= 0) {
-        message.warning('El total debe ser mayor a cero');
+        notify.warning('El total debe ser mayor a cero');
         return;
       }
 
       if (chequesIncompletos) {
-        message.warning('Completá los datos obligatorios del cheque (banco, librador y número)');
+        notify.warning('Completá los datos obligatorios del cheque (banco, librador y número)');
         return;
       }
 

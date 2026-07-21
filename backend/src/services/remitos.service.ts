@@ -17,6 +17,9 @@ export interface RemitoFilter {
   clienteId?: number;
   proveedorId?: number;
   anulado?: boolean;
+  sinCompra?: boolean;
+  estado?: 'PENDIENTE' | 'CONFIRMADO';
+  origen?: 'WEB' | 'MOBILE';
   orderBy?: string;
   orderDir?: 'ASC' | 'DESC';
 }
@@ -24,7 +27,6 @@ export interface RemitoFilter {
 export interface RemitoItemInput {
   PRODUCTO_ID: number;
   CANTIDAD: number;
-  PRECIO_UNITARIO?: number;
   DEPOSITO_ID?: number;
 }
 
@@ -36,6 +38,10 @@ export interface RemitoInput {
   PROVEEDOR_ID?: number;
   DEPOSITO_ID?: number;
   OBSERVACIONES?: string;
+  /** PENDIENTE = no aplica stock al crear (luego se confirma). Default CONFIRMADO. */
+  ESTADO?: 'PENDIENTE' | 'CONFIRMADO';
+  /** Origen del remito: WEB (default) o MOBILE. Trazabilidad. */
+  ORIGEN?: 'WEB' | 'MOBILE' | null;
   items: RemitoItemInput[];
 }
 
@@ -91,6 +97,31 @@ async function ensureRemitosTable(pool: any): Promise<void> {
       WHERE TABLE_NAME = 'REMITOS' AND COLUMN_NAME = 'VENTA_ID'
     )
     ALTER TABLE REMITOS ADD VENTA_ID INT NULL
+  `);
+  // Add COMPRA_ID column if not exists (migration) — vínculo Compra↔Remito
+  await pool.request().query(`
+    IF NOT EXISTS (
+      SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_NAME = 'REMITOS' AND COLUMN_NAME = 'COMPRA_ID'
+    )
+    ALTER TABLE REMITOS ADD COMPRA_ID INT NULL
+  `);
+  // ESTADO: PENDIENTE (llega de mobile sin tocar stock) | CONFIRMADO (stock aplicado) | ANULADO
+  await pool.request().query(`
+    IF NOT EXISTS (
+      SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_NAME = 'REMITOS' AND COLUMN_NAME = 'ESTADO'
+    )
+    ALTER TABLE REMITOS ADD ESTADO NVARCHAR(20) NOT NULL
+      CONSTRAINT DF_REMITOS_ESTADO DEFAULT 'CONFIRMADO'
+  `);
+  // ORIGEN: WEB | MOBILE (trazabilidad)
+  await pool.request().query(`
+    IF NOT EXISTS (
+      SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_NAME = 'REMITOS' AND COLUMN_NAME = 'ORIGEN'
+    )
+    ALTER TABLE REMITOS ADD ORIGEN NVARCHAR(20) NULL
   `);
   _remitosTableReady = true;
 }
@@ -333,6 +364,18 @@ export const remitosService = {
       where += ' AND r.ANULADO = @anulado';
       params.push({ name: 'anulado', type: sql.Bit, value: filter.anulado ? 1 : 0 });
     }
+    if (filter.sinCompra) {
+      // Sólo remitos CONFIRMADOS: los PENDIENTES no pueden asociarse aún a una compra.
+      where += ' AND r.COMPRA_ID IS NULL AND r.ESTADO = \'CONFIRMADO\'';
+    }
+    if (filter.estado) {
+      where += ' AND r.ESTADO = @estado';
+      params.push({ name: 'estado', type: sql.NVarChar(20), value: filter.estado });
+    }
+    if (filter.origen) {
+      where += ' AND r.ORIGEN = @origen';
+      params.push({ name: 'origen', type: sql.VarChar(10), value: filter.origen });
+    }
     if (filter.search) {
       where += ` AND (
         ISNULL(cl.NOMBRE, '') LIKE @search
@@ -373,6 +416,8 @@ export const remitosService = {
         r.CLIENTE_ID, r.PROVEEDOR_ID, r.DEPOSITO_ID,
         r.OBSERVACIONES, r.SUBTOTAL, r.TOTAL,
         r.ANULADO, r.USUARIO_ID, r.FECHA_CREACION,
+        r.ESTADO, r.ORIGEN,
+        r.VENTA_ID, r.COMPRA_ID,
         cl.NOMBRE AS CLIENTE_NOMBRE,
         p.NOMBRE AS PROVEEDOR_NOMBRE,
         d.NOMBRE AS DEPOSITO_NOMBRE,
@@ -403,7 +448,8 @@ export const remitosService = {
           r.CLIENTE_ID, r.PROVEEDOR_ID, r.DEPOSITO_ID,
           r.OBSERVACIONES, r.SUBTOTAL, r.TOTAL,
           r.ANULADO, r.USUARIO_ID, r.FECHA_CREACION,
-          r.VENTA_ID,
+          r.ESTADO, r.ORIGEN,
+          r.VENTA_ID, r.COMPRA_ID,
           cl.NOMBRE AS CLIENTE_NOMBRE,
           cl.DOMICILIO AS CLIENTE_DOMICILIO,
           cl.TIPO_DOCUMENTO AS CLIENTE_TIPO_DOC,
@@ -418,13 +464,19 @@ export const remitosService = {
           v.TIPO_COMPROBANTE AS VENTA_TIPO_COMPROBANTE,
           v.NUMERO_FISCAL AS VENTA_NUMERO_FISCAL,
           v.TOTAL AS VENTA_TOTAL,
-          v.FECHA_VENTA AS VENTA_FECHA
+          v.FECHA_VENTA AS VENTA_FECHA,
+          c.TIPO_COMPROBANTE AS COMPRA_TIPO_COMPROBANTE,
+          c.PTO_VTA AS COMPRA_PTO_VTA,
+          c.NRO_COMPROBANTE AS COMPRA_NRO_COMPROBANTE,
+          c.TOTAL AS COMPRA_TOTAL,
+          c.FECHA_COMPRA AS COMPRA_FECHA
         FROM REMITOS r
         LEFT JOIN CLIENTES cl ON r.CLIENTE_ID = cl.CLIENTE_ID
         LEFT JOIN PROVEEDORES p ON r.PROVEEDOR_ID = p.PROVEEDOR_ID
         LEFT JOIN DEPOSITOS d ON r.DEPOSITO_ID = d.DEPOSITO_ID
         LEFT JOIN USUARIOS u ON r.USUARIO_ID = u.USUARIO_ID
         LEFT JOIN VENTAS v ON r.VENTA_ID = v.VENTA_ID
+        LEFT JOIN COMPRAS c ON r.COMPRA_ID = c.COMPRA_ID
         WHERE r.REMITO_ID = @id
       `);
 
@@ -473,13 +525,13 @@ export const remitosService = {
       const ptoVta = input.PTO_VTA || '0001';
       const nroRemito = await getNextNroRemito(tx, ptoVta, input.TIPO);
 
-      // Calculate totals
-      let subtotal = 0;
-      for (const item of input.items) {
-        const precio = item.PRECIO_UNITARIO || 0;
-        subtotal += r2(precio * item.CANTIDAD);
-      }
-      const total = r2(subtotal);
+      // Remito = comprobante puramente de stock. No se persisten precios
+      // (los manejan Ventas/Compras al tomar el remito como referencia).
+      const subtotal = 0;
+      const total = 0;
+      const estado = input.ESTADO || 'CONFIRMADO';
+      const origen = input.ORIGEN || 'WEB';
+      const aplicarStock = estado === 'CONFIRMADO';
 
       // INSERT REMITO
       const insertResult = await tx.request()
@@ -494,48 +546,50 @@ export const remitosService = {
         .input('subtotal', sql.Decimal(18, 2), subtotal)
         .input('total', sql.Decimal(18, 2), total)
         .input('usuarioId', sql.Int, usuarioId)
+        .input('estado', sql.NVarChar(20), estado)
+        .input('origen', sql.NVarChar(20), origen)
         .query(`
           INSERT INTO REMITOS (
             TIPO, FECHA, PTO_VTA, NRO_REMITO,
             CLIENTE_ID, PROVEEDOR_ID, DEPOSITO_ID,
-            OBSERVACIONES, SUBTOTAL, TOTAL, USUARIO_ID
+            OBSERVACIONES, SUBTOTAL, TOTAL, USUARIO_ID,
+            ESTADO, ORIGEN
           )
           OUTPUT INSERTED.REMITO_ID
           VALUES (
             @tipo, @fecha, @ptoVta, @nroRemito,
             @clienteId, @proveedorId, @depositoId,
-            @observaciones, @subtotal, @total, @usuarioId
+            @observaciones, @subtotal, @total, @usuarioId,
+            @estado, @origen
           )
         `);
 
       const remitoId = insertResult.recordset[0].REMITO_ID;
 
-      // INSERT ITEMS + modify stock
+      // INSERT ITEMS + modify stock (sólo si el remito se crea CONFIRMADO)
       for (const item of input.items) {
-        const precio = item.PRECIO_UNITARIO || 0;
-        const totalProducto = r2(precio * item.CANTIDAD);
         const depositoId = item.DEPOSITO_ID || input.DEPOSITO_ID || null;
 
         await tx.request()
           .input('remitoId', sql.Int, remitoId)
           .input('productoId', sql.Int, item.PRODUCTO_ID)
           .input('cantidad', sql.Decimal(18, 4), item.CANTIDAD)
-          .input('precioUnitario', sql.Decimal(18, 4), precio)
-          .input('totalProducto', sql.Decimal(18, 4), totalProducto)
           .input('depositoId', sql.Int, depositoId)
           .query(`
             INSERT INTO REMITOS_ITEMS (
-              REMITO_ID, PRODUCTO_ID, CANTIDAD, PRECIO_UNITARIO, TOTAL_PRODUCTO, DEPOSITO_ID
+              REMITO_ID, PRODUCTO_ID, CANTIDAD, DEPOSITO_ID
             ) VALUES (
-              @remitoId, @productoId, @cantidad, @precioUnitario, @totalProducto, @depositoId
+              @remitoId, @productoId, @cantidad, @depositoId
             )
           `);
 
-        // ENTRADA = incrementar stock, SALIDA = decrementar stock
-        if (input.TIPO === 'ENTRADA') {
-          await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, depositoId, remitoId, usuarioId, `Remito Entrada #${remitoId}`);
-        } else {
-          await decrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, depositoId, remitoId, usuarioId, `Remito Salida #${remitoId}`);
+        if (aplicarStock) {
+          // ENTRADA = incrementar stock, SALIDA = decrementar stock
+          if (input.TIPO === 'ENTRADA') {
+            await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, depositoId, remitoId, usuarioId, `Remito Entrada #${remitoId}`);
+          } else {
+            await decrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, depositoId, remitoId, usuarioId, `Remito Salida #${remitoId}`);
+          }
         }
       }
 
@@ -563,7 +617,7 @@ export const remitosService = {
     try {
       const existing = await tx.request()
         .input('id', sql.Int, id)
-        .query(`SELECT REMITO_ID, TIPO, TOTAL, ANULADO FROM REMITOS WHERE REMITO_ID = @id`);
+        .query(`SELECT REMITO_ID, TIPO, TOTAL, ANULADO, COMPRA_ID FROM REMITOS WHERE REMITO_ID = @id`);
 
       if (existing.recordset.length === 0) {
         throw Object.assign(new Error('Remito no encontrado'), { name: 'ValidationError' });
@@ -571,20 +625,31 @@ export const remitosService = {
       if (existing.recordset[0].ANULADO) {
         throw Object.assign(new Error('El remito ya está anulado'), { name: 'ValidationError' });
       }
+      if (existing.recordset[0].COMPRA_ID) {
+        throw Object.assign(
+          new Error('El remito está asociado a una compra. Elimine la compra primero para poder anularlo.'),
+          { name: 'ValidationError' }
+        );
+      }
 
       const remito = existing.recordset[0];
 
-      // Reverse stock
-      const items = await tx.request()
-        .input('remitoId', sql.Int, id)
-        .query(`SELECT PRODUCTO_ID, CANTIDAD, DEPOSITO_ID FROM REMITOS_ITEMS WHERE REMITO_ID = @remitoId`);
+      // Si está PENDIENTE todavía no se aplicó stock → no hay nada que revertir.
+      const esPendiente = remito.ESTADO === 'PENDIENTE';
 
-      for (const item of items.recordset) {
-        // Reverse: if it was ENTRADA, decrement; if SALIDA, increment
-        if (remito.TIPO === 'ENTRADA') {
-          await decrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID, id, usuarioId, `Anulación Remito Entrada #${id}`);
-        } else {
-          await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID, id, usuarioId, `Anulación Remito Salida #${id}`);
+      if (!esPendiente) {
+        // Reverse stock
+        const items = await tx.request()
+          .input('remitoId', sql.Int, id)
+          .query(`SELECT PRODUCTO_ID, CANTIDAD, DEPOSITO_ID FROM REMITOS_ITEMS WHERE REMITO_ID = @remitoId`);
+
+        for (const item of items.recordset) {
+          // Reverse: if it was ENTRADA, decrement; if SALIDA, increment
+          if (remito.TIPO === 'ENTRADA') {
+            await decrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID, id, usuarioId, `Anulación Remito Entrada #${id}`);
+          } else {
+            await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID, id, usuarioId, `Anulación Remito Salida #${id}`);
+          }
         }
       }
 
@@ -616,16 +681,25 @@ export const remitosService = {
     try {
       const existing = await tx.request()
         .input('id', sql.Int, id)
-        .query(`SELECT REMITO_ID, TIPO, TOTAL, ANULADO FROM REMITOS WHERE REMITO_ID = @id`);
+        .query(`SELECT REMITO_ID, TIPO, TOTAL, ANULADO, COMPRA_ID FROM REMITOS WHERE REMITO_ID = @id`);
 
       if (existing.recordset.length === 0) {
         throw Object.assign(new Error('Remito no encontrado'), { name: 'ValidationError' });
       }
 
+      if (existing.recordset[0].COMPRA_ID) {
+        throw Object.assign(
+          new Error('El remito está asociado a una compra. Elimine la compra primero para poder eliminarlo.'),
+          { name: 'ValidationError' }
+        );
+      }
+
       const remito = existing.recordset[0];
 
-      // Reverse stock only if not already anulado
-      if (!remito.ANULADO) {
+      // Reverse stock only if not already anulado AND not pendiente (PENDIENTE nunca tocó stock)
+      const tocarStock = !remito.ANULADO && remito.ESTADO !== 'PENDIENTE';
+
+      if (tocarStock) {
         const items = await tx.request()
           .input('remitoId', sql.Int, id)
           .query(`SELECT PRODUCTO_ID, CANTIDAD, DEPOSITO_ID FROM REMITOS_ITEMS WHERE REMITO_ID = @remitoId`);
@@ -652,6 +726,105 @@ export const remitosService = {
 
       await tx.commit();
       return { ok: true };
+    } catch (err) {
+      await tx.rollback();
+      throw err;
+    }
+  },
+
+  // ── Confirmar remito pendiente (aplica stock) ──
+  async confirmar(id: number, usuarioId: number) {
+    const pool = await getPool();
+    await ensureRemitosTable(pool);
+    const tx = pool.transaction();
+    await tx.begin();
+
+    try {
+      const existing = await tx.request()
+        .input('id', sql.Int, id)
+        .query(`SELECT REMITO_ID, TIPO, TOTAL, ESTADO, ANULADO FROM REMITOS WHERE REMITO_ID = @id`);
+
+      if (existing.recordset.length === 0) {
+        throw Object.assign(new Error('Remito no encontrado'), { name: 'ValidationError' });
+      }
+      const remito = existing.recordset[0];
+      if (remito.ANULADO) {
+        throw Object.assign(new Error('El remito está anulado'), { name: 'ValidationError' });
+      }
+      if (remito.ESTADO !== 'PENDIENTE') {
+        throw Object.assign(new Error('El remito ya fue confirmado'), { name: 'ValidationError' });
+      }
+
+      const items = await tx.request()
+        .input('remitoId', sql.Int, id)
+        .query(`SELECT PRODUCTO_ID, CANTIDAD, DEPOSITO_ID FROM REMITOS_ITEMS WHERE REMITO_ID = @remitoId`);
+
+      for (const item of items.recordset) {
+        if (remito.TIPO === 'ENTRADA') {
+          await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID, id, usuarioId, `Confirmación Remito Entrada #${id}`);
+        } else {
+          await decrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, item.DEPOSITO_ID, id, usuarioId, `Confirmación Remito Salida #${id}`);
+        }
+      }
+
+      await tx.request()
+        .input('id', sql.Int, id)
+        .input('usuarioId', sql.Int, usuarioId)
+        .query(`
+          UPDATE REMITOS
+          SET ESTADO = 'CONFIRMADO',
+              USUARIO_ID = @usuarioId
+          WHERE REMITO_ID = @id
+        `);
+
+      await registrarAuditoria(
+        tx, id, 'CONFIRMACION', usuarioId,
+        remito.TOTAL, `Remito #${id} confirmado (stock aplicado)`
+      );
+
+      await tx.commit();
+      return { ok: true, REMITO_ID: id, ESTADO: 'CONFIRMADO' as const };
+    } catch (err) {
+      await tx.rollback();
+      throw err;
+    }
+  },
+
+  // ── Rechazar remito pendiente (soft delete) ────
+  async rechazar(id: number, usuarioId: number) {
+    const pool = await getPool();
+    await ensureRemitosTable(pool);
+    const tx = pool.transaction();
+    await tx.begin();
+
+    try {
+      const existing = await tx.request()
+        .input('id', sql.Int, id)
+        .query(`SELECT REMITO_ID, TOTAL, ESTADO, ANULADO FROM REMITOS WHERE REMITO_ID = @id`);
+
+      if (existing.recordset.length === 0) {
+        throw Object.assign(new Error('Remito no encontrado'), { name: 'ValidationError' });
+      }
+      const remito = existing.recordset[0];
+      if (remito.ANULADO) {
+        throw Object.assign(new Error('El remito ya está anulado'), { name: 'ValidationError' });
+      }
+      if (remito.ESTADO !== 'PENDIENTE') {
+        throw Object.assign(new Error('Sólo se pueden rechazar remitos pendientes'), { name: 'ValidationError' });
+      }
+
+      // No se tocó stock todavía → sólo marcamos anulado.
+      await tx.request()
+        .input('id', sql.Int, id)
+        .query(`UPDATE REMITOS SET ANULADO = 1 WHERE REMITO_ID = @id`);
+
+      await registrarAuditoria(
+        tx, id, 'RECHAZO', usuarioId,
+        remito.TOTAL, `Remito #${id} rechazado (estaba pendiente)`
+      );
+
+      await tx.commit();
+      return { ok: true, REMITO_ID: id };
     } catch (err) {
       await tx.rollback();
       throw err;
@@ -787,6 +960,7 @@ export const remitosService = {
         WHERE r.CLIENTE_ID = @clienteId
           AND r.TIPO = 'SALIDA'
           AND r.ANULADO = 0
+          AND r.ESTADO = 'CONFIRMADO'
           AND r.VENTA_ID IS NULL
         ORDER BY r.FECHA DESC
       `);
@@ -859,6 +1033,31 @@ export const remitosService = {
     const pool = await getPool();
     const result = await pool.request().query(`
       SELECT DEPOSITO_ID, CODIGOPARTICULAR, NOMBRE FROM DEPOSITOS ORDER BY NOMBRE
+    `);
+    return result.recordset;
+  },
+
+  // ── Remitos de entrada sin compra asociada (para selector en Nueva Compra) ──
+  async getRemitosSinCompra(proveedorId?: number) {
+    const pool = await getPool();
+    await ensureRemitosTable(pool);
+    const req = pool.request();
+    // Sólo remitos CONFIRMADOS: un PENDIENTE todavía no aplicó stock,
+    // asociarlo a una compra generaría doble movimiento de stock.
+    let where = `WHERE r.TIPO = 'ENTRADA' AND r.ANULADO = 0 AND r.COMPRA_ID IS NULL AND r.ESTADO = 'CONFIRMADO'`;
+    if (proveedorId) {
+      where += ' AND r.PROVEEDOR_ID = @pid';
+      req.input('pid', sql.Int, proveedorId);
+    }
+    const result = await req.query(`
+      SELECT TOP 200
+        r.REMITO_ID, r.TIPO, r.FECHA, r.PTO_VTA, r.NRO_REMITO,
+        r.PROVEEDOR_ID, r.TOTAL, r.OBSERVACIONES,
+        p.NOMBRE AS PROVEEDOR_NOMBRE
+      FROM REMITOS r
+      LEFT JOIN PROVEEDORES p ON r.PROVEEDOR_ID = p.PROVEEDOR_ID
+      ${where}
+      ORDER BY r.FECHA DESC, r.REMITO_ID DESC
     `);
     return result.recordset;
   },

@@ -1,8 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  App, Button, Card, Col, Input, Row, Select, Space, Statistic, Switch, Table, Tooltip, Typography,
-} from 'antd';
+import { Button, Card, Col, Input, Row, Select, Space, Statistic, Switch, Table, Tooltip, Typography } from 'antd';
 import type { SelectProps } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
@@ -15,6 +13,7 @@ import { catalogApi } from '../services/catalog.api';
 import { productListingApi, type ProductListingFilter, type ProductListingItem } from '../services/productListing.api';
 import { fmtMoney, fmtNum } from '../utils/format';
 import type { ListaPrecio } from '../types';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text } = Typography;
 
@@ -48,7 +47,7 @@ const MODO_CODIGO_OPTIONS: SelectProps['options'] = [
 ];
 
 export function ListadoProductosPage() {
-  const { message } = App.useApp();
+
   const [listaPrecio, setListaPrecio] = useState(0);
   const [categoriaId, setCategoriaId] = useState<number | undefined>();
   const [marcaId, setMarcaId] = useState<number | undefined>();
@@ -184,7 +183,7 @@ export function ListadoProductosPage() {
 
   const exportRows = () => {
     if (!rows.length) {
-      message.warning('No hay datos para exportar');
+      notify.warning('No hay datos para exportar');
       return null;
     }
 
@@ -217,7 +216,7 @@ export function ListadoProductosPage() {
       .join('\n');
 
     downloadFile(csv, `Listado_Productos_${dayjs().format('YYYYMMDD_HHmmss')}.csv`, 'text/csv;charset=utf-8');
-    message.success('Archivo exportado');
+    notify.success('Archivo exportado');
   };
 
   const handleExportPdf = () => {
@@ -237,9 +236,9 @@ export function ListadoProductosPage() {
         mostrarStock,
         search,
       });
-      message.success('PDF generado');
+      notify.success('PDF generado');
     } catch {
-      message.error('Error al generar el PDF');
+      notify.error('Error al generar el PDF');
     }
   };
 

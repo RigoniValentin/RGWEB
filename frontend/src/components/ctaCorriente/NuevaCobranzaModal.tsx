@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Modal, Form, Input, InputNumber, DatePicker, Space, Typography, App, Divider, Segmented, Button, Tag,
-} from 'antd';
+import { Modal, Form, Input, InputNumber, DatePicker, Space, Typography, Divider, Segmented, Button, Tag } from 'antd';
 import {
   BankOutlined, InboxOutlined, WalletOutlined, CheckCircleOutlined,
   DollarOutlined, CreditCardOutlined,
@@ -19,6 +17,7 @@ import { printReciboCobranza } from '../../utils/printReciboCobranza';
 import { useAuthStore } from '../../store/authStore';
 import { usePaymentMethodKeyboardNavigation } from '../../hooks/usePaymentMethodKeyboardNavigation';
 import type { MetodoPagoItem, ChequePayload } from '../../types';
+import { notify } from '../../utils/notify.ts';
 
 const { Text } = Typography;
 
@@ -35,7 +34,7 @@ interface Props {
 export function NuevaCobranzaModal({
   open, ctaCorrienteId, clienteId, clienteNombre, pagoId, onSuccess, onCancel,
 }: Props) {
-  const { message } = App.useApp();
+
   const [form] = Form.useForm();
   const isEdit = pagoId !== null;
   const puntoVentaActivo = useAuthStore(s => s.puntoVentaActivo);
@@ -179,7 +178,7 @@ export function NuevaCobranzaModal({
   const crearMut = useMutation({
     mutationFn: (data: CobranzaInput) => ctaCorrienteApi.crearCobranza(ctaCorrienteId, data),
     onSuccess: (result) => {
-      message.success('Cobranza registrada exitosamente');
+      notify.success('Cobranza registrada exitosamente');
       if (metodosCheque.length > 0) {
         queryClient.invalidateQueries({ queryKey: ['cheques'] });
         queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
@@ -197,18 +196,18 @@ export function NuevaCobranzaModal({
             const data = await cobranzasApi.getReciboData(result.PAGO_ID);
             await printReciboCobranza(data);
           } catch {
-            message.error('No se pudo generar el recibo');
+            notify.error('No se pudo generar el recibo');
           }
         },
       });
     },
-    onError: (err: any) => message.error(err.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err.response?.data?.error || err.message),
   });
 
   const actualizarMut = useMutation({
     mutationFn: (data: CobranzaInput) => ctaCorrienteApi.actualizarCobranza(ctaCorrienteId, pagoId!, data),
     onSuccess: () => {
-      message.success('Cobranza modificada exitosamente');
+      notify.success('Cobranza modificada exitosamente');
       if (metodosCheque.length > 0) {
         queryClient.invalidateQueries({ queryKey: ['cheques'] });
         queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
@@ -217,7 +216,7 @@ export function NuevaCobranzaModal({
       invalidateCashQueries(queryClient);
       onSuccess();
     },
-    onError: (err: any) => message.error(err.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err.response?.data?.error || err.message),
   });
 
   const saving = crearMut.isPending || actualizarMut.isPending;
@@ -228,17 +227,17 @@ export function NuevaCobranzaModal({
       const values = await form.validateFields();
 
       if (selectedMetodos.length === 0) {
-        message.warning('Seleccione al menos un método de pago');
+        notify.warning('Seleccione al menos un método de pago');
         return;
       }
 
       if (total <= 0) {
-        message.warning('El total debe ser mayor a cero');
+        notify.warning('El total debe ser mayor a cero');
         return;
       }
 
       if (chequesIncompletos) {
-        message.warning('Completá los datos obligatorios del cheque (banco, librador y número)');
+        notify.warning('Completá los datos obligatorios del cheque (banco, librador y número)');
         return;
       }
 

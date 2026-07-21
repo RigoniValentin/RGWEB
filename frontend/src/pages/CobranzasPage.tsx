@@ -1,9 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Table, Space, Input, Typography, Button, App, Descriptions, Modal,
-  Statistic, Card, Row, Col, Tooltip, Popconfirm, Tag,
-} from 'antd';
+import { Table, Space, Input, Typography, Button, Descriptions, Modal, Statistic, Card, Row, Col, Tooltip, Popconfirm, Tag } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
@@ -22,12 +19,13 @@ import { NuevaCobranzaGeneralModal } from '../components/cobranzas/NuevaCobranza
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
 import { useTabStore } from '../store/tabStore';
 import { ExportButtons, type ExportColumn } from '../components/ExportButtons';
+import { notify } from '../utils/notify.ts';
 
 
 const { Title, Text } = Typography;
 
 export function CobranzasPage() {
-  const { message } = App.useApp();
+
   const qc = useQueryClient();
 
   // ── Filters ─────────────────────────────────────
@@ -60,7 +58,7 @@ export function CobranzasPage() {
   const eliminarMut = useMutation({
     mutationFn: (pagoId: number) => cobranzasApi.eliminarCobranza(pagoId),
     onSuccess: () => {
-      message.success('Cobranza eliminada');
+      notify.success('Cobranza eliminada');
       qc.invalidateQueries({ queryKey: ['cobranzas-general'] });
       qc.invalidateQueries({ queryKey: ['cobranzas-metodos-totales'] });
       qc.invalidateQueries({ queryKey: ['cta-cobranzas'] });
@@ -68,7 +66,7 @@ export function CobranzasPage() {
       qc.invalidateQueries({ queryKey: ['cta-corriente-list'] });
       invalidateCashQueries(qc);
     },
-    onError: (err: any) => message.error(err.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err.response?.data?.error || err.message),
   });
 
   // ── Handlers ────────────────────────────────────
@@ -107,7 +105,7 @@ export function CobranzasPage() {
       const data = await cobranzasApi.getReciboData(pagoId);
       await printReciboCobranza(data);
     } catch {
-      message.error('No se pudo generar el recibo');
+      notify.error('No se pudo generar el recibo');
     }
   };
 

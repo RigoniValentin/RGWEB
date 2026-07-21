@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { Typography, Tag, Tooltip, Card, Input, Button, message, Collapse } from 'antd';
+import { Typography, Tag, Tooltip, Card, Input, Button, Collapse } from 'antd';
 import {
   DollarOutlined,
   BankOutlined,
@@ -20,6 +20,7 @@ import { useTabStore } from '../store/tabStore';
 import { useSettingsStore } from '../store/settingsStore';
 import { settingsApi } from '../services/settings.api';
 import { RGLogo } from '../components/RGLogo';
+import { notify } from '../utils/notify';
 
 const { Title, Text } = Typography;
 
@@ -172,7 +173,6 @@ export function CajeroDashboardPage() {
   const { settings, loaded, fetchSettings, saveUserSettings } = useSettingsStore();
   const [localShortcuts, setLocalShortcuts] = useState<Record<number, string>>({});
   const [savingShortcuts, setSavingShortcuts] = useState(false);
-  const [msgApi, contextHolder] = message.useMessage();
 
   const { data: logoUrl } = useQuery({
     queryKey: ['empresa-logo'],
@@ -217,12 +217,12 @@ export function CajeroDashboardPage() {
         .map(s => ({ PARAMETRO_ID: s.PARAMETRO_ID, VALOR: localShortcuts[s.PARAMETRO_ID] ?? '' }));
       if (changed.length > 0) {
         await saveUserSettings(changed);
-        msgApi.success('Atajos guardados correctamente');
+        notify.success('Atajos guardados correctamente');
       } else {
-        msgApi.info('No hay cambios para guardar');
+        notify.info('No hay cambios para guardar');
       }
     } catch {
-      msgApi.error('Error al guardar los atajos');
+      notify.error('Error al guardar los atajos');
     } finally {
       setSavingShortcuts(false);
     }
@@ -250,7 +250,6 @@ export function CajeroDashboardPage() {
 
   return (
     <div>
-      {contextHolder}
       {/* ── Hero / Welcome ──────────────────────────────────────────────── */}
       <div className="rg-cajero-hero">
         {/* decorative grid layer */}

@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Modal, Form, Input, InputNumber, DatePicker, Space, Typography, App, Divider, Segmented, Button, Tag, Select,
-} from 'antd';
+import { Modal, Form, Input, InputNumber, DatePicker, Space, Typography, Divider, Segmented, Button, Tag, Select } from 'antd';
 import {
   BankOutlined, InboxOutlined, WalletOutlined, CheckCircleOutlined,
   DollarOutlined, CreditCardOutlined, ShopOutlined, DeleteOutlined,
@@ -21,6 +19,7 @@ import { useAuthStore } from '../../store/authStore';
 import { ChequePicker } from '../cheques/ChequePicker';
 import { usePaymentMethodKeyboardNavigation } from '../../hooks/usePaymentMethodKeyboardNavigation';
 import type { MetodoPagoItem } from '../../types';
+import { notify } from '../../utils/notify.ts';
 
 const { Text } = Typography;
 
@@ -39,7 +38,7 @@ export function NuevaOrdenPagoGeneralModal({
   open, pagoId, editProveedorId, editCtaCorrienteId, editProveedorNombre,
   onSuccess, onCancel,
 }: Props) {
-  const { message } = App.useApp();
+
   const queryClient = useQueryClient();
   const [form] = Form.useForm();
   const isEdit = pagoId !== null;
@@ -221,7 +220,7 @@ export function NuevaOrdenPagoGeneralModal({
     mutationFn: (data: OrdenPagoGeneralInput & { ctaId: number }) =>
       ordenesPagoApi.crearOrdenPago(data.ctaId, data),
     onSuccess: (result) => {
-      message.success('Orden de pago registrada exitosamente');
+      notify.success('Orden de pago registrada exitosamente');
       if (chequesIds.length > 0) {
         queryClient.invalidateQueries({ queryKey: ['cheques'] });
         queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
@@ -239,26 +238,26 @@ export function NuevaOrdenPagoGeneralModal({
             const data = await ordenesPagoApi.getReciboData(result.PAGO_ID);
             await printOrdenPago(data);
           } catch {
-            message.error('No se pudo generar la orden de pago');
+            notify.error('No se pudo generar la orden de pago');
           }
         },
       });
     },
-    onError: (err: any) => message.error(err.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err.response?.data?.error || err.message),
   });
 
   const actualizarMut = useMutation({
     mutationFn: (data: OrdenPagoGeneralInput & { ctaId: number }) =>
       ordenesPagoApi.actualizarOrdenPago(data.ctaId, pagoId!, data),
     onSuccess: () => {
-      message.success('Orden de pago modificada exitosamente');
+      notify.success('Orden de pago modificada exitosamente');
       queryClient.invalidateQueries({ queryKey: ['cheques'] });
       queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
       queryClient.invalidateQueries({ queryKey: ['cheques-cartera'] });
       invalidateCashQueries(queryClient);
       onSuccess();
     },
-    onError: (err: any) => message.error(err.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err.response?.data?.error || err.message),
   });
 
   const saving = crearMut.isPending || actualizarMut.isPending;
@@ -274,17 +273,17 @@ export function NuevaOrdenPagoGeneralModal({
       const values = await form.validateFields();
 
       if (!selectedProveedor) {
-        message.warning('Seleccione un proveedor');
+        notify.warning('Seleccione un proveedor');
         return;
       }
 
       if (selectedMetodos.length === 0) {
-        message.warning('Seleccione al menos un método de pago');
+        notify.warning('Seleccione al menos un método de pago');
         return;
       }
 
       if (total <= 0) {
-        message.warning('El total debe ser mayor a cero');
+        notify.warning('El total debe ser mayor a cero');
         return;
       }
 
@@ -298,7 +297,7 @@ export function NuevaOrdenPagoGeneralModal({
         return m?.CATEGORIA === 'CHEQUES' && (montosPorMetodo[id] || 0) > 0;
       });
       if (tieneMetodoCheques && chequesIds.length === 0) {
-        message.warning('Seleccione cheques de cartera para el método CHEQUES');
+        notify.warning('Seleccione cheques de cartera para el método CHEQUES');
         return;
       }
 

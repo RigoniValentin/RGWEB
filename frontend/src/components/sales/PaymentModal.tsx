@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Modal, InputNumber, Space, Typography, Divider, Button, Tag, Input, DatePicker, message } from 'antd';
+import { Modal, InputNumber, Space, Typography, Divider, Button, Tag, Input, DatePicker } from 'antd';
 import { DollarOutlined, CreditCardOutlined, WalletOutlined, CheckCircleOutlined, BankOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -9,6 +9,7 @@ import BancoSelect from '../cheques/BancoSelect';
 import { fmtMoney } from '../../utils/format';
 import { usePaymentMethodKeyboardNavigation } from '../../hooks/usePaymentMethodKeyboardNavigation';
 import type { Venta, ChequePayload } from '../../types';
+import { notify, extractErrorMessage } from '../../utils/notify';
 
 const { Title, Text } = Typography;
 
@@ -142,7 +143,7 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
       });
     },
     onSuccess: (result) => {
-      message.success(result.cobrada ? 'Venta cobrada completamente' : 'Cobro parcial registrado');
+      notify.success(result.cobrada ? 'Venta cobrada completamente' : 'Cobro parcial registrado');
       // Si la venta usó cheques (método CHEQUES), invalidar caché de cheques.
       if (metodosCheque.length > 0) {
         queryClient.invalidateQueries({ queryKey: ['cheques'] });
@@ -152,7 +153,7 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
       onSuccess();
     },
     onError: (err: any) => {
-      message.error(err.response?.data?.error || 'Error al registrar el cobro');
+      notify.error(extractErrorMessage(err, 'Error al registrar el cobro'));
     },
   });
 

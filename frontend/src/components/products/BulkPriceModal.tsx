@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Modal, Form, Select, InputNumber, Radio, Space, Typography, App } from 'antd';
+import { Modal, Form, Select, InputNumber, Radio, Space, Typography } from 'antd';
 import { DollarOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { catalogApi } from '../../services/catalog.api';
 import { productApi } from '../../services/product.api';
+import { notify } from '../../utils/notify.ts';
 
 const { Text } = Typography;
 
@@ -15,7 +16,7 @@ interface Props {
 }
 
 export function BulkPriceModal({ open, onClose, onDone, productIds }: Props) {
-  const { message } = App.useApp();
+
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
 
@@ -35,12 +36,12 @@ export function BulkPriceModal({ open, onClose, onDone, productIds }: Props) {
         fuente: values.source,
         redondeo: values.redondeo === 'none' ? undefined : values.redondeo,
       });
-      message.success(`Precios generados para ${productIds.length} producto(s)`);
+      notify.success(`Precios generados para ${productIds.length} producto(s)`);
       onDone();
       onClose();
     } catch (err: any) {
       if (!err?.errorFields) {
-        message.error(err?.response?.data?.error || 'Error al generar precios');
+        notify.error(err?.response?.data?.error || 'Error al generar precios');
       }
     } finally {
       setLoading(false);

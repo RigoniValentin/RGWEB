@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Table, Space, Input, Typography, Tag, Select, Button, Dropdown, Modal, App,
-  Tooltip, InputNumber, Drawer, Spin,
-} from 'antd';
+import { Table, Space, Input, Typography, Tag, Select, Button, Dropdown, Modal, Tooltip, InputNumber, Drawer, Spin } from 'antd';
 import type { InputRef, TableColumnType } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
   EyeOutlined, CopyOutlined, DownOutlined, TagsOutlined,
   DollarOutlined, BarcodeOutlined, FilterOutlined, ReloadOutlined,
+  InboxOutlined,
 } from '@ant-design/icons';
 import { productApi, type ProductDetail } from '../services/product.api';
 import { useTabStore } from '../store/tabStore';
@@ -18,11 +16,13 @@ import { useAuthStore } from '../store/authStore';
 import type { Producto } from '../types';
 import { fmtMoney, fmtUsd } from '../utils/format';
 import { ProductFormModal } from '../components/products/ProductFormModal';
+import { QuickStockEditModal } from '../components/products/QuickStockEditModal';
 import { BulkPriceModal } from '../components/products/BulkPriceModal';
 import { PriceListModal } from '../components/products/PriceListModal';
 import { ExportButtons, type ExportColumn } from '../components/ExportButtons';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { notify } from '../utils/notify.ts';
 
 
 const { Title, Text } = Typography;
@@ -30,7 +30,7 @@ const { Title, Text } = Typography;
 type EditingCell = { id: number; field: string; value: any } | null;
 
 export function ProductsPage() {
-  const { message } = App.useApp();
+
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -60,6 +60,10 @@ export function ProductsPage() {
   // Price list modal
   const [priceListOpen, setPriceListOpen] = useState(false);
   const [priceListProduct, setPriceListProduct] = useState<Producto | null>(null);
+
+  // Quick stock edit modal
+  const [quickStockOpen, setQuickStockOpen] = useState(false);
+  const [quickStockProduct, setQuickStockProduct] = useState<Producto | null>(null);
 
   // Inline editing
   const [editing, setEditing] = useState<EditingCell>(null);
@@ -126,6 +130,8 @@ const { data: allProductsData } = useQuery({
   const invalidate = useCallback(() => {
     qc.invalidateQueries({ queryKey: ['products'] });
     qc.invalidateQueries({ queryKey: ['product-edit'] });
+    qc.invalidateQueries({ queryKey: ['product-detail'] });
+    qc.invalidateQueries({ queryKey: ['stock'] });
     setSelectedRowKeys([]);
   }, [qc]);
 
@@ -141,9 +147,10 @@ const { data: allProductsData } = useQuery({
     if (!editing) return;
     try {
       await productApi.inlineEdit({ PRODUCTO_ID: editing.id, campo: editing.field, valor: editing.value });
+      notify.success('Producto actualizado');
       invalidate();
     } catch (err: any) {
-      message.error(err?.response?.data?.error || 'Error al editar');
+      notify.error(err?.response?.data?.error || 'Error al editar');
     }
     setEditing(null);
   };
@@ -173,7 +180,7 @@ const { data: allProductsData } = useQuery({
       cancelText: 'Cancelar',
       onOk: async () => {
         const result = await productApi.delete(record.PRODUCTO_ID);
-        message.success(result.mode === 'soft' ? 'Producto desactivado (está en ventas/compras)' : 'Producto eliminado');
+        notify.success(result.mode === 'soft' ? 'Producto desactivado (está en ventas/compras)' : 'Producto eliminado');
         invalidate();
       },
     });
@@ -181,10 +188,16 @@ const { data: allProductsData } = useQuery({
 
   const handleDetail = (record: Producto) => { setDetailId(record.PRODUCTO_ID); setStockPvId(undefined); setDetailOpen(true); };
 
+  const handleQuickStock = (record: Producto) => {
+    setQuickStockProduct(record);
+    setQuickStockOpen(true);
+  };
+
   // ── Row interactions (active row + context menu) ─
   const contextMenuActions = useMemo<RowAction<Producto>[]>(() => [
     { key: 'view', label: 'Ver detalle', icon: <EyeOutlined />, onClick: handleDetail },
     { key: 'edit', label: 'Editar', icon: <EditOutlined />, onClick: handleEdit },
+    { key: 'stock', label: 'Editar stock', icon: <InboxOutlined />, onClick: handleQuickStock },
     { key: 'copy', label: 'Copiar', icon: <CopyOutlined />, onClick: handleCopy },
     { type: 'divider' },
     { key: 'delete', label: 'Eliminar', icon: <DeleteOutlined />, danger: true, onClick: handleDelete },
@@ -206,7 +219,7 @@ const { data: allProductsData } = useQuery({
       cancelText: 'Cancelar',
       onOk: async () => {
         const result = await productApi.bulkDelete(selectedIds);
-        message.success(`Eliminados: ${result.deleted}, Desactivados: ${result.deactivated}`);
+        notify.success(`Eliminados: ${result.deleted}, Desactivados: ${result.deactivated}`);
         invalidate();
       },
     });
@@ -239,9 +252,9 @@ const { data: allProductsData } = useQuery({
       okText: 'Asignar',
       cancelText: 'Cancelar',
       onOk: async () => {
-        if (!selected) { message.warning('No seleccionaste un valor'); return; }
+        if (!selected) { notify.warning('No seleccionaste un valor'); return; }
         await productApi.bulkAssign({ productoIds: selectedIds, campo, valor: selected });
-        message.success(`${label} asignada a ${selectedIds.length} producto(s)`);
+        notify.success(`${label} asignada a ${selectedIds.length} producto(s)`);
         invalidate();
       },
     });
@@ -383,7 +396,17 @@ const { data: allProductsData } = useQuery({
         if (record.ES_SERVICIO) return <Tag color="blue">Servicio</Tag>;
         const low = record.STOCK_MINIMO != null && v <= record.STOCK_MINIMO;
         const unidad = record.UNIDAD_ABREVIACION ? ` ${record.UNIDAD_ABREVIACION}` : '';
-        return <Text type={low ? 'danger' : undefined} strong={low}>{v}{unidad}</Text>;
+        return (
+          <div
+            onClick={(e) => { e.stopPropagation(); handleQuickStock(record); }}
+            style={{ cursor: 'pointer', minHeight: 22, padding: '2px 0' }}
+            title="Click para editar stock por depósito"
+          >
+            <span style={{ borderBottom: '1px dashed rgba(234,189,35,0.5)' }}>
+              <Text type={low ? 'danger' : undefined} strong={low}>{v}{unidad}</Text>
+            </span>
+          </div>
+        );
       },
     },
     {
@@ -689,6 +712,14 @@ const { data: allProductsData } = useQuery({
         product={priceListProduct}
         onClose={() => { setPriceListOpen(false); setPriceListProduct(null); }}
         onSaved={invalidate}
+      />
+
+      {/* ── Quick Stock Edit Modal ────────────── */}
+      <QuickStockEditModal
+        open={quickStockOpen}
+        onClose={() => { setQuickStockOpen(false); setQuickStockProduct(null); }}
+        onSaved={invalidate}
+        product={quickStockProduct}
       />
 
       {/* ── Bulk Price Modal ──────────────────── */}

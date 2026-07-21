@@ -1,9 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Table, Space, Input, Typography, Tag, Select, Button, Modal, App,
-  InputNumber, Checkbox, Tooltip, Drawer, Descriptions, Spin,
-} from 'antd';
+import { Table, Space, Input, Typography, Tag, Select, Button, Modal, InputNumber, Checkbox, Tooltip, Drawer, Descriptions, Spin } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
   SearchOutlined, ReloadOutlined, HistoryOutlined,
@@ -18,12 +15,13 @@ import { StockHistoryModal } from '../components/stock/StockHistoryModal';
 import { ExportButtons, type ExportColumn } from '../components/ExportButtons';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { notify } from '../utils/notify.ts';
 
 
 const { Title, Text } = Typography;
 
 export function StockPage() {
-  const { message } = App.useApp();
+
   const qc = useQueryClient();
 
   // Punto de venta del usuario logueado
@@ -143,11 +141,11 @@ export function StockPage() {
         OBSERVACIONES: stockObservation || undefined,
       });
       const dif = result.diferencia;
-      message.success(`Stock actualizado (${dif >= 0 ? '+' : ''}${fmtNum(dif)})`);
+      notify.success(`Stock actualizado (${dif >= 0 ? '+' : ''}${fmtNum(dif)})`);
       setEditingStock(null);
       invalidate();
     } catch (err: any) {
-      message.error(err?.response?.data?.error || 'Error al actualizar stock');
+      notify.error(err?.response?.data?.error || 'Error al actualizar stock');
     } finally {
       setSaving(false);
     }

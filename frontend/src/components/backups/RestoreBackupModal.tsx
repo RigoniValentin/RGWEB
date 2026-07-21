@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { App, Alert, Button, Modal, Space, Steps, Typography, Upload, Tag, Descriptions } from 'antd';
+import { Alert, Button, Modal, Space, Steps, Typography, Upload, Tag, Descriptions } from 'antd';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ExclamationCircleOutlined, InboxOutlined, RollbackOutlined, FileZipOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
 import { backupsApi, type BackupRecord, type BackupFileInspection } from '../../services/backups.api';
 import { useAuthStore } from '../../store/authStore';
+import { notify } from '../../utils/notify.ts';
 
 const { Text, Paragraph } = Typography;
 const { Dragger } = Upload;
@@ -18,7 +19,7 @@ interface Props {
 }
 
 export function RestoreBackupModal({ open, onClose, fromBackup, dbName }: Props) {
-  const { message } = App.useApp();
+
   const qc = useQueryClient();
   const logout = useAuthStore(s => s.logout);
 
@@ -69,7 +70,7 @@ export function RestoreBackupModal({ open, onClose, fromBackup, dbName }: Props)
       close();
     },
     onError: (err: any) => {
-      message.error({
+      notify.error({
         content: err?.response?.data?.error || err.message,
         duration: 10,
       });
@@ -84,7 +85,7 @@ export function RestoreBackupModal({ open, onClose, fromBackup, dbName }: Props)
       const meta = await backupsApi.inspectUpload(file);
       setInspection(meta);
     } catch (err: any) {
-      message.error(err?.response?.data?.error || err.message);
+      notify.error(err?.response?.data?.error || err.message);
       setInspection(null);
     } finally {
       setInspecting(false);

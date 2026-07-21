@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  App, Button, Card, Empty, Form, Input, List, Modal, Pagination,
-  Select, Space, Spin, Switch, Tag, Tooltip, Typography,
-} from 'antd';
+import { Button, Card, Empty, Form, Input, List, Modal, Pagination, Select, Space, Spin, Switch, Tag, Tooltip, Typography } from 'antd';
 import {
   CreditCardOutlined, DeleteOutlined, EditOutlined, FilterOutlined,
   PlusOutlined, ReloadOutlined, SearchOutlined, UploadOutlined,
@@ -11,6 +8,7 @@ import {
 import { paymentMethodApi, type MetodoPagoInput } from '../services/paymentMethod.api';
 import { useTabStore } from '../store/tabStore';
 import type { MetodoPago } from '../types';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text } = Typography;
 
@@ -24,7 +22,7 @@ function toDataUrl(file: File): Promise<string> {
 }
 
 export function PaymentMethodsPage() {
-  const { message } = App.useApp();
+
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -105,10 +103,10 @@ export function PaymentMethodsPage() {
       onOk: async () => {
         try {
           await paymentMethodApi.delete(r.METODO_PAGO_ID);
-          message.success('Método de pago eliminado');
+          notify.success('Método de pago eliminado');
           invalidate();
         } catch (err: any) {
-          message.error(err?.response?.data?.error || 'Error al eliminar');
+          notify.error(err?.response?.data?.error || 'Error al eliminar');
         }
       },
     });
@@ -128,15 +126,15 @@ export function PaymentMethodsPage() {
 
       if (editId) {
         await paymentMethodApi.update(editId, payload);
-        message.success('Método de pago actualizado');
+        notify.success('Método de pago actualizado');
       } else {
         await paymentMethodApi.create(payload);
-        message.success('Método de pago creado');
+        notify.success('Método de pago creado');
       }
       resetModal();
       invalidate();
     } catch (err: any) {
-      if (err?.response?.data?.error) message.error(err.response.data.error);
+      if (err?.response?.data?.error) notify.error(err.response.data.error);
     } finally {
       setSaving(false);
     }
@@ -147,12 +145,12 @@ export function PaymentMethodsPage() {
     e.target.value = '';
     if (!file) return;
     if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
-      message.warning('Formato no soportado. Use PNG, JPG, GIF o WebP.'); return;
+      notify.warning('Formato no soportado. Use PNG, JPG, GIF o WebP.'); return;
     }
     if (file.size > 2 * 1024 * 1024) {
-      message.warning('La imagen supera 2 MB'); return;
+      notify.warning('La imagen supera 2 MB'); return;
     }
-    try { setImgPreview(await toDataUrl(file)); } catch { message.error('Error al cargar imagen'); }
+    try { setImgPreview(await toDataUrl(file)); } catch { notify.error('Error al cargar imagen'); }
   };
 
   // ── Render ───────────────────────────────────────

@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Card, Tabs, Table, Tag, Button, Modal, Drawer, Form, Input, InputNumber, Select,
-  Typography, Space, App, Descriptions, Empty, Tooltip, Statistic, Row, Col,
-} from 'antd';
+import { Card, Tabs, Table, Tag, Button, Modal, Drawer, Form, Input, InputNumber, Select, Typography, Space, Descriptions, Empty, Tooltip, Statistic, Row, Col } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
   ShoppingOutlined, ReloadOutlined, FileTextOutlined, MailOutlined,
@@ -24,6 +21,7 @@ import { cajaApi } from '../services/caja.api';
 import type { Deposito, MetodoPago } from '../types';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -168,7 +166,7 @@ function OrdersTable({
   search: string;
   onOpenDetail: (id: number) => void;
 }) {
-  const { message } = App.useApp();
+
   const qc = useQueryClient();
   const [procesarOpen, setProcesarOpen] = useState<TiendaOrder | null>(null);
   const [cancelarOpen, setCancelarOpen] = useState<TiendaOrder | null>(null);
@@ -185,19 +183,19 @@ function OrdersTable({
       const aviso = r.emailEnviado
         ? `Factura emitida (CAE ${r.cae}) y enviada a ${r.emailDestinatario}`
         : `Factura emitida (CAE ${r.cae}).${r.emailDestinatario ? ' No se pudo enviar el mail.' : ' Sin email del cliente.'}`;
-      message.success(aviso);
+      notify.success(aviso);
       qc.invalidateQueries({ queryKey: ['tienda-orders'] });
     },
-    onError: (e: any) => message.error(e?.response?.data?.error || e.message),
+    onError: (e: any) => notify.error(e?.response?.data?.error || e.message),
   });
 
   const reenviarMut = useMutation({
     mutationFn: (id: number) => tiendaOrdersApi.reenviarMail(id),
     onSuccess: () => {
-      message.success('Mail de comprobante reenviado');
+      notify.success('Mail de comprobante reenviado');
       qc.invalidateQueries({ queryKey: ['tienda-orders'] });
     },
-    onError: (e: any) => message.error(e?.response?.data?.error || e.message),
+    onError: (e: any) => notify.error(e?.response?.data?.error || e.message),
   });
 
   const handleActualizar = async () => {
@@ -378,7 +376,7 @@ type DepositoSelectable = Deposito & { ES_PREFERIDO?: boolean };
 function ProcesarModal({
   order, onClose, onDone,
 }: { order: TiendaOrder; onClose: () => void; onDone: () => void }) {
-  const { message } = App.useApp();
+
   const [form] = Form.useForm<{ clienteId?: number; puntoVentaId?: number; depositoId?: number }>();
   const puntoVentaId = Form.useWatch('puntoVentaId', form) as number | undefined;
 
@@ -480,11 +478,11 @@ function ProcesarModal({
   const procesarMut = useMutation({
     mutationFn: (payload: ProcesarOrderInput) => tiendaOrdersApi.procesar(order.TIENDA_ORDER_ID, payload),
     onSuccess: r => {
-      message.success(`Pedido convertido en Venta #${r.ventaId}`);
+      notify.success(`Pedido convertido en Venta #${r.ventaId}`);
       onDone();
       onClose();
     },
-    onError: (e: any) => message.error(e?.response?.data?.error || e.message),
+    onError: (e: any) => notify.error(e?.response?.data?.error || e.message),
   });
 
   const totalRecibido = useMemo(
@@ -495,13 +493,13 @@ function ProcesarModal({
   const handleOk = async () => {
     try {
       if (!miCaja) {
-        message.warning('Para procesar un pedido debe haber una caja abierta');
+        notify.warning('Para procesar un pedido debe haber una caja abierta');
         return;
       }
 
       const values = await form.validateFields();
       if (selectedMetodos.length === 0) {
-        message.warning('Seleccione al menos un método de pago');
+        notify.warning('Seleccione al menos un método de pago');
         return;
       }
 
@@ -510,12 +508,12 @@ function ProcesarModal({
         .filter(item => item.MONTO > 0);
 
       if (metodos_pago.length === 0) {
-        message.warning('Complete el monto de al menos un método de pago');
+        notify.warning('Complete el monto de al menos un método de pago');
         return;
       }
 
       if (Math.abs(totalRecibido - total) >= 0.01) {
-        message.warning('El total de los métodos de pago debe coincidir con el total del pedido');
+        notify.warning('El total de los métodos de pago debe coincidir con el total del pedido');
         return;
       }
 
@@ -762,17 +760,17 @@ function ProcesarModal({
 function CancelarModal({
   order, onClose, onDone,
 }: { order: TiendaOrder; onClose: () => void; onDone: () => void }) {
-  const { message } = App.useApp();
+
   const [motivo, setMotivo] = useState('');
 
   const cancelarMut = useMutation({
     mutationFn: () => tiendaOrdersApi.cancelar(order.TIENDA_ORDER_ID, motivo),
     onSuccess: () => {
-      message.success('Pedido cancelado');
+      notify.success('Pedido cancelado');
       onDone();
       onClose();
     },
-    onError: (e: any) => message.error(e?.response?.data?.error || e.message),
+    onError: (e: any) => notify.error(e?.response?.data?.error || e.message),
   });
 
   return (

@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Table, Space, Input, Typography, Tag, Select, Button, Modal, App,
-  Tooltip, Spin, Form, Switch,
-} from 'antd';
+import { Table, Space, Input, Typography, Tag, Select, Button, Modal, Tooltip, Spin, Form, Switch } from 'antd';
 import type { TableColumnType } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
@@ -14,11 +11,12 @@ import { useTabStore } from '../store/tabStore';
 import type { Categoria } from '../types';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { notify } from '../utils/notify.ts';
 
 const { Title } = Typography;
 
 export function CategoriesPage() {
-  const { message } = App.useApp();
+
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -101,14 +99,14 @@ export function CategoriesPage() {
       onOk: async () => {
         try {
           const result = await categoryApi.delete(record.CATEGORIA_ID);
-          message.success(
+          notify.success(
             result.mode === 'soft'
               ? 'Categoría desactivada (tiene productos asociados)'
               : 'Categoría eliminada'
           );
           invalidate();
         } catch (err: any) {
-          message.error(err?.response?.data?.error || 'Error al eliminar');
+          notify.error(err?.response?.data?.error || 'Error al eliminar');
         }
       },
     });
@@ -128,10 +126,10 @@ export function CategoriesPage() {
 
       if (editId) {
         await categoryApi.update(editId, payload);
-        message.success('Categoría actualizada');
+        notify.success('Categoría actualizada');
       } else {
         await categoryApi.create(payload);
-        message.success('Categoría creada');
+        notify.success('Categoría creada');
       }
 
       setFormOpen(false);
@@ -139,7 +137,7 @@ export function CategoriesPage() {
       invalidate();
     } catch (err: any) {
       if (err?.response?.data?.error) {
-        message.error(err.response.data.error);
+        notify.error(err.response.data.error);
       }
     } finally {
       setSaving(false);

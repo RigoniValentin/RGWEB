@@ -1,8 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import {
-  Modal, Form, Input, InputNumber, Select, Switch, Tabs, Space, Button,
-  Table, Tag, Typography, Row, Col, Divider, Badge, App, Tooltip, Dropdown,
-} from 'antd';
+import { Modal, Form, Input, InputNumber, Select, Switch, Tabs, Space, Button, Table, Tag, Typography, Row, Col, Divider, Badge, App, Tooltip, Dropdown } from 'antd';
 import {
   PlusOutlined, DeleteOutlined, BarcodeOutlined, ShopOutlined,
   DollarOutlined, InboxOutlined, FileTextOutlined, UndoOutlined,
@@ -13,6 +10,7 @@ import { catalogApi } from '../../services/catalog.api';
 import { productApi, type TasaImpuesto } from '../../services/product.api';
 import { useAuthStore } from '../../store/authStore';
 import type { ListaPrecio, Producto } from '../../types';
+import { notify } from '../../utils/notify.ts';
 
 const { Text } = Typography;
 
@@ -25,7 +23,7 @@ interface Props {
 }
 
 export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: Props) {
-  const { message, modal } = App.useApp();
+  const { modal } = App.useApp();
   const queryClient = useQueryClient();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
@@ -425,8 +423,8 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
     if (costo > 0) {
       recalcAllPricesFromMargins(costo, defaultMargenes);
     }
-    message.success('Márgenes restaurados a los valores por defecto de las listas');
-  }, [listasActivas, form, recalcAllPricesFromMargins, message]);
+    notify.success('Márgenes restaurados a los valores por defecto de las listas');
+  }, [listasActivas, form, recalcAllPricesFromMargins]);
 
   const handleRedondearPrecios = useCallback((step: number) => {
     const costo = form.getFieldValue('PRECIO_COMPRA') || 0;
@@ -460,7 +458,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
         // Switch to the first tab with an error
         const firstErrorTab = errors.stock ? 'stock' : 'proveedores';
         setActiveTab(firstErrorTab);
-        message.warning(
+        notify.warning(
           errors.stock && errors.proveedores
             ? 'Debe asociar al menos un depósito y un proveedor'
             : errors.stock
@@ -497,17 +495,17 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
 
       if (editId) {
         await productApi.update(editId, payload);
-        message.success('Producto actualizado');
+        notify.success('Producto actualizado');
       } else {
         await productApi.create(payload);
-        message.success('Producto creado');
+        notify.success('Producto creado');
       }
 
       onSaved();
       onClose();
     } catch (err: any) {
       if (err?.errorFields) return; // validation
-      message.error(err?.response?.data?.error || 'Error al guardar');
+      notify.error(err?.response?.data?.error || 'Error al guardar');
     } finally {
       setSaving(false);
     }

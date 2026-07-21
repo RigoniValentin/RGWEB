@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type ComponentType } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Layout, Menu, Button, Typography, Avatar, Dropdown, Select, Tag, Tooltip, message } from 'antd';
+import { Layout, Menu, Button, Typography, Avatar, Dropdown, Select, Tag, Tooltip } from 'antd';
 import {
   DoubleLeftOutlined,
   DoubleRightOutlined,
@@ -49,6 +49,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { RGLogo } from './RGLogo';
 import { TabBar } from './TabBar';
 import { QuickProductLookupModal } from './products/QuickProductLookupModal';
+import { notify } from '../utils/notify';
 
 // ── Lazy-loaded page components ──────────────────
 import { DashboardPage } from '../pages/DashboardPage';
@@ -518,7 +519,7 @@ export function AppLayout() {
     const route = TAB_ROUTES[key];
     if (route) {
       if (!canAccessRoute(key)) {
-        void message.warning('No tenés permisos para acceder a esta sección');
+        void notify.warning('No tenés permisos para acceder a esta sección');
         return;
       }
       openTab({ key, label: getRouteLabel(key), closable: route.closable });

@@ -1,10 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Typography, Button, Space, Tag, Spin, Empty, message, Dropdown,
-  Modal, Form, Input, InputNumber, Drawer, Table, Popconfirm, Tooltip,
-  Segmented, Divider,
-} from 'antd';
+import { Typography, Button, Space, Tag, Spin, Empty, Dropdown, Modal, Form, Input, InputNumber, Drawer, Table, Popconfirm, Tooltip, Segmented, Divider } from 'antd';
 import {
   PlusOutlined, ReloadOutlined, EditOutlined, DeleteOutlined,
   ShoppingCartOutlined, CheckCircleOutlined, CoffeeOutlined, ClockCircleOutlined,
@@ -23,6 +19,7 @@ import { NewSaleModal } from '../components/sales/NewSaleModal';
 import type { PedidoParaVenta } from '../components/sales/NewSaleModal';
 import type { Sector, Mesa, PedidoDetalle, ProductoSearchMesa, ProductoSearch, TipoServicioComanda } from '../types';
 import { ProductSearchModal } from '../components/ProductSearchModal';
+import { notify } from '../utils/notify.ts';
 
 const { Title, Text } = Typography;
 
@@ -68,17 +65,17 @@ export function MesasPage() {
 
   const deleteSectorMut = useMutation({
     mutationFn: mesasApi.deleteSector,
-    onSuccess: () => { message.success('Sector eliminado'); invalidate(); setSectorActivo(null); },
-    onError: (err: any) => message.error(err.response?.data?.error || 'Error al eliminar sector'),
+    onSuccess: () => { notify.success('Sector eliminado'); invalidate(); setSectorActivo(null); },
+    onError: (err: any) => notify.error(err.response?.data?.error || 'Error al eliminar sector'),
   });
   const deleteMesaMut = useMutation({
     mutationFn: mesasApi.deleteMesa,
-    onSuccess: () => { message.success('Mesa eliminada'); invalidate(); },
-    onError: (err: any) => message.error(err.response?.data?.error || 'Error al eliminar mesa'),
+    onSuccess: () => { notify.success('Mesa eliminada'); invalidate(); },
+    onError: (err: any) => notify.error(err.response?.data?.error || 'Error al eliminar mesa'),
   });
   const cambiarEstadoMut = useMutation({
     mutationFn: ({ id, estado }: { id: number; estado: 'LIBRE' | 'OCUPADA' | 'RESERVADA' }) => mesasApi.cambiarEstadoMesa(id, estado),
-    onSuccess: () => { message.success('Estado actualizado'); invalidate(); setEstadoModalMesa(null); },
+    onSuccess: () => { notify.success('Estado actualizado'); invalidate(); setEstadoModalMesa(null); },
   });
 
   // Auto-select first sector
@@ -561,17 +558,17 @@ function SectorModal({ open, sector, puntoVentaId, onClose, onSuccess }: {
       setLoading(true);
       if (sector) {
         await mesasApi.updateSector(sector.SECTOR_ID, { NOMBRE: values.nombre });
-        message.success('Sector actualizado');
+        notify.success('Sector actualizado');
       } else {
         await mesasApi.createSector({ NOMBRE: values.nombre, PUNTO_VENTA_ID: puntoVentaId });
-        message.success('Sector creado');
+        notify.success('Sector creado');
       }
       onSuccess();
       onClose();
       form.resetFields();
     } catch (err: any) {
       if (err.errorFields) return;
-      message.error(err.response?.data?.error || 'Error');
+      notify.error(err.response?.data?.error || 'Error');
     } finally {
       setLoading(false);
     }
@@ -611,7 +608,7 @@ function MesaModal({ open, mesa, sectorId, puntoVentaId, onClose, onSuccess }: {
           NUMERO_MESA: values.numero,
           CAPACIDAD: values.capacidad,
         });
-        message.success('Mesa actualizada');
+        notify.success('Mesa actualizada');
       } else {
         await mesasApi.createMesa({
           NUMERO_MESA: values.numero,
@@ -619,14 +616,14 @@ function MesaModal({ open, mesa, sectorId, puntoVentaId, onClose, onSuccess }: {
           CAPACIDAD: values.capacidad,
           PUNTO_VENTA_ID: puntoVentaId,
         });
-        message.success('Mesa creada');
+        notify.success('Mesa creada');
       }
       onSuccess();
       onClose();
       form.resetFields();
     } catch (err: any) {
       if (err.errorFields) return;
-      message.error(err.response?.data?.error || 'Error');
+      notify.error(err.response?.data?.error || 'Error');
     } finally {
       setLoading(false);
     }
@@ -721,8 +718,8 @@ function PedidoDrawer({ mesa, puntoVentaId, onClose, onPasarAVenta }: {
 
   const crearPedidoMut = useMutation({
     mutationFn: () => mesasApi.crearPedido({ MESA_ID: mesa!.MESA_ID, PUNTO_VENTA_ID: puntoVentaId }),
-    onSuccess: () => { message.success('Pedido creado'); refetchPedido(); },
-    onError: (err: any) => message.error(err.response?.data?.error || 'Error'),
+    onSuccess: () => { notify.success('Pedido creado'); refetchPedido(); },
+    onError: (err: any) => notify.error(err.response?.data?.error || 'Error'),
   });
 
   const agregarItemMut = useMutation({
@@ -735,7 +732,7 @@ function PedidoDrawer({ mesa, puntoVentaId, onClose, onPasarAVenta }: {
         LISTA_PRECIO_SELECCIONADA: data.producto.LISTA_DEFECTO,
       }),
     onSuccess: () => { refetchPedido(); setSearchText(''); },
-    onError: (err: any) => message.error(err.response?.data?.error || 'Error al agregar'),
+    onError: (err: any) => notify.error(err.response?.data?.error || 'Error al agregar'),
   });
 
   const actualizarQtyMut = useMutation({
@@ -746,12 +743,12 @@ function PedidoDrawer({ mesa, puntoVentaId, onClose, onPasarAVenta }: {
 
   const eliminarItemMut = useMutation({
     mutationFn: mesasApi.eliminarItemPedido,
-    onSuccess: () => { message.success('Item eliminado'); refetchPedido(); },
+    onSuccess: () => { notify.success('Item eliminado'); refetchPedido(); },
   });
 
   const reabrirPedidoMut = useMutation({
     mutationFn: mesasApi.reabrirPedido,
-    onSuccess: () => { message.success('Pedido reabierto'); refetchPedido(); },
+    onSuccess: () => { notify.success('Pedido reabierto'); refetchPedido(); },
   });
 
   const handleAddProduct = (prod: ProductoSearchMesa) => {
@@ -1007,7 +1004,7 @@ function HistorialDrawer({ mesa, onClose, onPasarAVenta }: {
       const pedido = await mesasApi.getPedidoById(pedidoId);
       if (pedido) onPasarAVenta(pedido);
     } catch {
-      message.error('Error al cargar pedido');
+      notify.error('Error al cargar pedido');
     }
   };
 
@@ -1171,7 +1168,7 @@ function PrintPedidoModal({ open, pedidoId, puntoVentaId, mesaNumero, onClose }:
         document.body.appendChild(iframe);
         const doc = iframe.contentDocument || iframe.contentWindow?.document;
         if (!doc || !iframe.contentWindow) {
-          message.error('No se pudo preparar la impresión');
+          notify.error('No se pudo preparar la impresión');
           document.body.removeChild(iframe);
           return;
         }
@@ -1192,7 +1189,7 @@ function PrintPedidoModal({ open, pedidoId, puntoVentaId, mesaNumero, onClose }:
         }, 200);
       }
     } catch (err) {
-      message.error('Error al obtener datos de impresión');
+      notify.error('Error al obtener datos de impresión');
     }
   };
 
@@ -1284,41 +1281,41 @@ function TiposServicioComandaDrawer({ open, puntoVentaId, onClose }: {
   const createMut = useMutation({
     mutationFn: () => form.validateFields().then(v =>
       mesasApi.createTipoServicioComanda({ NOMBRE: v.nombre, PUNTO_VENTA_ID: puntoVentaId })),
-    onSuccess: () => { message.success('Tipo creado'); invalidate(); setModalOpen(false); form.resetFields(); },
-    onError: (err: any) => message.error(err.response?.data?.error || 'Error'),
+    onSuccess: () => { notify.success('Tipo creado'); invalidate(); setModalOpen(false); form.resetFields(); },
+    onError: (err: any) => notify.error(err.response?.data?.error || 'Error'),
   });
 
   const updateMut = useMutation({
     mutationFn: () => form.validateFields().then(v =>
       mesasApi.updateTipoServicioComanda(editingId!, { NOMBRE: v.nombre })),
-    onSuccess: () => { message.success('Tipo actualizado'); invalidate(); setModalOpen(false); setEditingId(null); form.resetFields(); },
-    onError: (err: any) => message.error(err.response?.data?.error || 'Error'),
+    onSuccess: () => { notify.success('Tipo actualizado'); invalidate(); setModalOpen(false); setEditingId(null); form.resetFields(); },
+    onError: (err: any) => notify.error(err.response?.data?.error || 'Error'),
   });
 
   const deleteMut = useMutation({
     mutationFn: mesasApi.deleteTipoServicioComanda,
     onSuccess: () => {
-      message.success('Tipo eliminado');
+      notify.success('Tipo eliminado');
       invalidate();
       if (selectedTipo && tipos.find(t => t.TIPO_SERVICIO_ID === selectedTipo.TIPO_SERVICIO_ID) === undefined) {
         setSelectedTipo(null);
       }
     },
-    onError: (err: any) => message.error(err.response?.data?.error || 'Error'),
+    onError: (err: any) => notify.error(err.response?.data?.error || 'Error'),
   });
 
   const asignarMut = useMutation({
     mutationFn: (productoId: number) =>
       mesasApi.asignarProductoTipoServicio(selectedTipo!.TIPO_SERVICIO_ID, productoId, puntoVentaId),
-    onSuccess: () => { message.success('Producto asignado'); refetchProductos(); },
-    onError: (err: any) => message.error(err.response?.data?.error || 'Error'),
+    onSuccess: () => { notify.success('Producto asignado'); refetchProductos(); },
+    onError: (err: any) => notify.error(err.response?.data?.error || 'Error'),
   });
 
   const desasignarMut = useMutation({
     mutationFn: (productoId: number) =>
       mesasApi.desasignarProductoTipoServicio(selectedTipo!.TIPO_SERVICIO_ID, productoId, puntoVentaId),
-    onSuccess: () => { message.success('Producto desasignado'); refetchProductos(); },
-    onError: (err: any) => message.error(err.response?.data?.error || 'Error'),
+    onSuccess: () => { notify.success('Producto desasignado'); refetchProductos(); },
+    onError: (err: any) => notify.error(err.response?.data?.error || 'Error'),
   });
 
   const openCreate = () => { setEditingId(null); form.resetFields(); setModalOpen(true); };

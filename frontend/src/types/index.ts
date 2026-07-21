@@ -811,6 +811,7 @@ export interface Compra {
   IVA_TOTAL: number;
   BONIFICACION_TOTAL: number;
   IMP_INT_GRAVA_IVA: boolean;
+  REMITO_ID?: number | null;
   PROVEEDOR_NOMBRE?: string;
   PROVEEDOR_CODIGO?: string;
 }
@@ -873,6 +874,9 @@ export interface CompraInput {
   ACTUALIZAR_STOCK?: boolean;
   DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
   PUNTO_VENTA_ID?: number | null;
+  /** Si viene, indica que la compra se origina en un remito de entrada.
+   *  El backend forzará ACTUALIZAR_STOCK=false. */
+  REMITO_ID?: number | null;
   items: CompraItemInput[];
   metodos_pago?: MetodoPagoItem[];
   cheques_ids?: number[];
@@ -1065,8 +1069,14 @@ export interface Remito {
   SUBTOTAL: number;
   TOTAL: number;
   ANULADO: boolean;
+  /** PENDIENTE: llegó desde la app mobile, sin stock aplicado. CONFIRMADO: stock ya aplicado. */
+  ESTADO?: 'PENDIENTE' | 'CONFIRMADO' | 'ANULADO' | null;
+  /** Origen del remito: WEB o MOBILE. Útil para distinguir remitos creados en la app. */
+  ORIGEN?: 'WEB' | 'MOBILE' | null;
   USUARIO_ID: number | null;
   FECHA_CREACION: string;
+  VENTA_ID?: number | null;
+  COMPRA_ID?: number | null;
   CLIENTE_NOMBRE?: string;
   PROVEEDOR_NOMBRE?: string;
   DEPOSITO_NOMBRE?: string;
@@ -1100,6 +1110,12 @@ export interface RemitoDetalle extends Remito {
   VENTA_NUMERO_FISCAL?: string | null;
   VENTA_TOTAL?: number | null;
   VENTA_FECHA?: string | null;
+  COMPRA_ID?: number | null;
+  COMPRA_TIPO_COMPROBANTE?: string | null;
+  COMPRA_PTO_VTA?: string | null;
+  COMPRA_NRO_COMPROBANTE?: string | null;
+  COMPRA_TOTAL?: number | null;
+  COMPRA_FECHA?: string | null;
 }
 
 export interface RemitoItemInput {

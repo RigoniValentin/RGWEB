@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import {
-  Modal, Form, Input, InputNumber, DatePicker, Space, Typography, App, Divider, Button, Tag, AutoComplete, Select,
-} from 'antd';
+import { Modal, Form, Input, InputNumber, DatePicker, Space, Typography, Divider, Button, Tag, AutoComplete, Select } from 'antd';
 import {
   WalletOutlined, CheckCircleOutlined,
   DollarOutlined, CreditCardOutlined, EnvironmentOutlined,
@@ -15,6 +13,7 @@ import { useAuthStore } from '../../store/authStore';
 import { ChequePicker } from '../cheques/ChequePicker';
 import { usePaymentMethodKeyboardNavigation } from '../../hooks/usePaymentMethodKeyboardNavigation';
 import type { MetodoPagoItem } from '../../types';
+import { notify } from '../../utils/notify.ts';
 
 const { Text } = Typography;
 
@@ -26,7 +25,7 @@ interface Props {
 }
 
 export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
-  const { message } = App.useApp();
+
   const [form] = Form.useForm();
   const isEdit = gastoId !== null;
   const { puntosVenta, puntoVentaActivo } = useAuthStore();
@@ -170,19 +169,19 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
   const crearMut = useMutation({
     mutationFn: (data: GastoServicioInput) => expensesApi.crear(data),
     onSuccess: () => {
-      message.success('Gasto registrado exitosamente');
+      notify.success('Gasto registrado exitosamente');
       onSuccess();
     },
-    onError: (err: any) => message.error(err.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err.response?.data?.error || err.message),
   });
 
   const actualizarMut = useMutation({
     mutationFn: (data: GastoServicioInput) => expensesApi.actualizar(gastoId!, data),
     onSuccess: () => {
-      message.success('Gasto modificado exitosamente');
+      notify.success('Gasto modificado exitosamente');
       onSuccess();
     },
-    onError: (err: any) => message.error(err.response?.data?.error || err.message),
+    onError: (err: any) => notify.error(err.response?.data?.error || err.message),
   });
 
   const saving = crearMut.isPending || actualizarMut.isPending;
@@ -193,15 +192,15 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
       const values = await form.validateFields();
 
       if (selectedMetodos.length === 0) {
-        message.warning('Seleccione al menos un método de pago');
+        notify.warning('Seleccione al menos un método de pago');
         return;
       }
       if (total <= 0) {
-        message.warning('El total debe ser mayor a cero');
+        notify.warning('El total debe ser mayor a cero');
         return;
       }
       if (puntosVenta.length > 1 && !pvId) {
-        message.warning('Seleccione un punto de venta');
+        notify.warning('Seleccione un punto de venta');
         return;
       }
 
@@ -215,7 +214,7 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
         return m?.CATEGORIA === 'CHEQUES' && (montosPorMetodo[id] || 0) > 0;
       });
       if (tieneMetodoCheques && chequesIds.length === 0) {
-        message.warning('Seleccione cheques de cartera para el método CHEQUES');
+        notify.warning('Seleccione cheques de cartera para el método CHEQUES');
         return;
       }
 

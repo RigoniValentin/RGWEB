@@ -18,6 +18,14 @@ export const remitosApi = {
   anular: (id: number) =>
     api.put<{ ok: boolean; REMITO_ID: number }>(`/remitos/${id}/anular`).then(r => r.data),
 
+  /** Confirma un remito PENDIENTE (proveniente de la app mobile): aplica el stock. */
+  confirmar: (id: number) =>
+    api.post<{ ok: boolean; REMITO_ID: number; ESTADO: string }>(`/remitos/${id}/confirmar`).then(r => r.data),
+
+  /** Rechaza un remito PENDIENTE: lo marca como anulado sin tocar stock. */
+  rechazar: (id: number) =>
+    api.post<{ ok: boolean; REMITO_ID: number }>(`/remitos/${id}/rechazar`).then(r => r.data),
+
   delete: (id: number) =>
     api.delete(`/remitos/${id}`).then(r => r.data),
 
@@ -47,4 +55,22 @@ export const remitosApi = {
 
   getItemsParaVenta: (remitoId: number) =>
     api.get<RemitoItemParaVenta[]>(`/remitos/items-para-venta/${remitoId}`).then(r => r.data),
+
+  /** Remitos de entrada sin compra asociada. Si se pasa proveedorId, filtra por proveedor. */
+  getSinCompraAsociada: (proveedorId?: number) =>
+    api
+      .get<
+        {
+          REMITO_ID: number;
+          TIPO: string;
+          FECHA: string;
+          PTO_VTA: string;
+          NRO_REMITO: string;
+          PROVEEDOR_ID: number | null;
+          TOTAL: number;
+          OBSERVACIONES: string | null;
+          PROVEEDOR_NOMBRE: string | null;
+        }[]
+      >('/remitos/sin-compra', { params: proveedorId ? { proveedorId } : {} })
+      .then(r => r.data),
 };
