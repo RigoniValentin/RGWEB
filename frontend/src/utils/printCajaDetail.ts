@@ -68,9 +68,17 @@ const TIPO_LABEL: Record<string, string> = {
   VENTA: 'Venta',
   INGRESO: 'Ingreso',
   EGRESO: 'Egreso',
-  FONDO_CAMBIO: 'Fondo Cambio',
+  APERTURA: 'Apertura',
+  TRANSFERENCIA_CC: 'Trf CC',
+  DEPOSITO_CIERRE: 'Dep. Cierre',
+  RETENCION_CIERRE: 'Ret. Cierre',
+  COBRANZA: 'Cobranza',
   ORDEN_PAGO: 'Orden Pago',
   COMPRA: 'Compra',
+  NC_COMPRA: 'NC Compra',
+  NC_VENTA: 'NC Venta',
+  ND_COMPRA: 'ND Compra',
+  ND_VENTA: 'ND Venta',
 };
 
 function buildCajaDetailHTML(data: PrintCajaData): string {

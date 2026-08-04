@@ -22,6 +22,8 @@ import type { Deposito, MetodoPago } from '../types';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { notify } from '../utils/notify.ts';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -547,7 +549,13 @@ function ProcesarModal({
     <>
       <Modal
         open
-        title={`Procesar pedido #${order.EXTERNAL_ORDER_ID}`}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('tienda-pedido')}
+            title={`Procesar pedido #${order.EXTERNAL_ORDER_ID}`}
+            subtitle="Configuración de venta, depósito y pago"
+          />
+        }
         onCancel={onClose}
         okText="Procesar y crear venta"
         onOk={handleOk}
@@ -555,6 +563,7 @@ function ProcesarModal({
         okButtonProps={{ disabled: !miCaja }}
         width={680}
         destroyOnClose
+        className="rg-modal"
       >
         <Paragraph type="secondary" style={{ fontSize: 12 }}>
           Se creará una <b>Venta</b> en RG WEB con los items del pedido. Elegí el depósito para descontar stock y el desglose real de pago antes de confirmar.
@@ -690,12 +699,14 @@ function ProcesarModal({
         centered
         width={520}
         destroyOnClose
+        className="rg-modal"
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
         title={
-          <Space>
-            <WalletOutlined style={{ color: '#EABD23', fontSize: 20 }} />
-            <span>Seleccionar método de pago</span>
-          </Space>
+          <RGCajaModalHeader
+            icon={rgIcon('tienda-pedido')}
+            title="Seleccionar método de pago"
+            subtitle="Elegí uno o más medios para el pedido"
+          />
         }
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -776,13 +787,21 @@ function CancelarModal({
   return (
     <Modal
       open
-      title={`Cancelar pedido #${order.EXTERNAL_ORDER_ID}`}
+      title={
+        <RGCajaModalHeader
+          icon={rgIcon('tienda-pedido')}
+          title={`Cancelar pedido #${order.EXTERNAL_ORDER_ID}`}
+          subtitle="Confirmación y motivo de cancelación"
+        />
+      }
       okText="Cancelar pedido"
       okButtonProps={{ danger: true }}
       cancelText="Volver"
       onCancel={onClose}
       onOk={() => cancelarMut.mutate()}
       confirmLoading={cancelarMut.isPending}
+      width={460}
+      className="rg-modal"
     >
       <Paragraph>
         Esta acción marca el pedido como <b>cancelado</b>. No se podrá facturar después.
@@ -814,8 +833,15 @@ function OrderDetailDrawer({ orderId, onClose }: { orderId: number; onClose: () 
       open
       width={680}
       onClose={onClose}
-      title={data ? `Pedido #${data.EXTERNAL_ORDER_ID}` : 'Pedido'}
+      title={
+         <RGCajaModalHeader
+           icon={rgIcon('tienda-pedido')}
+           title={data ? `Pedido #${data.EXTERNAL_ORDER_ID}` : 'Pedido'}
+           subtitle="Detalle del pedido de tienda"
+         />
+       }
       loading={isLoading}
+      className="rg-drawer"
     >
       {data && <OrderDetailContent order={data} />}
     </Drawer>

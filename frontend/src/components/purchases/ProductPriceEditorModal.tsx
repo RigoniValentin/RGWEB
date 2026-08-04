@@ -7,6 +7,9 @@ import {
 import type { PriceCheckProduct } from '../../services/purchases.api';
 import { fmtMoney, fmtNum } from '../../utils/format';
 import { notify } from '../../utils/notify.ts';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
+import { margenFromPrecio, normalizarTipoMargen, precioFromMargen, shortTipoMargen } from '../../utils/pricing';
 
 const { Text, Title } = Typography;
 
@@ -20,6 +23,8 @@ interface Props {
   product: PriceCheckProduct | null;
   listNames: Record<number, string>;
   listMargins: Record<number, number>;
+  /** Modo de cálculo de cada lista ('M' Markup / 'U' Utilidad). */
+  listTypes?: Record<number, 'M' | 'U'>;
   onClose: () => void;
   onSave: (update: {
     PRODUCTO_ID: number;
@@ -28,7 +33,7 @@ interface Props {
 }
 
 export function ProductPriceEditorModal({
-  open, product, listNames, listMargins, onClose, onSave,
+  open, product, listNames, listMargins, listTypes = {}, onClose, onSave,
 }: Props) {
   const [prices, setPrices] = useState<Record<number, number>>({});
   const [origPrices, setOrigPrices] = useState<Record<number, number>>({});
@@ -56,8 +61,9 @@ export function ProductPriceEditorModal({
   const getActualMargin = useCallback((listaId: number): number => {
     const precio = prices[listaId] || 0;
     if (costoMargenBase <= 0) return 0;
-    return r2(((precio / costoMargenBase) - 1) * 100);
-  }, [prices, costoMargenBase]);
+    const tipo = normalizarTipoMargen(listTypes[listaId]);
+    return r2(margenFromPrecio(costoMargenBase, precio, tipo));
+  }, [prices, costoMargenBase, listTypes]);
 
   const matchesDefault = useCallback((listaId: number): boolean => {
     const margenDefault = listMargins[listaId] || 0;
@@ -91,7 +97,8 @@ export function ProductPriceEditorModal({
       notify.warning('El costo debe ser mayor a 0 para calcular el margen');
       return;
     }
-    const newPrice = r2(costoMargenBase * (1 + margen / 100));
+    const tipo = normalizarTipoMargen(listTypes[listaId]);
+    const newPrice = r2(precioFromMargen(costoMargenBase, margen, tipo));
     setPrices(prev => ({ ...prev, [listaId]: newPrice }));
   };
 
@@ -111,11 +118,12 @@ export function ProductPriceEditorModal({
     const newPrices: Record<number, number> = {};
     for (const id of listasActivas) {
       const margen = listMargins[id] || 0;
-      newPrices[id] = r2(costoMargenBase * (1 + margen / 100));
+      const tipo = normalizarTipoMargen(listTypes[id]);
+      newPrices[id] = r2(precioFromMargen(costoMargenBase, margen, tipo));
     }
     setPrices(newPrices);
     notify.info('Precios recalculados desde márgenes default de cada lista');
-  }, [product, costoMargenBase, listMargins, listasActivas]);
+  }, [product, costoMargenBase, listMargins, listasActivas, listTypes]);
 
   const roundAll = (multiple: number) => {
     setPrices(prev => {
@@ -153,7 +161,14 @@ export function ProductPriceEditorModal({
       centered
       destroyOnClose
       closable={false}
-      className="new-sale-modal"
+      className="new-sale-modal rg-modal"
+      title={
+        <RGCajaModalHeader
+          icon={rgIcon('precio-editor')}
+          title="Editar precios del producto"
+          subtitle={`Modificá los precios por lista — ${product.CODIGO} · ${product.DESCRIPCION}`}
+        />
+      }
       styles={{ body: { padding: 0, overflow: 'hidden' } }}
     >
       {/* ── Dark header bar ───────────────────────── */}
@@ -280,6 +295,11 @@ export function ProductPriceEditorModal({
                   )}
                 </div>
                 <Space size={3} wrap>
+                  <Tooltip title={`Método: ${normalizarTipoMargen(listTypes[listaId]) === 'U' ? 'Utilidad sobre venta' : 'Markup sobre costo'}`}>
+                    <Tag color={normalizarTipoMargen(listTypes[listaId]) === 'U' ? 'purple' : 'blue'} style={{ margin: 0, fontSize: 10, padding: '0 5px' }}>
+                      {shortTipoMargen(normalizarTipoMargen(listTypes[listaId]))}
+                    </Tag>
+                  </Tooltip>
                   <Tooltip title="Margen default configurado en la lista">
                     <Tag color="geekblue" style={{ margin: 0, fontSize: 10, padding: '0 5px' }}>
                       Default {fmtNum(margenDefault)}%
@@ -290,7 +310,8 @@ export function ProductPriceEditorModal({
                       <InputNumber
                         autoFocus
                         value={actualMargin}
-                        min={-100}
+                        min={0}
+                        max={normalizarTipoMargen(listTypes[listaId]) === 'U' ? 99.99 : 9999}
                         step={1}
                         controls={false}
                         suffix="%"

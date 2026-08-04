@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Table, Space, Typography, Tag, Card, Row, Col, Statistic, Button, Input, InputNumber, Modal, Form, Select, Switch, Tabs, Tooltip, Descriptions, Divider } from 'antd';
+import { Table, Space, Typography, Tag, Card, Row, Col, Statistic, Button, Input, InputNumber, Modal, Select, Switch, Tabs, Tooltip } from 'antd';
 import {
   ArrowUpOutlined, ArrowDownOutlined,
   PlusOutlined, DeleteOutlined, ReloadOutlined, SwapOutlined, EyeOutlined,
@@ -14,12 +14,15 @@ import { salesApi } from '../services/sales.api';
 import { useAuthStore } from '../store/authStore';
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
 import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
-import { FondoCambioModal } from '../components/FondoCambioModal';
-import { fmtMoney, fmtMoneyAbs, statFormatter } from '../utils/format';
+import TransferenciaCajaModal from '../components/TransferenciaCajaModal';
+import { DetalleCierreSesionModal } from '../components/cierre-sesion/DetalleCierreSesionModal';
+import { fmtMoney, statFormatter } from '../utils/format';
 import { useTabStore } from '../store/tabStore';
-import type { MovimientoCaja, CajaCentralTotales, CajaCentralCierreDetalle, DesgloseMetodo, MetodoPago } from '../types';
+import type { MovimientoCaja, CajaCentralTotales, DesgloseMetodo, MetodoPago } from '../types';
 import { ExportButtons, type ExportColumn } from '../components/ExportButtons';
 import { RowContextMenu } from '../components/RowContextMenu';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { notify } from '../utils/notify.ts';
 
@@ -51,7 +54,7 @@ export function CajaCentralPage() {
     window.addEventListener('rg:nuevo', handler);
     return () => window.removeEventListener('rg:nuevo', handler);
   }, []);
-  const [fondoModalOpen, setFondoModalOpen] = useState(false);
+  const [transferirModalOpen, setTransferirModalOpen] = useState(false);
   const [nuevoTipo, setNuevoTipo] = useState<'INGRESO' | 'EGRESO'>('INGRESO');
   const [nuevoDesc, setNuevoDesc] = useState('');
   const [nuevoMontosPorMetodo, setNuevoMontosPorMetodo] = useState<Record<number, number>>({});
@@ -60,9 +63,10 @@ export function CajaCentralPage() {
   const [pvFilter, setPvFilter] = useState<number | undefined>(() => puntoVentaActivo ?? undefined);
   const [desgloseModalOpen, setDesgloseModalOpen] = useState(false);
   const [desgloseData, setDesgloseData] = useState<DesgloseMetodo[]>([]);
+
+  // ── Detalle de cierre de sesión (modal) ───
+  const [cierreDetalle, setCierreDetalle] = useState<MovimientoCaja | null>(null);
   const [cierreDetalleOpen, setCierreDetalleOpen] = useState(false);
-  const [cierreDetalle, setCierreDetalle] = useState<CajaCentralCierreDetalle | null>(null);
-  const [cierreMetodos, setCierreMetodos] = useState<DesgloseMetodo[]>([]);
 
   const pvIdsParam = pvFilter ? String(pvFilter) : undefined;
 
@@ -98,21 +102,13 @@ export function CajaCentralPage() {
     enabled: balanceHistorico,
   });
 
-  const { data: fondoData } = useQuery({
-    queryKey: ['caja-central-fondo', pvIdsParam],
-    queryFn: () => cajaCentralApi.getFondoCambioSaldo(pvIdsParam),
-  });
-
   const emptyTotales: CajaCentralTotales = {
     totalIngresos: 0,
     totalEgresos: 0,
     balance: 0,
     efectivo: 0,
-    efectivoOperativo: 0,
-    ajusteFondoCambio: 0,
     totalMetodos: 0,
     diferenciaMetodosBalance: 0,
-    fondoCambioSaldo: 0,
     digital: 0,
     cheques: 0,
     chequesEnCartera: 0,
@@ -129,28 +125,13 @@ export function CajaCentralPage() {
     ? { puntoVentaIds: pvIdsParam }
     : { fechaDesde, fechaHasta, puntoVentaIds: pvIdsParam };
 
-  const openCierreDetalle = async (cajaId: number) => {
-    try {
-      const [detalle, metodos] = await Promise.all([
-        cajaCentralApi.getDetalleCierreCaja(cajaId),
-        cajaApi.getDesgloseMetodos(cajaId),
-      ]);
-      setCierreDetalle(detalle);
-      setCierreMetodos(metodos);
-      setCierreDetalleOpen(true);
-    } catch (err: any) {
-      notify.error(err.response?.data?.error || 'Error al cargar el detalle de cierre');
-    }
-  };
   // ── Mutations ──────────────────────────────────
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['caja-central-mov'] });
     queryClient.invalidateQueries({ queryKey: ['caja-central-totales'] });
     queryClient.invalidateQueries({ queryKey: ['caja-central-historico'] });
-    queryClient.invalidateQueries({ queryKey: ['caja-central-fondo'] });
     queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
     queryClient.invalidateQueries({ queryKey: ['cheques-cartera'] });
-    queryClient.invalidateQueries({ queryKey: ['fc-modal'] });
   };
 
   const crearMutation = useMutation({
@@ -196,7 +177,9 @@ export function CajaCentralPage() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const orderedPaymentMethods = [...activePaymentMethods].sort((a, b) => {
+  const orderedPaymentMethods = activePaymentMethods
+    .filter(m => m.CATEGORIA !== 'CHEQUES')
+    .sort((a, b) => {
     const rank = (m: MetodoPago) => {
       if (m.CATEGORIA === 'EFECTIVO' && m.POR_DEFECTO) return 0;
       if (m.CATEGORIA === 'EFECTIVO') return 1;
@@ -216,7 +199,7 @@ export function CajaCentralPage() {
     { title: 'ID', dataIndex: 'ID', align: 'center', width: 8 },
     {
       title: 'Tipo', dataIndex: 'TIPO_ENTIDAD',
-      render: (v: string) => v === 'TRANSFERENCIA_FC' ? 'FC' : v === 'CIERRE_CAJA' ? 'Cierre Caja' : v,
+      render: (v: string) => v === 'TRANSFERENCIA_CC' ? 'Trf CC' : v === 'CIERRE_CAJA' ? 'Cierre Caja' : v,
       width: 14,
     },
     { title: 'Caja', dataIndex: 'CAJA_ID', align: 'center', render: (v: number | null) => v ? `#${v}` : '-', width: 10 },
@@ -230,8 +213,8 @@ export function CajaCentralPage() {
     {
       title: 'Total', dataIndex: 'TOTAL', numeric: true, money: true, align: 'right', width: 18,
       render: (v: number, r: MovimientoCaja) => {
-        const isFondoCambio = ['TRANSFERENCIA_FC', 'REINTEGRO_FONDO', 'DEPOSITO_FONDO'].includes(r.TIPO_ENTIDAD);
-        return fmtMoneyAbs(isFondoCambio ? r.EFECTIVO : v);
+        const isInterno = ['TRANSFERENCIA_CC', 'APERTURA_CAJA'].includes(r.TIPO_ENTIDAD);
+        return fmtMoney(isInterno ? r.EFECTIVO : v);
       },
     },
   ];
@@ -256,11 +239,15 @@ export function CajaCentralPage() {
     {
       title: '', dataIndex: 'TIPO_ENTIDAD', key: 'manual', width: 55, align: 'center' as const,
       render: (v: string, record: MovimientoCaja) =>
-        v === 'TRANSFERENCIA_FC'
-          ? <Tooltip title="Transferencia Fondo de Cambio"><Tag color="cyan" style={{ margin: 0 }}>FC</Tag></Tooltip>
-          : record.ES_MANUAL
-            ? <Tooltip title="Movimiento manual"><Tag color="gold" style={{ margin: 0 }}>M</Tag></Tooltip>
-            : <Tooltip title="Autogenerado por el sistema"><Tag style={{ margin: 0 }}>A</Tag></Tooltip>,
+        v === 'TRANSFERENCIA_CC'
+          ? <Tooltip title="Transferencia CC ↔ Caja"><Tag color="cyan" style={{ margin: 0 }}>Trf</Tag></Tooltip>
+          : v === 'APERTURA_CAJA'
+            ? <Tooltip title="Aporte de apertura de caja"><Tag color="blue" style={{ margin: 0 }}>Ape</Tag></Tooltip>
+            : v === 'DEPOSITO_CIERRE'
+              ? <Tooltip title="Depósito por cierre"><Tag color="green" style={{ margin: 0 }}>DC</Tag></Tooltip>
+              : record.ES_MANUAL
+                ? <Tooltip title="Movimiento manual"><Tag color="gold" style={{ margin: 0 }}>M</Tag></Tooltip>
+                : <Tooltip title="Autogenerado por el sistema"><Tag style={{ margin: 0 }}>A</Tag></Tooltip>,
     },
     {
       title: 'Caja', dataIndex: 'CAJA_ID', key: 'caja', width: 100,align: 'center' as const ,
@@ -275,17 +262,27 @@ export function CajaCentralPage() {
     {
       title: 'Total', dataIndex: 'TOTAL', key: 'total', width: 160, align: 'center' as const,
       render: (_: number, record: MovimientoCaja) => {
-        const isFondoCambio = ['TRANSFERENCIA_FC', 'REINTEGRO_FONDO', 'DEPOSITO_FONDO'].includes(record.TIPO_ENTIDAD);
-        const displayValue = isFondoCambio ? record.EFECTIVO : record.TOTAL;
-        const showDesglose = !isFondoCambio && (record.CAJA_ID || record.ES_MANUAL || record.TIPO_ENTIDAD === 'COMPRA' || record.TIPO_ENTIDAD === 'ORDEN_PAGO' || record.TIPO_ENTIDAD === 'COBRANZA' || record.TIPO_ENTIDAD === 'NC_VENTA' || record.TIPO_ENTIDAD === 'NC_COMPRA' || record.TIPO_ENTIDAD === 'GASTO');
+        const isInterno = ['TRANSFERENCIA_CC', 'APERTURA_CAJA'].includes(record.TIPO_ENTIDAD);
+        const displayValue = isInterno ? record.EFECTIVO : record.TOTAL;
+        const isCierreSesion = record.TIPO_ENTIDAD === 'DEPOSITO_CIERRE' && record.ID_ENTIDAD;
+        const showDesglose = !isInterno && (record.CAJA_ID || record.ES_MANUAL || record.TIPO_ENTIDAD === 'COMPRA' || record.TIPO_ENTIDAD === 'ORDEN_PAGO' || record.TIPO_ENTIDAD === 'COBRANZA' || record.TIPO_ENTIDAD === 'NC_VENTA' || record.TIPO_ENTIDAD === 'NC_COMPRA' || record.TIPO_ENTIDAD === 'GASTO' || isCierreSesion);
+        const colorNeg = displayValue < 0 ? '#cf1322' : undefined;
         if (showDesglose) {
           return (
             <Text
               strong
-              style={{ cursor: 'pointer'}}
+              style={{ cursor: 'pointer', color: colorNeg }}
               onClick={() => {
                 if (record.TIPO_ENTIDAD === 'CIERRE_CAJA' && record.CAJA_ID) {
-                  openCierreDetalle(record.CAJA_ID);
+                  // Cierre de caja legacy (pre-migración): navegar a la página de cajas
+                  openTab({ key: '/cashregisters', label: 'Cajas', closable: true });
+                  navigate(`/cashregisters?sesion=${record.CAJA_ID}`);
+                  return;
+                }
+                if (isCierreSesion) {
+                  // Cierre de sesión (modelo post-migración): abrir modal de detalle
+                  setCierreDetalle(record);
+                  setCierreDetalleOpen(true);
                   return;
                 }
                 const promise = record.CAJA_ID
@@ -297,11 +294,11 @@ export function CajaCentralPage() {
                 });
               }}
             >
-              {fmtMoneyAbs(displayValue)} ▸
+              {fmtMoney(displayValue)} ▸
             </Text>
           );
         }
-        return <Text strong>{fmtMoneyAbs(displayValue)}</Text>;
+        return <Text strong style={{ color: colorNeg }}>{fmtMoney(displayValue)}</Text>;
       },
     },
   ];
@@ -368,7 +365,7 @@ export function CajaCentralPage() {
       label: 'Eliminar',
       icon: <DeleteOutlined />,
       danger: true,
-      disabled: (r) => !(r.ES_MANUAL && r.TIPO_ENTIDAD !== 'TRANSFERENCIA_FC'),
+      disabled: (r) => !(r.ES_MANUAL && r.TIPO_ENTIDAD !== 'TRANSFERENCIA_CC'),
       onClick: (r) => {
         Modal.confirm({
           title: '¿Eliminar este movimiento manual?',
@@ -513,20 +510,17 @@ export function CajaCentralPage() {
             </Col>
             <Col xs={24} sm={12}>
               <Card size="small" className="rg-card">
-                <Statistic
-                  title={<span>Fondo Cambio&nbsp;<Tooltip title="Efectivo apartado como fondo operativo. No forma parte del Balance ni de Métodos; se registra como movimiento interno al transferir."><QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 11 }} /></Tooltip></span>}
-                  value={fondoData?.saldo ?? 0}
-                  formatter={statFormatter} prefix="$"
-                  valueStyle={{ color: '#EABD23', fontSize: 14 }}
-                />
                 <Button
-                  size="small"
+                  block
+                  size="large"
                   icon={<SwapOutlined />}
-                  onClick={() => setFondoModalOpen(true)}
-                  style={{ marginTop: 4 }}
+                  onClick={() => setTransferirModalOpen(true)}
                 >
-                  Transferir
+                  Transferir CC ↔ Caja
                 </Button>
+                <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 8 }}>
+                  Movés efectivo entre Caja Central y una caja. Si la caja no tiene sesión activa, sólo se puede retirar el saldo retenido hacia CC.
+                </Text>
               </Card>
             </Col>
           </Row>
@@ -596,234 +590,133 @@ export function CajaCentralPage() {
 
       {/* ── Nuevo Movimiento Modal ────────────── */}
       <Modal
-        title="Nuevo Movimiento Manual"
+        title={
+          <RGCajaModalHeader
+            icon={<SwapOutlined />}
+            title="Nuevo Movimiento Manual"
+            subtitle="Registrá un ingreso o egreso en Caja Central"
+          />
+        }
         open={nuevoModalOpen}
         onCancel={() => { setNuevoModalOpen(false); resetNuevoForm(); }}
         onOk={() => crearMutation.mutate()}
         confirmLoading={crearMutation.isPending}
-        okText="Registrar"
+        okText="Registrar movimiento"
+        cancelText="Cancelar"
         okButtonProps={{ className: nuevoTipo === 'INGRESO' ? 'btn-gold' : undefined, danger: nuevoTipo === 'EGRESO', disabled: !nuevoDesc.trim() || nuevoTotal <= 0 || !nuevoPvId }}
-        width={500}
-        className="rg-modal"
-        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
+        width={920}
+        className="rg-modal rg-modal-abrir-sesion rg-modal-movimiento-manual"
+        destroyOnClose
       >
-        <Form layout="vertical">
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item label="Tipo">
-                <Select
-                  value={nuevoTipo}
-                  onChange={v => setNuevoTipo(v)}
-                  options={[
-                    { value: 'INGRESO', label: '↑ Ingreso' },
-                    { value: 'EGRESO', label: '↓ Egreso' },
-                  ]}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item label="Punto de Venta" required>
-                <Select
-                  value={nuevoPvId}
-                  onChange={v => setNuevoPvId(v)}
-                  placeholder="Seleccionar..."
-                  options={(allPuntosVenta ?? puntosVenta).map(pv => ({ value: pv.PUNTO_VENTA_ID, label: pv.NOMBRE }))}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Form.Item label="Descripción" required>
-            <Input
-              value={nuevoDesc}
-              onChange={e => setNuevoDesc(e.target.value)}
-              placeholder="Describe el movimiento..."
-              autoFocus
-            />
-          </Form.Item>
+        <div className="rg-abrir-sesion">
+          <div className="rg-abrir-sesion__top">
+            <div className="rg-movimiento-manual__field">
+              <div className="rg-field-label">Tipo de movimiento</div>
+              <Select
+                value={nuevoTipo}
+                onChange={v => setNuevoTipo(v)}
+                size="large"
+                style={{ width: '100%' }}
+                options={[
+                  { value: 'INGRESO', label: '↑ Ingreso' },
+                  { value: 'EGRESO', label: '↓ Egreso' },
+                ]}
+              />
+            </div>
+            <div className="rg-movimiento-manual__field">
+              <div className="rg-field-label">Punto de venta <span style={{ color: '#ff4d4f' }}>*</span></div>
+              <Select
+                value={nuevoPvId}
+                onChange={v => setNuevoPvId(v)}
+                placeholder="Seleccionar punto de venta"
+                size="large"
+                showSearch
+                optionFilterProp="label"
+                style={{ width: '100%' }}
+                options={(allPuntosVenta ?? puntosVenta).map(pv => ({ value: pv.PUNTO_VENTA_ID, label: pv.NOMBRE }))}
+              />
+            </div>
+          </div>
 
-          {/* ── Payment methods ── */}
-          {orderedPaymentMethods.length > 0 && (
-            <>
-              <div style={{ marginBottom: 4 }}>
-                <Text strong style={{ fontSize: 13 }}>Métodos de pago</Text>
+          <div className="rg-abrir-sesion__main">
+            <div className="rg-abrir-sesion__col rg-abrir-sesion__col--left">
+              <div className="rg-section-title">
+                <SwapOutlined style={{ color: 'var(--rg-gold-dark)' }} />
+                <span>Detalle del movimiento</span>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8, marginBottom: 16 }}>
+              <div className="rg-field-label">Descripción <span style={{ color: '#ff4d4f' }}>*</span></div>
+              <Input.TextArea
+                value={nuevoDesc}
+                onChange={e => setNuevoDesc(e.target.value)}
+                placeholder="Describí el motivo del movimiento"
+                autoFocus
+                rows={4}
+                showCount
+                maxLength={250}
+              />
+              <div className="rg-field-help">Este detalle quedará asociado al movimiento de Caja Central.</div>
+            </div>
+
+            <div className="rg-abrir-sesion__col rg-abrir-sesion__col--right">
+              <div className="rg-section-title">
+                <span>Métodos de pago</span>
+              </div>
+              <div className="rg-movimiento-manual__methods">
                 {orderedPaymentMethods.map(mp => {
                   const monto = nuevoMontosPorMetodo[mp.METODO_PAGO_ID] || 0;
-                  const isActive = monto > 0;
                   return (
-                    <div
-                      key={mp.METODO_PAGO_ID}
-                      style={{
-                        border: `2px solid ${isActive ? '#EABD23' : '#d9d9d9'}`,
-                        borderRadius: 8,
-                        padding: '8px 10px',
-                        background: isActive ? 'rgba(234,189,35,0.06)' : '#fafafa',
-                        transition: 'all 0.2s',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                        {mp.IMAGEN_BASE64 ? (
-                          <img src={mp.IMAGEN_BASE64} alt={mp.NOMBRE} style={{ width: 22, height: 22, objectFit: 'contain', borderRadius: 3 }} />
-                        ) : null}
-                        <Text style={{ fontSize: 12, fontWeight: 600 }}>{mp.NOMBRE}</Text>
+                    <div key={mp.METODO_PAGO_ID} className={`rg-metodo-movimiento ${monto > 0 ? 'is-active' : ''}`}>
+                      <div className="rg-metodo-movimiento__header">
+                        {mp.IMAGEN_BASE64 && <img src={mp.IMAGEN_BASE64} alt={mp.NOMBRE} />}
+                        <span>{mp.NOMBRE}</span>
                       </div>
                       <InputNumber
-                        size="small"
                         style={{ width: '100%' }}
                         min={0}
                         precision={2}
                         prefix="$"
                         value={monto || undefined}
-                        placeholder="0.00"
+                        placeholder="0,00"
                         onChange={v => setNuevoMontosPorMetodo(prev => ({ ...prev, [mp.METODO_PAGO_ID]: v ?? 0 }))}
                       />
                     </div>
                   );
                 })}
               </div>
-            </>
-          )}
-
-          <div style={{ textAlign: 'right', borderTop: '2px solid #EABD23', paddingTop: 8 }}>
-            <Text strong style={{ fontSize: 18 }}>
-              Total: <span style={{ color: nuevoTipo === 'EGRESO' ? '#ff4d4f' : '#52c41a' }}>{fmtMoney(nuevoTotal)}</span>
-            </Text>
+              <div className="rg-composicion-card rg-movimiento-manual__total">
+                <div className="rg-composicion-card__row rg-composicion-card__row--total">
+                  <span className="rg-composicion-card__label"><Text strong>Total del movimiento</Text></span>
+                  <span className="rg-composicion-card__value">
+                    <Text strong style={{ color: nuevoTipo === 'EGRESO' ? '#cf1322' : '#389e0d' }}>{fmtMoney(nuevoTotal)}</Text>
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
-        </Form>
+        </div>
       </Modal>
 
-      {/* ── Fondo de Cambio Modal ───────────── */}
-      <FondoCambioModal
-        open={fondoModalOpen}
-        onClose={() => setFondoModalOpen(false)}
-        onSuccess={() => {
-          setFondoModalOpen(false);
-          notify.success('Transferencia realizada');
-          invalidateAll();
-        }}
+      {/* ── Transferencia CC ↔ Caja Modal ─────── */}
+      <TransferenciaCajaModal
+        open={transferirModalOpen}
+        onClose={() => setTransferirModalOpen(false)}
       />
       {/* ── Detalle Cierre de Caja ───────────── */}
-      <Modal
-        open={cierreDetalleOpen}
-        onCancel={() => setCierreDetalleOpen(false)}
-        footer={<Button onClick={() => setCierreDetalleOpen(false)}>Cerrar</Button>}
-        title={cierreDetalle ? `Detalle Cierre Caja #${cierreDetalle.caja.CAJA_ID}` : 'Detalle Cierre Caja'}
-        width={720}
-        destroyOnClose
-        styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', overflowX: 'hidden', paddingRight: 4 } }}
-      >
-        {cierreDetalle && (() => {
-          const t = cierreDetalle.totales;
-          return (
-          <>
-            {/* ── Identificación ── */}
-            <Descriptions column={2} size="small" style={{ marginBottom: 16 }}>
-              <Descriptions.Item label="Usuario">{cierreDetalle.caja.USUARIO_NOMBRE || '-'}</Descriptions.Item>
-              <Descriptions.Item label="Punto de Venta">{cierreDetalle.caja.PUNTO_VENTA_NOMBRE || '-'}</Descriptions.Item>
-              <Descriptions.Item label="Apertura">
-                {new Date(cierreDetalle.caja.FECHA_APERTURA).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}
-              </Descriptions.Item>
-              <Descriptions.Item label="Cierre">
-                {cierreDetalle.caja.FECHA_CIERRE
-                  ? new Date(cierreDetalle.caja.FECHA_CIERRE).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
-                  : '-'}
-              </Descriptions.Item>
-              <Descriptions.Item label="Movimientos">{t.cantidadItems}</Descriptions.Item>
-              <Descriptions.Item label="Estado">{cierreDetalle.caja.ESTADO}</Descriptions.Item>
-            </Descriptions>
-
-            {/* ── Ingresos del período ── */}
-            <Divider orientation="left" style={{ marginTop: 0, marginBottom: 12, fontSize: 13 }}>Ingresos del período</Divider>
-            <Row gutter={[16, 8]} style={{ marginBottom: 20 }}>
-              <Col xs={24} sm={8}>
-                <Statistic
-                  title={<Text strong style={{ fontSize: 13 }}>Total ingresado</Text>}
-                  value={t.totalOperativo}
-                  formatter={statFormatter} prefix="$"
-                  valueStyle={{ color: '#52c41a', fontSize: 20, fontWeight: 700 }}
-                />
-              </Col>
-              <Col xs={12} sm={8}>
-                <Statistic
-                  title={<Text type="secondary" style={{ fontSize: 12 }}>↳ Efectivo</Text>}
-                  value={t.efectivoReal}
-                  formatter={statFormatter} prefix="$"
-                  valueStyle={{ fontSize: 15 }}
-                />
-              </Col>
-              <Col xs={12} sm={8}>
-                <Statistic
-                  title={<Text type="secondary" style={{ fontSize: 12 }}>↳ Digital</Text>}
-                  value={t.digital}
-                  formatter={statFormatter} prefix="$"
-                  valueStyle={{ fontSize: 15, color: '#1677ff' }}
-                />
-              </Col>
-            </Row>
-
-            {/* ── Efectivo en caja al cierre ── */}
-            <Divider orientation="left" style={{ marginTop: 0, marginBottom: 12, fontSize: 13 }}>Efectivo en caja al cierre</Divider>
-            <Row gutter={[16, 8]} style={{ marginBottom: 20 }}>
-              <Col xs={12} sm={8}>
-                <Statistic
-                  title={<Text type="secondary" style={{ fontSize: 12 }}>Fondo inicial</Text>}
-                  value={t.fondoInicial}
-                  formatter={statFormatter} prefix="$"
-                  valueStyle={{ fontSize: 15, color: '#EABD23' }}
-                />
-              </Col>
-              <Col xs={12} sm={8}>
-                <Statistic
-                  title={<Text type="secondary" style={{ fontSize: 12 }}>+ Efectivo de ventas</Text>}
-                  value={t.efectivoReal}
-                  formatter={statFormatter} prefix="$"
-                  valueStyle={{ fontSize: 15 }}
-                />
-              </Col>
-              <Col xs={24} sm={8}>
-                <Statistic
-                  title={<Text style={{ fontSize: 12, color: '#08979c' }}>= Total físico → depositado al FC</Text>}
-                  value={t.efectivoTotal}
-                  formatter={statFormatter} prefix="$"
-                  valueStyle={{ fontSize: 16, color: '#08979c', fontWeight: 700 }}
-                />
-              </Col>
-            </Row>
-
-            {/* ── Detalle por método de pago ── */}
-            <Divider orientation="left" style={{ marginTop: 0, marginBottom: 12, fontSize: 13 }}>Detalle por método de pago</Divider>
-            {cierreMetodos.length === 0 ? (
-              <Text type="secondary">No hay métodos de pago registrados para esta caja.</Text>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {cierreMetodos.map(metodo => {
-                  const visual = metodoVisual(metodo.CATEGORIA);
-                  return (
-                    <div key={metodo.METODO_PAGO_ID} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderRadius: 8, background: visual.background, border: `1px solid ${visual.border}`, overflow: 'hidden' }}>
-                      <Space style={{ minWidth: 0, overflow: 'hidden' }}>
-                        {metodo.IMAGEN_BASE64 ? <img src={metodo.IMAGEN_BASE64} alt={metodo.NOMBRE} style={{ width: 22, height: 22, objectFit: 'contain', borderRadius: 3, flexShrink: 0 }} /> : null}
-                        <Text strong>{metodo.NOMBRE}</Text>
-                        <Tag color={visual.tag} style={{ fontSize: 10 }}>{metodo.CATEGORIA}</Tag>
-                      </Space>
-                      <Text strong style={{ flexShrink: 0, paddingLeft: 8 }}>{fmtMoney(metodo.TOTAL)}</Text>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </>
-          );
-        })()}
-      </Modal>
-      {/* ── Desglose Métodos de Pago Modal ──── */}
       <Modal
         open={desgloseModalOpen}
         onCancel={() => setDesgloseModalOpen(false)}
         footer={<Button onClick={() => setDesgloseModalOpen(false)}>Cerrar</Button>}
-        title="Desglose por método de pago"
-        width={480}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('caja-desglose')}
+            title="Desglose por método de pago"
+            subtitle="Detalle por método aplicado en el período"
+          />
+        }
+        width={560}
         destroyOnClose
+        className="rg-modal"
+        centered
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {desgloseData.length === 0 ? (
@@ -861,6 +754,14 @@ export function CajaCentralPage() {
             ))}
           </div>
         )}
-      </Modal>    </div>
+      </Modal>
+
+      {/* ── Detalle Cierre de Sesión ─────────── */}
+      <DetalleCierreSesionModal
+        open={cierreDetalleOpen}
+        cierre={cierreDetalle}
+        onClose={() => { setCierreDetalleOpen(false); setCierreDetalle(null); }}
+      />
+    </div>
   );
 }

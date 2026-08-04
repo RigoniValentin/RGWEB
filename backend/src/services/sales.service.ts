@@ -2,6 +2,7 @@ import { getPool, sql } from '../database/connection.js';
 import { config } from '../config/index.js';
 import type { Venta, VentaItem, VentaMetodoPago, PaginatedResult } from '../types/index.js';
 import { registrarHistorialStock, getCurrentStock, insertStockDeposito } from './stockHistorial.helper.js';
+import { assertStockDisponible } from './stockValidator.helper.js';
 import { crearChequeEnCartera } from './cheques.service.js';
 import { buildAdvancedProductSearch } from './productSearch.helper.js';
 
@@ -137,6 +138,10 @@ async function decrementarStock(
 
     for (const child of children.recordset) {
       const childQty = cantidad * child.CANTIDAD;
+      // Validar stock del hijo (los hijos son productos normales, no kits)
+      await assertStockDisponible(tx, child.PRODUCTO_ID_HIJO, child.DEPOSITO_ID, childQty, {
+        operacion: 'VENTA', referenciaId, referenciaDetalle: `Venta #${referenciaId || ''}`,
+      });
       const prevStock = await getCurrentStock(tx, child.PRODUCTO_ID_HIJO, child.DEPOSITO_ID);
       const childExists = await tx.request()
         .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
@@ -166,6 +171,10 @@ async function decrementarStock(
     // Also decrement parent if DESCUENTA_STOCK
     if (descuentaStock) {
       if (depositoId) {
+        // Validar stock del padre aunque sea kit (la regla aplica igual si DESCUENTA_STOCK=1)
+        await assertStockDisponible(tx, productoId, depositoId, cantidad, {
+          operacion: 'VENTA', referenciaId, referenciaDetalle: `Venta #${referenciaId || ''}`,
+        });
         const prevStock = await getCurrentStock(tx, productoId, depositoId);
         const parentExists = await tx.request()
           .input('prodId', sql.Int, productoId)
@@ -193,6 +202,10 @@ async function decrementarStock(
         .query(`UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @prodId`);
     }
   } else if (descuentaStock) {
+    // Validar stock del producto simple antes de descontar
+    await assertStockDisponible(tx, productoId, depositoId, cantidad, {
+      operacion: 'VENTA', referenciaId, referenciaDetalle: `Venta #${referenciaId || ''}`,
+    });
     if (depositoId) {
       const prevStock = await getCurrentStock(tx, productoId, depositoId);
       const depExists = await tx.request()
@@ -2047,7 +2060,7 @@ export const salesService = {
           ISNULL(p.LISTA_DEFECTO, 1) AS LISTA_DEFECTO,
           ${PRECIOS_JSON_SELECT},
           p.PRECIO_COMPRA, p.CANTIDAD AS STOCK,
-          p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, p.ACTIVO,
+          p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, ISNULL(p.PERMITE_STOCK_NEGATIVO, 0) AS PERMITE_STOCK_NEGATIVO, p.ACTIVO,
           p.IMP_INT, p.TASA_IVA_ID, p.UNIDAD_ID,
           ISNULL(u.NOMBRE, '') AS UNIDAD_NOMBRE,
           ISNULL(u.ABREVIACION, '') AS UNIDAD_ABREVIACION,
@@ -2100,6 +2113,7 @@ export const salesService = {
     const req = pool.request();
     const searchState = buildAdvancedProductSearch(req, params);
     const conditions = searchState.conditions;
+    const orConditions = searchState.orConditions;
     let joinMarca = searchState.joinMarca;
     let joinCategoria = searchState.joinCategoria;
     let joinCodBarras = searchState.joinCodBarras;
@@ -2122,9 +2136,19 @@ export const salesService = {
       }
     }
 
-    const whereClause = conditions.length > 0
-      ? 'WHERE ' + conditions.join(' AND ')
+    const andClause = conditions.length > 0
+      ? conditions.join(' AND ')
       : '';
+    const orClause = orConditions.length > 0
+      ? '(' + orConditions.join(' AND ') + ')'
+      : '';
+    const whereClause = (andClause && orClause)
+      ? 'WHERE ' + orClause + ' AND ' + andClause
+      : andClause
+        ? 'WHERE ' + andClause
+        : orClause
+          ? 'WHERE ' + orClause
+          : '';
 
     req.input('limit', sql.Int, limit);
 
@@ -2143,7 +2167,7 @@ export const salesService = {
           ISNULL(p.LISTA_DEFECTO, 1) AS LISTA_DEFECTO,
           ${PRECIOS_JSON_SELECT},
           p.PRECIO_COMPRA, p.CANTIDAD AS STOCK,
-          p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK,
+          p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, ISNULL(p.PERMITE_STOCK_NEGATIVO, 0) AS PERMITE_STOCK_NEGATIVO,
           p.IMP_INT, p.TASA_IVA_ID, p.UNIDAD_ID,
           ISNULL(u.NOMBRE, '') AS UNIDAD_NOMBRE,
           ISNULL(u.ABREVIACION, '') AS UNIDAD_ABREVIACION,
@@ -2524,37 +2548,116 @@ export const salesService = {
     }
 
     const result = await req.query(`
-      ;WITH CierresEfDig AS (
-        SELECT ISNULL(SUM(mc.EFECTIVO), 0) AS EFECTIVO_CIERRE,
-               ISNULL(SUM(mc.DIGITAL), 0)  AS DIGITAL_CIERRE
+      ;WITH
+      -- POST-MIGRACIÓN: cada CIERRE_CAJA de MOVIMIENTOS_CAJA corresponde a una
+      -- sesión de la caja consolidada (CAJA_SESIONES). Vinculamos por FECHA
+      -- (la fecha del cierre ≈ FECHA_CIERRE de la sesión con tolerancia 60s).
+      -- NO usamos USUARIO_ID porque hay cierres donde el cajero que abre la
+      -- sesión (USUARIO_ID en CAJA_SESIONES) es distinto del que la cierra
+      -- (USUARIO_ID en MOVIMIENTOS_CAJA). Esto evita el producto cartesiano
+      -- que generaría un join directo por CAJA_ID (todas las ventas apuntarían
+      -- a la misma caja consolidada tras la migración).
+      CierresConSesion AS (
+        SELECT mc.ID AS mc_id, mc.EFECTIVO, mc.DIGITAL, cs.SESION_ID
         FROM MOVIMIENTOS_CAJA mc
-        WHERE mc.TIPO_ENTIDAD = 'CIERRE_CAJA' ${commonWhere}
+        INNER JOIN CAJA_SESIONES cs
+          ON (
+            mc.TIPO_ENTIDAD = 'DEPOSITO_CIERRE'
+            AND cs.SESION_ID = mc.ID_ENTIDAD
+          )
+          OR (
+            mc.TIPO_ENTIDAD = 'CIERRE_CAJA'
+            AND cs.CAJA_ID = mc.CAJA_ID
+            AND ABS(DATEDIFF(SECOND, cs.FECHA_CIERRE, mc.FECHA)) < 60
+          )
+        WHERE (
+          mc.TIPO_ENTIDAD = 'CIERRE_CAJA'
+          OR (
+            mc.TIPO_ENTIDAD = 'DEPOSITO_CIERRE'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM MOVIMIENTOS_CAJA_METODOS_PAGO cierre_mcmp
+              WHERE cierre_mcmp.MOVIMIENTO_ID = mc.ID
+            )
+          )
+        ) ${commonWhere}
       ),
-      VentasBruto AS (
-        SELECT mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64,
-               ISNULL(SUM(vmp.MONTO), 0) AS TOTAL
-        FROM MOVIMIENTOS_CAJA mc
-        JOIN CAJA_ITEMS ci ON ci.CAJA_ID = mc.CAJA_ID AND ci.ORIGEN_TIPO = 'VENTA'
+      CierresEfDig AS (
+        SELECT ISNULL(SUM(EFECTIVO), 0) AS EFECTIVO_CIERRE,
+               ISNULL(SUM(DIGITAL),  0) AS DIGITAL_CIERRE
+        FROM CierresConSesion
+      ),
+      VentasPorCierre AS (
+        SELECT cs.SESION_ID, cs.EFECTIVO, cs.DIGITAL,
+               mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64,
+               SUM(vmp.MONTO) AS TOTAL
+        FROM CierresConSesion cs
+        JOIN CAJA_ITEMS ci ON ci.SESION_ID = cs.SESION_ID AND ci.ORIGEN_TIPO = 'VENTA'
         JOIN VENTAS_METODOS_PAGO vmp ON ci.ORIGEN_ID = vmp.VENTA_ID
         JOIN METODOS_PAGO mp ON vmp.METODO_PAGO_ID = mp.METODO_PAGO_ID
-        WHERE mc.TIPO_ENTIDAD = 'CIERRE_CAJA' ${commonWhere}
-        GROUP BY mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64
+        GROUP BY cs.SESION_ID, cs.EFECTIVO, cs.DIGITAL, mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64
       ),
-      BrutosPorCat AS (
-        SELECT ISNULL(SUM(CASE WHEN CATEGORIA = 'EFECTIVO' THEN TOTAL ELSE 0 END), 0) AS BRUTO_EF,
-               ISNULL(SUM(CASE WHEN CATEGORIA = 'DIGITAL'  THEN TOTAL ELSE 0 END), 0) AS BRUTO_DIG
-        FROM VentasBruto
+      BrutosGlobales AS (
+        SELECT ISNULL(SUM(CASE WHEN CATEGORIA = 'EFECTIVO' THEN TOTAL ELSE 0 END), 0) AS BRUTO_EF_GLOBAL,
+               ISNULL(SUM(CASE WHEN CATEGORIA = 'DIGITAL'  THEN TOTAL ELSE 0 END), 0) AS BRUTO_DIG_GLOBAL
+        FROM VentasPorCierre
+      ),
+      VentasAjustadasBase AS (
+        SELECT vc.METODO_PAGO_ID, vc.NOMBRE, vc.CATEGORIA, vc.IMAGEN_BASE64,
+               CASE
+                 WHEN vc.CATEGORIA = 'EFECTIVO' AND (SELECT BRUTO_EF_GLOBAL FROM BrutosGlobales) > 0
+                 THEN CAST(vc.TOTAL * 1.0 * (SELECT EFECTIVO_CIERRE FROM CierresEfDig) / (SELECT BRUTO_EF_GLOBAL FROM BrutosGlobales) AS DECIMAL(38,8))
+                 WHEN vc.CATEGORIA = 'DIGITAL' AND (SELECT BRUTO_DIG_GLOBAL FROM BrutosGlobales) > 0
+                 THEN CAST(vc.TOTAL * 1.0 * (SELECT DIGITAL_CIERRE FROM CierresEfDig) / (SELECT BRUTO_DIG_GLOBAL FROM BrutosGlobales) AS DECIMAL(38,8))
+                 ELSE CAST(vc.TOTAL AS DECIMAL(38,8))
+               END AS TOTAL
+        FROM VentasPorCierre vc
+      ),
+      VentasPorMetodoBase AS (
+        SELECT METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64, SUM(TOTAL) AS TOTAL
+        FROM VentasAjustadasBase
+        GROUP BY METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64
+      ),
+      VentasPorMetodoRedondeado AS (
+        SELECT METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64,
+               CAST(ROUND(TOTAL, 2) AS DECIMAL(18,2)) AS TOTAL
+        FROM VentasPorMetodoBase
+      ),
+      VentasPorMetodoRankeado AS (
+        SELECT METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64, TOTAL,
+               ROW_NUMBER() OVER (PARTITION BY CATEGORIA ORDER BY ABS(TOTAL) DESC, METODO_PAGO_ID ASC) AS ORDEN_AJUSTE,
+               SUM(TOTAL) OVER (PARTITION BY CATEGORIA) AS TOTAL_CATEGORIA
+        FROM VentasPorMetodoRedondeado
       ),
       VentasPorMetodo AS (
-        SELECT vb.METODO_PAGO_ID, vb.NOMBRE, vb.CATEGORIA, vb.IMAGEN_BASE64,
-               CASE
-                 WHEN vb.CATEGORIA = 'EFECTIVO' AND (SELECT BRUTO_EF FROM BrutosPorCat) > 0
-                 THEN CAST(ROUND(vb.TOTAL * 1.0 * (SELECT EFECTIVO_CIERRE FROM CierresEfDig) / (SELECT BRUTO_EF FROM BrutosPorCat), 2) AS DECIMAL(18,2))
-                 WHEN vb.CATEGORIA = 'DIGITAL' AND (SELECT BRUTO_DIG FROM BrutosPorCat) > 0
-                 THEN CAST(ROUND(vb.TOTAL * 1.0 * (SELECT DIGITAL_CIERRE FROM CierresEfDig) / (SELECT BRUTO_DIG FROM BrutosPorCat), 2) AS DECIMAL(18,2))
-                 ELSE vb.TOTAL
-               END AS TOTAL
-        FROM VentasBruto vb
+        SELECT METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64,
+               CAST(TOTAL + CASE
+                 WHEN ORDEN_AJUSTE = 1 AND CATEGORIA = 'EFECTIVO'
+                 THEN (SELECT EFECTIVO_CIERRE FROM CierresEfDig) - TOTAL_CATEGORIA
+                 WHEN ORDEN_AJUSTE = 1 AND CATEGORIA = 'DIGITAL'
+                 THEN (SELECT DIGITAL_CIERRE FROM CierresEfDig) - TOTAL_CATEGORIA
+                 ELSE 0
+               END AS DECIMAL(18,2)) AS TOTAL
+        FROM VentasPorMetodoRankeado
+      ),
+      DefaultEfectivo AS (
+        SELECT TOP 1 METODO_PAGO_ID FROM METODOS_PAGO WHERE CATEGORIA = 'EFECTIVO' AND ACTIVA = 1 ORDER BY POR_DEFECTO DESC, METODO_PAGO_ID ASC
+      ),
+      DefaultDigital AS (
+        SELECT TOP 1 METODO_PAGO_ID FROM METODOS_PAGO WHERE CATEGORIA = 'DIGITAL' AND ACTIVA = 1 ORDER BY POR_DEFECTO DESC, METODO_PAGO_ID ASC
+      ),
+      CierresAsDefault AS (
+        SELECT de.METODO_PAGO_ID, ced.EFECTIVO_CIERRE AS TOTAL
+        FROM CierresEfDig ced
+        CROSS JOIN BrutosGlobales bg
+        CROSS JOIN DefaultEfectivo de
+        WHERE bg.BRUTO_EF_GLOBAL = 0 AND ced.EFECTIVO_CIERRE <> 0
+        UNION ALL
+        SELECT dd.METODO_PAGO_ID, ced.DIGITAL_CIERRE AS TOTAL
+        FROM CierresEfDig ced
+        CROSS JOIN BrutosGlobales bg
+        CROSS JOIN DefaultDigital dd
+        WHERE bg.BRUTO_DIG_GLOBAL = 0 AND ced.DIGITAL_CIERRE <> 0
       ),
       MovimientosConMetodosPago AS (
         SELECT mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64,
@@ -2562,15 +2665,24 @@ export const salesService = {
         FROM MOVIMIENTOS_CAJA mc
         JOIN MOVIMIENTOS_CAJA_METODOS_PAGO mcmp ON mc.ID = mcmp.MOVIMIENTO_ID
         JOIN METODOS_PAGO mp ON mcmp.METODO_PAGO_ID = mp.METODO_PAGO_ID
-        WHERE mc.TIPO_ENTIDAD NOT IN ('CIERRE_CAJA', 'TRANSFERENCIA_FC', 'REINTEGRO_FONDO', 'DEPOSITO_FONDO') ${commonWhere}
+        -- Filtro IDÉNTICO al BALANCE del servicio cajaCentral (INTERNAL_TYPES_SQL).
+        -- Garantiza que la suma de métodos del desglose = BALANCE exacto.
+        -- TRANSFERENCIA_CC y APERTURA_CAJA también se excluyen: aunque la
+        -- práctica contable los considera "internos", el BALANCE los excluye
+        -- por convención. TRANSFERENCIA_FC: ajustes de reconciliación (TOTAL=0).
+        WHERE mc.TIPO_ENTIDAD NOT IN ('CIERRE_CAJA', 'TRANSFERENCIA_CC', 'TRANSFERENCIA_FC', 'APERTURA_CAJA', 'REINTEGRO_FONDO', 'DEPOSITO_FONDO') ${commonWhere}
         GROUP BY mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64
       ),
       MetodoTotales AS (
         SELECT METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64, SUM(TOTAL) AS TOTAL
         FROM (
-          SELECT * FROM VentasPorMetodo
+          SELECT METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64, TOTAL FROM VentasPorMetodo
           UNION ALL
-          SELECT * FROM MovimientosConMetodosPago
+          SELECT mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, NULL AS IMAGEN_BASE64, ca.TOTAL
+          FROM CierresAsDefault ca
+          JOIN METODOS_PAGO mp ON mp.METODO_PAGO_ID = ca.METODO_PAGO_ID
+          UNION ALL
+          SELECT METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64, TOTAL FROM MovimientosConMetodosPago
         ) t
         GROUP BY METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64
       )

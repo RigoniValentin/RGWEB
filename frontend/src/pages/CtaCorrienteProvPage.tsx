@@ -22,6 +22,8 @@ import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { NuevaOrdenPagoModal } from '../components/ctaCorriente/NuevaOrdenPagoModal';
 import { useNavigationStore } from '../store/navigationStore';
 import { notify } from '../utils/notify.ts';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -451,17 +453,16 @@ export function CtaCorrienteProvPage() {
       {/* Detail drawer */}
       <Drawer
         title={
-          <div>
-            <Text strong style={{ fontSize: 16 }}>{selected?.NOMBRE}</Text>
-            <br />
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              Cód: {selected?.CODIGOPARTICULAR} | {selected?.NUMERO_DOC || 'Sin documento'}
-            </Text>
-          </div>
+          <RGCajaModalHeader
+            icon={rgIcon('cta-corriente')}
+            title={selected?.NOMBRE || 'Detalle de cuenta corriente'}
+            subtitle={selected ? `Cód: ${selected.CODIGOPARTICULAR} | ${selected.NUMERO_DOC || 'Sin documento'}` : undefined}
+          />
         }
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); setSelected(null); }}
         width={1000}
+        className="rg-drawer"
         styles={{ body: { padding: '12px 16px' } }}
       >
         {selected && selected.ESTADO_CUENTA !== 'SIN_CREAR' && (
@@ -686,11 +687,18 @@ function DetalleOrdenPagoModal({ detalleOrdenPago, onClose }: {
 
   return (
     <Modal
-      title="Detalle de Orden de Pago"
+      title={
+        <RGCajaModalHeader
+          icon={rgIcon('cta-corriente')}
+          title="Detalle de Orden de Pago"
+          subtitle="Información completa de la orden de pago al proveedor"
+        />
+      }
       open={!!detalleOrdenPago}
       onCancel={onClose}
       footer={null}
       width={420}
+      className="rg-modal"
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
     >
       {detalleOrdenPago && (

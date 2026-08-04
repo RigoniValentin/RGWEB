@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Button, Space, Segmented, Typography } from 'antd';
-import { FilePdfOutlined, PrinterOutlined, DownloadOutlined } from '@ant-design/icons';
+import { PrinterOutlined, DownloadOutlined } from '@ant-design/icons';
 import type { LabelProduct, LabelConfig, LabelFormat } from '../../utils/labelPdf';
 import { generateA4PDF, generate80mmPDF } from '../../utils/labelPdf';
 import JsBarcode from 'jsbarcode';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
 
 const { Text } = Typography;
 
@@ -255,10 +257,11 @@ export function LabelPreview({ open, onClose, products, config, type }: LabelPre
   return (
     <Modal
       title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <FilePdfOutlined style={{ color: 'var(--rg-gold)' }} />
-          <span>Vista Previa de Etiquetas</span>
-        </div>
+        <RGCajaModalHeader
+          icon={rgIcon('etiqueta')}
+          title="Vista Previa de Etiquetas"
+          subtitle="Revisá el diseño y descargá o imprimí las etiquetas"
+        />
       }
       open={open}
       onCancel={onClose}
@@ -275,7 +278,7 @@ export function LabelPreview({ open, onClose, products, config, type }: LabelPre
             <Button icon={<PrinterOutlined />} onClick={handlePrint} disabled={products.length === 0}>
               Imprimir
             </Button>
-            <Button
+              <Button
               type="primary"
               icon={<DownloadOutlined />}
               onClick={handleDownload}
@@ -287,7 +290,7 @@ export function LabelPreview({ open, onClose, products, config, type }: LabelPre
           </Space>
         </div>
       }
-      className="etiquetas-preview-modal"
+      className="etiquetas-preview-modal rg-modal"
     >
       <div style={{ marginBottom: 12, textAlign: 'center' }}>
         <Segmented

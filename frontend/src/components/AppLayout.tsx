@@ -58,7 +58,7 @@ import { ProductsPage } from '../pages/ProductsPage';
 import { PriceListsPage } from '../pages/PriceListsPage';
 import { SalesPage } from '../pages/SalesPage';
 import { SuppliersPage } from '../pages/SuppliersPage';
-import { CajaPage } from '../pages/CajaPage';
+import CajaPage from '../pages/CajaPage';
 import { CajaCentralPage } from '../pages/CajaCentralPage';
 import { DepositsPage } from '../pages/DepositsPage';
 import { CategoriesPage } from '../pages/CategoriesPage';
@@ -482,8 +482,8 @@ export function AppLayout() {
         '/products':      ['products'],
         '/sales':         ['sales'],
         '/suppliers':     ['suppliers'],
-        '/cashregisters': ['cajas', 'mi-caja', 'fondo-cambio', 'fondo-cambio-apertura'],
-        '/cashcentral':   ['caja-central-mov', 'caja-central-totales', 'caja-central-historico', 'caja-central-fondo'],
+        '/cashregisters': ['cajas', 'cajas-list', 'caja-sesiones', 'caja-sesiones-detalle', 'caja-sesion', 'mi-caja', 'mi-sesion-activa', 'mis-cajas', 'cc-efectivo', 'transfer-modal'],
+        '/cashcentral':   ['caja-central-mov', 'caja-central-totales', 'caja-central-historico'],
         '/deposits':      ['deposits'],
         '/categories':    ['categories'],
         '/brands':        ['brands'],

@@ -9,6 +9,8 @@ import {
 } from '@ant-design/icons';
 import { stockApi, type StockHistorialItem } from '../../services/stock.api';
 import { fmtNum } from '../../utils/format';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
 
 const { Text } = Typography;
 
@@ -138,10 +140,11 @@ export function StockHistoryModal({ open, onClose, productoId, productoNombre }:
   return (
     <Modal
       title={
-        <Space>
-          <Text>Historial de Stock</Text>
-          {productoNombre && <Tag>{productoNombre}</Tag>}
-        </Space>
+        <RGCajaModalHeader
+          icon={rgIcon('stock-historial')}
+          title="Historial de Stock"
+          subtitle={productoNombre ? `Movimientos del producto ${productoNombre}` : 'Movimientos de stock del producto'}
+        />
       }
       open={open}
       onCancel={onClose}
@@ -149,6 +152,7 @@ export function StockHistoryModal({ open, onClose, productoId, productoNombre }:
       width={1000}
       centered
       destroyOnClose
+      className="rg-modal"
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
     >
       {/* Filter by deposit */}

@@ -523,7 +523,7 @@ async function searchProductos(search: string, puntoVentaId?: number): Promise<a
     SELECT TOP 30 p.PRODUCTO_ID, p.CODIGOPARTICULAR, p.NOMBRE,
            ISNULL(p.LISTA_DEFECTO, 1) AS LISTA_DEFECTO,
            ISNULL((SELECT TOP 1 plp.PRECIO FROM PRODUCTO_LISTA_PRECIOS plp WHERE plp.PRODUCTO_ID = p.PRODUCTO_ID AND plp.LISTA_ID = ISNULL(p.LISTA_DEFECTO, 1)), 0) AS PRECIO_VENTA,
-           p.PRECIO_COMPRA, p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK,
+           p.PRECIO_COMPRA, p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, ISNULL(p.PERMITE_STOCK_NEGATIVO, 0) AS PERMITE_STOCK_NEGATIVO,
            ISNULL(u.ABREVIACION, 'u') AS UNIDAD_ABREVIACION,
            p.CANTIDAD AS STOCK
     FROM PRODUCTOS p
@@ -576,6 +576,7 @@ async function searchProductosAdvanced(params: {
   const req = pool.request();
   const searchState = buildAdvancedProductSearch(req, params);
   const conditions = searchState.conditions;
+  const orConditions = searchState.orConditions;
   let joinMarca = searchState.joinMarca;
   let joinCategoria = searchState.joinCategoria;
   let joinCodBarras = searchState.joinCodBarras;
@@ -588,9 +589,19 @@ async function searchProductosAdvanced(params: {
     conditions.push('ISNULL(p.CANTIDAD, 0) > 0');
   }
 
-  const whereClause = conditions.length > 0
-    ? 'WHERE ' + conditions.join(' AND ')
+  const andClause = conditions.length > 0
+    ? conditions.join(' AND ')
     : '';
+  const orClause = orConditions.length > 0
+    ? '(' + orConditions.join(' AND ') + ')'
+    : '';
+  const whereClause = (andClause && orClause)
+    ? 'WHERE ' + orClause + ' AND ' + andClause
+    : andClause
+      ? 'WHERE ' + andClause
+      : orClause
+        ? 'WHERE ' + orClause
+        : '';
 
   req.input('limit', sql.Int, limit);
 
@@ -607,7 +618,7 @@ async function searchProductosAdvanced(params: {
         ${precioExpr} AS PRECIO_VENTA,
         ISNULL(p.LISTA_DEFECTO, 1) AS LISTA_DEFECTO,
         p.PRECIO_COMPRA, p.CANTIDAD AS STOCK,
-        p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK,
+        p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, ISNULL(p.PERMITE_STOCK_NEGATIVO, 0) AS PERMITE_STOCK_NEGATIVO,
         ISNULL(p.IMP_INT, 0) AS IMP_INT,
         p.TASA_IVA_ID, p.UNIDAD_ID,
         ISNULL(u.NOMBRE, '') AS UNIDAD_NOMBRE,
@@ -621,7 +632,6 @@ async function searchProductosAdvanced(params: {
       ${joinMarcaSql}
       ${whereClause}
       ORDER BY p.NOMBRE
-      OPTION (RECOMPILE)
     `);
 
   return result.recordset;

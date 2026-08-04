@@ -166,6 +166,7 @@ export interface Producto {
   ES_CONJUNTO: boolean | null;
   ES_SERVICIO: boolean;
   DESCUENTA_STOCK: boolean;
+  PERMITE_STOCK_NEGATIVO: boolean;
   PRECIO_COMPRA_BASE: number;
   IMP_INT: number;
   FECHA_VENCIMIENTO: string | null;
@@ -471,6 +472,7 @@ export interface ProductoSearch {
   ES_CONJUNTO: boolean | null;
   ES_SERVICIO: boolean;
   DESCUENTA_STOCK: boolean;
+  PERMITE_STOCK_NEGATIVO?: boolean;
   IMP_INT: number;
   TASA_IVA_ID: number | null;
   UNIDAD_ID: number | null;
@@ -495,12 +497,17 @@ export interface ClienteVenta {
 }
 
 // ── Catálogos ────────────────────────────────────
+/** 'M' = Markup sobre costo (Precio = Costo × (1 + Margen/100))
+ *  'U' = Utilidad sobre venta (Precio = Costo / (1 - Margen/100)) */
+export type TipoMargen = 'M' | 'U';
+
 export interface ListaPrecio {
   LISTA_ID: number;
   CODIGOPARTICULAR: string | null;
   NOMBRE: string;
   DESCRIPCION: string | null;
   MARGEN: number;
+  TIPO_MARGEN?: TipoMargen;
   ACTIVA: boolean;
 }
 
@@ -542,24 +549,59 @@ export interface StockDeposito {
   DEPOSITO_NOMBRE?: string;
 }
 
-// ── Caja ─────────────────────────────────────────
+// ── Caja persistente ────────────────────────────
 export interface Caja {
   CAJA_ID: number;
+  NOMBRE: string | null;
+  PUNTO_VENTA_ID: number;
+  ACTIVA: boolean;
+  SALDO_RETENIDO: number;
+  CREADA_EN: string;
+  CREADA_POR: number | null;
+  PUNTO_VENTA_NOMBRE?: string;
+  CREADA_POR_NOMBRE?: string;
+  TOTAL_SESIONES?: number;
+  SESION_ACTIVA_ID?: number | null;
+  USUARIOS_ASIGNADOS?: CajaUsuario[];
+  SESIONES?: CajaSesion[];
+}
+
+export interface CajaUsuario {
+  CAJA_ID: number;
   USUARIO_ID: number;
+  ES_PREFERIDO: boolean;
+  ASIGNADO_EN: string;
+  USUARIO_NOMBRE?: string;
+}
+
+export interface CajaSesion {
+  SESION_ID: number;
+  CAJA_ID: number;
+  USUARIO_ID: number;
+  NRO_SESION: number;
   FECHA_APERTURA: string;
   FECHA_CIERRE: string | null;
   MONTO_APERTURA: number;
+  APORTE_CC: number;
+  RETENIDO_USADO: number;
   MONTO_CIERRE: number | null;
-  OBSERVACIONES: string | null;
-  ESTADO: string;
-  PUNTO_VENTA_ID: number | null;
+  SALDO_RETENIDO_FIN: number;
+  ESTADO: 'ACTIVA' | 'CERRADA';
+  OBS_APERTURA: string | null;
+  OBS_CIERRE: string | null;
   USUARIO_NOMBRE?: string;
+  PUNTO_VENTA_ID?: number;
   PUNTO_VENTA_NOMBRE?: string;
+  CAJA_NOMBRE?: string;
+  EFECTIVO_DISPONIBLE?: number;
+  DIGITAL_DISPONIBLE?: number;
+  VENTA_EFECTIVO?: number;
 }
 
 export interface CajaItem {
   ITEM_ID: number;
-  CAJA_ID: number;
+  SESION_ID: number;
+  CAJA_ID: number | null;
   FECHA: string;
   ORIGEN_TIPO: string;
   ORIGEN_ID: number | null;
@@ -570,34 +612,42 @@ export interface CajaItem {
   USUARIO_NOMBRE?: string;
 }
 
-export interface CajaDetalle extends Caja {
+export interface CajaDetalle extends CajaSesion {
   items: CajaItem[];
   totales: {
     efectivo: number;
     digital: number;
     ingresos: number;
     egresos: number;
-    fondoInicial: number;
   };
 }
 
 export interface AbrirCajaInput {
-  MONTO_APERTURA: number;
-  PUNTO_VENTA_ID: number;
-  OBSERVACIONES?: string;
+  cajaId: number;
+  fuente: 'USAR_RETENIDO' | 'APORTE_CC' | 'MIXTO' | 'NINGUNO';
+  montoApertura: number;
+  obs?: string;
 }
 
 export interface CerrarCajaInput {
-  MONTO_CIERRE?: number;
-  OBSERVACIONES?: string;
-  DEPOSITO_FONDO?: number;
-  DESCRIPCION_DEPOSITO?: string;
+  saldoRetenido: number;
+  deposito: 'TOTAL' | 'PARCIAL' | 'NINGUNO';
+  depositoMonto?: number;
+  obs?: string;
 }
 
 export interface IngresoEgresoInput {
   tipo: 'INGRESO' | 'EGRESO';
   monto: number;
   descripcion: string;
+}
+
+export interface TransferirInput {
+  origen: 'CAJA_CENTRAL' | 'CAJA';
+  destino: 'CAJA_CENTRAL' | 'CAJA';
+  monto: number;
+  cajaId?: number;
+  observaciones?: string;
 }
 
 // ── Caja Central ─────────────────────────────────
@@ -624,31 +674,12 @@ export interface CajaCentralTotales {
   totalEgresos: number;
   balance: number;
   efectivo: number;
-  efectivoOperativo?: number;
-  ajusteFondoCambio?: number;
   totalMetodos?: number;
   diferenciaMetodosBalance?: number;
-  fondoCambioSaldo?: number;
   digital: number;
   cheques?: number;
   chequesEnCartera?: number;
   chequesEnCarteraCantidad?: number;
-}
-
-export interface CajaCentralCierreDetalle {
-  caja: Caja;
-  cierre: MovimientoCaja | null;
-  movimientos: MovimientoCaja[];
-  totales: {
-    fondoInicial: number;
-    efectivoReal: number;
-    efectivoTotal: number;
-    digital: number;
-    cantidadItems: number;
-    totalOperativo: number;
-    reintegroFondo: number;
-    depositoFondo: number;
-  };
 }
 
 export interface NuevoMovimientoInput {
@@ -670,6 +701,8 @@ export interface FondoCambio {
   OBSERVACIONES: string | null;
   USUARIO_NOMBRE?: string;
 }
+// DEPRECATED: la tabla FONDO_CAMBIO fue eliminada en la migración a cajas
+// persistentes. Este tipo se mantiene sólo para referencias históricas en código.
 
 // ── Dashboard ────────────────────────────────────
 export interface DashboardStats {
@@ -789,6 +822,45 @@ export interface DashboardAnalytics {
   } | null;
 }
 
+// ── Cajeros Rendimiento ───────────────────────────
+export interface CajeroRendimientoItem {
+  USUARIO_ID: number;
+  USUARIO_NOMBRE: string;
+  ventas: number;
+  total: number;
+  ganancia: number;
+  margenPct: number;
+  ticketPromedio: number;
+  efectivo: number;
+  digital: number;
+  diasTrabajados: number;
+  mejorVenta: number;
+  primeraVenta: string | null;
+  ultimaVenta: string | null;
+  totalAnterior: number;
+  deltaPct: number;
+}
+
+export interface CajeroTopProducto {
+  PRODUCTO_ID: number;
+  NOMBRE: string;
+  UNIDAD_ABREVIACION: string;
+  cantidad: number;
+  total: number;
+}
+
+export interface CajeroRendimientoResponse {
+  range: {
+    from: string;
+    to: string;
+    prevFrom: string;
+    prevTo: string;
+    days: number;
+  };
+  items: CajeroRendimientoItem[];
+  topProductosByUser: Record<number, CajeroTopProducto[]>;
+}
+
 // ── Compras ──────────────────────────────────────
 export interface Compra {
   COMPRA_ID: number;
@@ -901,6 +973,7 @@ export interface ProductoSearchCompra {
   ES_CONJUNTO: boolean | null;
   ES_SERVICIO: boolean;
   DESCUENTA_STOCK: boolean;
+  PERMITE_STOCK_NEGATIVO?: boolean;
   IMP_INT: number;
   TASA_IVA_ID: number | null;
   UNIDAD_ID: number | null;
@@ -918,26 +991,39 @@ export interface PaginatedResponse<T> {
   activas?: number;
 }
 // ── Fondo de Cambio Transfers ────────────────────────────
-export type TransferEntity = 'CAJA_CENTRAL' | 'FONDO_CAMBIO' | 'CAJA';
+export type TransferEntity = 'CAJA_CENTRAL' | 'CAJA';
 
-export interface TransferFCInput {
+export interface TransferirCCInput {
   origen: TransferEntity;
   destino: TransferEntity;
   monto: number;
-  observaciones?: string;
   cajaId?: number;
-  puntoVentaId?: number;
+  observaciones?: string;
 }
 
 export interface CajaAbierta {
+  SESION_ID: number;
   CAJA_ID: number;
   USUARIO_ID: number;
   FECHA_APERTURA: string;
   MONTO_APERTURA: number;
-  PUNTO_VENTA_ID: number | null;
+  PUNTO_VENTA_ID: number;
   USUARIO_NOMBRE: string;
   PUNTO_VENTA_NOMBRE: string;
   EFECTIVO_DISPONIBLE: number;
+}
+
+export interface CajaConSaldo {
+  CAJA_ID: number;
+  CAJA_NOMBRE: string | null;
+  PUNTO_VENTA_ID: number;
+  PUNTO_VENTA_NOMBRE: string;
+  ACTIVA: boolean;
+  SALDO_RETENIDO: number;
+  SESION_ID: number | null;
+  USUARIO_ID: number | null;
+  USUARIO_NOMBRE: string | null;
+  EFECTIVO_SESION: number;
 }
 
 // ── Gastronomía (Mesas) ──────────────────────────
@@ -1148,6 +1234,7 @@ export interface ProductoSearchRemito {
   ES_CONJUNTO: boolean | null;
   ES_SERVICIO: boolean;
   DESCUENTA_STOCK: boolean;
+  PERMITE_STOCK_NEGATIVO?: boolean;
   UNIDAD_ID: number | null;
   UNIDAD_NOMBRE: string;
   UNIDAD_ABREVIACION: string;
@@ -1179,6 +1266,7 @@ export interface RemitoItemParaVenta {
   ES_CONJUNTO: boolean | null;
   ES_SERVICIO: boolean;
   DESCUENTA_STOCK: boolean;
+  PERMITE_STOCK_NEGATIVO?: boolean;
   IMP_INT: number;
   TASA_IVA_ID: number | null;
   UNIDAD_ID: number | null;

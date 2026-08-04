@@ -11,6 +11,8 @@ import {
 import { backupsApi, type BackupConfig, type BackupRecord, type RestoreRecord } from '../services/backups.api';
 import { RestoreBackupModal } from '../components/backups/RestoreBackupModal';
 import { RowContextMenu } from '../components/RowContextMenu';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { notify } from '../utils/notify.ts';
 
@@ -354,13 +356,20 @@ export function BackupsPage() {
 
       {/* Modal configuración */}
       <Modal
-        title="Configuración de Backups"
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('backup-upload')}
+            title="Configuración de Backups"
+            subtitle="Ajustá la programación automática y la carpeta de destino"
+          />
+        }
         open={configOpen}
         onCancel={() => setConfigOpen(false)}
         onOk={() => form.validateFields().then(v => saveConfigMut.mutate(v))}
         confirmLoading={saveConfigMut.isPending}
         okText={<><SaveOutlined /> Guardar</>}
         width={640}
+        className="rg-modal"
       >
         <Paragraph type="secondary" style={{ marginTop: 0 }}>
           La copia se realiza con <Text code>BACKUP DATABASE</Text> nativo de SQL Server.

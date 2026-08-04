@@ -9,6 +9,8 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { usuariosApi, type UpdateUsuarioInput } from '../services/usuarios.api';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 import { catalogApi } from '../services/catalog.api';
 import { useTabStore } from '../store/tabStore';
 import type {
@@ -99,8 +101,9 @@ function PermisosDrawer({ userId, nombre, open, onClose }: {
 
   return (
     <Drawer
-      title={<Space><SafetyOutlined /> Permisos de <Text strong>{nombre}</Text></Space>}
+      title={<RGCajaModalHeader icon={rgIcon('usuario')} title={`Permisos de ${nombre}`} subtitle="Permisos individuales del usuario" />}
       open={open} onClose={onClose} width={640}
+      className="rg-drawer"
       extra={
         <Space>
           <Tooltip title="Eliminar todas las sobreescrituras individuales y restablecer según el rol">
@@ -256,8 +259,9 @@ function RolPermisoDrawer({ rolId, open, onClose }: { rolId: number | null; open
 
   return (
     <Drawer
-      title={<Space><SafetyOutlined /> {rol ? `Permisos: ${rol.NOMBRE}` : 'Permisos del Rol'}</Space>}
+      title={<RGCajaModalHeader icon={rgIcon('usuario')} title={rol ? `Permisos: ${rol.NOMBRE}` : 'Permisos del Rol'} subtitle="Configuración de permisos del rol" />}
       open={open} onClose={onClose} width={680}
+      className="rg-drawer"
       extra={
         <Button type="primary" className="btn-gold" disabled={!dirty} loading={saveMutation.isPending}
           onClick={() => saveMutation.mutate()}>
@@ -956,7 +960,13 @@ export function UsuariosPage() {
 
       {/* ── User create/edit modal ─────────────────────────────────────────── */}
       <Modal
-        title={editUserId ? 'Editar Usuario' : 'Nuevo Usuario'}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('usuario')}
+            title={editUserId ? 'Editar Usuario' : 'Nuevo Usuario'}
+            subtitle={editUserId ? 'Modificá los datos del usuario' : 'Creá un nuevo usuario con sus permisos'}
+          />
+        }
         open={userModalOpen}
         onCancel={closeUserModal}
         onOk={handleUserSubmit}

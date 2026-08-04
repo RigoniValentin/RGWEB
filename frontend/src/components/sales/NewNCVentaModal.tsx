@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Modal, Select, Button, InputNumber, Table, Space, Typography, Radio, Tag, Input, Empty, Alert, Steps, Spin, Checkbox } from 'antd';
 import {
-  FileExclamationOutlined, UndoOutlined,
+  UndoOutlined,
   DollarOutlined, PercentageOutlined, UserOutlined,
   CheckCircleOutlined,
   ArrowLeftOutlined, ArrowRightOutlined,
@@ -13,9 +13,12 @@ import { salesApi } from '../../services/sales.api';
 import { cajaApi } from '../../services/caja.api';
 import { fmtComprobanteTipo, fmtMoney, fmtNum } from '../../utils/format';
 import { invalidateInventoryQueries } from '../../utils/invalidateInventoryQueries';
+import { invalidateCashQueries } from '../../utils/invalidateCashQueries';
 import { usePaymentMethodKeyboardNavigation } from '../../hooks/usePaymentMethodKeyboardNavigation';
 import type { MetodoPago } from '../../types';
 import { notify } from '../../utils/notify.ts';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -307,6 +310,7 @@ export function NewNCVentaModal({ open, onClose, onSuccess, preselectedVentaId, 
     mutationFn: (data: NCVentaInput) => ncVentasApi.create(data),
     onSuccess: (result) => {
       invalidateInventoryQueries(queryClient);
+      invalidateCashQueries(queryClient);
 
       let msg = `NC #${result.NC_ID} creada por ${fmtMoney(result.MONTO)}`;
       if (result.fiscal?.success) {
@@ -891,10 +895,11 @@ export function NewNCVentaModal({ open, onClose, onSuccess, preselectedVentaId, 
       open={open}
       onCancel={onClose}
       title={
-        <Space>
-          <FileExclamationOutlined />
-          <span>Nueva Nota de Crédito — Ventas</span>
-        </Space>
+        <RGCajaModalHeader
+          icon={rgIcon('gasto-revertir')}
+          title="Nueva Nota de Crédito — Ventas"
+          subtitle="Devolución, anulación, descuento o diferencia de precio"
+        />
       }
       className="rg-modal"
       width={step === 0 ? 640 : step === 1 ? 960 : step === 3 ? 640 : 1100}
@@ -936,12 +941,14 @@ export function NewNCVentaModal({ open, onClose, onSuccess, preselectedVentaId, 
       centered
       width={520}
       destroyOnClose
+      className="rg-modal"
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       title={
-        <Space>
-          <WalletOutlined style={{ color: '#EABD23', fontSize: 20 }} />
-          <span>Seleccionar método de pago</span>
-        </Space>
+        <RGCajaModalHeader
+          icon={rgIcon('gasto-revertir')}
+          title="Seleccionar método de pago"
+          subtitle="Elegí uno o más métodos para la devolución"
+        />
       }
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

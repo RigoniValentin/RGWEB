@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Modal, Form, Input, InputNumber, DatePicker, Space, Typography, Divider, Button, Tag, AutoComplete, Select } from 'antd';
+import { Modal, Form, Input, InputNumber, DatePicker, Typography, Divider, Button, Tag, AutoComplete, Select } from 'antd';
 import {
   WalletOutlined, CheckCircleOutlined,
   DollarOutlined, CreditCardOutlined, EnvironmentOutlined,
@@ -14,6 +14,8 @@ import { ChequePicker } from '../cheques/ChequePicker';
 import { usePaymentMethodKeyboardNavigation } from '../../hooks/usePaymentMethodKeyboardNavigation';
 import type { MetodoPagoItem } from '../../types';
 import { notify } from '../../utils/notify.ts';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
 
 const { Text } = Typography;
 
@@ -243,7 +245,13 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
   return (
     <>
       <Modal
-        title={isEdit ? '✏️ Modificar Gasto' : '💸 Nuevo Gasto / Servicio'}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('gasto')}
+            title={isEdit ? 'Modificar Gasto' : 'Nuevo Gasto / Servicio'}
+            subtitle={isEdit ? 'Editá los datos del gasto' : 'Registrá un nuevo gasto o servicio'}
+          />
+        }
         open={open}
         onOk={handleOk}
         onCancel={onCancel}
@@ -252,6 +260,7 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
         confirmLoading={saving}
         width={540}
         destroyOnClose
+        className="rg-modal"
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         <Form form={form} layout="vertical" size="middle" initialValues={{ FECHA: dayjs() }}>
@@ -431,12 +440,14 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
         centered
         width={520}
         destroyOnClose
+        className="rg-modal"
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
         title={
-          <Space>
-            <WalletOutlined style={{ color: '#EABD23', fontSize: 20 }} />
-            <span>Seleccionar método de pago</span>
-          </Space>
+          <RGCajaModalHeader
+            icon={rgIcon('gasto-calculadora')}
+            title="Seleccionar método de pago"
+            subtitle="Elegí uno o más métodos para distribuir el pago"
+          />
         }
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

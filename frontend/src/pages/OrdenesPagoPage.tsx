@@ -19,6 +19,8 @@ import { NuevaOrdenPagoGeneralModal } from '../components/ordenesPago/NuevaOrden
 import { useTabStore } from '../store/tabStore';
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
 import { notify } from '../utils/notify.ts';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 
 const { Title, Text } = Typography;
 
@@ -275,9 +277,16 @@ export function OrdenesPagoPage() {
         open={desgloseModalOpen}
         onCancel={() => setDesgloseModalOpen(false)}
         footer={<Button onClick={() => setDesgloseModalOpen(false)}>Cerrar</Button>}
-        title="Desglose por método de pago"
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('orden-pago')}
+            title="Desglose por método de pago"
+            subtitle="Detalle de los pagos realizados en el período seleccionado"
+          />
+        }
         width={480}
         destroyOnClose
+        className="rg-modal"
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {(() => {
@@ -351,7 +360,13 @@ function DetalleOrdenPagoModal({ detalleOrdenPago, onClose }: {
 
   return (
     <Modal
-      title="Detalle de Orden de Pago"
+      title={
+        <RGCajaModalHeader
+          icon={rgIcon('orden-pago')}
+          title="Detalle de Orden de Pago"
+          subtitle="Información completa de la orden de pago seleccionada"
+        />
+      }
       open={!!detalleOrdenPago}
       onCancel={onClose}
       footer={
@@ -372,6 +387,7 @@ function DetalleOrdenPagoModal({ detalleOrdenPago, onClose }: {
         ) : null
       }
       width={420}
+      className="rg-modal"
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
     >
       {detalleOrdenPago && (

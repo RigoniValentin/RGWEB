@@ -3,13 +3,15 @@ import {
   Modal, Input, Spin, Empty, Tag, Typography, Tooltip, Divider, Alert,
 } from 'antd';
 import {
-  BarcodeOutlined, SearchOutlined, DollarOutlined, DropboxOutlined,
+  SearchOutlined, DollarOutlined, DropboxOutlined,
   TagOutlined, AppstoreOutlined, PercentageOutlined, CloseCircleOutlined,
   CheckCircleOutlined,
 } from '@ant-design/icons';
 import { salesApi } from '../../services/sales.api';
 import type { ProductoSearch } from '../../types';
 import { fmtMoney } from '../../utils/format';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
 
 const { Title, Text } = Typography;
 
@@ -163,23 +165,13 @@ export function QuickProductLookupModal({ open, onClose }: Props) {
       footer={null}
       width={620}
       destroyOnHidden
+      className="rg-modal"
       title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: 36, height: 36, borderRadius: 10,
-            background: 'linear-gradient(135deg, #EABD23 0%, #d4a017 100%)',
-            color: '#1E1F22', fontSize: 18,
-          }}>
-            <BarcodeOutlined />
-          </span>
-          <div>
-            <Text strong style={{ fontSize: 16, display: 'block' }}>Búsqueda rápida de producto</Text>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              Escaneá un código de barras o ingresá el código/nombre y presioná Enter
-            </Text>
-          </div>
-        </div>
+        <RGCajaModalHeader
+          icon={rgIcon('producto-buscar')}
+          title="Búsqueda rápida de producto"
+          subtitle="Escaneá un código de barras o ingresá el código/nombre y presioná Enter"
+        />
       }
       styles={{
         header: { borderBottom: '1px solid rgba(0,0,0,0.06)', paddingBottom: 12 },

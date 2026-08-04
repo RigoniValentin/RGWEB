@@ -1,8 +1,9 @@
 import { Modal, Alert, Button, Table, Spin, Empty, Typography } from 'antd';
-import { LinkOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { purchasesApi } from '../../services/purchases.api';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
 
 const { Text } = Typography;
 
@@ -30,12 +31,15 @@ export function RemitoPickerModal({ open, proveedorId, onClose, onSelect }: Remi
       onCancel={onClose}
       footer={null}
       title={
-        <span>
-          <LinkOutlined /> Remitos de entrada sin compra asociada
-        </span>
+        <RGCajaModalHeader
+          icon={rgIcon('remito-picker')}
+          title="Remitos de entrada sin compra asociada"
+          subtitle="Seleccioná un remito para vincularlo a esta compra"
+        />
       }
       width={720}
       destroyOnClose
+      className="rg-modal"
     >
       {proveedorId ? (
         <Alert

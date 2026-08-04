@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { Typography, Tag, Tooltip, Card, Input, Button, Collapse } from 'antd';
 import {
   DollarOutlined,
@@ -12,15 +12,18 @@ import {
   ThunderboltOutlined,
   SaveOutlined,
   BarcodeOutlined,
+  TrophyOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import dayjs from 'dayjs';
 import { useAuthStore } from '../store/authStore';
 import { useTabStore } from '../store/tabStore';
 import { useSettingsStore } from '../store/settingsStore';
 import { settingsApi } from '../services/settings.api';
 import { RGLogo } from '../components/RGLogo';
 import { notify } from '../utils/notify';
+import { CajerosRendimientoModal } from '../components/dashboard/CajerosRendimientoModal';
 
 const { Title, Text } = Typography;
 
@@ -173,6 +176,19 @@ export function CajeroDashboardPage() {
   const { settings, loaded, fetchSettings, saveUserSettings } = useSettingsStore();
   const [localShortcuts, setLocalShortcuts] = useState<Record<number, string>>({});
   const [savingShortcuts, setSavingShortcuts] = useState(false);
+  const [rendOpen, setRendOpen] = useState(false);
+
+  // Período por defecto para "Mi rendimiento": mes en curso
+  const rendRange = useMemo(() => {
+    const today = dayjs().startOf('day');
+    const from = today.startOf('month').format('YYYY-MM-DD');
+    const to = today.format('YYYY-MM-DD');
+    return {
+      from,
+      to,
+      periodLabel: `Mes en curso · ${dayjs(from).format('DD/MM')} – ${dayjs(to).format('DD/MM')}`,
+    };
+  }, []);
 
   const { data: logoUrl } = useQuery({
     queryKey: ['empresa-logo'],
@@ -373,6 +389,14 @@ export function CajeroDashboardPage() {
           onClick={() => window.dispatchEvent(new CustomEvent('rg:open-quick-product-lookup'))}
           delay={240}
         />
+        <QuickAction
+          icon={<TrophyOutlined />}
+          title="Mi rendimiento"
+          subtitle="Tus ventas, ticket promedio, ganancia y comparativa con el mes anterior"
+          color="#722ed1"
+          onClick={() => setRendOpen(true)}
+          delay={320}
+        />
       </div>
 
       {/* ── Shortcut config ─────────────────────────────────────────────── */}
@@ -472,6 +496,17 @@ export function CajeroDashboardPage() {
       }}>
         Río Gestión <span style={{ color: '#EABD23', fontWeight: 700 }}>•</span> Gestionamos con vos, crecemos juntos.
       </div>
+
+      {/* ── Modal "Mi rendimiento" ─────────────────────────────────────── */}
+      <CajerosRendimientoModal
+        open={rendOpen}
+        onClose={() => setRendOpen(false)}
+        from={rendRange.from}
+        to={rendRange.to}
+        usuarioId={user?.USUARIO_ID}
+        periodLabel={rendRange.periodLabel}
+        selfOnly
+      />
     </div>
   );
 }

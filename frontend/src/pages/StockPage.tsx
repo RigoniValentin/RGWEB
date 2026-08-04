@@ -16,6 +16,8 @@ import { ExportButtons, type ExportColumn } from '../components/ExportButtons';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { notify } from '../utils/notify.ts';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 
 
 const { Title, Text } = Typography;
@@ -434,7 +436,13 @@ export function StockPage() {
 
       {/* ── Stock Edit Modal ─────────────────────── */}
       <Modal
-        title="Ajustar Stock"
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('stock-editar')}
+            title="Ajustar Stock"
+            subtitle={editingStock ? `${editingStock.PRODUCTO_NOMBRE} · ${editingStock.DEPOSITO_NOMBRE}` : 'Modificá el stock del producto en el depósito'}
+          />
+        }
         open={!!editingStock}
         onCancel={() => setEditingStock(null)}
         onOk={saveStockEdit}
@@ -443,6 +451,7 @@ export function StockPage() {
         cancelText="Cancelar"
         width={420}
         destroyOnClose
+        className="rg-modal"
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {editingStock && (
@@ -497,11 +506,12 @@ export function StockPage() {
 
       {/* ── Detail Drawer ────────────────────────── */}
       <Drawer
-        title="Detalle de Stock"
+        title={<RGCajaModalHeader icon={rgIcon('deposito')} title="Detalle de Stock" subtitle="Existencias por depósito" />}
         open={detailOpen}
         onClose={() => { setDetailOpen(false); setDetailProductId(null); }}
         width={520}
         destroyOnClose
+        className="rg-drawer"
       >
         {detailLoading ? (
           <div style={{ textAlign: 'center', padding: 40 }}><Spin size="large" /></div>

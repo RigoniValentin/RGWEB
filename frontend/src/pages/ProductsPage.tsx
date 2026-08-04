@@ -5,7 +5,7 @@ import type { InputRef, TableColumnType } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
   EyeOutlined, CopyOutlined, DownOutlined, TagsOutlined,
-  DollarOutlined, BarcodeOutlined, FilterOutlined, ReloadOutlined,
+  DollarOutlined, FilterOutlined, ReloadOutlined,
   InboxOutlined,
 } from '@ant-design/icons';
 import { productApi, type ProductDetail } from '../services/product.api';
@@ -23,6 +23,8 @@ import { ExportButtons, type ExportColumn } from '../components/ExportButtons';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { notify } from '../utils/notify.ts';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 
 
 const { Title, Text } = Typography;
@@ -445,6 +447,7 @@ const { data: allProductsData } = useQuery({
       { title: 'Stock', dataIndex: 'CANTIDAD', numeric: true, align: 'center', width: 10 },
       { title: 'Stock Mín.', dataIndex: 'STOCK_MINIMO', numeric: true, align: 'center', width: 10 },
       { title: 'Estado', render: (_v, r) => r.ACTIVO ? 'Activo' : 'Inactivo', align: 'center', width: 10 },
+      { title: 'Permite Neg.', render: (_v, r) => r.ES_SERVICIO ? 'N/A' : (r.PERMITE_STOCK_NEGATIVO ? 'Sí' : 'No'), align: 'center', width: 12 },
     ];
   }, [listas]);
 
@@ -732,7 +735,7 @@ const { data: allProductsData } = useQuery({
 
       {/* ── Detail Drawer ─────────────────────── */}
       <Drawer
-        title={<span><BarcodeOutlined /> Detalle del Producto</span>}
+        title={<RGCajaModalHeader icon={rgIcon('producto')} title="Detalle del Producto" subtitle={detail?.NOMBRE || undefined} />}
         open={detailOpen}
         onClose={() => { setDetailOpen(false); setDetailId(null); }}
         width={560}

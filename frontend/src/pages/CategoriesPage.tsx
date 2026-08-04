@@ -10,6 +10,8 @@ import { categoryApi, type CategoriaInput } from '../services/category.api';
 import { useTabStore } from '../store/tabStore';
 import type { Categoria } from '../types';
 import { RowContextMenu } from '../components/RowContextMenu';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { notify } from '../utils/notify.ts';
 
@@ -270,7 +272,13 @@ export function CategoriesPage() {
 
       {/* ── Form Modal (New / Edit) ───────────── */}
       <Modal
-        title={editId ? 'Editar Categoría' : 'Nueva Categoría'}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('categoria')}
+            title={editId ? 'Editar Categoría' : 'Nueva Categoría'}
+            subtitle={editId ? 'Modificá el nombre de la categoría' : 'Creá una nueva categoría en el catálogo'}
+          />
+        }
         open={formOpen}
         onCancel={() => { setFormOpen(false); setEditId(null); form.resetFields(); }}
         onOk={handleSave}

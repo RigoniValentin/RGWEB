@@ -160,13 +160,15 @@ async function derivarCategorias(
   return { efectivo: r2(efectivo), digital: r2(digital), cheques: r2(cheques) };
 }
 
-async function getCajaAbiertaTx(tx: any, usuarioId: number): Promise<{ CAJA_ID: number; PUNTO_VENTA_ID: number | null } | null> {
+async function getCajaAbiertaTx(tx: any, usuarioId: number): Promise<{ CAJA_ID: number; SESION_ID: number; PUNTO_VENTA_ID: number | null } | null> {
   const result = await tx.request()
     .input('uid', sql.Int, usuarioId)
     .query(`
-      SELECT TOP 1 CAJA_ID, PUNTO_VENTA_ID FROM CAJA
-      WHERE USUARIO_ID = @uid AND ESTADO = 'ABIERTA'
-      ORDER BY FECHA_APERTURA DESC
+      SELECT TOP 1 cs.SESION_ID, cs.CAJA_ID, c.PUNTO_VENTA_ID
+      FROM CAJA_SESIONES cs
+      INNER JOIN CAJA c ON c.CAJA_ID = cs.CAJA_ID
+      WHERE cs.USUARIO_ID = @uid AND cs.ESTADO = 'ACTIVA'
+      ORDER BY cs.FECHA_APERTURA DESC
     `);
   return result.recordset[0] || null;
 }

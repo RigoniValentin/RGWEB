@@ -23,6 +23,8 @@ import { fmtMoney, fmtNum, statFormatter } from '../utils/format';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { notify } from '../utils/notify.ts';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 
 const { Title, Text } = Typography;
 
@@ -436,10 +438,17 @@ export function RemitosPage() {
 
       {/* ── Detail Drawer ── */}
       <Drawer
-        title={detail ? `Remito ${detail.TIPO} #${detail.PTO_VTA}-${detail.NRO_REMITO}` : 'Detalle de Remito'}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('remito')}
+            title={detail ? `Remito ${detail.TIPO} #${detail.PTO_VTA}-${detail.NRO_REMITO}` : 'Detalle de Remito'}
+            subtitle="Detalle del remito"
+          />
+        }
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); setSelectedId(null); }}
         width={850}
+        className="rg-drawer"
         extra={
           detail && !detail.ANULADO && (
             <Space>

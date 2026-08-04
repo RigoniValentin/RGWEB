@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Modal, InputNumber, Space, Typography, Divider, Button, Tag, Input, DatePicker } from 'antd';
+import { Modal, InputNumber, Typography, Divider, Button, Tag, Input, DatePicker } from 'antd';
 import { DollarOutlined, CreditCardOutlined, WalletOutlined, CheckCircleOutlined, BankOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -7,9 +7,12 @@ import { salesApi } from '../../services/sales.api';
 import { bancosApi } from '../../services/bancos.api';
 import BancoSelect from '../cheques/BancoSelect';
 import { fmtMoney } from '../../utils/format';
+import { invalidateCashQueries } from '../../utils/invalidateCashQueries';
 import { usePaymentMethodKeyboardNavigation } from '../../hooks/usePaymentMethodKeyboardNavigation';
 import type { Venta, ChequePayload } from '../../types';
 import { notify, extractErrorMessage } from '../../utils/notify';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
 
 const { Title, Text } = Typography;
 
@@ -150,6 +153,8 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
         queryClient.invalidateQueries({ queryKey: ['cheques-resumen'] });
         queryClient.invalidateQueries({ queryKey: ['cheques-cartera'] });
       }
+      // El cobro también genera movimientos en la sesión de caja activa.
+      invalidateCashQueries(queryClient);
       onSuccess();
     },
     onError: (err: any) => {
@@ -193,10 +198,11 @@ export function PaymentModal({ open, venta, onClose, onSuccess, mode }: Props) {
       onCancel={onClose}
       width={480}
       title={
-        <Space>
-          <WalletOutlined style={{ color: '#EABD23' }} />
-          <span>{mode === 'total' ? 'Cobro Total' : 'Cobro Parcial'}</span>
-        </Space>
+        <RGCajaModalHeader
+          icon={rgIcon('pago')}
+          title={mode === 'total' ? 'Cobro total' : 'Cobro parcial'}
+          subtitle={venta ? `Venta #${venta.VENTA_ID} — ${venta.CLIENTE_NOMBRE}` : undefined}
+        />
       }
       footer={null}
       destroyOnClose

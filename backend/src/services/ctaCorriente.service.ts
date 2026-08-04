@@ -269,10 +269,15 @@ async function ensureCtaCorrienteClienteTx(
 async function getCajaAbiertaCobranzaTx(
   tx: any,
   usuarioId: number,
-): Promise<{ CAJA_ID: number; PUNTO_VENTA_ID: number | null } | null> {
+): Promise<{ CAJA_ID: number; SESION_ID: number; PUNTO_VENTA_ID: number | null } | null> {
   const result = await tx.request()
     .input('uid', sql.Int, usuarioId)
-    .query(`SELECT CAJA_ID, PUNTO_VENTA_ID FROM CAJA WHERE USUARIO_ID = @uid AND ESTADO = 'ACTIVA'`);
+    .query(`
+      SELECT cs.SESION_ID, cs.CAJA_ID, c.PUNTO_VENTA_ID
+      FROM CAJA_SESIONES cs
+      INNER JOIN CAJA c ON c.CAJA_ID = cs.CAJA_ID
+      WHERE cs.USUARIO_ID = @uid AND cs.ESTADO = 'ACTIVA'
+    `);
   return result.recordset.length > 0 ? result.recordset[0] : null;
 }
 
@@ -794,6 +799,7 @@ export const ctaCorrienteService = {
             );
           }
           await tx.request()
+            .input('sesionId', sql.Int, caja.SESION_ID)
             .input('cajaId', sql.Int, caja.CAJA_ID)
             .input('fecha', sql.DateTime, fechaRegistro)
             .input('origenTipo', sql.VarChar(30), 'COBRANZA')
@@ -803,9 +809,9 @@ export const ctaCorrienteService = {
             .input('desc', sql.NVarChar(255), descIngreso)
             .input('uid', sql.Int, usuarioId)
             .query(`
-              INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
+              INSERT INTO CAJA_ITEMS (SESION_ID, CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
                 MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
-              VALUES (@cajaId, @fecha, @origenTipo, @origenId,
+              VALUES (@sesionId, @cajaId, @fecha, @origenTipo, @origenId,
                 @efectivo, @digital, @desc, @uid)
             `);
           if (chequesNeto > 0) {
@@ -991,6 +997,7 @@ export const ctaCorrienteService = {
             );
           }
           await tx.request()
+            .input('sesionId', sql.Int, caja.SESION_ID)
             .input('cajaId', sql.Int, caja.CAJA_ID)
             .input('fecha', sql.DateTime, fechaRegistro)
             .input('origenTipo', sql.VarChar(30), 'COBRANZA')
@@ -1000,9 +1007,9 @@ export const ctaCorrienteService = {
             .input('desc', sql.NVarChar(255), descIngreso)
             .input('uid', sql.Int, usuarioId)
             .query(`
-              INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
+              INSERT INTO CAJA_ITEMS (SESION_ID, CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
                 MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
-              VALUES (@cajaId, @fecha, @origenTipo, @origenId2,
+              VALUES (@sesionId, @cajaId, @fecha, @origenTipo, @origenId2,
                 @efectivo, @digital, @desc, @uid)
             `);
           if (chequesNeto > 0) {
@@ -1427,10 +1434,15 @@ export const ctaCorrienteService = {
   async _getCajaAbiertaTx(
     tx: any,
     usuarioId: number
-  ): Promise<{ CAJA_ID: number; PUNTO_VENTA_ID: number | null } | null> {
+  ): Promise<{ CAJA_ID: number; SESION_ID: number; PUNTO_VENTA_ID: number | null } | null> {
     const result = await tx.request()
       .input('uid', sql.Int, usuarioId)
-      .query(`SELECT CAJA_ID, PUNTO_VENTA_ID FROM CAJA WHERE USUARIO_ID = @uid AND ESTADO = 'ACTIVA'`);
+      .query(`
+        SELECT cs.SESION_ID, cs.CAJA_ID, c.PUNTO_VENTA_ID
+        FROM CAJA_SESIONES cs
+        INNER JOIN CAJA c ON c.CAJA_ID = cs.CAJA_ID
+        WHERE cs.USUARIO_ID = @uid AND cs.ESTADO = 'ACTIVA'
+      `);
     return result.recordset.length > 0 ? result.recordset[0] : null;
   },
 };

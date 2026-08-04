@@ -53,6 +53,13 @@ export interface PurchaseDraft {
     FECHA: string;
     TOTAL: number;
   } | null;
+  /**
+   * Elección manual del usuario para Comprobante X (Cbte. X) — permite
+   * alternar entre cargar el costo sin/con impuestos. Para FA se ignora
+   * (siempre true) y para FB/FC/FM también (siempre false). null = sin
+   * definir todavía.
+   */
+  preciosSinIvaManual: boolean | null;
 }
 
 const EMPTY_DRAFT: PurchaseDraft = {
@@ -79,6 +86,7 @@ const EMPTY_DRAFT: PurchaseDraft = {
   destinoPago: 'CAJA_CENTRAL',
   remitoId: null,
   remitoSnap: null,
+  preciosSinIvaManual: null,
 };
 
 interface PurchaseDraftState {

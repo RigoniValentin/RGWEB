@@ -19,6 +19,8 @@ import { fmtMoney, fmtNum, statFormatter } from '../utils/format';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { notify } from '../utils/notify.ts';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 
 const { Title, Text } = Typography;
 
@@ -365,7 +367,13 @@ export function NCVentasPage() {
 
       {/* ── Detail Drawer ─────────────────────── */}
       <Drawer
-        title={`Nota de Crédito #${selectedId}`}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('gasto-revertir')}
+            title={`Nota de Crédito #${selectedId}`}
+            subtitle="Detalle de la nota de crédito de venta"
+          />
+        }
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); setSelectedId(null); }}
         width={900}
@@ -616,9 +624,16 @@ export function NCVentasPage() {
         open={desgloseModalOpen}
         onCancel={() => setDesgloseModalOpen(false)}
         footer={<Button onClick={() => setDesgloseModalOpen(false)}>Cerrar</Button>}
-        title="Desglose por método de pago"
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('gasto-revertir')}
+            title="Desglose por método de pago"
+            subtitle="Resumen de los métodos de pago de la NC"
+          />
+        }
         width={480}
         destroyOnClose
+        className="rg-modal"
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {detail?.metodos_pago && detail.metodos_pago.length > 0 ? (

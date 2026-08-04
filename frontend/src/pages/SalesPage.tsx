@@ -18,6 +18,7 @@ import dayjs from 'dayjs';
 import { salesApi } from '../services/sales.api';
 import { cajaApi } from '../services/caja.api';
 import { invalidateInventoryQueries } from '../utils/invalidateInventoryQueries';
+import { invalidateCashQueries } from '../utils/invalidateCashQueries';
 import { NewSaleModal } from '../components/sales/NewSaleModal';
 import { PaymentModal } from '../components/sales/PaymentModal';
 import { DateFilterPopover, type DatePreset } from '../components/DateFilterPopover';
@@ -36,6 +37,8 @@ import { ExportButtons, type ExportColumn } from '../components/ExportButtons';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { notify, extractErrorMessage } from '../utils/notify';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 
 const { Title, Text } = Typography;
 
@@ -224,6 +227,10 @@ export function SalesPage() {
   const handleSaleCreated = () => {
     setNewSaleOpen(false);
     refetch();
+    // La venta genera movimientos en la sesión de caja activa: invalidar
+    // todas las queries relacionadas para que al navegar a /cashregisters
+    // (o permanecer allí) se vean los datos frescos sin refresh manual.
+    invalidateCashQueries(queryClient);
   };
 
   const handlePaymentSuccess = () => {
@@ -231,6 +238,7 @@ export function SalesPage() {
     setPaymentVenta(null);
     refetch();
     queryClient.invalidateQueries({ queryKey: ['sale'] });
+    invalidateCashQueries(queryClient);
   };
 
   // ── Reprint receipt ────────────────────────────
@@ -623,7 +631,13 @@ export function SalesPage() {
 
       {/* ── Detail Drawer ─────────────────────── */}
       <Drawer
-        title={`Venta #${selectedId}`}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('venta')}
+            title={`Venta #${selectedId}`}
+            subtitle="Detalle de la venta"
+          />
+        }
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); setSelectedId(null); }}
         width={900}
@@ -916,16 +930,18 @@ export function SalesPage() {
       <Modal
         open={wspModalOpen}
         title={
-          <Space>
-            <WhatsAppOutlined style={{ color: '#25D366', fontSize: 20 }} />
-            <span>Enviar detalle por WhatsApp</span>
-          </Space>
+          <RGCajaModalHeader
+            icon={rgIcon('venta-detalle')}
+            title="Enviar detalle por WhatsApp"
+            subtitle="Compartí el comprobante de la venta al cliente"
+          />
         }
         onCancel={() => setWspModalOpen(false)}
         footer={null}
         centered
         width={420}
         destroyOnClose
+        className="rg-modal"
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 16 }}>
@@ -973,9 +989,16 @@ export function SalesPage() {
         open={ncModalOpen}
         onCancel={() => setNCModalOpen(false)}
         footer={<Button onClick={() => setNCModalOpen(false)}>Cerrar</Button>}
-        title={<><FileExclamationOutlined style={{ marginRight: 8 }} />Notas de Crédito asociadas</>}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('gasto-revertir')}
+            title="Notas de Crédito asociadas"
+            subtitle="Listado de NC vinculadas a esta venta"
+          />
+        }
         width={520}
         destroyOnClose
+        className="rg-modal"
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {detail?.nc_asociadas && detail.nc_asociadas.length > 0 ? (
@@ -1031,9 +1054,16 @@ export function SalesPage() {
         open={desgloseModalOpen}
         onCancel={() => setDesgloseModalOpen(false)}
         footer={<Button onClick={() => setDesgloseModalOpen(false)}>Cerrar</Button>}
-        title="Desglose por método de pago"
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('venta')}
+            title="Desglose por método de pago"
+            subtitle="Resumen de los métodos de pago de la venta"
+          />
+        }
         width={480}
         destroyOnClose
+        className="rg-modal"
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {!detail?.metodos_pago || detail.metodos_pago.length === 0 ? (

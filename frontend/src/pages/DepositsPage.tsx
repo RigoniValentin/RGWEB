@@ -11,6 +11,8 @@ import { puntoVentaApi } from '../services/puntoVenta.api';
 import { useTabStore } from '../store/tabStore';
 import type { Deposito } from '../types';
 import { RowContextMenu } from '../components/RowContextMenu';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { notify } from '../utils/notify.ts';
 
@@ -291,7 +293,13 @@ export function DepositsPage() {
 
       {/* ── Form Modal (New / Edit) ───────────── */}
       <Modal
-        title={editId ? 'Editar Depósito' : 'Nuevo Depósito'}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('deposito')}
+            title={editId ? 'Editar Depósito' : 'Nuevo Depósito'}
+            subtitle={editId ? 'Modificá los datos del depósito' : 'Creá un nuevo depósito para stock'}
+          />
+        }
         open={formOpen}
         onCancel={() => { setFormOpen(false); setEditId(null); form.resetFields(); }}
         onOk={handleSave}

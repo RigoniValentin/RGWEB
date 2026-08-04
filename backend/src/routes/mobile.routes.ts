@@ -88,17 +88,17 @@ router.get('/health', (_req, res) => {
   res.json({ status: 'ok', scope: 'mobile', timestamp: new Date().toISOString() });
 });
 
-// ── GET /api/mobile/caja/mi-caja — detalle completo de la caja abierta ──
+// ── GET /api/mobile/caja/mi-caja — detalle completo de la sesión activa ──
 // Acepta JWT o API key de device mobile registrado.
 router.get('/caja/mi-caja', mobileAuthMiddleware as any, async (req: MobileAuthRequest, res: Response, next: NextFunction) => {
   try {
-    const caja = await cajaService.getCajaAbierta(req.user!.id);
-    if (!caja) {
+    const sesion = await cajaService.getMiSesionActiva(req.user!.id);
+    if (!sesion) {
       res.json(null);
       return;
     }
 
-    const detail = await cajaService.getById(caja.CAJA_ID);
+    const detail = await cajaService.getSesionById(sesion.SESION_ID);
     if (!detail) {
       res.json(null);
       return;
@@ -106,7 +106,7 @@ router.get('/caja/mi-caja', mobileAuthMiddleware as any, async (req: MobileAuthR
 
     // Mapear al formato PrintCajaData que usa el PDF
     res.json({
-      cajaId: detail.CAJA_ID,
+      cajaId: detail.SESION_ID,
       estado: detail.ESTADO,
       usuarioNombre: detail.USUARIO_NOMBRE ?? '',
       puntoVentaNombre: detail.PUNTO_VENTA_NOMBRE ?? '',
@@ -114,7 +114,7 @@ router.get('/caja/mi-caja', mobileAuthMiddleware as any, async (req: MobileAuthR
       fechaCierre: detail.FECHA_CIERRE ?? null,
       montoApertura: detail.MONTO_APERTURA ?? 0,
       montoCierre: detail.MONTO_CIERRE ?? null,
-      observaciones: detail.OBSERVACIONES ?? null,
+      observaciones: detail.OBS_CIERRE ?? null,
       totales: detail.totales,
       items: (detail.items as any[]).map((i: any) => ({
         FECHA: i.FECHA,

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Modal, Select, Button, InputNumber, Table, Space, Typography, Radio, Tag, Input, Empty, Alert, Steps, Spin } from 'antd';
 import {
-  FileExclamationOutlined, UndoOutlined,
+  UndoOutlined,
   DollarOutlined, PercentageOutlined, ShopOutlined,
   CheckCircleOutlined,
   ArrowLeftOutlined, ArrowRightOutlined,
@@ -16,6 +16,8 @@ import { invalidateInventoryQueries } from '../../utils/invalidateInventoryQueri
 import { usePaymentMethodKeyboardNavigation } from '../../hooks/usePaymentMethodKeyboardNavigation';
 import type { MetodoPago } from '../../types';
 import { notify } from '../../utils/notify.ts';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -860,10 +862,11 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
       open={open}
       onCancel={onClose}
       title={
-        <Space>
-          <FileExclamationOutlined />
-          <span>Nueva Nota de Crédito — Compras</span>
-        </Space>
+        <RGCajaModalHeader
+          icon={rgIcon('gasto-revertir')}
+          title="Nueva Nota de Crédito — Compras"
+          subtitle="Generá una NC por devolución, anulación, descuento o diferencia de precio"
+        />
       }
       className="rg-modal"
       width={step === 0 ? 640 : step === 1 ? 920 : step === 3 ? 640 : 1100}
@@ -905,12 +908,14 @@ export function NewNCCompraModal({ open, onClose, onSuccess }: Props) {
       centered
       width={520}
       destroyOnClose
+      className="rg-modal"
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       title={
-        <Space>
-          <WalletOutlined style={{ color: '#EABD23', fontSize: 20 }} />
-          <span>Seleccionar método de pago</span>
-        </Space>
+        <RGCajaModalHeader
+          icon={rgIcon('gasto-revertir')}
+          title="Seleccionar método de devolución"
+          subtitle="Elegí cómo se devuelve el monto al proveedor"
+        />
       }
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

@@ -1,10 +1,12 @@
-import { useState } from 'react';
-import { Modal, Form, Select, InputNumber, Radio, Space, Typography } from 'antd';
-import { DollarOutlined } from '@ant-design/icons';
+import { useState, useMemo } from 'react';
+import { Modal, Form, Select, InputNumber, Radio, Space, Tag, Typography } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { catalogApi } from '../../services/catalog.api';
 import { productApi } from '../../services/product.api';
 import { notify } from '../../utils/notify.ts';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
+import { formulaLabel, labelTipoMargen, normalizarTipoMargen } from '../../utils/pricing';
 
 const { Text } = Typography;
 
@@ -24,6 +26,11 @@ export function BulkPriceModal({ open, onClose, onDone, productIds }: Props) {
     queryKey: ['listas-precios'],
     queryFn: () => catalogApi.getListasPrecios(),
   });
+
+  const listaSeleccionada = useMemo(() => {
+    const id = form.getFieldValue('listaTarget');
+    return listas?.find(l => l.LISTA_ID === id) ?? null;
+  }, [listas, form]);
 
   const handleOk = async () => {
     try {
@@ -50,7 +57,13 @@ export function BulkPriceModal({ open, onClose, onDone, productIds }: Props) {
 
   return (
     <Modal
-      title={<span><DollarOutlined /> Generar Precios Masivamente</span>}
+      title={
+        <RGCajaModalHeader
+          icon={rgIcon('precio-masivo')}
+          title="Generar Precios Masivamente"
+          subtitle="Calculá precios en bloque aplicando un margen sobre el costo"
+        />
+      }
       open={open}
       onOk={handleOk}
       onCancel={onClose}
@@ -72,14 +85,47 @@ export function BulkPriceModal({ open, onClose, onDone, productIds }: Props) {
             options={listas?.map((l, i) => ({ label: `Lista ${i + 1}: ${l.NOMBRE}`, value: i + 1 }))}
           />
         </Form.Item>
+        {listaSeleccionada && (
+          <div style={{ marginBottom: 12, marginTop: -8 }}>
+            <Tag color={normalizarTipoMargen(listaSeleccionada.TIPO_MARGEN) === 'U' ? 'purple' : 'blue'}>
+              {labelTipoMargen(normalizarTipoMargen(listaSeleccionada.TIPO_MARGEN))}
+            </Tag>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {formulaLabel(normalizarTipoMargen(listaSeleccionada.TIPO_MARGEN))}
+            </Typography.Text>
+          </div>
+        )}
         <Form.Item name="source" label="Calcular desde">
           <Radio.Group>
             <Radio value="ARS">Costo ARS ($)</Radio>
             <Radio value="USD">Costo USD (U$S)</Radio>
           </Radio.Group>
         </Form.Item>
-        <Form.Item name="margen" label="Margen (%)" rules={[{ required: true, message: 'Ingresá margen' }]}>
-          <InputNumber min={0} max={9999} precision={2} style={{ width: '100%' }} addonAfter="%" />
+        <Form.Item
+          name="margen"
+          label="Margen (%)"
+          rules={[
+            { required: true, message: 'Ingresá margen' },
+            {
+              validator: async (_r, v) => {
+                const tipo = normalizarTipoMargen(listaSeleccionada?.TIPO_MARGEN);
+                if (tipo === 'U' && v >= 100) {
+                  return Promise.reject(new Error('En modo Utilidad el margen debe ser menor a 100%.'));
+                }
+                if (v < 0) {
+                  return Promise.reject(new Error('El margen no puede ser negativo.'));
+                }
+              },
+            },
+          ]}
+        >
+          <InputNumber
+            min={0}
+            max={normalizarTipoMargen(listaSeleccionada?.TIPO_MARGEN) === 'U' ? 99.99 : 9999}
+            precision={2}
+            style={{ width: '100%' }}
+            addonAfter="%"
+          />
         </Form.Item>
         <Form.Item name="redondeo" label="Redondeo">
           <Radio.Group>

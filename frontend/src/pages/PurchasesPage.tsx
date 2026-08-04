@@ -22,6 +22,8 @@ import type { Compra, CompraDetalle } from '../types';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { notify } from '../utils/notify.ts';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 
 const { Title, Text } = Typography;
 
@@ -340,7 +342,13 @@ export function PurchasesPage() {
 
       {/* ── Detail Drawer ─────────────────────── */}
       <Drawer
-        title={`Compra #${selectedId}`}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('compra')}
+            title={`Compra #${selectedId}`}
+            subtitle="Detalle de la compra"
+          />
+        }
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); setSelectedId(null); }}
         width={1000}

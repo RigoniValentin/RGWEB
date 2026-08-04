@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { Alert, Button, Modal, Space, Steps, Typography, Upload, Tag, Descriptions } from 'antd';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ExclamationCircleOutlined, InboxOutlined, RollbackOutlined, FileZipOutlined } from '@ant-design/icons';
+import { ExclamationCircleOutlined, InboxOutlined, FileZipOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
 import { backupsApi, type BackupRecord, type BackupFileInspection } from '../../services/backups.api';
 import { useAuthStore } from '../../store/authStore';
 import { notify } from '../../utils/notify.ts';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
 
 const { Text, Paragraph } = Typography;
 const { Dragger } = Upload;
@@ -101,13 +103,20 @@ export function RestoreBackupModal({ open, onClose, fromBackup, dbName }: Props)
 
   return (
     <Modal
-      title={<Space><RollbackOutlined /> Restaurar base de datos</Space>}
+      title={
+        <RGCajaModalHeader
+          icon={rgIcon('backup-restaurar')}
+          title="Restaurar base de datos"
+          subtitle="Confirmá el origen y revisá el contenido antes de aplicar"
+        />
+      }
       open={open}
       onCancel={close}
       width={680}
       maskClosable={false}
       destroyOnClose
       footer={null}
+      className="rg-modal"
     >
       <Steps current={step} items={baseSteps} size="small" style={{ marginBottom: 24 }} />
 
