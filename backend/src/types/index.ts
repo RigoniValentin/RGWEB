@@ -133,6 +133,7 @@ export interface Producto {
   ES_CONJUNTO: boolean | null;
   ES_SERVICIO: boolean;
   DESCUENTA_STOCK: boolean;
+  PERMITE_STOCK_NEGATIVO: boolean;
   PRECIO_COMPRA_BASE: number;
   IMP_INT: number;
   // Joined fields
@@ -398,27 +399,65 @@ export interface CompraItem {
   UNIDAD_ABREVIACION?: string;
 }
 
-// ── Caja ─────────────────────────────────────────
+// ── Caja persistente ────────────────────────────
 export interface Caja {
   CAJA_ID: number;
+  NOMBRE: string | null;
+  PUNTO_VENTA_ID: number;
+  ACTIVA: boolean;
+  SALDO_RETENIDO: number;
+  CREADA_EN: string;
+  CREADA_POR: number | null;
+  // Joined
+  PUNTO_VENTA_NOMBRE?: string;
+  CREADA_POR_NOMBRE?: string;
+  // Conteos derivados
+  TOTAL_SESIONES?: number;
+  SESION_ACTIVA_ID?: number | null;
+  USUARIOS_ASIGNADOS?: CajaUsuario[];
+}
+
+// ── Caja asignación usuario ──────────────────────
+export interface CajaUsuario {
+  CAJA_ID: number;
   USUARIO_ID: number;
+  ES_PREFERIDO: boolean;
+  ASIGNADO_EN: string;
+  // Joined
+  USUARIO_NOMBRE?: string;
+}
+
+// ── Caja sesión (apertura/cierre) ────────────────
+export interface CajaSesion {
+  SESION_ID: number;
+  CAJA_ID: number;
+  USUARIO_ID: number;
+  NRO_SESION: number;
   FECHA_APERTURA: string;
   FECHA_CIERRE: string | null;
   MONTO_APERTURA: number;
+  APORTE_CC: number;
+  RETENIDO_USADO: number;
   MONTO_CIERRE: number | null;
-  OBSERVACIONES: string | null;
-  ESTADO: string;
-  PUNTO_VENTA_ID: number | null;
+  SALDO_RETENIDO_FIN: number;
+  ESTADO: 'ACTIVA' | 'CERRADA';
+  OBS_APERTURA: string | null;
+  OBS_CIERRE: string | null;
   // Joined
   USUARIO_NOMBRE?: string;
+  PUNTO_VENTA_ID?: number;
   PUNTO_VENTA_NOMBRE?: string;
+  EFECTIVO_DISPONIBLE?: number;
+  DIGITAL_DISPONIBLE?: number;
+  VENTA_EFECTIVO?: number;
 }
 
 export interface CajaItem {
   ITEM_ID: number;
-  CAJA_ID: number;
+  SESION_ID: number;
+  CAJA_ID: number | null;
   FECHA: string;
-  ORIGEN_TIPO: string;       // VENTA, INGRESO, EGRESO, FONDO_CAMBIO
+  ORIGEN_TIPO: string;       // VENTA, INGRESO, EGRESO, APERTURA, TRANSFERENCIA_CC, DEPOSITO_CIERRE, etc.
   ORIGEN_ID: number | null;
   MONTO_EFECTIVO: number;
   MONTO_DIGITAL: number;
@@ -447,25 +486,18 @@ export interface MovimientoCaja {
   USUARIO_NOMBRE?: string;
 }
 
-export interface FondoCambio {
-  ID: number;
-  FECHA: string;
-  CAJA_ID: number | null;
-  TIPO_MOVIMIENTO: string;
-  MONTO: number;
-  SALDO_RESULTANTE: number;
-  USUARIO_ID: number | null;
-  PUNTO_VENTA_ID: number | null;
-  OBSERVACIONES: string | null;
-}
-
 // ── Lista de Precios ─────────────────────────────
+/** 'M' = Markup sobre costo (Precio = Costo × (1 + Margen/100))
+ *  'U' = Utilidad sobre venta (Precio = Costo / (1 - Margen/100)) */
+export type TipoMargen = 'M' | 'U';
+
 export interface ListaPrecio {
   LISTA_ID: number;
   CODIGOPARTICULAR: string | null;
   NOMBRE: string;
   DESCRIPCION: string | null;
   MARGEN: number;
+  TIPO_MARGEN?: TipoMargen;
   ACTIVA: boolean;
 }
 

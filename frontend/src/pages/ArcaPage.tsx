@@ -20,6 +20,8 @@ import { fmtComprobanteTipo, fmtMoney } from '../utils/format';
 import type { Venta, VentaDetalle } from '../types';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 
 const { Title, Text } = Typography;
 
@@ -363,8 +365,14 @@ export function ArcaPage() {
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); setSelectedId(null); }}
         width={980}
-        title={`Comprobante ${selectedId ? `#${selectedId}` : ''}`}
-        className="rg-drawer"
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('arca')}
+            title={`Comprobante ${selectedId ? `#${selectedId}` : ''}`}
+            subtitle="Detalle fiscal y consulta en ARCA"
+          />
+        }
+        className="rg-drawer rg-modal"
         extra={detalle?.NUMERO_FISCAL ? (
           <Space>
             <Button icon={<CloudSyncOutlined />} loading={consultingArca} onClick={() => refetchArca()}>

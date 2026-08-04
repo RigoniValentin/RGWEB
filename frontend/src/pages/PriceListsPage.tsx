@@ -12,6 +12,9 @@ import { fmtMoney, fmtNum } from '../utils/format';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { notify } from '../utils/notify.ts';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
+import { formulaLabel, labelTipoMargen } from '../utils/pricing';
 
 const { Title } = Typography;
 
@@ -104,6 +107,7 @@ export function PriceListsPage() {
         NOMBRE: editData.NOMBRE,
         DESCRIPCION: editData.DESCRIPCION ?? null,
         MARGEN: editData.MARGEN ?? 0,
+        TIPO_MARGEN: editData.TIPO_MARGEN ?? 'M',
         ACTIVA: editData.ACTIVA,
       });
       setOriginalMargen(editData.MARGEN ?? 0);
@@ -115,7 +119,12 @@ export function PriceListsPage() {
     setEditId(null);
     setOriginalMargen(0);
     listForm.resetFields();
-    listForm.setFieldsValue({ ACTIVA: true, MARGEN: 0, aplicarMargenInicial: true });
+    listForm.setFieldsValue({
+      ACTIVA: true,
+      MARGEN: 0,
+      TIPO_MARGEN: 'M',
+      aplicarMargenInicial: true,
+    });
     setFormOpen(true);
   };
 
@@ -178,6 +187,7 @@ export function PriceListsPage() {
         NOMBRE: listForm.getFieldValue('NOMBRE'),
         DESCRIPCION: listForm.getFieldValue('DESCRIPCION')?.trim() || null,
         MARGEN: listForm.getFieldValue('MARGEN') ?? 0,
+        TIPO_MARGEN: listForm.getFieldValue('TIPO_MARGEN') ?? 'M',
         ACTIVA: listForm.getFieldValue('ACTIVA') !== false,
         recalcularPorMargen,
         redondeoStep,
@@ -301,6 +311,7 @@ export function PriceListsPage() {
           NOMBRE: values.NOMBRE,
           DESCRIPCION: values.DESCRIPCION?.trim() || null,
           MARGEN: values.MARGEN ?? 0,
+          TIPO_MARGEN: values.TIPO_MARGEN ?? 'M',
           ACTIVA: values.ACTIVA !== false,
           aplicarMargenInicial: values.aplicarMargenInicial !== false,
         });
@@ -407,7 +418,24 @@ export function PriceListsPage() {
     { title: 'Código', dataIndex: 'CODIGOPARTICULAR', align: 'center', key: 'CODIGOPARTICULAR', width: 110, sorter: true, render: (v) => v || '-' },
     { title: 'Nombre', dataIndex: 'NOMBRE', key: 'NOMBRE', ellipsis: true, sorter: true },
     { title: 'Descripción', dataIndex: 'DESCRIPCION', key: 'DESCRIPCION', ellipsis: true, render: (v) => v || '-' },
-    { title: 'Margen', dataIndex: 'MARGEN', key: 'MARGEN', width: 110, align: 'center', sorter: true, render: (v: number) => `${fmtNum(v)}%` },
+    {
+      title: 'Margen',
+      key: 'MARGEN',
+      width: 200,
+      align: 'center',
+      sorter: true,
+      render: (_v, record) => {
+        const tipo = record.TIPO_MARGEN ?? 'M';
+        return (
+          <Space size={4}>
+            <Tag color={tipo === 'U' ? 'purple' : 'blue'} style={{ margin: 0, fontSize: 10 }}>
+              {labelTipoMargen(tipo)}
+            </Tag>
+            <span>{fmtNum(record.MARGEN)}%</span>
+          </Space>
+        );
+      },
+    },
     { title: 'Con precio', dataIndex: 'productosConPrecio', key: 'productosConPrecio', width: 120, align: 'center' },
     { title: 'Precio promedio', dataIndex: 'precioPromedio', key: 'precioPromedio', width: 160, align: 'center', render: (v: number) => fmtMoney(v) },
     {
@@ -490,11 +518,13 @@ export function PriceListsPage() {
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small" className="rg-card">
-            <Statistic
-              title="Margen promedio (activas)"
-              value={fmtNum(kpis.avgMargen)}
-              suffix="%"
-            />
+            <Tooltip title="Promedio simple del campo MARGEN de cada lista activa. Si hay listas con métodos distintos (Markup y Utilidad), el valor es orientativo.">
+              <Statistic
+                title="Margen promedio (activas)"
+                value={fmtNum(kpis.avgMargen)}
+                suffix="%"
+              />
+            </Tooltip>
           </Card>
         </Col>
         <Col xs={12} sm={6}>
@@ -539,7 +569,13 @@ export function PriceListsPage() {
 
       {/* ── Crear / Editar lista ──────────────────── */}
       <Modal
-        title={editId ? `Editar Lista #${editId}` : 'Nueva Lista de Precio'}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('precio-lista')}
+            title={editId ? `Editar Lista #${editId}` : 'Nueva Lista de Precio'}
+            subtitle={editId ? 'Modificá los datos de la lista' : 'Cargá los datos de una lista nueva'}
+          />
+        }
         open={formOpen}
         onCancel={() => { setFormOpen(false); setEditId(null); setOriginalMargen(0); listForm.resetFields(); }}
         onOk={handleSaveList}
@@ -570,21 +606,71 @@ export function PriceListsPage() {
               <Input.TextArea rows={3} placeholder="Notas internas sobre el uso de esta lista" />
             </Form.Item>
             <Form.Item
-              name="MARGEN"
-              label="Margen por defecto"
-              tooltip="Margen que se aplica por defecto a productos nuevos que se asignen a esta lista."
-              rules={[{ required: true, message: 'Ingresá el margen' }]}
+              name="TIPO_MARGEN"
+              label="Método de cálculo"
+              tooltip="Markup: Precio = costo × (1 + margen/100). Utilidad: Precio = costo / (1 - margen/100)."
+              rules={[{ required: true, message: 'Elegí el método' }]}
             >
-              <InputNumber min={-99.99} max={1000} precision={2} addonAfter="%" style={{ width: '100%' }} />
+              <Radio.Group>
+                <Radio.Button value="M">Markup (sobre costo)</Radio.Button>
+                <Radio.Button value="U">Utilidad (sobre venta)</Radio.Button>
+              </Radio.Group>
+            </Form.Item>
+            <Form.Item
+              noStyle
+              shouldUpdate={(prev, curr) => prev.TIPO_MARGEN !== curr.TIPO_MARGEN}
+            >
+              {({ getFieldValue }) => {
+                const tipo = getFieldValue('TIPO_MARGEN') === 'U' ? 'U' : 'M';
+                const maxMargen = tipo === 'U' ? 99.99 : 1000;
+                return (
+                  <Form.Item
+                    name="MARGEN"
+                    label="Margen por defecto"
+                    tooltip={`Margen que se aplica por defecto. Fórmula activa: ${formulaLabel(tipo)}`}
+                    rules={[
+                      { required: true, message: 'Ingresá el margen' },
+                      {
+                        validator: async (_r, v) => {
+                          if (tipo === 'U' && v >= 100) {
+                            return Promise.reject(new Error('En modo Utilidad el margen debe ser menor a 100%.'));
+                          }
+                          if (v < 0) {
+                            return Promise.reject(new Error('El margen no puede ser negativo.'));
+                          }
+                        },
+                      },
+                    ]}
+                  >
+                    <InputNumber
+                      min={0}
+                      max={maxMargen}
+                      precision={2}
+                      addonAfter="%"
+                      style={{ width: '100%' }}
+                    />
+                  </Form.Item>
+                );
+              }}
             </Form.Item>
             {!editId && (
               <Form.Item
-                name="aplicarMargenInicial"
-                label="Inicializar precios con este margen"
-                valuePropName="checked"
-                extra="Genera automáticamente el precio de cada producto (costo × (1 + margen/100)) para esta nueva lista."
+                shouldUpdate={(prev, curr) => prev.TIPO_MARGEN !== curr.TIPO_MARGEN}
+                noStyle
               >
-                <Switch />
+                {({ getFieldValue }) => {
+                  const tipo = getFieldValue('TIPO_MARGEN') === 'U' ? 'U' : 'M';
+                  return (
+                    <Form.Item
+                      name="aplicarMargenInicial"
+                      label="Inicializar precios con este margen"
+                      valuePropName="checked"
+                      extra={`Genera automáticamente el precio de cada producto (${formulaLabel(tipo)}) para esta nueva lista.`}
+                    >
+                      <Switch />
+                    </Form.Item>
+                  );
+                }}
               </Form.Item>
             )}
             <Form.Item name="ACTIVA" label="Activa" valuePropName="checked" extra="Las listas inactivas no aparecen al elegir lista predeterminada en productos.">
@@ -597,9 +683,19 @@ export function PriceListsPage() {
       {/* ── Redondeo (post-recálculo o standalone) ─── */}
       <Modal
         title={
-          redondeoContext?.mode === 'standalone'
-            ? `Redondear precios — ${redondeoContext.listName}`
-            : 'Redondear precios'
+          <RGCajaModalHeader
+            icon={rgIcon('precio-lista')}
+            title={
+              redondeoContext?.mode === 'standalone'
+                ? `Redondear precios — ${redondeoContext.listName}`
+                : 'Redondear precios'
+            }
+            subtitle={
+              redondeoContext?.mode === 'standalone'
+                ? 'Aplicá un redondeo a todos los precios de la lista'
+                : 'Aplicá un redondeo a los precios recalculados'
+            }
+          />
         }
         open={redondeoOpen}
         onCancel={handleCancelRedondeo}
@@ -657,7 +753,13 @@ export function PriceListsPage() {
 
       {/* ── Ajustar precios lista ─────────────────── */}
       <Modal
-        title={applyList ? `${isAumento ? 'Aumentar' : 'Reducir'} precios — ${applyList.NOMBRE}` : 'Ajustar precios'}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('precio-lista')}
+            title={applyList ? `${isAumento ? 'Aumentar' : 'Reducir'} precios — ${applyList.NOMBRE}` : 'Ajustar precios'}
+            subtitle="Aplicá un porcentaje a todos los precios de la lista"
+          />
+        }
         open={applyOpen}
         onCancel={() => setApplyOpen(false)}
         onOk={handleApplyPercentage}
@@ -674,6 +776,16 @@ export function PriceListsPage() {
           size="middle"
           initialValues={{ porcentaje: 0, redondeo: 'ninguno', incluirInactivos: false, actualizarMargen: true }}
         >
+          {applyList && (
+            <div style={{ marginBottom: 12 }}>
+              <Tag color={(applyList.TIPO_MARGEN ?? 'M') === 'U' ? 'purple' : 'blue'}>
+                Método: {labelTipoMargen((applyList.TIPO_MARGEN ?? 'M') === 'U' ? 'U' : 'M')}
+              </Tag>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {formulaLabel((applyList.TIPO_MARGEN ?? 'M') === 'U' ? 'U' : 'M')}
+              </Typography.Text>
+            </div>
+          )}
           <Form.Item
             name="porcentaje"
             label={`Porcentaje (positivo = aumento, negativo = reducción)`}

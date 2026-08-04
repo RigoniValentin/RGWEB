@@ -9,14 +9,21 @@ export interface AdvancedProductSearchOptions {
 }
 
 export interface AdvancedProductSearchState {
+  /** Condiciones que se combinan con AND entre sí. */
   conditions: string[];
+  /** Condiciones que se combinan con OR entre sí (multi-entidad por token). */
+  orConditions: string[];
   joinMarca: boolean;
   joinCategoria: boolean;
   joinCodBarras: boolean;
 }
 
-export function buildAdvancedProductSearch(req: any, params: AdvancedProductSearchOptions): AdvancedProductSearchState {
+export function buildAdvancedProductSearch(
+  req: any,
+  params: AdvancedProductSearchOptions,
+): AdvancedProductSearchState {
   const conditions: string[] = [];
+  const orConditions: string[] = [];
   let joinMarca = false;
   let joinCategoria = false;
   let joinCodBarras = false;
@@ -34,10 +41,25 @@ export function buildAdvancedProductSearch(req: any, params: AdvancedProductSear
         const paramName = `t${index}`;
         req.input(paramName, sql.NVarChar, `%${token}%`);
         if (multiEntidad) {
-          conditions.push(`(p.NOMBRE LIKE @${paramName} OR p.CODIGOPARTICULAR LIKE @${paramName} OR cb.CODIGO_BARRAS LIKE @${paramName} OR m.NOMBRE LIKE @${paramName} OR c.NOMBRE LIKE @${paramName})`);
-          joinMarca = true;
-          joinCategoria = true;
+          // OR entre entidades para CADA token. Los tokens se siguen
+          // AND-eando entre sí. De este modo "samsung" matchea productos
+          // cuya MARCA se llama "Samsung" aunque el NOMBRE no la contenga,
+          // y "leche nutricia" matchea productos cuya MARCA contiene
+          // "nutricia" Y el NOMBRE (o cualquier otra entidad) contiene "leche".
+          //
+          // Subqueries sobre MARCAS/CATEGORIAS (chicas) en vez de LEFT JOIN +
+          // LIKE '%x%' sobre columnas unidas: evita multiplicación de filas
+          // y permite que SQL Server aplique semi-join optimizations.
+          // CODIGO_BARRAS sí queda como join porque tiene índice dedicado
+          // y necesitamos el LEFT JOIN para el resto del query.
           joinCodBarras = true;
+          orConditions.push(`(
+            p.NOMBRE LIKE @${paramName}
+            OR p.CODIGOPARTICULAR LIKE @${paramName}
+            OR cb.CODIGO_BARRAS LIKE @${paramName}
+            OR p.MARCA_ID IN (SELECT MARCA_ID FROM MARCAS WHERE NOMBRE LIKE @${paramName})
+            OR p.CATEGORIA_ID IN (SELECT CATEGORIA_ID FROM CATEGORIAS WHERE NOMBRE LIKE @${paramName})
+          )`);
         } else {
           conditions.push(`p.NOMBRE LIKE @${paramName}`);
         }
@@ -70,5 +92,5 @@ export function buildAdvancedProductSearch(req: any, params: AdvancedProductSear
     }
   }
 
-  return { conditions, joinMarca, joinCategoria, joinCodBarras };
+  return { conditions, orConditions, joinMarca, joinCategoria, joinCodBarras };
 }

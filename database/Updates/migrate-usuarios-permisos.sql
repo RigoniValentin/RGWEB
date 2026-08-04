@@ -427,6 +427,7 @@ WITH nuevos AS (
     ('caja.central.operar',       'Movimientos en caja central',                'caja', 'escritura', 'ALTO',   50),
     ('caja.depositos.ver',        'Ver depósitos',                              'caja', 'lectura',   'MEDIO',  60),
     ('caja.depositos.crear',      'Registrar depósito',                         'caja', 'escritura', 'ALTO',   70),
+    ('caja.administrar',          'Administrar cajas (ABM)',                    'caja', 'admin',     'ALTO',   80),
     -- Finanzas
     ('cobranzas.ver',             'Ver cobranzas',                   'finanzas',      'lectura',   'BAJO',    10),
     ('cobranzas.crear',           'Registrar cobranza',              'finanzas',      'escritura', 'MEDIO',   20),

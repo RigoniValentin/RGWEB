@@ -1,5 +1,5 @@
 import api from './api';
-import type { ListaPrecio, PaginatedResponse, Producto } from '../types';
+import type { ListaPrecio, PaginatedResponse, Producto, TipoMargen } from '../types';
 
 export interface PriceListStats {
   totalProductos: number;
@@ -17,12 +17,14 @@ export interface PriceListInput {
   NOMBRE: string;
   DESCRIPCION?: string | null;
   MARGEN?: number;
+  /** 'M' = Markup sobre costo (default). 'U' = Utilidad sobre venta. */
+  TIPO_MARGEN?: TipoMargen;
   ACTIVA?: boolean;
   /** Si true (default), al crear se generan precios para todos los productos
    *  con PRECIO_COMPRA > 0 aplicando el margen configurado. */
   aplicarMargenInicial?: boolean;
   /** Si true, al actualizar también se recalculan los precios de los productos
-   *  ya asociados a la lista usando el nuevo MARGEN. */
+   *  ya asociados a la lista usando el nuevo MARGEN y TIPO_MARGEN. */
   recalcularPorMargen?: boolean;
   /** Paso de redondeo (ej. 50, 100, 500) aplicado después del recálculo. */
   redondeoStep?: number | null;

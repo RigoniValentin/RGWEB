@@ -1,6 +1,7 @@
 import { getPool, sql } from '../database/connection.js';
 import type { PaginatedResult } from '../types/index.js';
 import { registrarHistorialStock, getCurrentStock } from './stockHistorial.helper.js';
+import { assertStockDisponible } from './stockValidator.helper.js';
 import { buildAdvancedProductSearch } from './productSearch.helper.js';
 
 // ═══════════════════════════════════════════════════
@@ -227,6 +228,9 @@ async function decrementarStock(
               FROM PRODUCTO_CONJUNTO_DEPOSITO WHERE PRODUCTO_ID = @pid`);
     for (const child of children.recordset) {
       const childQty = cantidad * child.CANTIDAD;
+      await assertStockDisponible(tx, child.PRODUCTO_ID_HIJO, child.DEPOSITO_ID, childQty, {
+        operacion: 'REMITO', referenciaId, referenciaDetalle: detalle,
+      });
       const prevStock = await getCurrentStock(tx, child.PRODUCTO_ID_HIJO, child.DEPOSITO_ID);
       await tx.request()
         .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
@@ -246,6 +250,9 @@ async function decrementarStock(
     }
     if (descuentaStock) {
       if (depositoId) {
+        await assertStockDisponible(tx, productoId, depositoId, cantidad, {
+          operacion: 'REMITO', referenciaId, referenciaDetalle: detalle,
+        });
         const prevStock = await getCurrentStock(tx, productoId, depositoId);
         await tx.request()
           .input('prodId', sql.Int, productoId)
@@ -265,6 +272,9 @@ async function decrementarStock(
         .query(`UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @prodId`);
     }
   } else if (descuentaStock) {
+    await assertStockDisponible(tx, productoId, depositoId, cantidad, {
+      operacion: 'REMITO', referenciaId, referenciaDetalle: detalle,
+    });
     if (depositoId) {
       const prevStock = await getCurrentStock(tx, productoId, depositoId);
       await tx.request()
@@ -854,7 +864,7 @@ export const remitosService = {
         ISNULL(p.PRECIO_COMPRA, 0) AS PRECIO_COMPRA,
         ISNULL((SELECT TOP 1 plp.PRECIO FROM PRODUCTO_LISTA_PRECIOS plp WHERE plp.PRODUCTO_ID = p.PRODUCTO_ID AND plp.LISTA_ID = ISNULL(p.LISTA_DEFECTO, 1)), 0) AS PRECIO_VENTA,
         p.CANTIDAD AS STOCK,
-        p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, p.ACTIVO,
+        p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, ISNULL(p.PERMITE_STOCK_NEGATIVO, 0) AS PERMITE_STOCK_NEGATIVO, p.ACTIVO,
         p.UNIDAD_ID,
         ISNULL(u.NOMBRE, '') AS UNIDAD_NOMBRE,
         ISNULL(u.ABREVIACION, 'u') AS UNIDAD_ABREVIACION
@@ -893,6 +903,7 @@ export const remitosService = {
     const req = pool.request();
     const searchState = buildAdvancedProductSearch(req, params);
     const conditions = searchState.conditions;
+    const orConditions = searchState.orConditions;
     let joinMarca = searchState.joinMarca;
     let joinCategoria = searchState.joinCategoria;
     let joinCodBarras = searchState.joinCodBarras;
@@ -905,9 +916,19 @@ export const remitosService = {
       conditions.push('ISNULL(p.CANTIDAD, 0) > 0');
     }
 
-    const whereClause = conditions.length > 0
-      ? 'WHERE ' + conditions.join(' AND ')
+    const andClause = conditions.length > 0
+      ? conditions.join(' AND ')
       : '';
+    const orClause = orConditions.length > 0
+      ? '(' + orConditions.join(' AND ') + ')'
+      : '';
+    const whereClause = (andClause && orClause)
+      ? 'WHERE ' + orClause + ' AND ' + andClause
+      : andClause
+        ? 'WHERE ' + andClause
+        : orClause
+          ? 'WHERE ' + orClause
+          : '';
 
     req.input('limit', sql.Int, limit);
 
@@ -927,7 +948,7 @@ export const remitosService = {
           END AS PRECIO_COMPRA,
           ISNULL((SELECT TOP 1 plp.PRECIO FROM PRODUCTO_LISTA_PRECIOS plp WHERE plp.PRODUCTO_ID = p.PRODUCTO_ID AND plp.LISTA_ID = ISNULL(p.LISTA_DEFECTO, 1)), 0) AS PRECIO_VENTA,
           p.CANTIDAD AS STOCK,
-          p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK,
+          p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, ISNULL(p.PERMITE_STOCK_NEGATIVO, 0) AS PERMITE_STOCK_NEGATIVO,
           ISNULL(p.IMP_INT, 0) AS IMP_INT,
           p.TASA_IVA_ID, p.UNIDAD_ID,
           ISNULL(u.NOMBRE, '') AS UNIDAD_NOMBRE,
@@ -941,7 +962,6 @@ export const remitosService = {
         ${joinMarcaSql}
         ${whereClause}
         ORDER BY p.NOMBRE
-        OPTION (RECOMPILE)
       `);
 
     return result.recordset;
@@ -980,7 +1000,7 @@ export const remitosService = {
                p.CANTIDAD AS STOCK,
                p.PRECIO_COMPRA,
                ISNULL((SELECT TOP 1 plp.PRECIO FROM PRODUCTO_LISTA_PRECIOS plp WHERE plp.PRODUCTO_ID = p.PRODUCTO_ID AND plp.LISTA_ID = ISNULL(p.LISTA_DEFECTO, 1)), 0) AS PRECIO_VENTA,
-               p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK,
+               p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, ISNULL(p.PERMITE_STOCK_NEGATIVO, 0) AS PERMITE_STOCK_NEGATIVO,
                ISNULL(p.IMP_INT, 0) AS IMP_INT,
                p.TASA_IVA_ID, p.UNIDAD_ID,
                ISNULL(u.NOMBRE, '') AS UNIDAD_NOMBRE,

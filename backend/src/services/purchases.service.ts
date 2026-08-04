@@ -1,8 +1,10 @@
 import { getPool, sql } from '../database/connection.js';
 import type { Compra, CompraItem, PaginatedResult } from '../types/index.js';
 import { registrarHistorialStock, getCurrentStock, insertStockDeposito } from './stockHistorial.helper.js';
+import { assertStockDisponible } from './stockValidator.helper.js';
 import { marcarChequesEgresados, revertirEgresoCheques } from './cheques.service.js';
 import { buildAdvancedProductSearch } from './productSearch.helper.js';
+import { normalizarTipoMargen, validateMargenPorTipo } from '../utils/pricing.js';
 
 // ═══════════════════════════════════════════════════
 //  Purchases Service — Full CRUD + Stock/Cost Update
@@ -234,10 +236,15 @@ async function derivarCategoriasCompra(
 async function getCajaAbiertaTx(
   tx: any,
   usuarioId: number
-): Promise<{ CAJA_ID: number; PUNTO_VENTA_ID: number | null } | null> {
+): Promise<{ CAJA_ID: number; SESION_ID: number; PUNTO_VENTA_ID: number | null } | null> {
   const result = await tx.request()
     .input('uid', sql.Int, usuarioId)
-    .query(`SELECT CAJA_ID, PUNTO_VENTA_ID FROM CAJA WHERE USUARIO_ID = @uid AND ESTADO = 'ACTIVA'`);
+    .query(`
+      SELECT cs.SESION_ID, cs.CAJA_ID, c.PUNTO_VENTA_ID
+      FROM CAJA_SESIONES cs
+      INNER JOIN CAJA c ON c.CAJA_ID = cs.CAJA_ID
+      WHERE cs.USUARIO_ID = @uid AND cs.ESTADO = 'ACTIVA'
+    `);
   return result.recordset.length > 0 ? result.recordset[0] : null;
 }
 
@@ -395,6 +402,9 @@ async function decrementarStock(
 
     for (const child of children.recordset) {
       const childQty = cantidad * child.CANTIDAD;
+      await assertStockDisponible(tx, child.PRODUCTO_ID_HIJO, child.DEPOSITO_ID, childQty, {
+        operacion: 'COMPRA', referenciaId, referenciaDetalle: `Anulación Compra #${referenciaId || ''}`,
+      });
       const prevStock = await getCurrentStock(tx, child.PRODUCTO_ID_HIJO, child.DEPOSITO_ID);
       const childExistsD = await tx.request()
         .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
@@ -423,6 +433,9 @@ async function decrementarStock(
 
     if (descuentaStock) {
       if (depositoId) {
+        await assertStockDisponible(tx, productoId, depositoId, cantidad, {
+          operacion: 'COMPRA', referenciaId, referenciaDetalle: `Anulación Compra #${referenciaId || ''}`,
+        });
         const prevStock = await getCurrentStock(tx, productoId, depositoId);
         const parentExistsD = await tx.request()
           .input('prodId', sql.Int, productoId)
@@ -450,6 +463,9 @@ async function decrementarStock(
         .query(`UPDATE PRODUCTOS SET CANTIDAD = CANTIDAD - @cant WHERE PRODUCTO_ID = @prodId`);
     }
   } else if (descuentaStock) {
+    await assertStockDisponible(tx, productoId, depositoId, cantidad, {
+      operacion: 'COMPRA', referenciaId, referenciaDetalle: `Anulación Compra #${referenciaId || ''}`,
+    });
     if (depositoId) {
       const prevStock = await getCurrentStock(tx, productoId, depositoId);
       const depExistsD = await tx.request()
@@ -588,9 +604,10 @@ async function actualizarPreciosVenta(
   productoId: number,
   _costoBase: number
 ) {
-  // Get product margins from LISTA_PRECIOS
+  // Get product margins and TIPO_MARGEN from LISTA_PRECIOS
   const listasResult = await tx.request()
-    .query(`SELECT LISTA_ID, MARGEN FROM LISTA_PRECIOS WHERE ACTIVA = 1 ORDER BY LISTA_ID`);
+    .query(`SELECT LISTA_ID, MARGEN, ISNULL(TIPO_MARGEN, 'M') AS TIPO_MARGEN
+            FROM LISTA_PRECIOS WHERE ACTIVA = 1 ORDER BY LISTA_ID`);
 
   // Get PRECIO_COMPRA + check if product has individual margins
   const prodInfo = await tx.request()
@@ -604,8 +621,27 @@ async function actualizarPreciosVenta(
   const costoConImp = prodInfo.recordset[0]?.PRECIO_COMPRA || 0;
   if (costoConImp <= 0) return;
 
+  // Helper local: dado tipo y margen calcula el precio (redondeado a 2 dec).
+  // Refleja normalizarTipoMargen + precioFromMargen en SQL.
+  const calcPrecio = (costo: number, margen: number, tipo: string): number => {
+    if (costo <= 0 || !Number.isFinite(margen)) return 0;
+    if (tipo === 'U') {
+      if (margen >= 100) return 0; // margen inválido para Utilidad
+      return costo / (1 - margen / 100);
+    }
+    return costo * (1 + margen / 100);
+  };
+
   if (margenIndividual) {
-    // Use márgenes individuales desde PRODUCTO_LISTA_PRECIOS.MARGEN_INDIVIDUAL
+    // Use márgenes individuales desde PRODUCTO_LISTA_PRECIOS.MARGEN_INDIVIDUAL.
+    // El valor está guardado en la "moneda" de la lista (Markup o Utilidad),
+    // así que necesitamos el TIPO_MARGEN de cada lista para aplicar la fórmula
+    // correcta.
+    const tipoByLista = new Map<number, string>();
+    for (const l of listasResult.recordset) {
+      tipoByLista.set(l.LISTA_ID, normalizarTipoMargen(l.TIPO_MARGEN));
+    }
+
     const margenes = await tx.request()
       .input('pid', sql.Int, productoId)
       .query(`
@@ -616,7 +652,8 @@ async function actualizarPreciosVenta(
 
     for (const row of margenes.recordset as { LISTA_ID: number; MARGEN_INDIVIDUAL: number }[]) {
       const margen = row.MARGEN_INDIVIDUAL || 0;
-      const precio = r2(costoConImp * (1 + margen / 100));
+      const tipo = tipoByLista.get(row.LISTA_ID) ?? 'M';
+      const precio = r2(calcPrecio(costoConImp, margen, tipo));
       if (precio > 0) {
         await tx.request()
           .input('pid', sql.Int, productoId)
@@ -636,29 +673,29 @@ async function actualizarPreciosVenta(
       }
     }
   } else {
-    // Use márgenes globales de cada lista (LISTA_PRECIOS.MARGEN).
-    // Para bulk insert de precios en PRODUCTO_LISTA_PRECIOS no seteamos
-    // MARGEN_INDIVIDUAL porque estos precios respetan el margen default.
+    // Use márgenes globales de cada lista (LISTA_PRECIOS.MARGEN) respetando su
+    // TIPO_MARGEN. Iteramos TODAS las listas activas (sin restricción 1..5).
+    // Para bulk insert no seteamos MARGEN_INDIVIDUAL: estos precios respetan
+    // el margen default.
     for (const lista of listasResult.recordset) {
       const listaId = lista.LISTA_ID;
-      if (listaId >= 1 && listaId <= 5) {
-        const margen = lista.MARGEN || 0;
-        const precio = r2(costoConImp * (1 + margen / 100));
-        if (precio > 0) {
-          await tx.request()
-            .input('pid', sql.Int, productoId)
-            .input('listaId', sql.Int, listaId)
-            .input('precio', sql.Decimal(18, 4), precio)
-            .query(`
-              MERGE PRODUCTO_LISTA_PRECIOS AS target
-              USING (SELECT @pid AS PRODUCTO_ID, @listaId AS LISTA_ID, @precio AS PRECIO) AS src
-              ON target.PRODUCTO_ID = src.PRODUCTO_ID AND target.LISTA_ID = src.LISTA_ID
-              WHEN MATCHED THEN
-                UPDATE SET PRECIO = src.PRECIO, FECHA_ACTUALIZACION = GETDATE()
-              WHEN NOT MATCHED THEN
-                INSERT (PRODUCTO_ID, LISTA_ID, PRECIO) VALUES (src.PRODUCTO_ID, src.LISTA_ID, src.PRECIO);
-            `);
-        }
+      const margen = lista.MARGEN || 0;
+      const tipo = normalizarTipoMargen(lista.TIPO_MARGEN);
+      const precio = r2(calcPrecio(costoConImp, margen, tipo));
+      if (precio > 0) {
+        await tx.request()
+          .input('pid', sql.Int, productoId)
+          .input('listaId', sql.Int, listaId)
+          .input('precio', sql.Decimal(18, 4), precio)
+          .query(`
+            MERGE PRODUCTO_LISTA_PRECIOS AS target
+            USING (SELECT @pid AS PRODUCTO_ID, @listaId AS LISTA_ID, @precio AS PRECIO) AS src
+            ON target.PRODUCTO_ID = src.PRODUCTO_ID AND target.LISTA_ID = src.LISTA_ID
+            WHEN MATCHED THEN
+              UPDATE SET PRECIO = src.PRECIO, FECHA_ACTUALIZACION = GETDATE()
+            WHEN NOT MATCHED THEN
+              INSERT (PRODUCTO_ID, LISTA_ID, PRECIO) VALUES (src.PRODUCTO_ID, src.LISTA_ID, src.PRECIO);
+          `);
       }
     }
   }
@@ -908,8 +945,10 @@ export const purchasesService = {
       const percIVA = input.PERCEPCION_IVA || 0;
       const percIIBB = input.PERCEPCION_IIBB || 0;
 
-      // Use manual IVA total if provided (Factura A)
-      if (input.IVA_TOTAL !== undefined && input.IVA_TOTAL !== null) {
+      // Use manual IVA total if provided (only valid for comprobantes que discriminan IVA).
+      // Para comprobantes no-FA (FB, FC, X, etc.) el IVA_TOTAL del front se ignora
+      // para evitar que se sume IVA como si fuera Factura A.
+      if (discriminaIva && input.IVA_TOTAL !== undefined && input.IVA_TOTAL !== null) {
         ivaTotal = input.IVA_TOTAL;
       }
 
@@ -1217,6 +1256,7 @@ export const purchasesService = {
               );
             }
             await tx.request()
+              .input('sesionId', sql.Int, caja.SESION_ID)
               .input('cajaId', sql.Int, caja.CAJA_ID)
               .input('fecha', sql.DateTime, fechaCompra)
               .input('origenTipo', sql.VarChar(30), 'COMPRA')
@@ -1226,9 +1266,9 @@ export const purchasesService = {
               .input('desc', sql.NVarChar(255), descEgreso)
               .input('uid', sql.Int, usuarioId)
               .query(`
-                INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
+                INSERT INTO CAJA_ITEMS (SESION_ID, CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
                   MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
-                VALUES (@cajaId, @fecha, @origenTipo, @origenId,
+                VALUES (@sesionId, @cajaId, @fecha, @origenTipo, @origenId,
                   @efectivo, @digital, @desc, @uid)
               `);
             // Cheques son instrumento de caja central — registrar el egreso allí.
@@ -1400,6 +1440,9 @@ export const purchasesService = {
         .query(`DELETE FROM COMPRAS_METODOS_PAGO WHERE COMPRA_ID = @compraId`);
 
       // ── 4. Calculate new totals ──
+      // Solo los comprobantes FA discriminan IVA; el resto (FB, FC, X, etc.) no llevan IVA.
+      const discriminaIva = (input.TIPO_COMPROBANTE || 'FB') === 'FA';
+
       let netoTotal = 0;
       let ivaTotal = 0;
       let impInternoTotal = 0;
@@ -1417,7 +1460,7 @@ export const purchasesService = {
           bonifTotal += (item.PRECIO_COMPRA - precioNeto) * item.CANTIDAD;
         }
 
-        const ivaAli = item.IVA_ALICUOTA || 0;
+        const ivaAli = discriminaIva ? (item.IVA_ALICUOTA || 0) : 0;
         ivaTotal += lineNeto * ivaAli;
         impInternoTotal += (item.IMP_INTERNOS || 0) * item.CANTIDAD;
       }
@@ -1426,8 +1469,10 @@ export const purchasesService = {
       const percIIBB = input.PERCEPCION_IIBB || 0;
       const dtoGral = input.DTO_GRAL || 0;
 
-      // Use manual IVA total if provided (Factura A)
-      if (input.IVA_TOTAL !== undefined && input.IVA_TOTAL !== null) {
+      // Use manual IVA total if provided (only valid for comprobantes que discriminan IVA).
+      // Para comprobantes no-FA (FB, FC, X, etc.) el IVA_TOTAL del front se ignora
+      // para evitar que se sume IVA como si fuera Factura A.
+      if (discriminaIva && input.IVA_TOTAL !== undefined && input.IVA_TOTAL !== null) {
         ivaTotal = input.IVA_TOTAL;
       }
 
@@ -1658,6 +1703,7 @@ export const purchasesService = {
               );
             }
             await tx.request()
+              .input('sesionId', sql.Int, caja.SESION_ID)
               .input('cajaId', sql.Int, caja.CAJA_ID)
               .input('fecha', sql.DateTime, fechaCompra)
               .input('origenTipo', sql.VarChar(30), 'COMPRA')
@@ -1667,9 +1713,9 @@ export const purchasesService = {
               .input('desc', sql.NVarChar(255), descEgresoUpd)
               .input('uid', sql.Int, usuarioId)
               .query(`
-                INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
+                INSERT INTO CAJA_ITEMS (SESION_ID, CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
                   MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
-                VALUES (@cajaId, @fecha, @origenTipo, @origenId,
+                VALUES (@sesionId, @cajaId, @fecha, @origenTipo, @origenId,
                   @efectivo, @digital, @desc, @uid)
               `);
             if (montoChequesEgresados > 0) {
@@ -1921,7 +1967,7 @@ export const purchasesService = {
             ELSE ISNULL(p.PRECIO_COMPRA, 0)
           END AS PRECIO_COMPRA,
           p.CANTIDAD AS STOCK,
-          p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, p.ACTIVO,
+          p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, ISNULL(p.PERMITE_STOCK_NEGATIVO, 0) AS PERMITE_STOCK_NEGATIVO, p.ACTIVO,
           ISNULL(p.IMP_INT, 0) AS IMP_INT,
           p.TASA_IVA_ID, p.UNIDAD_ID,
           ISNULL(u.NOMBRE, '') AS UNIDAD_NOMBRE,
@@ -1963,6 +2009,7 @@ export const purchasesService = {
     const req = pool.request();
     const searchState = buildAdvancedProductSearch(req, params);
     const conditions = searchState.conditions;
+    const orConditions = searchState.orConditions;
     let joinMarca = searchState.joinMarca;
     let joinCategoria = searchState.joinCategoria;
     let joinCodBarras = searchState.joinCodBarras;
@@ -1975,9 +2022,19 @@ export const purchasesService = {
       conditions.push('ISNULL(p.CANTIDAD, 0) > 0');
     }
 
-    const whereClause = conditions.length > 0
-      ? 'WHERE ' + conditions.join(' AND ')
+    const andClause = conditions.length > 0
+      ? conditions.join(' AND ')
       : '';
+    const orClause = orConditions.length > 0
+      ? '(' + orConditions.join(' AND ') + ')'
+      : '';
+    const whereClause = (andClause && orClause)
+      ? 'WHERE ' + orClause + ' AND ' + andClause
+      : andClause
+        ? 'WHERE ' + andClause
+        : orClause
+          ? 'WHERE ' + orClause
+          : '';
 
     req.input('limit', sql.Int, limit);
 
@@ -1996,7 +2053,7 @@ export const purchasesService = {
             ELSE ISNULL(p.PRECIO_COMPRA, 0)
           END AS PRECIO_COMPRA,
           p.CANTIDAD AS STOCK,
-          p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK,
+          p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, ISNULL(p.PERMITE_STOCK_NEGATIVO, 0) AS PERMITE_STOCK_NEGATIVO,
           ISNULL(p.IMP_INT, 0) AS IMP_INT,
           p.TASA_IVA_ID, p.UNIDAD_ID,
           ISNULL(u.NOMBRE, '') AS UNIDAD_NOMBRE,
@@ -2010,7 +2067,6 @@ export const purchasesService = {
         ${joinMarcaSql}
         ${whereClause}
         ORDER BY p.NOMBRE
-        OPTION (RECOMPILE)
       `);
 
     return result.recordset;
@@ -2110,14 +2166,17 @@ export const purchasesService = {
         ORDER BY p.NOMBRE
       `);
 
-    // 4. Get list names and global margins (sin restricción 1-5)
+    // 4. Get list names, margins y TIPO_MARGEN (sin restricción 1-5)
     const listasResult = await pool.request()
-      .query(`SELECT LISTA_ID, NOMBRE, MARGEN FROM LISTA_PRECIOS ORDER BY LISTA_ID`);
+      .query(`SELECT LISTA_ID, NOMBRE, MARGEN, ISNULL(TIPO_MARGEN, 'M') AS TIPO_MARGEN
+              FROM LISTA_PRECIOS ORDER BY LISTA_ID`);
     const listNames: Record<number, string> = {};
     const listMargins: Record<number, number> = {};
+    const listTypes: Record<number, 'M' | 'U'> = {};
     for (const lista of listasResult.recordset) {
       listNames[lista.LISTA_ID] = lista.NOMBRE;
       listMargins[lista.LISTA_ID] = lista.MARGEN || 0;
+      listTypes[lista.LISTA_ID] = normalizarTipoMargen(lista.TIPO_MARGEN);
     }
 
     // Deserializar PRECIOS_JSON → precios[]
@@ -2134,6 +2193,7 @@ export const purchasesService = {
       products,
       listNames,
       listMargins,
+      listTypes,
       preciosSinIva: !!compra.PRECIOS_SIN_IVA,
       impIntGravaIva: !!compra.IMP_INT_GRAVA_IVA,
     };

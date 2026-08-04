@@ -3,9 +3,29 @@ import type { MovimientoCaja } from '../types/index.js';
 
 // ═══════════════════════════════════════════════════
 //  Caja Central (Central Cash) Service
+//
+//  POST-MIGRACIÓN: sin Fondo de Cambio. Los tipos internos que se
+//  excluyen del balance operativo son: transferencias CC↔Caja,
+//  aporte de apertura, depósito por cierre.
 // ═══════════════════════════════════════════════════
 
-const FC_TYPES_SQL = `('TRANSFERENCIA_FC', 'REINTEGRO_FONDO', 'DEPOSITO_FONDO')`;
+// `DEPOSITO_CIERRE` NO se incluye como interno: representa el movimiento
+// real de efectivo desde la caja hacia Caja Central al cerrar la sesión y
+// debe impactar el balance (igual que la versión anterior con `CIERRE_CAJA`).
+// `DEPOSITO_FONDO` y `REINTEGRO_FONDO` SÍ se incluyen: son los movimientos
+// legacy de Fondo de Cambio con TOTAL=0 que sólo trasladan saldo dentro de CC
+// y no deben aparecer como ingresos/egresos operativos en la grilla.
+// `TRANSFERENCIA_FC` también se excluye: son ajustes de reconciliación con
+// TOTAL=0 cuyo EFECTIVO se reparte entre los métodos. Esto mantiene la
+// simetría: BALANCE = suma de métodos (sin doble conteo).
+const INTERNAL_TYPES_SQL = `('TRANSFERENCIA_CC', 'TRANSFERENCIA_FC', 'APERTURA_CAJA', 'DEPOSITO_FONDO', 'REINTEGRO_FONDO')`;
+
+// `DEPOSITO_CIERRE` se clasifica siempre como INGRESO: es el reporte del
+// impacto neto de una sesión de caja sobre CC. Su TOTAL puede ser negativo
+// (cuando los egresos superan a ventas + aporte) — en ese caso aparece como
+// "ingreso negativo", pero no es un egreso manual. La idea es que CC siempre
+// reciba los registros de los métodos de pago que vienen desde caja.
+const CIERRE_TIPO_ENTIDAD = `'DEPOSITO_CIERRE'`;
 
 export interface CajaCentralFilter {
   fechaDesde?: string;
@@ -76,33 +96,25 @@ export const cajaCentralService = {
       return req;
     };
 
-    // Operational movements feed Ingresos/Egresos. FC movements are shown apart for traceability.
-    const whereGrid = where + ` AND m.TIPO_ENTIDAD NOT IN ${FC_TYPES_SQL}`;
-    const whereFondoCambio = where + ` AND m.TIPO_ENTIDAD IN ${FC_TYPES_SQL}`;
+    // Sólo movimientos operativos (excluye transferencias internas)
+    const whereOperativos = where + ` AND m.TIPO_ENTIDAD NOT IN ${INTERNAL_TYPES_SQL}`;
 
     const result = await bind(pool.request()).query(`
       SELECT m.*, u.NOMBRE AS USUARIO_NOMBRE
       FROM MOVIMIENTOS_CAJA m
       LEFT JOIN USUARIOS u ON m.USUARIO_ID = u.USUARIO_ID
-      ${whereGrid}
+      ${whereOperativos}
       ORDER BY m.FECHA DESC
     `);
 
     const all: MovimientoCaja[] = result.recordset;
 
-    const fondoResult = await bind(pool.request()).query(`
-      SELECT m.*, u.NOMBRE AS USUARIO_NOMBRE
-      FROM MOVIMIENTOS_CAJA m
-      LEFT JOIN USUARIOS u ON m.USUARIO_ID = u.USUARIO_ID
-      ${whereFondoCambio}
-      ORDER BY m.FECHA DESC
-    `);
+    // DEPOSITO_CIERRE siempre va a INGRESOS aunque su TOTAL sea negativo
+    // (refleja el impacto neto de la sesión, no un egreso manual).
+    const ingresos = all.filter(m => m.TOTAL >= 0 || m.TIPO_ENTIDAD === 'DEPOSITO_CIERRE');
+    const egresos = all.filter(m => m.TOTAL < 0 && m.TIPO_ENTIDAD !== 'DEPOSITO_CIERRE');
 
-    // Split into income / expenses based on TOTAL sign
-    const ingresos = all.filter(m => m.TOTAL >= 0);
-    const egresos = all.filter(m => m.TOTAL < 0);
-
-    return { ingresos, egresos, fondoCambio: fondoResult.recordset };
+    return { ingresos, egresos };
   },
 
   // ── Get totals summary ─────────────────────────
@@ -133,55 +145,41 @@ export const cajaCentralService = {
       return req;
     };
 
-    // Query 1: Ingresos / Egresos / Balance / Digital / Cheques are operational.
-    // Internal FC cash movements must not alter Balance.
-    const whereOperativos = where + ` AND m.TIPO_ENTIDAD NOT IN ${FC_TYPES_SQL}`;
-    const whereFondoCambio = where + ` AND m.TIPO_ENTIDAD IN ${FC_TYPES_SQL}`;
+    // Movimientos operativos: excluye tipos internos
+    const whereOperativos = where + ` AND m.TIPO_ENTIDAD NOT IN ${INTERNAL_TYPES_SQL}`;
 
     const totalesResult = await bind(pool.request()).query(`
       SELECT
-        ISNULL(SUM(CASE WHEN TOTAL >= 0 THEN TOTAL ELSE 0 END), 0) AS totalIngresos,
-        ISNULL(SUM(CASE WHEN TOTAL < 0 THEN ABS(TOTAL) ELSE 0 END), 0) AS totalEgresos,
+        ISNULL(SUM(CASE WHEN (TOTAL >= 0 OR TIPO_ENTIDAD = ${CIERRE_TIPO_ENTIDAD}) THEN TOTAL ELSE 0 END), 0) AS totalIngresos,
+        ISNULL(SUM(CASE WHEN TOTAL < 0 AND TIPO_ENTIDAD <> ${CIERRE_TIPO_ENTIDAD} THEN ABS(TOTAL) ELSE 0 END), 0) AS totalEgresos,
         ISNULL(SUM(TOTAL), 0) AS balance,
         ISNULL(SUM(DIGITAL), 0) AS digital,
-        ISNULL(SUM(CHEQUES), 0) AS cheques
+        ISNULL(SUM(CHEQUES), 0) AS cheques,
+        ISNULL(SUM(CTA_CTE), 0) AS cta_cte
       FROM MOVIMIENTOS_CAJA m
       ${whereOperativos}
     `);
 
-    // Query 2: Efectivo operativo, excluding internal FC cash transfers.
     const efectivoResult = await bind(pool.request()).query(`
       SELECT ISNULL(SUM(EFECTIVO), 0) AS efectivo
       FROM MOVIMIENTOS_CAJA m
       ${whereOperativos}
     `);
 
-    // Query 3: FC cash movements are tracked separately for traceability.
-    const fondoCambioResult = await bind(pool.request()).query(`
-      SELECT ISNULL(SUM(EFECTIVO), 0) AS ajusteFondoCambio
-      FROM MOVIMIENTOS_CAJA m
-      ${whereFondoCambio}
-    `);
-
     const chequesResumen = await getChequesEnCarteraResumen(pool);
     const row = totalesResult.recordset[0] || {};
-    const efectivoOperativo = Number(efectivoResult.recordset[0]?.efectivo) || 0;
-    const ajusteFondoCambio = Number(fondoCambioResult.recordset[0]?.ajusteFondoCambio) || 0;
-    const efectivo = efectivoOperativo;
+    const efectivo = Number(efectivoResult.recordset[0]?.efectivo) || 0;
     const digital = Number(row.digital) || 0;
     const cheques = Number(row.cheques) || 0;
+    const ctaCte = Number(row.cta_cte) || 0;
     const balance = Number(row.balance) || 0;
-    const totalMetodos = efectivoOperativo + digital + cheques;
-    const fondoCambioSaldo = Number(await this.getSaldoFondoCambio(filter.puntoVentaIds)) || 0;
+    const totalMetodos = efectivo + digital + cheques + ctaCte;
 
     return {
       ...row,
       efectivo,
-      efectivoOperativo,
-      ajusteFondoCambio,
       totalMetodos,
       diferenciaMetodosBalance: balance - totalMetodos,
-      fondoCambioSaldo,
       ...chequesResumen,
     };
   },
@@ -200,175 +198,49 @@ export const cajaCentralService = {
       });
     }
 
-    // Ingresos / Egresos / Balance: operational only. FC cash movements are internal.
     const whereOperativos = pvFilter
-      ? pvFilter + ` AND TIPO_ENTIDAD NOT IN ${FC_TYPES_SQL}`
-      : `WHERE TIPO_ENTIDAD NOT IN ${FC_TYPES_SQL}`;
-    const whereFondoCambio = pvFilter
-      ? pvFilter + ` AND TIPO_ENTIDAD IN ${FC_TYPES_SQL}`
-      : `WHERE TIPO_ENTIDAD IN ${FC_TYPES_SQL}`;
+      ? pvFilter + ` AND TIPO_ENTIDAD NOT IN ${INTERNAL_TYPES_SQL}`
+      : `WHERE TIPO_ENTIDAD NOT IN ${INTERNAL_TYPES_SQL}`;
 
     const totalesResult = await req.query(`
       SELECT
-        ISNULL(SUM(CASE WHEN TOTAL >= 0 THEN TOTAL ELSE 0 END), 0) AS totalIngresos,
-        ISNULL(SUM(CASE WHEN TOTAL < 0 THEN ABS(TOTAL) ELSE 0 END), 0) AS totalEgresos,
+        ISNULL(SUM(CASE WHEN (TOTAL >= 0 OR TIPO_ENTIDAD = ${CIERRE_TIPO_ENTIDAD}) THEN TOTAL ELSE 0 END), 0) AS totalIngresos,
+        ISNULL(SUM(CASE WHEN TOTAL < 0 AND TIPO_ENTIDAD <> ${CIERRE_TIPO_ENTIDAD} THEN ABS(TOTAL) ELSE 0 END), 0) AS totalEgresos,
         ISNULL(SUM(TOTAL), 0) AS balance,
         ISNULL(SUM(DIGITAL), 0) AS digital,
-        ISNULL(SUM(CHEQUES), 0) AS cheques
+        ISNULL(SUM(CHEQUES), 0) AS cheques,
+        ISNULL(SUM(CTA_CTE), 0) AS cta_cte
       FROM MOVIMIENTOS_CAJA
       ${whereOperativos}
     `);
 
-    const reqEfectivoOperativo = pool.request();
-    const reqAjusteFondo = pool.request();
+    const reqEfectivo = pool.request();
     if (puntoVentaIds && puntoVentaIds.length > 0) {
       puntoVentaIds.forEach((id, i) => {
-        reqEfectivoOperativo.input(`pv${i}`, sql.Int, id);
-        reqAjusteFondo.input(`pv${i}`, sql.Int, id);
+        reqEfectivo.input(`pv${i}`, sql.Int, id);
       });
     }
-    const efectivoResult = await reqEfectivoOperativo.query(`
+    const efectivoResult = await reqEfectivo.query(`
       SELECT ISNULL(SUM(EFECTIVO), 0) AS efectivo
       FROM MOVIMIENTOS_CAJA
       ${whereOperativos}
     `);
-    const fondoCambioResult = await reqAjusteFondo.query(`
-      SELECT ISNULL(SUM(EFECTIVO), 0) AS ajusteFondoCambio
-      FROM MOVIMIENTOS_CAJA
-      ${whereFondoCambio}
-    `);
-
 
     const chequesResumen = await getChequesEnCarteraResumen(pool);
     const row = totalesResult.recordset[0] || {};
-    const efectivoOperativo = Number(efectivoResult.recordset[0]?.efectivo) || 0;
-    const ajusteFondoCambio = Number(fondoCambioResult.recordset[0]?.ajusteFondoCambio) || 0;
-    const efectivo = efectivoOperativo + ajusteFondoCambio;
+    const efectivo = Number(efectivoResult.recordset[0]?.efectivo) || 0;
     const digital = Number(row.digital) || 0;
     const cheques = Number(row.cheques) || 0;
+    const ctaCte = Number(row.cta_cte) || 0;
     const balance = Number(row.balance) || 0;
-    const totalMetodos = efectivo + digital + cheques;
-    const fondoCambioSaldo = Number(await this.getSaldoFondoCambio(puntoVentaIds)) || 0;
+    const totalMetodos = efectivo + digital + cheques + ctaCte;
 
     return {
       ...row,
       efectivo,
-      efectivoOperativo,
-      ajusteFondoCambio,
       totalMetodos,
       diferenciaMetodosBalance: balance - totalMetodos,
-      fondoCambioSaldo,
       ...chequesResumen,
-    };
-  },
-
-  // ── Get fondo de cambio saldo ──────────────────
-  async getSaldoFondoCambio(puntoVentaIds?: number[]) {
-    const pool = await getPool();
-    const req = pool.request();
-
-    if (puntoVentaIds && puntoVentaIds.length > 0) {
-      // Get sum of latest saldo per punto_venta
-      const pvPlaceholders = puntoVentaIds.map((_, i) => `@pv${i}`).join(', ');
-      puntoVentaIds.forEach((id, i) => {
-        req.input(`pv${i}`, sql.Int, id);
-      });
-
-      const result = await req.query(`
-        SELECT ISNULL(SUM(saldo), 0) AS saldo FROM (
-          SELECT fc.PUNTO_VENTA_ID, fc.SALDO_RESULTANTE AS saldo
-          FROM FONDO_CAMBIO fc
-          INNER JOIN (
-            SELECT PUNTO_VENTA_ID, MAX(ID) AS MAX_ID
-            FROM FONDO_CAMBIO
-            WHERE PUNTO_VENTA_ID IN (${pvPlaceholders})
-            GROUP BY PUNTO_VENTA_ID
-          ) latest ON fc.ID = latest.MAX_ID
-        ) t
-      `);
-      return result.recordset[0].saldo;
-    }
-
-    // Global saldo
-    const result = await req.query(`
-      SELECT TOP 1 SALDO_RESULTANTE AS saldo 
-      FROM FONDO_CAMBIO 
-      ORDER BY ID DESC
-    `);
-    return result.recordset.length > 0 ? result.recordset[0].saldo : 0;
-  },
-
-  // ── Get CIERRE_CAJA detail for Caja Central ───
-  async getDetalleCierreCaja(cajaId: number) {
-    const pool = await getPool();
-
-    const cajaResult = await pool.request()
-      .input('cajaId', sql.Int, cajaId)
-      .query(`
-        SELECT c.*,
-          u.NOMBRE AS USUARIO_NOMBRE,
-          pv.NOMBRE AS PUNTO_VENTA_NOMBRE
-        FROM CAJA c
-        LEFT JOIN USUARIOS u ON c.USUARIO_ID = u.USUARIO_ID
-        LEFT JOIN PUNTO_VENTAS pv ON c.PUNTO_VENTA_ID = pv.PUNTO_VENTA_ID
-        WHERE c.CAJA_ID = @cajaId
-      `);
-
-    if (cajaResult.recordset.length === 0) {
-      throw new ValidationError('Caja no encontrada');
-    }
-
-    const itemsResult = await pool.request()
-      .input('cajaId', sql.Int, cajaId)
-      .query(`
-        SELECT
-          ISNULL(SUM(CASE WHEN ORIGEN_TIPO = 'FONDO_CAMBIO' AND MONTO_EFECTIVO > 0 THEN MONTO_EFECTIVO ELSE 0 END), 0) AS fondoInicial,
-          ISNULL(SUM(CASE WHEN ORIGEN_TIPO <> 'FONDO_CAMBIO' THEN MONTO_EFECTIVO ELSE 0 END), 0) AS efectivoReal,
-          ISNULL(SUM(MONTO_EFECTIVO), 0) AS efectivoTotal,
-          ISNULL(SUM(MONTO_DIGITAL), 0) AS digital,
-          COUNT(CASE WHEN ORIGEN_TIPO <> 'FONDO_CAMBIO' THEN 1 END) AS cantidadItems
-        FROM CAJA_ITEMS
-        WHERE CAJA_ID = @cajaId
-      `);
-
-    const movimientosResult = await pool.request()
-      .input('cajaId', sql.Int, cajaId)
-      .query(`
-        SELECT m.*, u.NOMBRE AS USUARIO_NOMBRE
-        FROM MOVIMIENTOS_CAJA m
-        LEFT JOIN USUARIOS u ON m.USUARIO_ID = u.USUARIO_ID
-        WHERE m.CAJA_ID = @cajaId
-          AND m.TIPO_ENTIDAD IN ('CIERRE_CAJA', 'REINTEGRO_FONDO', 'DEPOSITO_FONDO', 'TRANSFERENCIA_FC')
-        ORDER BY m.FECHA ASC, m.ID ASC
-      `);
-
-    const totales = itemsResult.recordset[0] || {};
-    const movimientos: MovimientoCaja[] = movimientosResult.recordset;
-    const cierre = movimientos.find(movimiento => movimiento.TIPO_ENTIDAD === 'CIERRE_CAJA') || null;
-    const reintegroFondo = movimientos
-      .filter(movimiento => movimiento.TIPO_ENTIDAD === 'REINTEGRO_FONDO')
-      .reduce((sum, movimiento) => sum + (Number(movimiento.EFECTIVO) || 0), 0);
-    const depositoFondo = movimientos
-      .filter(movimiento => movimiento.TIPO_ENTIDAD === 'DEPOSITO_FONDO')
-      .reduce((sum, movimiento) => sum + Math.abs(Number(movimiento.EFECTIVO) || 0), 0);
-
-    const efectivoReal = Number(totales.efectivoReal) || 0;
-    const digital = Number(totales.digital) || 0;
-
-    return {
-      caja: cajaResult.recordset[0],
-      cierre,
-      movimientos,
-      totales: {
-        fondoInicial: Number(totales.fondoInicial) || 0,
-        efectivoReal,
-        efectivoTotal: Number(totales.efectivoTotal) || 0,
-        digital,
-        cantidadItems: Number(totales.cantidadItems) || 0,
-        totalOperativo: efectivoReal + digital,
-        reintegroFondo,
-        depositoFondo,
-      },
     };
   },
 
@@ -376,13 +248,11 @@ export const cajaCentralService = {
   async crearMovimiento(input: NuevoMovimientoInput, usuarioId: number, puntoVentaId?: number) {
     const pool = await getPool();
 
-    // Derive efectivo/digital from payment methods
     let efectivo = 0;
     let digital = 0;
     let cheques = 0;
     const metodos = input.metodos_pago || [];
     if (metodos.length > 0) {
-      // Look up categories
       const mpIds = metodos.map(m => m.METODO_PAGO_ID);
       const ph = mpIds.map((_, i) => `@mp${i}`).join(', ');
       const catReq = pool.request();
@@ -418,9 +288,7 @@ export const cajaCentralService = {
 
     const movId = result.recordset[0].ID;
 
-    // Store individual method amounts in MOVIMIENTOS_CAJA_METODOS_PAGO
     if (metodos.length > 0) {
-      // Ensure junction table exists
       await pool.request().query(`
         IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'MOVIMIENTOS_CAJA_METODOS_PAGO')
         CREATE TABLE MOVIMIENTOS_CAJA_METODOS_PAGO (
@@ -446,7 +314,6 @@ export const cajaCentralService = {
   async eliminarMovimiento(id: number) {
     const pool = await getPool();
 
-    // Check it's a manual movement
     const check = await pool.request()
       .input('id', sql.Int, id)
       .query(`SELECT ID, ES_MANUAL FROM MOVIMIENTOS_CAJA WHERE ID = @id`);
@@ -462,7 +329,6 @@ export const cajaCentralService = {
       .input('id', sql.Int, id)
       .query(`DELETE FROM MOVIMIENTOS_CAJA WHERE ID = @id`);
 
-    // Also delete method breakdown if exists
     try {
       await pool.request()
         .input('id', sql.Int, id)
@@ -476,7 +342,6 @@ export const cajaCentralService = {
   async getDesgloseMovimiento(movimientoId: number) {
     const pool = await getPool();
 
-    // Check if junction table exists and has data for this movement
     try {
       const result = await pool.request()
         .input('movId', sql.Int, movimientoId)
@@ -491,7 +356,6 @@ export const cajaCentralService = {
       if (result.recordset.length > 0) return result.recordset;
     } catch { /* table may not exist */ }
 
-    // Fallback for old movements: derive from EFECTIVO/DIGITAL columns
     const mov = await pool.request()
       .input('id', sql.Int, movimientoId)
       .query(`SELECT EFECTIVO, DIGITAL, CHEQUES FROM MOVIMIENTOS_CAJA WHERE ID = @id`);

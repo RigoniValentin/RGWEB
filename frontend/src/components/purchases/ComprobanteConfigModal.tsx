@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Modal, Input, Select, Button, DatePicker, Switch, Tooltip,
-  Tag, InputNumber, Checkbox, Space, Typography,
+  Tag, InputNumber, Checkbox, Space, Typography, Segmented,
 } from 'antd';
 import {
   ShopOutlined, FileTextOutlined, InboxOutlined,
@@ -17,8 +17,10 @@ import { usePurchaseDraftStore } from '../../store/purchaseDraftStore';
 import { fmtMoney } from '../../utils/format';
 import { notify } from '../../utils/notify';
 import { RemitoPickerModal } from './RemitoPickerModal';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 interface Props {
   open: boolean;
@@ -68,6 +70,8 @@ export function ComprobanteConfigModal({ open, onClose, onContinue, mode = 'setu
   const [remitoId, setRemitoId] = useState<number | null>(draft.remitoId);
   const [remitoSnap, setRemitoSnap] = useState<typeof draft.remitoSnap>(draft.remitoSnap);
   const [remitoPickerOpen, setRemitoPickerOpen] = useState(false);
+  /** Manual choice for Comprobante X — true=sin impuestos, false=con impuestos. */
+  const [preciosSinIvaManual, setPreciosSinIvaManual] = useState<boolean | null>(draft.preciosSinIvaManual);
 
   // ── UI state ──
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -93,6 +97,7 @@ export function ComprobanteConfigModal({ open, onClose, onContinue, mode = 'setu
       setImpIntGravaIva(draft.impIntGravaIva);
       setRemitoId(draft.remitoId);
       setRemitoSnap(draft.remitoSnap);
+      setPreciosSinIvaManual(draft.preciosSinIvaManual);
     }
   }, [open]);
 
@@ -194,14 +199,14 @@ export function ComprobanteConfigModal({ open, onClose, onContinue, mode = 'setu
       actualizarStock, actualizarCostos, actualizarPrecios,
       ivaIncluido, ivaManual,
       percepcionIva, percepcionIibb, dtoGral, impIntGravaIva,
-      remitoId, remitoSnap,
+      remitoId, remitoSnap, preciosSinIvaManual,
     });
   }, [
     open, proveedorId, depositoId, tipoComprobante, fechaCompra,
     ptoVta, nroComprobante, esCtaCorriente,
     actualizarStock, actualizarCostos, actualizarPrecios,
     ivaIncluido, ivaManual, percepcionIva, percepcionIibb, dtoGral, impIntGravaIva,
-    remitoId, remitoSnap,
+    remitoId, remitoSnap, preciosSinIvaManual,
   ]);
 
   // ── Continue handler ──
@@ -241,34 +246,19 @@ export function ComprobanteConfigModal({ open, onClose, onContinue, mode = 'setu
         centered
         destroyOnClose
         maskClosable={false}
-        closable={false}
         footer={null}
-        className="new-sale-modal"
+        className="new-sale-modal rg-modal"
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('comprobante-config')}
+            title={mode === 'edit' ? 'Editar comprobante' : 'Configuración del comprobante'}
+            subtitle={mode === 'edit'
+              ? 'Modificá los datos del comprobante de esta compra'
+              : 'Antes de cargar productos, completá los datos del comprobante'}
+          />
+        }
         styles={{ body: { padding: 0, overflow: 'hidden' } }}
       >
-        {/* ── Header (RG style) ── */}
-        <div className="nsm-header">
-          <div className="nsm-header-left">
-            <FileTextOutlined className="nsm-header-icon" />
-            <div>
-              <Title level={4} style={{ margin: 0, color: '#fff' }}>
-                {mode === 'edit' ? 'Editar comprobante' : 'Configuración del comprobante'}
-              </Title>
-              <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>
-                {mode === 'edit'
-                  ? 'Modificá los datos del comprobante de esta compra.'
-                  : 'Antes de cargar productos, completá los datos del comprobante.'}
-              </Text>
-            </div>
-          </div>
-          <Button
-            type="text"
-            onClick={onClose}
-            style={{ color: 'rgba(255,255,255,0.7)', fontSize: 22, lineHeight: 1 }}
-            icon={<CloseOutlined />}
-          />
-        </div>
-
         <div className="ccm-body">
           {/* ── Row 1: required comprobante fields ── */}
           <div className="ccm-section">
@@ -459,6 +449,27 @@ export function ComprobanteConfigModal({ open, onClose, onContinue, mode = 'setu
               </div>
             </div>
           </div>
+
+          {/* ── Comprobante X: elegir cómo se cargan los costos ── */}
+          {tipoComprobante === 'X' && (
+            <div className="ccm-field ccm-field-costos-x">
+              <label className="ccm-label">
+                <FileTextOutlined /> Cargar costos
+                <Tooltip title="Elegí si los precios de los productos que vas a cargar en la grilla son con o sin impuestos. Esto sólo aplica al cargar nuevos productos; los precios ya cargados no se modifican.">
+                  <QuestionCircleOutlined style={{ marginLeft: 4, color: '#8c8c8c', cursor: 'help' }} />
+                </Tooltip>
+              </label>
+              <Segmented
+                block
+                value={preciosSinIvaManual === false ? 'CON_IVA' : 'SIN_IVA'}
+                onChange={val => setPreciosSinIvaManual(val === 'CON_IVA' ? false : true)}
+                options={[
+                  { value: 'SIN_IVA', label: 'Sin impuestos' },
+                  { value: 'CON_IVA', label: 'Con impuestos' },
+                ]}
+              />
+            </div>
+          )}
 
           {/* ── Advanced (collapsible) ── */}
           <div className="ccm-advanced">

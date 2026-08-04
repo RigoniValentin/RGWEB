@@ -157,7 +157,7 @@ export function ExportModal<T = any>(props: ExportModalProps<T>) {
         body: { padding: 0 },
         content: { padding: 0, borderRadius: 12, overflow: 'hidden' },
       }}
-      className="rg-export-modal"
+      className="rg-export-modal rg-modal"
     >
       {/* ── Header ── */}
       <div

@@ -19,6 +19,8 @@ import type { ComandaListItem, PedidoItem } from '../types';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { notify } from '../utils/notify.ts';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 
 const { Title, Text } = Typography;
 
@@ -348,11 +350,15 @@ export function ListadoComandasPage() {
         open={!!detallePedidoId}
         onClose={() => setDetallePedidoId(null)}
         title={
-          <><EyeOutlined style={{ color: '#EABD23', marginRight: 8 }} />
-          Detalle Comanda #{detallePedidoId}</>
+          <RGCajaModalHeader
+            icon={rgIcon('comanda')}
+            title={`Detalle Comanda #${detallePedidoId}`}
+            subtitle="Información e ítems del pedido"
+          />
         }
         width={520}
         destroyOnHidden
+        className="rg-drawer rg-modal"
       >
         {loadingDetalle ? <Spin style={{ display: 'block', margin: '40px auto' }} /> :
           !pedidoDetalle ? <Empty description="No se encontró el pedido" /> : (

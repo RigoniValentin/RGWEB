@@ -1,6 +1,8 @@
 import { getPool, sql } from '../database/connection.js';
 import type { Producto, PaginatedResult } from '../types/index.js';
+import { normalizarTipoMargen, validateMargenPorTipo } from '../utils/pricing.js';
 import { registrarHistorialStock } from './stockHistorial.helper.js';
+import { assertStockNoNegativo } from './stockValidator.helper.js';
 import { webhookDispatcher } from './webhook.dispatcher.js';
 
 // ═══════════════════════════════════════════════════
@@ -44,6 +46,7 @@ export interface ProductInput {
   ES_CONJUNTO?: boolean | null;
   ES_SERVICIO?: boolean;
   DESCUENTA_STOCK?: boolean;
+  PERMITE_STOCK_NEGATIVO?: boolean;
   ACTIVO?: boolean;
   LISTA_DEFECTO?: number | null;
   FECHA_VENCIMIENTO?: string | null;
@@ -144,12 +147,17 @@ async function setMargenIndividual(
     .query(`
       DECLARE @margenReal DECIMAL(9, 4);
       DECLARE @margenDefault DECIMAL(9, 4);
+      DECLARE @tipoMargen CHAR(1);
 
-      SELECT @margenDefault = ISNULL(MARGEN, 0)
+      SELECT @margenDefault = ISNULL(MARGEN, 0),
+             @tipoMargen = ISNULL(TIPO_MARGEN, 'M')
       FROM LISTA_PRECIOS
       WHERE LISTA_ID = @listaId;
 
-      SET @margenReal = ROUND(((@precio / @precioCompra) - 1) * 100, 4);
+      IF @tipoMargen = 'U'
+          SET @margenReal = ROUND((1 - (@precioCompra / @precio)) * 100, 4);
+      ELSE
+          SET @margenReal = ROUND(((@precio / @precioCompra) - 1) * 100, 4);
 
       UPDATE PRODUCTO_LISTA_PRECIOS
       SET MARGEN_INDIVIDUAL = CASE
@@ -257,7 +265,7 @@ export const productService = {
             p.CATEGORIA_ID, p.PRECIO_COMPRA, p.MARCA_ID,
             p.STOCK_MINIMO, p.UNIDAD_ID, p.ACTIVO,
             p.LISTA_DEFECTO, p.COSTO_USD, p.TASA_IVA_ID,
-            p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, p.PRECIO_COMPRA_BASE, p.IMP_INT,
+            p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, ISNULL(p.PERMITE_STOCK_NEGATIVO, 0) AS PERMITE_STOCK_NEGATIVO, p.PRECIO_COMPRA_BASE, p.IMP_INT,
             p.FECHA_VENCIMIENTO, p.MARGEN_INDIVIDUAL,
             ISNULL(p.VENTA_WEB, 0) AS VENTA_WEB,
             (SELECT TOP 1 NOMBRE FROM CATEGORIAS WHERE CATEGORIA_ID = p.CATEGORIA_ID) AS CATEGORIA_NOMBRE,
@@ -396,6 +404,7 @@ export const productService = {
         .input('esConjunto', sql.Bit, input.ES_CONJUNTO ? 1 : 0)
         .input('esServicio', sql.Bit, input.ES_SERVICIO ? 1 : 0)
         .input('descuentaStock', sql.Bit, input.ES_SERVICIO ? 0 : (input.DESCUENTA_STOCK !== false ? 1 : 0))
+        .input('permiteStockNeg', sql.Bit, input.ES_SERVICIO ? 0 : (input.PERMITE_STOCK_NEGATIVO === true ? 1 : 0))
         .input('activo', sql.Bit, input.ACTIVO !== false ? 1 : 0)
         .input('listaDefecto', sql.Int, input.LISTA_DEFECTO || null)
         .input('fechaVenc', sql.Date, input.FECHA_VENCIMIENTO || null)
@@ -405,13 +414,13 @@ export const productService = {
           INSERT INTO PRODUCTOS (
             CODIGOPARTICULAR, NOMBRE, DESCRIPCION, CATEGORIA_ID, MARCA_ID, UNIDAD_ID,
             PRECIO_COMPRA, COSTO_USD, PRECIO_COMPRA_BASE, STOCK_MINIMO, TASA_IVA_ID, IMP_INT,
-            ES_CONJUNTO, ES_SERVICIO, DESCUENTA_STOCK, ACTIVO, CANTIDAD,
+            ES_CONJUNTO, ES_SERVICIO, DESCUENTA_STOCK, PERMITE_STOCK_NEGATIVO, ACTIVO, CANTIDAD,
             LISTA_DEFECTO,
             FECHA_VENCIMIENTO, MARGEN_INDIVIDUAL, VENTA_WEB
           ) VALUES (
             @codigo, @nombre, @descripcion, @categoriaId, @marcaId, @unidadId,
             @precioCompra, @costoUsd, @precioCompraBase, @stockMinimo, @tasaIvaId, @impInt,
-            @esConjunto, @esServicio, @descuentaStock, @activo, 0,
+            @esConjunto, @esServicio, @descuentaStock, @permiteStockNeg, @activo, 0,
             @listaDefecto,
             @fechaVenc, @margenInd, @ventaWeb
           );
@@ -505,6 +514,7 @@ export const productService = {
         { column: 'ES_CONJUNTO', param: 'esConjunto', type: sql.Bit, value: input.ES_CONJUNTO ? 1 : 0, key: 'ES_CONJUNTO' },
         { column: 'ES_SERVICIO', param: 'esServicio', type: sql.Bit, value: input.ES_SERVICIO ? 1 : 0, key: 'ES_SERVICIO' },
         { column: 'DESCUENTA_STOCK', param: 'descuentaStock', type: sql.Bit, value: input.ES_SERVICIO ? 0 : (input.DESCUENTA_STOCK !== false ? 1 : 0), key: 'DESCUENTA_STOCK' },
+        { column: 'PERMITE_STOCK_NEGATIVO', param: 'permiteStockNeg', type: sql.Bit, value: input.ES_SERVICIO ? 0 : (input.PERMITE_STOCK_NEGATIVO === true ? 1 : 0), key: 'PERMITE_STOCK_NEGATIVO' },
         { column: 'ACTIVO', param: 'activo', type: sql.Bit, value: input.ACTIVO !== false ? 1 : 0, key: 'ACTIVO' },
         { column: 'LISTA_DEFECTO', param: 'listaDefecto', type: sql.Int, value: input.LISTA_DEFECTO || null, key: 'LISTA_DEFECTO' },
         { column: 'FECHA_VENCIMIENTO', param: 'fechaVenc', type: sql.Date, value: input.FECHA_VENCIMIENTO || null, key: 'FECHA_VENCIMIENTO' },
@@ -553,6 +563,14 @@ export const productService = {
         const oldStockMap = new Map<number, number>();
         for (const row of oldStockRows.recordset) {
           oldStockMap.set(row.DEPOSITO_ID, parseFloat(row.CANTIDAD));
+        }
+
+        // Validar que ningún depósito quede con stock negativo si el producto no lo permite
+        for (const dep of (input.depositos || [])) {
+          await assertStockNoNegativo(tx, id, dep.DEPOSITO_ID, dep.CANTIDAD, {
+            operacion: 'AJUSTE_MANUAL',
+            referenciaDetalle: `Edición de stock por depósito (depósito ${dep.DEPOSITO_ID})`,
+          });
         }
 
         await tx.request().input('id', sql.Int, id).query(`DELETE FROM STOCK_DEPOSITOS WHERE PRODUCTO_ID = @id`);
@@ -652,12 +670,17 @@ export const productService = {
     const allowedSimple: Record<string, any> = {
       CODIGOPARTICULAR: sql.NVarChar, NOMBRE: sql.NVarChar,
       PRECIO_COMPRA: sql.Decimal(18, 4),
+      PERMITE_STOCK_NEGATIVO: sql.Bit,
     };
     const simpleColType = allowedSimple[input.campo];
     if (simpleColType) {
+      let val = input.valor;
+      if (input.campo === 'PERMITE_STOCK_NEGATIVO') {
+        val = val === true || val === 'true' || val === 1 || val === '1' ? 1 : 0;
+      }
       await pool.request()
         .input('id', sql.Int, input.PRODUCTO_ID)
-        .input('val', simpleColType, input.valor)
+        .input('val', simpleColType, val)
         .query(`UPDATE PRODUCTOS SET ${input.campo} = @val WHERE PRODUCTO_ID = @id`);
 
       if (input.campo === 'NOMBRE') {
@@ -734,6 +757,14 @@ export const productService = {
       return { affected };
     }
 
+    if (campo === 'PERMITE_STOCK_NEGATIVO') {
+      const boolVal = valor ? 1 : 0;
+      const req = pool.request().input('val', sql.Bit, boolVal);
+      productoIds.forEach((pid, i) => req.input(`id${i}`, sql.Int, pid));
+      const result = await req.query(`UPDATE PRODUCTOS SET PERMITE_STOCK_NEGATIVO = @val WHERE PRODUCTO_ID IN (${idList})`);
+      return { affected: result.rowsAffected[0] };
+    }
+
     throw Object.assign(new Error(`Campo no válido: ${campo}`), { name: 'ValidationError' });
   },
 
@@ -763,11 +794,27 @@ export const productService = {
     return { deleted, deactivated };
   },
 
-  // Genera precios en PRODUCTO_LISTA_PRECIOS a partir del costo × margen
+  // Genera precios en PRODUCTO_LISTA_PRECIOS a partir del costo y el margen
+  // respetando el TIPO_MARGEN ('M' Markup / 'U' Utilidad) de la lista destino.
   async bulkGeneratePrices(input: BulkPriceInput) {
     const pool = await getPool();
     const { productoIds, listaId, margen, fuente, redondeo } = input;
     if (listaId < 1) throw new Error('Lista inválida');
+
+    // Leer TIPO_MARGEN de la lista destino para elegir la fórmula.
+    const listaRes = await pool.request()
+      .input('lid', sql.Int, listaId)
+      .query<{ TIPO_MARGEN: string }>(`SELECT TIPO_MARGEN FROM LISTA_PRECIOS WHERE LISTA_ID = @lid`);
+    if (listaRes.recordset.length === 0) {
+      throw Object.assign(new Error('Lista no encontrada'), { name: 'ValidationError' });
+    }
+    const tipoMargen = normalizarTipoMargen(listaRes.recordset[0].TIPO_MARGEN);
+    try {
+      validateMargenPorTipo(margen, tipoMargen);
+    } catch (err: any) {
+      throw Object.assign(new Error(err.message), { name: 'ValidationError' });
+    }
+
     const costoCol = fuente === 'USD' ? 'COSTO_USD' : 'PRECIO_COMPRA';
     let affected = 0;
 
@@ -777,7 +824,12 @@ export const productService = {
       if (prod.recordset.length === 0) continue;
       const costo = prod.recordset[0].costo || 0;
       if (costo <= 0) continue;
-      let precio = costo * (1 + margen / 100);
+      let precio: number;
+      if (tipoMargen === 'U') {
+        precio = costo / (1 - margen / 100);
+      } else {
+        precio = costo * (1 + margen / 100);
+      }
       switch (redondeo) {
         case 'entero': precio = Math.ceil(precio); break;
         case '50': precio = Math.ceil(precio / 50) * 50; break;
@@ -838,6 +890,7 @@ export const productService = {
       .input('esConjunto', sql.Bit, s.ES_CONJUNTO ? 1 : 0)
       .input('esServicio', sql.Bit, s.ES_SERVICIO ? 1 : 0)
       .input('descuentaStock', sql.Bit, s.DESCUENTA_STOCK ? 1 : 0)
+      .input('permiteStockNeg', sql.Bit, s.ES_SERVICIO ? 0 : (s.PERMITE_STOCK_NEGATIVO ? 1 : 0))
       .input('listaDefecto', sql.Int, s.LISTA_DEFECTO)
       .input('fechaVenc', sql.Date, s.FECHA_VENCIMIENTO)
       .input('margenInd', sql.Bit, s.MARGEN_INDIVIDUAL ? 1 : 0)
@@ -845,13 +898,13 @@ export const productService = {
         INSERT INTO PRODUCTOS (
           CODIGOPARTICULAR, NOMBRE, DESCRIPCION, CATEGORIA_ID, MARCA_ID, UNIDAD_ID,
           PRECIO_COMPRA, COSTO_USD, PRECIO_COMPRA_BASE, STOCK_MINIMO, TASA_IVA_ID, IMP_INT,
-          ES_CONJUNTO, ES_SERVICIO, DESCUENTA_STOCK, ACTIVO, CANTIDAD,
+          ES_CONJUNTO, ES_SERVICIO, DESCUENTA_STOCK, PERMITE_STOCK_NEGATIVO, ACTIVO, CANTIDAD,
           LISTA_DEFECTO,
           FECHA_VENCIMIENTO, MARGEN_INDIVIDUAL
         ) VALUES (
           @codigo, @nombre, @descripcion, @categoriaId, @marcaId, @unidadId,
           @precioCompra, @costoUsd, @precioCompraBase, @stockMinimo, @tasaIvaId, @impInt,
-          @esConjunto, @esServicio, @descuentaStock, 1, 0,
+          @esConjunto, @esServicio, @descuentaStock, @permiteStockNeg, 1, 0,
           @listaDefecto,
           @fechaVenc, @margenInd
         );

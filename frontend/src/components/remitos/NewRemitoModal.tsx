@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Modal, Select, Button, InputNumber, Table, Space, Typography, Input, DatePicker, Divider, Checkbox, Radio } from 'antd';
 import {
   DeleteOutlined, SearchOutlined,
-  ImportOutlined, ExportOutlined, PrinterOutlined,
+  PrinterOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { remitosApi } from '../../services/remitos.api';
@@ -14,6 +14,8 @@ import { generateRemitoPdf, type CopiasTipo } from './remitoPdf.js';
 import { invalidateInventoryQueries } from '../../utils/invalidateInventoryQueries';
 import dayjs from 'dayjs';
 import { notify } from '../../utils/notify.ts';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -278,14 +280,18 @@ export function NewRemitoModal({ open, tipo, onClose, onSuccess }: Props) {
   return (
     <Modal
       title={
-        <Space>
-          {tipo === 'ENTRADA' ? <ImportOutlined /> : <ExportOutlined />}
-          <span>Nuevo Remito de {tipo === 'ENTRADA' ? 'Entrada' : 'Salida'}</span>
-        </Space>
+        <RGCajaModalHeader
+          icon={rgIcon('remito')}
+          title={`Nuevo Remito de ${tipo === 'ENTRADA' ? 'Entrada' : 'Salida'}`}
+          subtitle={tipo === 'ENTRADA'
+            ? 'Recibí mercadería sin factura asociada'
+            : 'Envío de mercadería sin factura asociada'}
+        />
       }
       open={open}
       onCancel={onClose}
       width={900}
+      className="rg-modal"
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       footer={
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>

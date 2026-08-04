@@ -12,6 +12,8 @@ import { catalogApi } from '../services/catalog.api';
 import type { LabelProduct, LabelFormat, LabelConfig } from '../utils/labelPdf';
 import { generateA4PDF, generate80mmPDF } from '../utils/labelPdf';
 import { LabelPreview } from '../components/etiquetas/LabelPreview';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 import { notify } from '../utils/notify.ts';
 
 const { Title, Text } = Typography;
@@ -257,7 +259,13 @@ export function EtiquetasPage() {
       <div className="etiquetas-layout">
         {/* ── Left: Product Search ──────────────── */}
         <Card className="etiquetas-panel etiquetas-panel-left" size="small"
-          title={<Space><SearchOutlined /> Buscar Productos</Space>}>
+          title={
+            <RGCajaModalHeader
+              icon={rgIcon('producto-buscar')}
+              title="Buscar Productos"
+              subtitle="Filtrá por nombre, código o código de barras"
+            />
+          }>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
             <Input
               ref={searchRef}
@@ -320,7 +328,13 @@ export function EtiquetasPage() {
         <div className="etiquetas-right">
           {/* ── Config Panel ── */}
           <Card className="etiquetas-panel" size="small"
-            title={<Space><PrinterOutlined /> Configuración de Impresión</Space>}>
+            title={
+              <RGCajaModalHeader
+                icon={rgIcon('etiqueta')}
+                title="Configuración de Impresión"
+                subtitle="Formato, columnas y datos a incluir"
+              />
+            }>
             <div className="etiquetas-config-grid">
               <div className="etiquetas-config-item">
                 <Text type="secondary" style={{ fontSize: 12, marginBottom: 4, display: 'block' }}>

@@ -18,6 +18,8 @@ import { useAuthStore } from '../store/authStore';
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
 import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
 import { notify } from '../utils/notify.ts';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 
 const { Title, Text } = Typography;
 
@@ -309,9 +311,16 @@ export function ExpensesPage() {
         open={desgloseModalOpen}
         onCancel={() => setDesgloseModalOpen(false)}
         footer={<Button onClick={() => setDesgloseModalOpen(false)}>Cerrar</Button>}
-        title={`Desglose por método de pago — ${desgloseFilter === 'EFECTIVO' ? 'Efectivo' : 'Digital'}`}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('gasto')}
+            title={`Desglose por método de pago — ${desgloseFilter === 'EFECTIVO' ? 'Efectivo' : 'Digital'}`}
+            subtitle="Total acumulado por método en el período seleccionado"
+          />
+        }
         width={480}
         destroyOnClose
+        className="rg-modal"
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {(() => {
@@ -385,7 +394,13 @@ function DetalleGastoModal({ detalleGasto, onClose, onOpenCajaCentral }: {
 
   return (
     <Modal
-      title="Detalle de Gasto"
+      title={
+        <RGCajaModalHeader
+          icon={rgIcon('gasto')}
+          title="Detalle de Gasto"
+          subtitle="Información completa del gasto seleccionado"
+        />
+      }
       open={!!detalleGasto}
       onCancel={onClose}
       footer={
@@ -399,6 +414,7 @@ function DetalleGastoModal({ detalleGasto, onClose, onOpenCajaCentral }: {
         ) : <Button onClick={onClose}>Cerrar</Button>
       }
       width={420}
+      className="rg-modal"
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
     >
       {detalleGasto && (

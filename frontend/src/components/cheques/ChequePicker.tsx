@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react';
-import { Modal, Table, Input, Tag, Typography, Empty, Space, Button } from 'antd';
-import { SearchOutlined, BankOutlined } from '@ant-design/icons';
+import { Modal, Table, Input, Tag, Typography, Empty, Button } from 'antd';
+import { SearchOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { chequesApi } from '../../services/cheques.api';
 import { fmtMoney } from '../../utils/format';
 import type { Cheque } from '../../types';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
 
 const { Text } = Typography;
 
@@ -50,11 +52,13 @@ export function ChequePicker({ open, onClose, onConfirm, initialSelectedIds = []
       open={open}
       onCancel={onClose}
       width={780}
+      className="rg-modal"
       title={
-        <Space>
-          <BankOutlined style={{ color: '#EABD23' }} />
-          <span>{title || 'Seleccionar cheques en cartera'}</span>
-        </Space>
+        <RGCajaModalHeader
+          icon={rgIcon('cheque')}
+          title={title || 'Seleccionar cheques en cartera'}
+          subtitle="Elegí los cheques en cartera para esta operación"
+        />
       }
       footer={[
         <Button key="cancel" onClick={onClose}>Cancelar</Button>,

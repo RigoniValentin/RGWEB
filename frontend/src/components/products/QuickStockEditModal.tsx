@@ -8,6 +8,8 @@ import { useAuthStore } from '../../store/authStore';
 import type { Producto } from '../../types';
 import { fmtNum } from '../../utils/format';
 import { notify } from '../../utils/notify.ts';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
 
 const { Text } = Typography;
 
@@ -164,10 +166,11 @@ export function QuickStockEditModal({ open, onClose, onSaved, product }: Props) 
   return (
       <Modal
       title={
-        <Space>
-          <InboxOutlined />
-          <span>Edición rápida de stock</span>
-        </Space>
+        <RGCajaModalHeader
+          icon={rgIcon('stock-editar')}
+          title="Edición rápida de stock"
+          subtitle="Ajustá el stock de este producto por depósito"
+        />
       }
       open={open}
       onCancel={onClose}

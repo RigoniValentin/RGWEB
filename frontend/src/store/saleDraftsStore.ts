@@ -22,6 +22,11 @@ export interface CartItem {
   LISTA_ID?: number;
   DESDE_REMITO?: boolean;
   PRECIOS?: { LISTA_ID: number; PRECIO: number }[];
+  /** Snapshot del flag al momento de agregar el producto. Si es true, se
+   * permite vender más allá del stock sin bloquear. Default false. */
+  PERMITE_STOCK_NEGATIVO?: boolean;
+  ES_SERVICIO?: boolean;
+  ES_CONJUNTO?: boolean;
 }
 
 export type ModalStep = 'cart' | 'cobro';
@@ -221,7 +226,7 @@ export const useSaleDraftsStore = create<SaleDraftsState>()(
     }),
     {
       name: 'rg-sale-drafts',
-      version: 3,
+      version: 4,
       migrate: (persistedState: any, version) => {
         // v1 → v2: add per-draft search state fields
         if (persistedState && Array.isArray(persistedState.drafts) && version < 2) {
@@ -239,6 +244,18 @@ export const useSaleDraftsStore = create<SaleDraftsState>()(
             clientRequestId: typeof d.clientRequestId === 'string' && d.clientRequestId
               ? d.clientRequestId
               : crypto.randomUUID(),
+          }));
+        }
+        // v3 → v4: add PERMITE_STOCK_NEGATIVO / ES_SERVICIO / ES_CONJUNTO to cart items
+        if (persistedState && Array.isArray(persistedState.drafts) && version < 4) {
+          persistedState.drafts = persistedState.drafts.map((d: any) => ({
+            ...d,
+            cart: Array.isArray(d.cart) ? d.cart.map((it: any) => ({
+              PERMITE_STOCK_NEGATIVO: false,
+              ES_SERVICIO: false,
+              ES_CONJUNTO: false,
+              ...it,
+            })) : [],
           }));
         }
         return persistedState;

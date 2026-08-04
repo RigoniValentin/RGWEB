@@ -1,5 +1,6 @@
 import { getPool, sql } from '../database/connection.js';
 import { registrarHistorialStock, getCurrentStock, insertStockDeposito } from './stockHistorial.helper.js';
+import { assertStockDisponible } from './stockValidator.helper.js';
 
 // ═══════════════════════════════════════════════════
 //  NC Compras Service — Credit Notes for Purchases
@@ -80,10 +81,15 @@ function validationError(msg: string): Error {
 async function getCajaAbiertaTx(
   tx: any,
   usuarioId: number
-): Promise<{ CAJA_ID: number; PUNTO_VENTA_ID: number | null } | null> {
+): Promise<{ CAJA_ID: number; SESION_ID: number; PUNTO_VENTA_ID: number | null } | null> {
   const result = await tx.request()
     .input('uid', sql.Int, usuarioId)
-    .query(`SELECT CAJA_ID, PUNTO_VENTA_ID FROM CAJA WHERE USUARIO_ID = @uid AND ESTADO = 'ACTIVA'`);
+    .query(`
+      SELECT cs.SESION_ID, cs.CAJA_ID, c.PUNTO_VENTA_ID
+      FROM CAJA_SESIONES cs
+      INNER JOIN CAJA c ON c.CAJA_ID = cs.CAJA_ID
+      WHERE cs.USUARIO_ID = @uid AND cs.ESTADO = 'ACTIVA'
+    `);
   return result.recordset.length > 0 ? result.recordset[0] : null;
 }
 
@@ -129,6 +135,9 @@ async function decrementarStockTx(
               FROM PRODUCTO_CONJUNTO_DEPOSITO WHERE PRODUCTO_ID = @pid`);
     for (const child of children.recordset) {
       const childQty = cantidad * child.CANTIDAD;
+      await assertStockDisponible(tx, child.PRODUCTO_ID_HIJO, child.DEPOSITO_ID, childQty, {
+        operacion: 'NC_COMPRA', referenciaId, referenciaDetalle: `NC Compra #${referenciaId || ''}`,
+      });
       const prevStock = await getCurrentStock(tx, child.PRODUCTO_ID_HIJO, child.DEPOSITO_ID);
       const existsC = await tx.request()
         .input('prodId', sql.Int, child.PRODUCTO_ID_HIJO)
@@ -154,6 +163,9 @@ async function decrementarStockTx(
       });
     }
     if (descuentaStock && depositoId) {
+      await assertStockDisponible(tx, productoId, depositoId, cantidad, {
+        operacion: 'NC_COMPRA', referenciaId, referenciaDetalle: `NC Compra #${referenciaId || ''}`,
+      });
       const prevStock = await getCurrentStock(tx, productoId, depositoId);
       const existsP = await tx.request()
         .input('prodId', sql.Int, productoId).input('depId', sql.Int, depositoId)
@@ -173,6 +185,9 @@ async function decrementarStockTx(
       });
     }
   } else if (descuentaStock) {
+    await assertStockDisponible(tx, productoId, depositoId, cantidad, {
+      operacion: 'NC_COMPRA', referenciaId, referenciaDetalle: `NC Compra #${referenciaId || ''}`,
+    });
     // Main stock
     await tx.request()
       .input('pid', sql.Int, productoId)
@@ -1026,6 +1041,7 @@ export const ncComprasService = {
           const destino = input.DESTINO_PAGO ?? 'CAJA';
           if (destino === 'CAJA') {
             await tx.request()
+              .input('sesionId', sql.Int, caja.SESION_ID)
               .input('cajaId', sql.Int, caja.CAJA_ID)
               .input('origenTipo', sql.VarChar(30), 'NC_COMPRA')
               .input('efectivo', sql.Decimal(18, 2), r2(montoEfectivo))
@@ -1033,8 +1049,8 @@ export const ncComprasService = {
               .input('descr', sql.NVarChar(255), `NC Compra #${ncId} - ${input.MOTIVO}`)
               .input('uid', sql.Int, usuarioId)
               .query(`
-                INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
-                VALUES (@cajaId, GETDATE(), @origenTipo, @efectivo, @digital, @descr, @uid)
+                INSERT INTO CAJA_ITEMS (SESION_ID, CAJA_ID, FECHA, ORIGEN_TIPO, MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
+                VALUES (@sesionId, @cajaId, GETDATE(), @origenTipo, @efectivo, @digital, @descr, @uid)
               `);
           } else {
             // CAJA_CENTRAL
@@ -1188,14 +1204,15 @@ export const ncComprasService = {
           const destino = nc.DESTINO_PAGO ?? 'CAJA';
           if (destino === 'CAJA') {
             await tx.request()
+              .input('sesionId', sql.Int, caja.SESION_ID)
               .input('cajaId', sql.Int, caja.CAJA_ID)
               .input('origenTipo', sql.VarChar(30), 'ND_COMPRA')
               .input('efectivo', sql.Decimal(18, 2), -nc.MONTO)
               .input('descr', sql.NVarChar(255), `ND (anulación NC #${ncId})`)
               .input('uid', sql.Int, usuarioId)
               .query(`
-                INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
-                VALUES (@cajaId, GETDATE(), @origenTipo, @efectivo, 0, @descr, @uid)
+                INSERT INTO CAJA_ITEMS (SESION_ID, CAJA_ID, FECHA, ORIGEN_TIPO, MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
+                VALUES (@sesionId, @cajaId, GETDATE(), @origenTipo, @efectivo, 0, @descr, @uid)
               `);
           } else {
             await tx.request()

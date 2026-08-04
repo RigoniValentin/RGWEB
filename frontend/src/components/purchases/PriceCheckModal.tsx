@@ -9,6 +9,9 @@ import { purchasesApi, type PriceCheckProduct, type PriceCheckUpdate } from '../
 import { ProductPriceEditorModal } from './ProductPriceEditorModal';
 import { fmtMoney, fmtNum } from '../../utils/format';
 import { notify } from '../../utils/notify.ts';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
+import { margenFromPrecio, normalizarTipoMargen, shortTipoMargen } from '../../utils/pricing';
 
 const { Text, Title } = Typography;
 
@@ -29,6 +32,7 @@ export function PriceCheckModal({ open, compraId, onClose }: Props) {
   const [searchText, setSearchText] = useState('');
   const [listNames, setListNames] = useState<Record<number, string>>({});
   const [listMargins, setListMargins] = useState<Record<number, number>>({});
+  const [listTypes, setListTypes] = useState<Record<number, 'M' | 'U'>>({});
   const [editorProduct, setEditorProduct] = useState<PriceCheckProduct | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
 
@@ -42,6 +46,7 @@ export function PriceCheckModal({ open, compraId, onClose }: Props) {
     if (data) {
       setListNames(data.listNames);
       setListMargins(data.listMargins || {});
+      setListTypes(data.listTypes || {});
       setProducts(data.products.map(p => {
         const preciosOrig: Record<number, number> = {};
         for (const pp of p.precios) preciosOrig[pp.LISTA_ID] = pp.PRECIO;
@@ -129,10 +134,11 @@ export function PriceCheckModal({ open, compraId, onClose }: Props) {
   const hasCambios = modifiedCount > 0;
   const sinPrecios = useMemo(() => products.filter(p => p.precios.length === 0).length, [products]);
 
-  const calcMargenReal = useCallback((precio: number, costo: number): number => {
+  const calcMargenReal = useCallback((precio: number, costo: number, listaId: number): number => {
     if (!costo || !precio) return 0;
-    return Math.round(((precio / costo) - 1) * 100 * 100) / 100;
-  }, []);
+    const tipo = normalizarTipoMargen(listTypes[listaId]);
+    return Math.round(margenFromPrecio(costo, precio, tipo) * 100) / 100;
+  }, [listTypes]);
 
   const handleSaveAll = () => {
     const modified = products.filter(p => p.MODIFICADO);
@@ -179,7 +185,14 @@ export function PriceCheckModal({ open, compraId, onClose }: Props) {
         centered
         destroyOnClose
         closable={false}
-        className="new-sale-modal"
+        className="new-sale-modal rg-modal"
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('precio-check')}
+            title="Chequeo de Precios"
+            subtitle={`Verificá y ajustá los precios antes de confirmar la compra #${compraId}`}
+          />
+        }
         styles={{ body: { padding: 0, overflow: 'hidden' } }}
       >
         {/* ── Dark header bar ───────────────────────── */}
@@ -289,9 +302,10 @@ export function PriceCheckModal({ open, compraId, onClose }: Props) {
                   {listasActivas.map(listaId => {
                     const pp = p.precios.find(x => x.LISTA_ID === listaId);
                     const precio = pp?.PRECIO || 0;
-                    const margenReal = calcMargenReal(precio, p.COSTO);
+                    const margenReal = calcMargenReal(precio, p.COSTO, listaId);
                     const margenDefault = listMargins[listaId] || 0;
                     const defaultList = isDefault(listaId);
+                    const tipoLista = normalizarTipoMargen(listTypes[listaId]);
 
                     if (precio === 0) {
                       return (
@@ -321,6 +335,7 @@ export function PriceCheckModal({ open, compraId, onClose }: Props) {
                         title={
                           <div style={{ fontSize: 12 }}>
                             <div><strong>{listNames[listaId]}</strong>{defaultList && ' (predeterminada)'}</div>
+                            <div>Método: {tipoLista === 'U' ? 'Utilidad sobre venta' : 'Markup sobre costo'}</div>
                             <div>Precio: <strong>{fmtMoney(precio)}</strong></div>
                             <div>Margen default: {fmtNum(margenDefault)}%</div>
                             <div>Margen actual: {fmtNum(margenReal)}%</div>
@@ -338,6 +353,9 @@ export function PriceCheckModal({ open, compraId, onClose }: Props) {
                         >
                           <Text style={{ fontSize: 10, marginRight: 4 }}>
                             {listNames[listaId]?.substring(0, 12) || `L${listaId}`}
+                          </Text>
+                          <Text style={{ fontSize: 9, marginRight: 4, opacity: 0.85 }}>
+                            [{shortTipoMargen(tipoLista)}]
                           </Text>
                           <Text strong style={{ fontSize: 11 }}>
                             {fmtMoney(precio)}
@@ -408,6 +426,7 @@ export function PriceCheckModal({ open, compraId, onClose }: Props) {
         product={editorProduct}
         listNames={listNames}
         listMargins={listMargins}
+        listTypes={listTypes}
         onClose={() => { setEditorOpen(false); setEditorProduct(null); }}
         onSave={handleProductSave}
       />

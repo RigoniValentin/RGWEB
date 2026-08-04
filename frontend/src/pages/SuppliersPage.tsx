@@ -4,13 +4,15 @@ import { Table, Space, Input, Typography, Tag, Select, Button, Modal, Tooltip, D
 import type { TableColumnType } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
-  EyeOutlined, FilterOutlined, ReloadOutlined, ShopOutlined, WarningOutlined,
+  EyeOutlined, FilterOutlined, ReloadOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import { useTabStore } from '../store/tabStore';
 import { supplierApi, type ProveedorInput } from '../services/supplier.api';
 import { afipApi } from '../services/afip.api';
 import type { Proveedor } from '../types';
 import { RowContextMenu } from '../components/RowContextMenu';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { notify } from '../utils/notify.ts';
 
@@ -383,7 +385,13 @@ export function SuppliersPage() {
 
       {/* ── Form Modal (New / Edit) ───────────── */}
       <Modal
-        title={editId ? 'Editar Proveedor' : 'Nuevo Proveedor'}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('proveedor')}
+            title={editId ? 'Editar Proveedor' : 'Nuevo Proveedor'}
+            subtitle={editId ? 'Modificá los datos del proveedor' : 'Creá un nuevo proveedor en el catálogo'}
+          />
+        }
         open={formOpen}
         onCancel={() => { setFormOpen(false); setEditId(null); setNoAlcanzado(false); form.resetFields(); }}
         onOk={handleSave}
@@ -516,7 +524,7 @@ export function SuppliersPage() {
 
       {/* ── Detail Drawer ─────────────────────── */}
       <Drawer
-        title={<span><ShopOutlined /> Detalle del Proveedor</span>}
+        title={<RGCajaModalHeader icon={rgIcon('proveedor')} title="Detalle del Proveedor" subtitle={detail?.NOMBRE || undefined} />}
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); setSelectedId(null); }}
         width={540}

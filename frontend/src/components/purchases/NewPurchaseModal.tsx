@@ -17,6 +17,8 @@ import { ProductSearchModal } from '../ProductSearchModal';
 import { ChequePicker } from '../cheques/ChequePicker';
 import { RemitoPickerModal } from './RemitoPickerModal';
 import { ComprobanteConfigModal } from './ComprobanteConfigModal';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
 import { PurchaseReceiptReviewModal, type ReceiptAppliedData } from './PurchaseReceiptReviewModal';
 import { usePurchaseDraftStore } from '../../store/purchaseDraftStore';
 import { useAuthStore } from '../../store/authStore';
@@ -53,6 +55,42 @@ function hasItemsWithInvalidCantidad<T extends { CANTIDAD: number }>(items: T[])
   return items.filter(item => !item.CANTIDAD || item.CANTIDAD <= 0);
 }
 
+/**
+ * Determina si los precios que el usuario carga deben interpretarse como
+ * "sin impuestos" (costo neto) o "con impuestos" (IVA incluido).
+ *
+ * - FA (Factura A): siempre true → el comprobante discrimina IVA, el precio
+ *   que se muestra/carga es el costo base (neto).
+ * - FB / FC / FM: siempre false → el comprobante no discrimina IVA, el
+ *   precio que se muestra/carga es el costo con IVA incluido.
+ * - X (Comprobante X): lo decide el usuario vía `preciosSinIvaManual`.
+ *   Si todavía no eligió, default true (costo sin impuestos).
+ */
+function resolvePreciosSinIva(
+  tipoComprobante: string,
+  preciosSinIvaManual: boolean | null,
+): boolean {
+  if (tipoComprobante === 'FA') return true;
+  if (tipoComprobante === 'X') return preciosSinIvaManual ?? true;
+  return false;
+}
+
+/**
+ * Devuelve el costo unitario a cargar en la grilla según la política del
+ * comprobante. `precioBase` es el PRECIO_COMPRA que devuelve el backend
+ * (= PRECIO_COMPRA_BASE, costo sin impuestos).
+ */
+function resolvePrecioCompraCargado(
+  precioBase: number,
+  ivaPorcentaje: number,
+  preciosSinIva: boolean,
+): number {
+  const base = precioBase || 0;
+  if (preciosSinIva) return base;
+  const iva = (ivaPorcentaje || 0) / 100;
+  return r2(base * (1 + iva));
+}
+
 export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const queryClient = useQueryClient();
   const puntoVentaActivo = useAuthStore(s => s.puntoVentaActivo);
@@ -72,6 +110,9 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const [actualizarCostos, setActualizarCostos] = useState(true);
   const [actualizarPrecios, setActualizarPrecios] = useState(true);
   const [actualizarStock, setActualizarStock] = useState(true);
+  /** Manual choice for Comprobante X (true=sin impuestos, false=con impuestos).
+   *  Ignored for FA (always true) and FB/FC/FM (always false). */
+  const [preciosSinIvaManual, setPreciosSinIvaManual] = useState<boolean | null>(null);
 
   // ── Remito de entrada asociado (opcional) ──────────
   const [remitoId, setRemitoId] = useState<number | null>(null);
@@ -204,6 +245,17 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     return true;
   }, [proveedorId, ptoVta, nroComprobante]);
 
+  /**
+   * Política efectiva de interpretación del costo cargado:
+   * - FA → siempre sin impuestos
+   * - FB / FC / FM → siempre con impuestos
+   * - X → elección manual del usuario (preciosSinIvaManual)
+   */
+  const effectivePreciosSinIva = useMemo(
+    () => resolvePreciosSinIva(tipoComprobante, preciosSinIvaManual),
+    [tipoComprobante, preciosSinIvaManual],
+  );
+
   // Set default deposit
   useEffect(() => {
     if (depositos.length > 0 && !depositoId) {
@@ -232,6 +284,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     setImpIntGravaIva(d.impIntGravaIva);
     setRemitoId(d.remitoId ?? null);
     setRemitoSnap(d.remitoSnap ?? null);
+    setPreciosSinIvaManual(d.preciosSinIvaManual ?? null);
   }, []);
 
   // ── Restore draft when modal opens ─────────────
@@ -266,26 +319,32 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
         resyncComprobanteFromDraft();
         const d = usePurchaseDraftStore.getState().draft;
         const newRemitoId = d.remitoId ?? null;
+        const sinIva = resolvePreciosSinIva(d.tipoComprobante, d.preciosSinIvaManual);
         if (newRemitoId !== null && newRemitoId !== lastProcessedRemitoIdRef.current) {
           lastProcessedRemitoIdRef.current = newRemitoId;
           purchasesApi.getRemitoItemsParaCompra(newRemitoId).then(itemsRemito => {
-            const newCart: CartItem[] = itemsRemito.map((it: any, idx: number) => ({
-              key: `remito-${it.PRODUCTO_ID}-${Date.now()}-${idx}`,
-              PRODUCTO_ID: it.PRODUCTO_ID,
-              PRECIO_COMPRA: it.PRECIO_COMPRA || 0,
-              CANTIDAD: it.CANTIDAD,
-              DEPOSITO_ID: d.depositoId || undefined,
-              BONIFICACION: 0,
-              IMP_INTERNOS: it.IMP_INT || 0,
-              IVA_ALICUOTA: (it.IVA_ALICUOTA || 0) / 100,
-              TASA_IVA_ID: it.TASA_IVA_ID || null,
-              NOMBRE: it.PRODUCTO_NOMBRE || '',
-              CODIGO: it.PRODUCTO_CODIGO || '',
-              STOCK: it.STOCK || 0,
-              UNIDAD: it.UNIDAD_ABREVIACION || 'u',
-              IVA_PORCENTAJE: it.IVA_ALICUOTA || 0,
-              PRECIO_FINAL: r2((it.PRECIO_COMPRA || 0) * it.CANTIDAD),
-            }));
+            const newCart: CartItem[] = itemsRemito.map((it: any, idx: number) => {
+              const precioBase = it.PRECIO_COMPRA || 0;
+              const ivaPct = it.IVA_ALICUOTA || 0;
+              const precioCargado = resolvePrecioCompraCargado(precioBase, ivaPct, sinIva);
+              return {
+                key: `remito-${it.PRODUCTO_ID}-${Date.now()}-${idx}`,
+                PRODUCTO_ID: it.PRODUCTO_ID,
+                PRECIO_COMPRA: precioCargado,
+                CANTIDAD: it.CANTIDAD,
+                DEPOSITO_ID: d.depositoId || undefined,
+                BONIFICACION: 0,
+                IMP_INTERNOS: it.IMP_INT || 0,
+                IVA_ALICUOTA: (ivaPct || 0) / 100,
+                TASA_IVA_ID: it.TASA_IVA_ID || null,
+                NOMBRE: it.PRODUCTO_NOMBRE || '',
+                CODIGO: it.PRODUCTO_CODIGO || '',
+                STOCK: it.STOCK || 0,
+                UNIDAD: it.UNIDAD_ABREVIACION || 'u',
+                IVA_PORCENTAJE: ivaPct,
+                PRECIO_FINAL: r2(precioCargado * it.CANTIDAD),
+              };
+            });
             setCart(newCart);
             notify.success(`${itemsRemito.length} ítems del remito cargados.`);
           }).catch(() => {
@@ -304,13 +363,14 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       proveedorId, depositoId, tipoComprobante, fechaCompra: fechaCompra.toISOString(), ptoVta, nroComprobante,
       esCtaCorriente, ivaIncluido, ivaManual, actualizarCostos, actualizarPrecios, actualizarStock,
       percepcionIva, percepcionIibb, dtoGral, impIntGravaIva,
-      remitoId, remitoSnap,
+      remitoId, remitoSnap, preciosSinIvaManual,
       step, selectedMetodos, montosPorMetodo, destinoPago,
     });
   }, [
     open, cart, proveedorId, depositoId, tipoComprobante, fechaCompra, ptoVta, nroComprobante,
     esCtaCorriente, ivaIncluido, ivaManual, actualizarCostos, actualizarPrecios, actualizarStock,
-    percepcionIva, percepcionIibb, dtoGral, impIntGravaIva,
+    percepcionIva, percepcionIibb, dtoGral, impIntGravaIva, preciosSinIvaManual,
+    remitoId, remitoSnap,
     step, selectedMetodos, montosPorMetodo, destinoPago,
   ]);
 
@@ -340,10 +400,15 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     } else {
       const newKey = `${p.PRODUCTO_ID}-${Date.now()}`;
       setLastAddedKey(newKey);
+      const precioCargado = resolvePrecioCompraCargado(
+        p.PRECIO_COMPRA,
+        p.IVA_PORCENTAJE,
+        effectivePreciosSinIva,
+      );
       const newItem: CartItem = {
         key: newKey,
         PRODUCTO_ID: p.PRODUCTO_ID,
-        PRECIO_COMPRA: p.PRECIO_COMPRA, // base price (PRECIO_COMPRA_BASE from search)
+        PRECIO_COMPRA: precioCargado,
         CANTIDAD: 1,
         DEPOSITO_ID: depositoId || undefined,
         BONIFICACION: 0,
@@ -355,13 +420,13 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
         STOCK: p.STOCK,
         UNIDAD: p.UNIDAD_ABREVIACION || 'u',
         IVA_PORCENTAJE: p.IVA_PORCENTAJE,
-        PRECIO_FINAL: p.PRECIO_COMPRA, // net = base * 1 qty, no discount
+        PRECIO_FINAL: precioCargado, // unit price × 1 qty, no discount
       };
       setCart(prev => [...prev, newItem]);
     }
 
     setSearchText('');
-  }, [cart, depositoId, comprobanteConfigurado]);
+  }, [cart, depositoId, comprobanteConfigurado, effectivePreciosSinIva]);
 
   // Add product from modal search result (adapts ProductoSearch to ProductoSearchCompra)
   const addProductFromSearch = useCallback((product: ProductoSearch) => {
@@ -509,14 +574,16 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   };
 
   // ── Total calculations ─────────────────────────
-  const isFacturaA = tipoComprobante === 'FA';
 
   const subtotal = useMemo(() =>
     cart.reduce((s, i) => s + i.PRECIO_FINAL, 0), [cart]);
 
   // Detailed mode memos
+  // Solo Factura A discrimina IVA; comprobantes B/C/X nunca suman IVA al total,
+  // independientemente de la opción "Sin/Con impuestos" que elija el usuario para X.
   const ivaCalculado = useMemo(() => {
-    if (!isFacturaA) return 0;
+    if (tipoComprobante !== 'FA') return 0;
+    if (!effectivePreciosSinIva) return 0;
     return cart.reduce((s, item) => {
       const ivaPct = item.IVA_PORCENTAJE ?? 21;
       const impInt = item.IMP_INTERNOS ?? 0;
@@ -525,7 +592,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       const baseIva = impIntGravaIva ? (item.PRECIO_FINAL - impIntLine) : item.PRECIO_FINAL;
       return s + baseIva * (ivaPct / 100);
     }, 0);
-  }, [cart, isFacturaA, impIntGravaIva]);
+  }, [cart, effectivePreciosSinIva, impIntGravaIva, tipoComprobante]);
 
   const impInternoCalculado = useMemo(() => {
     return cart.reduce((s, item) => s + ((item as any).IMP_INTERNOS ?? 0) * item.CANTIDAD, 0);
@@ -681,6 +748,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     setRemitoId(null);
     setRemitoSnap(null);
     setRemitoPickerOpen(false);
+    setPreciosSinIvaManual(null);
     lastProcessedRemitoIdRef.current = null;
   };
 
@@ -794,11 +862,11 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       MONTO_DIGITAL: esCtaCorriente ? 0 : digitalFinal,
       VUELTO: vueltoFinal,
       COBRADA: !esCtaCorriente,
-      PRECIOS_SIN_IVA: isFacturaA,
+      PRECIOS_SIN_IVA: effectivePreciosSinIva,
       IMP_INT_GRAVA_IVA: impIntGravaIva,
       PERCEPCION_IVA: percepcionIva,
       PERCEPCION_IIBB: percepcionIibb,
-      IVA_TOTAL: isFacturaA ? r2(ivaCalculado) : 0,
+      IVA_TOTAL: tipoComprobante === 'FA' && effectivePreciosSinIva ? r2(ivaCalculado) : 0,
       DTO_GRAL: dtoGral > 0 ? dtoGral : undefined,
       ACTUALIZAR_COSTOS: actualizarCostos,
       ACTUALIZAR_PRECIOS: actualizarPrecios,
@@ -882,23 +950,28 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   }) => {
     try {
       const itemsRemito = await purchasesApi.getRemitoItemsParaCompra(remitoSeleccionado.REMITO_ID);
-      const newCart: CartItem[] = itemsRemito.map((it, idx) => ({
-        key: `remito-${it.PRODUCTO_ID}-${Date.now()}-${idx}`,
-        PRODUCTO_ID: it.PRODUCTO_ID,
-        PRECIO_COMPRA: it.PRECIO_COMPRA || 0,
-        CANTIDAD: it.CANTIDAD,
-        DEPOSITO_ID: depositoId || undefined,
-        BONIFICACION: 0,
-        IMP_INTERNOS: it.IMP_INT || 0,
-        IVA_ALICUOTA: (it.IVA_ALICUOTA || 0) / 100,
-        TASA_IVA_ID: it.TASA_IVA_ID || null,
-        NOMBRE: it.PRODUCTO_NOMBRE || '',
-        CODIGO: it.PRODUCTO_CODIGO || '',
-        STOCK: it.STOCK || 0,
-        UNIDAD: it.UNIDAD_ABREVIACION || 'u',
-        IVA_PORCENTAJE: it.IVA_ALICUOTA || 0,
-        PRECIO_FINAL: r2((it.PRECIO_COMPRA || 0) * it.CANTIDAD),
-      }));
+      const newCart: CartItem[] = itemsRemito.map((it, idx) => {
+        const precioBase = it.PRECIO_COMPRA || 0;
+        const ivaPct = it.IVA_ALICUOTA || 0;
+        const precioCargado = resolvePrecioCompraCargado(precioBase, ivaPct, effectivePreciosSinIva);
+        return {
+          key: `remito-${it.PRODUCTO_ID}-${Date.now()}-${idx}`,
+          PRODUCTO_ID: it.PRODUCTO_ID,
+          PRECIO_COMPRA: precioCargado,
+          CANTIDAD: it.CANTIDAD,
+          DEPOSITO_ID: depositoId || undefined,
+          BONIFICACION: 0,
+          IMP_INTERNOS: it.IMP_INT || 0,
+          IVA_ALICUOTA: (ivaPct || 0) / 100,
+          TASA_IVA_ID: it.TASA_IVA_ID || null,
+          NOMBRE: it.PRODUCTO_NOMBRE || '',
+          CODIGO: it.PRODUCTO_CODIGO || '',
+          STOCK: it.STOCK || 0,
+          UNIDAD: it.UNIDAD_ABREVIACION || 'u',
+          IVA_PORCENTAJE: ivaPct,
+          PRECIO_FINAL: r2(precioCargado * it.CANTIDAD),
+        };
+      });
       setCart(newCart);
       setRemitoId(remitoSeleccionado.REMITO_ID);
       lastProcessedRemitoIdRef.current = remitoSeleccionado.REMITO_ID;
@@ -1065,7 +1138,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
         />
       ),
     },
-    ...(isFacturaA ? [{
+    ...(effectivePreciosSinIva ? [{
       title: 'IVA %', width: 65, align: 'center' as const,
       render: (_: unknown, record: CartItem) => (
         <Text type="secondary">{((record.IVA_ALICUOTA || 0) * 100).toFixed(0)}%</Text>
@@ -1093,34 +1166,16 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       style={{ top: 20, maxWidth: 1400 }}
       footer={null}
       destroyOnClose
-      closable={false}
-      className="new-sale-modal"
+      className="new-sale-modal rg-modal"
+      title={
+        <RGCajaModalHeader
+          icon={rgIcon('compra')}
+          title={step === 'pago' ? 'Registrar Pago' : 'Nueva Compra'}
+          subtitle={step === 'pago' ? 'Confirmá los medios de pago de la compra' : 'Cargá productos y comprobante de la compra'}
+        />
+      }
       styles={{ body: { padding: 0, overflow: 'hidden' } }}
     >
-      {/* ── Dark header bar ─────────────────────── */}
-      <div className="nsm-header">
-        <div className="nsm-header-left">
-          {step === 'pago' ? (
-            <>
-              <WalletOutlined className="nsm-header-icon" />
-              <Title level={4} style={{ margin: 0, color: '#fff' }}>Registrar Pago</Title>
-            </>
-          ) : (
-            <>
-              <ShoppingCartOutlined className="nsm-header-icon" />
-              <Title level={4} style={{ margin: 0, color: '#fff' }}>Nueva Compra</Title>
-            </>
-          )}
-        </div>
-        <Button
-          type="text"
-          onClick={handleClose}
-          style={{ color: 'rgba(255,255,255,0.6)', fontSize: 22, lineHeight: 1 }}
-        >
-          ✕
-        </Button>
-      </div>
-
       <div className="nsm-body" onFocusCapture={(e) => {
         const target = e.target as HTMLInputElement;
         if (target.tagName === 'INPUT' && target.type === 'text') {
@@ -1267,7 +1322,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                     <span className="value">{fmtMoney(subtotal)}</span>
                   </div>
                 )}
-                {isFacturaA && ivaCalculado > 0 && (
+                {tipoComprobante === 'FA' && effectivePreciosSinIva && ivaCalculado > 0 && (
                   <div className="nsm-footer-summary-inline">
                     <span className="label">IVA</span>
                     <span className="value">{fmtMoney(r2(ivaCalculado))}</span>
@@ -1682,12 +1737,14 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       centered
       width={520}
       destroyOnClose
+      className="rg-modal"
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       title={
-        <Space>
-          <WalletOutlined style={{ color: '#EABD23', fontSize: 20 }} />
-          <span>Seleccionar método de pago</span>
-        </Space>
+        <RGCajaModalHeader
+          icon={rgIcon('pago')}
+          title="Seleccionar método de pago"
+          subtitle="Elegí uno o más métodos para registrar el pago"
+        />
       }
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -1778,15 +1835,17 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     <Modal
       open={saldoModalOpen}
       title={
-        <Space>
-          <WalletOutlined style={{ color: '#52c41a', fontSize: 20 }} />
-          <span>Saldo disponible en cuenta corriente</span>
-        </Space>
+        <RGCajaModalHeader
+          icon={rgIcon('cta-corriente')}
+          title="Saldo en cuenta corriente"
+          subtitle="Crédito disponible del proveedor para aplicar a la compra"
+        />
       }
       onCancel={() => { setSaldoModalOpen(false); setSaldoInfo(null); }}
       centered
       width={460}
       destroyOnClose
+      className="rg-modal"
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

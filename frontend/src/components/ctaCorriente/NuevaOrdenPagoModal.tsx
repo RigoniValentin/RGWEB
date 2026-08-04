@@ -17,6 +17,8 @@ import { useAuthStore } from '../../store/authStore';
 import { usePaymentMethodKeyboardNavigation } from '../../hooks/usePaymentMethodKeyboardNavigation';
 import type { MetodoPagoItem } from '../../types';
 import { notify } from '../../utils/notify.ts';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
 
 const { Text } = Typography;
 
@@ -294,7 +296,15 @@ export function NuevaOrdenPagoModal({
   return (
     <>
       <Modal
-        title={isEdit ? '✏️ Modificar Orden de Pago' : '💰 Nueva Orden de Pago'}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('orden-pago')}
+            title={isEdit ? 'Modificar Orden de Pago' : 'Nueva Orden de Pago'}
+            subtitle={isEdit
+              ? 'Editá los datos de la orden de pago existente'
+              : 'Registrá un pago a proveedor desde la cuenta corriente'}
+          />
+        }
         open={open}
         onOk={handleOk}
         onCancel={onCancel}
@@ -303,6 +313,7 @@ export function NuevaOrdenPagoModal({
         confirmLoading={saving}
         width={520}
         destroyOnClose
+        className="rg-modal"
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
@@ -498,12 +509,14 @@ export function NuevaOrdenPagoModal({
         centered
         width={520}
         destroyOnClose
+        className="rg-modal"
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
         title={
-          <Space>
-            <WalletOutlined style={{ color: '#EABD23', fontSize: 20 }} />
-            <span>Seleccionar método de pago</span>
-          </Space>
+          <RGCajaModalHeader
+            icon={rgIcon('orden-pago')}
+            title="Seleccionar método de pago"
+            subtitle="Elegí uno o más métodos para la orden de pago"
+          />
         }
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

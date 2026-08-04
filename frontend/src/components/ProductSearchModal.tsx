@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Modal, Input, Select, Table, Button, Space, Checkbox, Tag, Typography,
+  Modal, Input, Select, Table, Button, Space, Checkbox, Tag, Typography, Tooltip,
 } from 'antd';
 import { SearchOutlined, FilterOutlined } from '@ant-design/icons';
 import type { ProductoSearch, Marca } from '../types';
 import { fmtMoney } from '../utils/format';
 import { useSettingsStore } from '../store/settingsStore';
+import { RGCajaModalHeader } from './RGCajaModalHeader';
+import { rgIcon } from './rg-icons';
 
 const { Text } = Typography;
 
@@ -140,7 +142,7 @@ export function ProductSearchModal({
     } finally {
       setLoading(false);
     }
-  }, [keywords, marca, marcaIds, categoria, codigo, soloActivos, soloConStock, searchFn]);
+  }, [keywords, marca, marcaIds, categoria, codigo, soloActivos, soloConStock, searchFn, busquedaMultiEntidad]);
 
   const handleSearchClick = () => doSearch();
 
@@ -303,10 +305,17 @@ export function ProductSearchModal({
       title: 'Stock',
       dataIndex: 'STOCK',
       key: 'STOCK',
-      width: 100,
+      width: 110,
       align: 'center' as const,
       render: (stock: number, record: ProductoSearch) => {
         const unit = record.UNIDAD_ABREVIACION || 'u';
+        if (record.PERMITE_STOCK_NEGATIVO && !record.ES_SERVICIO && !record.ES_CONJUNTO) {
+          return (
+            <Tooltip title="Permite venta sin stock suficiente">
+              <Tag color="orange" style={{ margin: 0 }}>{stock} {unit}</Tag>
+            </Tooltip>
+          );
+        }
         if (stock <= 0) return <Text type="danger">{stock} {unit}</Text>;
         if (stock <= 5) return <Text type="warning">{stock} {unit}</Text>;
         return <>{stock} {unit}</>;
@@ -327,13 +336,20 @@ export function ProductSearchModal({
 
   return (
     <Modal
-      title="Búsqueda avanzada de productos"
+      title={
+        <RGCajaModalHeader
+          icon={rgIcon('producto-buscar')}
+          title="Búsqueda avanzada de productos"
+          subtitle="Buscá un producto por código, nombre o filtros avanzados"
+        />
+      }
       open={open}
       onCancel={onClose}
       width={1000}
       centered
       destroyOnClose
       focusTriggerAfterClose={false}
+      className="rg-modal"
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       footer={
         <Space>

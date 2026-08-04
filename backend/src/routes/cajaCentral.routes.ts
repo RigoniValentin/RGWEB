@@ -49,15 +49,6 @@ router.get('/balance-historico', async (req: AuthRequest, res: Response, next: N
   } catch (err) { next(err); }
 });
 
-// ── GET /api/caja-central/fondo-cambio ───────────
-router.get('/fondo-cambio', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const pvIds = parsePvIds(req.query.puntoVentaIds);
-    const saldo = await cajaCentralService.getSaldoFondoCambio(pvIds);
-    res.json({ saldo });
-  } catch (err) { next(err); }
-});
-
 // ── GET /api/caja-central/desglose-metodos — payment method breakdown for period ──
 router.get('/desglose-metodos', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -69,17 +60,6 @@ router.get('/desglose-metodos', async (req: AuthRequest, res: Response, next: Ne
     });
     res.json(data);
   } catch (err) { next(err); }
-});
-
-// ── GET /api/caja-central/cierre-caja/:cajaId/detalle ──
-router.get('/cierre-caja/:cajaId/detalle', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const data = await cajaCentralService.getDetalleCierreCaja(Number(req.params.cajaId));
-    res.json(data);
-  } catch (err: any) {
-    if (err.name === 'ValidationError') { res.status(err.status || 400).json({ error: err.message }); return; }
-    next(err);
-  }
 });
 
 // ── POST /api/caja-central/movimiento — new manual movement ──

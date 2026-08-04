@@ -78,13 +78,14 @@ export const dashboardService = {
 
     // ── Open cash registers ────────────────────────
     const openCajas = await pool.request().query(`
-      SELECT c.CAJA_ID, c.FECHA_APERTURA, c.MONTO_APERTURA, c.ESTADO,
+      SELECT cs.SESION_ID AS CAJA_ID, cs.FECHA_APERTURA, cs.MONTO_APERTURA, cs.ESTADO,
         u.NOMBRE AS USUARIO_NOMBRE, pv.NOMBRE AS PUNTO_VENTA_NOMBRE
-      FROM CAJA c
-      JOIN USUARIOS u ON c.USUARIO_ID = u.USUARIO_ID
+      FROM CAJA_SESIONES cs
+      INNER JOIN CAJA c ON c.CAJA_ID = cs.CAJA_ID
+      JOIN USUARIOS u ON cs.USUARIO_ID = u.USUARIO_ID
       LEFT JOIN PUNTO_VENTAS pv ON c.PUNTO_VENTA_ID = pv.PUNTO_VENTA_ID
-      WHERE c.ESTADO = 'ABIERTA'
-      ORDER BY c.FECHA_APERTURA DESC
+      WHERE cs.ESTADO = 'ACTIVA'
+      ORDER BY cs.FECHA_APERTURA DESC
     `);
 
     return {
@@ -384,13 +385,14 @@ export const dashboardService = {
 
     // ── Cajas abiertas ────────────────────────────────────────────
     const openCajas = await pool.request().query(`
-      SELECT c.CAJA_ID, c.FECHA_APERTURA, c.MONTO_APERTURA, c.ESTADO,
+      SELECT cs.SESION_ID AS CAJA_ID, cs.FECHA_APERTURA, cs.MONTO_APERTURA, cs.ESTADO,
         u.NOMBRE AS USUARIO_NOMBRE, pv.NOMBRE AS PUNTO_VENTA_NOMBRE
-      FROM CAJA c
-      JOIN USUARIOS u ON c.USUARIO_ID = u.USUARIO_ID
+      FROM CAJA_SESIONES cs
+      INNER JOIN CAJA c ON c.CAJA_ID = cs.CAJA_ID
+      JOIN USUARIOS u ON cs.USUARIO_ID = u.USUARIO_ID
       LEFT JOIN PUNTO_VENTAS pv ON c.PUNTO_VENTA_ID = pv.PUNTO_VENTA_ID
-      WHERE c.ESTADO = 'ABIERTA'
-      ORDER BY c.FECHA_APERTURA DESC
+      WHERE cs.ESTADO = 'ACTIVA'
+      ORDER BY cs.FECHA_APERTURA DESC
     `);
 
     return {
@@ -408,6 +410,177 @@ export const dashboardService = {
       cajaCentral,
       productosStockBajo: lowStock.recordset,
       cajasAbiertas: openCajas.recordset,
+    };
+  },
+
+  // ─────────────────────────────────────────────────────────────────
+  // CAJEROS RENDIMIENTO — Per-cashier KPIs for bonus / recognition
+  // ─────────────────────────────────────────────────────────────────
+  async getCajerosRendimiento(opts: {
+    from: string;          // YYYY-MM-DD (inclusive)
+    to: string;            // YYYY-MM-DD (inclusive)
+    puntoVentaId?: number;
+    usuarioId?: number;    // optional — filter to a single cashier (for self-view)
+    top?: number;          // max cajeros a devolver (default 50)
+  }) {
+    const pool = await getPool();
+    const { from, to, puntoVentaId, usuarioId, top = 50 } = opts;
+
+    // Compute previous equivalent period (same length, immediately before "from")
+    const fromDate = new Date(from + 'T00:00:00');
+    const toDate = new Date(to + 'T00:00:00');
+    const days = Math.max(1, Math.round((toDate.getTime() - fromDate.getTime()) / 86400000) + 1);
+    const prevTo = new Date(fromDate); prevTo.setDate(prevTo.getDate() - 1);
+    const prevFrom = new Date(prevTo); prevFrom.setDate(prevFrom.getDate() - (days - 1));
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    const prevFromStr = fmt(prevFrom);
+    const prevToStr = fmt(prevTo);
+
+    const buildReq = (fromStr: string, toStr: string, includeUsuario = true) => {
+      const r = pool.request()
+        .input('from', sql.DateTime, new Date(fromStr + 'T00:00:00'))
+        .input('to', sql.DateTime, new Date(toStr + 'T23:59:59'));
+      if (puntoVentaId) r.input('pvId', sql.Int, puntoVentaId);
+      if (includeUsuario && usuarioId) r.input('uid', sql.Int, usuarioId);
+      return r;
+    };
+
+    const pvFilter = puntoVentaId ? ' AND v.PUNTO_VENTA_ID = @pvId' : '';
+    const uidFilter = usuarioId ? ' AND v.USUARIO_ID = @uid' : '';
+    const dateFilter = (range: 'from' | 'to') =>
+      ` v.FECHA_VENTA >= @from AND v.FECHA_VENTA <= @to ${pvFilter} ${uidFilter} `;
+
+    // ── Current period KPIs grouped by USUARIO_ID ───────────────────
+    const baseWhere = ` v.USUARIO_ID IS NOT NULL ${pvFilter} ${uidFilter}
+                        AND v.FECHA_VENTA >= @from AND v.FECHA_VENTA <= @to `;
+
+    const currRes = await buildReq(from, to).query(`
+      SELECT TOP ${Math.min(top, 500)}
+        u.USUARIO_ID,
+        u.NOMBRE AS USUARIO_NOMBRE,
+        COUNT(*) AS ventas,
+        ISNULL(SUM(v.TOTAL), 0) AS total,
+        ISNULL(SUM(v.GANANCIAS), 0) AS ganancia,
+        ISNULL(AVG(NULLIF(v.TOTAL, 0)), 0) AS ticketPromedio,
+        ISNULL(SUM(v.MONTO_EFECTIVO), 0) AS efectivo,
+        ISNULL(SUM(v.MONTO_DIGITAL), 0) AS digital,
+        COUNT(DISTINCT CAST(v.FECHA_VENTA AS DATE)) AS diasTrabajados,
+        MAX(v.TOTAL) AS mejorVenta,
+        MIN(v.FECHA_VENTA) AS primeraVenta,
+        MAX(v.FECHA_VENTA) AS ultimaVenta
+      FROM VENTAS v WITH (NOLOCK)
+      INNER JOIN USUARIOS u WITH (NOLOCK) ON u.USUARIO_ID = v.USUARIO_ID
+      WHERE ${baseWhere}
+      GROUP BY u.USUARIO_ID, u.NOMBRE
+      ORDER BY total DESC
+    `);
+
+    // ── Previous period totals per USUARIO_ID (for delta) ───────────
+    const prevReq = pool.request()
+      .input('from', sql.DateTime, new Date(prevFromStr + 'T00:00:00'))
+      .input('to', sql.DateTime, new Date(prevToStr + 'T23:59:59'));
+    if (puntoVentaId) prevReq.input('pvId', sql.Int, puntoVentaId);
+    if (usuarioId) prevReq.input('uid', sql.Int, usuarioId);
+
+    const prevRes = await prevReq.query(`
+        SELECT
+          u.USUARIO_ID,
+          ISNULL(SUM(v.TOTAL), 0) AS total,
+          COUNT(*) AS ventas
+        FROM VENTAS v WITH (NOLOCK)
+        INNER JOIN USUARIOS u WITH (NOLOCK) ON u.USUARIO_ID = v.USUARIO_ID
+        WHERE v.USUARIO_ID IS NOT NULL
+          AND v.FECHA_VENTA >= @from AND v.FECHA_VENTA <= @to
+          ${puntoVentaId ? ' AND v.PUNTO_VENTA_ID = @pvId' : ''}
+          ${usuarioId ? ' AND v.USUARIO_ID = @uid' : ''}
+        GROUP BY u.USUARIO_ID
+      `).catch(() => ({ recordset: [] as any[] }));
+
+    const prevByUser = new Map<number, { total: number; ventas: number }>();
+    for (const r of (prevRes.recordset || []) as any[]) {
+      prevByUser.set(Number(r.USUARIO_ID), {
+        total: Number(r.total) || 0,
+        ventas: Number(r.ventas) || 0,
+      });
+    }
+
+    const items = (currRes.recordset || []).map((r: any) => {
+      const total = Number(r.total) || 0;
+      const ganancia = Number(r.ganancia) || 0;
+      const margenPct = total > 0 ? +(ganancia / total * 100).toFixed(2) : 0;
+      const prev = prevByUser.get(Number(r.USUARIO_ID));
+      const totalAnterior = prev?.total ?? 0;
+      const deltaPct = totalAnterior > 0
+        ? +(((total - totalAnterior) / totalAnterior) * 100).toFixed(1)
+        : (total > 0 ? 100 : 0);
+      return {
+        USUARIO_ID: Number(r.USUARIO_ID),
+        USUARIO_NOMBRE: String(r.USUARIO_NOMBRE || ''),
+        ventas: Number(r.ventas) || 0,
+        total,
+        ganancia,
+        margenPct,
+        ticketPromedio: Number(r.ticketPromedio) || 0,
+        efectivo: Number(r.efectivo) || 0,
+        digital: Number(r.digital) || 0,
+        diasTrabajados: Number(r.diasTrabajados) || 0,
+        mejorVenta: Number(r.mejorVenta) || 0,
+        primeraVenta: r.primeraVenta ? new Date(r.primeraVenta).toISOString() : null,
+        ultimaVenta: r.ultimaVenta ? new Date(r.ultimaVenta).toISOString() : null,
+        totalAnterior,
+        deltaPct,
+      };
+    });
+
+    // ── Top 5 productos por cajero (para drill-down expandible) ─────
+    let topProductosByUser: Record<number, any[]> = {};
+    try {
+      const tpReq = buildReq(from, to);
+      const tpRes = await tpReq.query(`
+        WITH ranked AS (
+          SELECT
+            v.USUARIO_ID,
+            vi.PRODUCTO_ID,
+            p.NOMBRE,
+            ISNULL(um.ABREVIACION, 'u') AS UNIDAD_ABREVIACION,
+            SUM(vi.CANTIDAD) AS cantidad,
+            SUM(vi.CANTIDAD * vi.PRECIO_UNITARIO) AS total,
+            ROW_NUMBER() OVER (
+              PARTITION BY v.USUARIO_ID
+              ORDER BY SUM(vi.CANTIDAD * vi.PRECIO_UNITARIO) DESC
+            ) AS rn
+          FROM VENTAS_ITEMS vi WITH (NOLOCK)
+          JOIN VENTAS v WITH (NOLOCK) ON vi.VENTA_ID = v.VENTA_ID
+          JOIN PRODUCTOS p WITH (NOLOCK) ON vi.PRODUCTO_ID = p.PRODUCTO_ID
+          LEFT JOIN UNIDADES_MEDIDA um WITH (NOLOCK) ON p.UNIDAD_ID = um.UNIDAD_ID
+          WHERE v.USUARIO_ID IS NOT NULL
+            AND v.FECHA_VENTA >= @from AND v.FECHA_VENTA <= @to
+            ${puntoVentaId ? ' AND v.PUNTO_VENTA_ID = @pvId' : ''}
+            ${usuarioId ? ' AND v.USUARIO_ID = @uid' : ''}
+          GROUP BY v.USUARIO_ID, vi.PRODUCTO_ID, p.NOMBRE, um.ABREVIACION
+        )
+        SELECT USUARIO_ID, PRODUCTO_ID, NOMBRE, UNIDAD_ABREVIACION, cantidad, total
+        FROM ranked
+        WHERE rn <= 5
+        ORDER BY USUARIO_ID, total DESC
+      `);
+      for (const row of (tpRes.recordset || []) as any[]) {
+        const uid = Number(row.USUARIO_ID);
+        if (!topProductosByUser[uid]) topProductosByUser[uid] = [];
+        topProductosByUser[uid].push({
+          PRODUCTO_ID: Number(row.PRODUCTO_ID),
+          NOMBRE: String(row.NOMBRE || ''),
+          UNIDAD_ABREVIACION: String(row.UNIDAD_ABREVIACION || 'u'),
+          cantidad: Number(row.cantidad) || 0,
+          total: Number(row.total) || 0,
+        });
+      }
+    } catch { /* ignore */ }
+
+    return {
+      range: { from, to, prevFrom: prevFromStr, prevTo: prevToStr, days },
+      items,
+      topProductosByUser,
     };
   },
 };

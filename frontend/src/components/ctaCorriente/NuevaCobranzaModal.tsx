@@ -18,6 +18,8 @@ import { useAuthStore } from '../../store/authStore';
 import { usePaymentMethodKeyboardNavigation } from '../../hooks/usePaymentMethodKeyboardNavigation';
 import type { MetodoPagoItem, ChequePayload } from '../../types';
 import { notify } from '../../utils/notify.ts';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
 
 const { Text } = Typography;
 
@@ -290,7 +292,13 @@ export function NuevaCobranzaModal({
   return (
     <>
       <Modal
-        title={isEdit ? '✏️ Modificar Cobranza' : '💰 Nueva Cobranza'}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('cobranza')}
+            title={isEdit ? 'Modificar cobranza' : 'Nueva cobranza'}
+            subtitle={`Cliente: ${clienteNombre}`}
+          />
+        }
         open={open}
         onOk={handleOk}
         onCancel={onCancel}
@@ -299,6 +307,7 @@ export function NuevaCobranzaModal({
         confirmLoading={saving}
         width={520}
         destroyOnClose
+        className="rg-modal"
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
@@ -539,12 +548,14 @@ export function NuevaCobranzaModal({
         centered
         width={520}
         destroyOnClose
+        className="rg-modal"
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
         title={
-          <Space>
-            <WalletOutlined style={{ color: '#EABD23', fontSize: 20 }} />
-            <span>Seleccionar método de pago</span>
-          </Space>
+          <RGCajaModalHeader
+            icon={rgIcon('cobranza')}
+            title="Seleccionar método de pago"
+            subtitle="Elegí uno o más métodos para registrar la cobranza"
+          />
         }
         footer={
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

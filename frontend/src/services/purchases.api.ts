@@ -29,6 +29,8 @@ export interface PriceCheckData {
   products: PriceCheckProduct[];
   listNames: Record<number, string>;
   listMargins: Record<number, number>;
+  /** 'M' = Markup sobre costo, 'U' = Utilidad sobre venta. */
+  listTypes: Record<number, 'M' | 'U'>;
   preciosSinIva: boolean;
   impIntGravaIva: boolean;
 }

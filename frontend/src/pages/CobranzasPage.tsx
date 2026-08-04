@@ -20,6 +20,8 @@ import { DateFilterPopover, getPresetRange, type DatePreset } from '../component
 import { useTabStore } from '../store/tabStore';
 import { ExportButtons, type ExportColumn } from '../components/ExportButtons';
 import { notify } from '../utils/notify.ts';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 
 
 const { Title, Text } = Typography;
@@ -320,9 +322,16 @@ export function CobranzasPage() {
         open={desgloseModalOpen}
         onCancel={() => setDesgloseModalOpen(false)}
         footer={<Button onClick={() => setDesgloseModalOpen(false)}>Cerrar</Button>}
-        title="Desglose por método de pago"
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('cobranza')}
+            title="Desglose por método de pago"
+            subtitle="Resumen de los métodos de pago en el período"
+          />
+        }
         width={480}
         destroyOnClose
+        className="rg-modal"
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {(() => {
@@ -396,7 +405,13 @@ function DetalleCobranzaModal({ detalleCobranza, onClose }: {
 
   return (
     <Modal
-      title="Detalle de Cobranza"
+      title={
+        <RGCajaModalHeader
+          icon={rgIcon('cobranza')}
+          title="Detalle de Cobranza"
+          subtitle={detalleCobranza ? `Cliente: ${detalleCobranza.CLIENTE_NOMBRE}` : undefined}
+        />
+      }
       open={!!detalleCobranza}
       onCancel={onClose}
       footer={
@@ -417,6 +432,7 @@ function DetalleCobranzaModal({ detalleCobranza, onClose }: {
         ) : null
       }
       width={420}
+      className="rg-modal"
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
     >
       {detalleCobranza && (

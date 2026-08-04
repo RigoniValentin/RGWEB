@@ -1,5 +1,6 @@
 import { getPool, sql } from '../database/connection.js';
 import { registrarHistorialStock } from './stockHistorial.helper.js';
+import { assertStockNoNegativo } from './stockValidator.helper.js';
 
 // ═══════════════════════════════════════════════════
 //  Stock Service — Stock management by deposit
@@ -224,6 +225,12 @@ export const stockService = {
       const cantidadAnterior = currentResult.recordset.length > 0
         ? currentResult.recordset[0].CANTIDAD
         : 0;
+
+      // Validar que el nuevo valor no deje stock negativo si el producto no lo permite
+      await assertStockNoNegativo(tx, input.PRODUCTO_ID, input.DEPOSITO_ID, input.CANTIDAD_NUEVA, {
+        operacion: 'AJUSTE_MANUAL',
+        referenciaDetalle: 'Ajuste manual de stock',
+      });
 
       if (currentResult.recordset.length > 0) {
         // Update existing

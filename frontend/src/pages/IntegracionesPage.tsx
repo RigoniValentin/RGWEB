@@ -17,6 +17,8 @@ import {
   type ApiKeyCreated,
   type SyncLog,
 } from '../services/integraciones.api';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 import { tunnelApi, type TunnelInfo, type MobileDevice } from '../services/tunnel.api';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
@@ -285,10 +287,18 @@ function ApiKeysSection() {
       <Modal
         open={createOpen}
         onCancel={() => setCreateOpen(false)}
-        title="Generar API Key"
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('integracion')}
+            title="Generar API Key"
+            subtitle="Creá una nueva clave con scopes personalizados"
+          />
+        }
         onOk={() => form.submit()}
         confirmLoading={createMut.isPending}
         okText="Generar"
+        width={520}
+        className="rg-modal"
       >
         <Form
           form={form}
@@ -315,8 +325,16 @@ function ApiKeysSection() {
         <Modal
           open={!!revealed}
           onCancel={() => setRevealed(null)}
-          title="API Key generada"
+          title={
+            <RGCajaModalHeader
+              icon={rgIcon('integracion-link')}
+              title="API Key generada"
+              subtitle="Copiá la clave ahora, no se mostrará de nuevo"
+            />
+          }
           footer={<Button type="primary" onClick={() => setRevealed(null)}>Entendido</Button>}
+          width={560}
+          className="rg-modal"
         >
           <Alert
             type="warning"

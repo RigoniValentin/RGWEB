@@ -16,6 +16,8 @@ import { useAuthStore } from '../store/authStore';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { notify } from '../utils/notify.ts';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 
 const { Title, Text } = Typography;
 
@@ -379,7 +381,13 @@ export function ChequesPage() {
 
       {/* ── Form modal ── */}
       <Modal
-        title={editing ? 'Editar cheque' : 'Nuevo cheque'}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('cheque')}
+            title={editing ? 'Editar cheque' : 'Nuevo cheque'}
+            subtitle={editing ? 'Modificá los datos del cheque' : 'Cargá un nuevo cheque al sistema'}
+          />
+        }
         open={formOpen}
         onCancel={() => { setFormOpen(false); setEditing(null); }}
         onOk={submitForm}
@@ -494,7 +502,13 @@ export function ChequesPage() {
 
       {/* ── Salida masiva modal ── */}
       <Modal
-        title="Salida de cheques"
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('cheque')}
+            title="Salida de cheques"
+            subtitle="Procesá los cheques seleccionados"
+          />
+        }
         open={salidaOpen}
         onCancel={() => setSalidaOpen(false)}
         onOk={submitSalida}

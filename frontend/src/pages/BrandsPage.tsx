@@ -10,6 +10,8 @@ import { brandApi, type MarcaInput } from '../services/brand.api';
 import { useTabStore } from '../store/tabStore';
 import type { Marca } from '../types';
 import { RowContextMenu } from '../components/RowContextMenu';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { notify } from '../utils/notify.ts';
 
@@ -269,7 +271,13 @@ export function BrandsPage() {
 
       {/* ── Form Modal (New / Edit) ───────────── */}
       <Modal
-        title={editId ? 'Editar Marca' : 'Nueva Marca'}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('marca')}
+            title={editId ? 'Editar Marca' : 'Nueva Marca'}
+            subtitle={editId ? 'Modificá el nombre de la marca' : 'Creá una nueva marca en el catálogo'}
+          />
+        }
         open={formOpen}
         onCancel={() => { setFormOpen(false); setEditId(null); form.resetFields(); }}
         onOk={handleSave}

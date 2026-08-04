@@ -4,7 +4,7 @@ import { Table, Space, Input, Typography, Tag, Select, Button, Modal, Tooltip, D
 import type { TableColumnType } from 'antd';
 import {
   SearchOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
-  EyeOutlined, FilterOutlined, ReloadOutlined, UserOutlined, WarningOutlined,
+  EyeOutlined, FilterOutlined, ReloadOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import { customerApi, type ClienteInput } from '../services/customer.api';
 import { useTabStore } from '../store/tabStore';
@@ -14,6 +14,8 @@ import type { Cliente } from '../types';
 import { RowContextMenu } from '../components/RowContextMenu';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { notify } from '../utils/notify.ts';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 
 const { Title, Text } = Typography;
 
@@ -566,7 +568,7 @@ export function CustomersPage() {
 
       {/* ── Detail Drawer ─────────────────────── */}
       <Drawer
-        title={<span><UserOutlined /> Detalle del Cliente</span>}
+        title={<RGCajaModalHeader icon={rgIcon('cliente')} title="Detalle del Cliente" subtitle={detail?.NOMBRE || undefined} />}
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); setSelectedId(null); }}
         width={540}

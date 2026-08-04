@@ -77,10 +77,14 @@ async function findExisting(
   return r.recordset.length > 0 ? (r.recordset[0] as TiendaOrder) : null;
 }
 
-async function getCajaAbierta(pool: any, usuarioId: number): Promise<{ CAJA_ID: number } | null> {
+async function getCajaAbierta(pool: any, usuarioId: number): Promise<{ CAJA_ID: number; SESION_ID: number } | null> {
   const result = await pool.request()
     .input('uid', sql.Int, usuarioId)
-    .query(`SELECT CAJA_ID FROM CAJA WHERE USUARIO_ID = @uid AND ESTADO = 'ACTIVA'`);
+    .query(`
+      SELECT cs.SESION_ID, cs.CAJA_ID
+      FROM CAJA_SESIONES cs
+      WHERE cs.USUARIO_ID = @uid AND cs.ESTADO = 'ACTIVA'
+    `);
   return result.recordset.length > 0 ? result.recordset[0] : null;
 }
 

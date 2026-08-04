@@ -9,6 +9,8 @@ import { paymentMethodApi, type MetodoPagoInput } from '../services/paymentMetho
 import { useTabStore } from '../store/tabStore';
 import type { MetodoPago } from '../types';
 import { notify } from '../utils/notify.ts';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 
 const { Title, Text } = Typography;
 
@@ -147,8 +149,8 @@ export function PaymentMethodsPage() {
     if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
       notify.warning('Formato no soportado. Use PNG, JPG, GIF o WebP.'); return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      notify.warning('La imagen supera 2 MB'); return;
+    if (file.size > 5 * 1024 * 1024) {
+      notify.warning('La imagen supera 5 MB'); return;
     }
     try { setImgPreview(await toDataUrl(file)); } catch { notify.error('Error al cargar imagen'); }
   };
@@ -243,7 +245,13 @@ export function PaymentMethodsPage() {
 
       {/* ── Modal ──────────────────────────────── */}
       <Modal
-        title={editId ? 'Editar Método de Pago' : 'Nuevo Método de Pago'}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('metodo-pago')}
+            title={editId ? 'Editar Método de Pago' : 'Nuevo Método de Pago'}
+            subtitle={editId ? 'Modificá los datos del método' : 'Configurá un nuevo método de pago'}
+          />
+        }
         open={formOpen} onCancel={resetModal} onOk={handleSave}
         okText={editId ? 'Guardar Cambios' : 'Crear Método'} cancelText="Cancelar"
         confirmLoading={saving} width={500} destroyOnClose className="rg-modal"

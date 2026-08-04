@@ -20,6 +20,8 @@ import type { PedidoParaVenta } from '../components/sales/NewSaleModal';
 import type { Sector, Mesa, PedidoDetalle, ProductoSearchMesa, ProductoSearch, TipoServicioComanda } from '../types';
 import { ProductSearchModal } from '../components/ProductSearchModal';
 import { notify } from '../utils/notify.ts';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 
 const { Title, Text } = Typography;
 
@@ -575,9 +577,16 @@ function SectorModal({ open, sector, puntoVentaId, onClose, onSuccess }: {
   };
 
   return (
-    <Modal open={open} title={sector ? 'Editar Sector' : 'Nuevo Sector'}
+    <Modal open={open} title={
+      <RGCajaModalHeader
+        icon={rgIcon('mesa')}
+        title={sector ? 'Editar Sector' : 'Nuevo Sector'}
+        subtitle="Datos del sector de mesas"
+      />
+    }
       onCancel={() => { onClose(); form.resetFields(); }} onOk={handleOk} confirmLoading={loading}
       destroyOnHidden width={360}
+      className="rg-modal"
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}>
       <Form form={form} layout="vertical" initialValues={{ nombre: sector?.NOMBRE || '' }}>
         <Form.Item name="nombre" label="Nombre del Sector" rules={[{ required: true, message: 'Ingrese el nombre' }]}>
@@ -630,9 +639,16 @@ function MesaModal({ open, mesa, sectorId, puntoVentaId, onClose, onSuccess }: {
   };
 
   return (
-    <Modal open={open} title={mesa ? 'Editar Mesa' : 'Nueva Mesa'}
+    <Modal open={open} title={
+      <RGCajaModalHeader
+        icon={rgIcon('mesa-tabla')}
+        title={mesa ? 'Editar Mesa' : 'Nueva Mesa'}
+        subtitle="Identificación y capacidad de la mesa"
+      />
+    }
       onCancel={() => { onClose(); form.resetFields(); }} onOk={handleOk} confirmLoading={loading}
       destroyOnHidden width={380}
+      className="rg-modal"
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}>
       <Form form={form} layout="vertical"
         initialValues={{ numero: mesa?.NUMERO_MESA || '', capacidad: mesa?.CAPACIDAD || 4 }}>
@@ -665,8 +681,15 @@ function EstadoModal({ mesa, onClose, onCambiar }: {
   ];
 
   return (
-    <Modal open={!!mesa} title={`Cambiar Estado — Mesa ${mesa?.NUMERO_MESA}`}
+    <Modal open={!!mesa} title={
+      <RGCajaModalHeader
+        icon={rgIcon('mesa-tabla')}
+        title={`Cambiar Estado — Mesa ${mesa?.NUMERO_MESA}`}
+        subtitle="Actualizá la disponibilidad de la mesa"
+      />
+    }
       onCancel={onClose} footer={null} width={340} destroyOnHidden
+      className="rg-modal"
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}>
         {estados.map(e => (
@@ -808,19 +831,16 @@ function PedidoDrawer({ mesa, puntoVentaId, onClose, onPasarAVenta }: {
     <Drawer
       open={!!mesa}
       onClose={() => { onClose(); setSearchText(''); }}
-      title={
-        <Space>
-          <CoffeeOutlined style={{ color: '#EABD23' }} />
-          <span style={{ fontWeight: 600 }}>Mesa {mesa?.NUMERO_MESA}</span>
-          {pedidoActivo && (
-            <Tag color={pedidoActivo.ESTADO === 'CERRADO' ? 'default' : pedidoActivo.ESTADO === 'EN_PREPARACION' ? 'processing' : 'success'}>
-              {pedidoActivo.ESTADO === 'ABIERTO' ? 'Abierto' : pedidoActivo.ESTADO === 'EN_PREPARACION' ? 'En preparación' : 'Cerrado'}
-            </Tag>
-          )}
-        </Space>
-      }
+title={
+         <RGCajaModalHeader
+           icon={rgIcon('mesa')}
+           title={`Mesa ${mesa?.NUMERO_MESA}`}
+           subtitle={pedidoActivo ? `Pedido ${pedidoActivo.ESTADO === 'ABIERTO' ? 'abierto' : pedidoActivo.ESTADO === 'EN_PREPARACION' ? 'en preparación' : 'cerrado'}` : 'Sin pedido activo'}
+         />
+       }
       width={700}
       destroyOnHidden
+      className="rg-drawer"
     >
       {loadingPedido ? <Spin style={{ display: 'block', margin: '60px auto' }} /> :
         !pedidoActivo ? (
@@ -1010,8 +1030,9 @@ function HistorialDrawer({ mesa, onClose, onPasarAVenta }: {
 
   return (
     <Drawer open={!!mesa} onClose={onClose}
-      title={<><ClockCircleOutlined style={{ color: '#EABD23', marginRight: 8 }} />Historial — Mesa {mesa?.NUMERO_MESA}</>}
-      width={520} destroyOnHidden>
+      title={<RGCajaModalHeader icon={rgIcon('mesa-tabla')} title={`Historial — Mesa ${mesa?.NUMERO_MESA}`} subtitle="Pedidos registrados de la mesa" />}
+      width={520} destroyOnHidden
+      className="rg-drawer">
       {isLoading ? <Spin style={{ display: 'block', margin: '40px auto' }} /> :
         pedidos.length === 0 ? <Empty description="Sin pedidos registrados" /> :
         <Table
@@ -1197,10 +1218,17 @@ function PrintPedidoModal({ open, pedidoId, puntoVentaId, mesaNumero, onClose }:
     <Modal
       open={open}
       onCancel={onClose}
-      title={<><PrinterOutlined style={{ color: '#EABD23', marginRight: 8 }} />Imprimir — Mesa {mesaNumero}</>}
+      title={
+        <RGCajaModalHeader
+          icon={rgIcon('mesa-tabla')}
+          title={`Imprimir — Mesa ${mesaNumero}`}
+          subtitle="Seleccioná el comprobante a imprimir"
+        />
+      }
       footer={null}
       width={380}
       destroyOnHidden
+      className="rg-modal"
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}>
@@ -1330,9 +1358,10 @@ function TiposServicioComandaDrawer({ open, puntoVentaId, onClose }: {
       <Drawer
         open={open}
         onClose={onClose}
-        title={<><SettingOutlined style={{ color: '#EABD23', marginRight: 8 }} />Tipos de Servicio Comanda</>}
+        title={<RGCajaModalHeader icon={rgIcon('mesa-tabla')} title="Tipos de Servicio Comanda" subtitle="Configurá los tipos de servicio y sus productos" />}
         width={780}
         destroyOnHidden
+        className="rg-drawer"
       >
         <div style={{ display: 'flex', gap: 16, height: '100%' }}>
           {/* Left panel: list of tipos */}
@@ -1436,12 +1465,19 @@ function TiposServicioComandaDrawer({ open, puntoVentaId, onClose }: {
 
       <Modal
         open={modalOpen}
-        title={editingId ? 'Editar Tipo de Servicio' : 'Nuevo Tipo de Servicio'}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('comanda')}
+            title={editingId ? 'Editar Tipo de Servicio' : 'Nuevo Tipo de Servicio'}
+            subtitle="Configuración del servicio de comanda"
+          />
+        }
         onCancel={() => { setModalOpen(false); setEditingId(null); form.resetFields(); }}
         onOk={() => editingId ? updateMut.mutate() : createMut.mutate()}
         confirmLoading={createMut.isPending || updateMut.isPending}
         destroyOnHidden
         width={360}
+        className="rg-modal"
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         <Form form={form} layout="vertical">

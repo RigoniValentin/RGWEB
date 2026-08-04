@@ -1,5 +1,6 @@
 import { getPool, sql } from '../database/connection.js';
-import type { ListaPrecio, PaginatedResult, Producto, PrecioLista } from '../types/index.js';
+import type { ListaPrecio, PaginatedResult, Producto, PrecioLista, TipoMargen } from '../types/index.js';
+import { normalizarTipoMargen, validateMargenPorTipo } from '../utils/pricing.js';
 
 export interface PriceListFilter {
   page?: number;
@@ -15,12 +16,14 @@ export interface PriceListInput {
   NOMBRE: string;
   DESCRIPCION?: string | null;
   MARGEN?: number;
+  /** 'M' = Markup sobre costo (default). 'U' = Utilidad sobre venta. */
+  TIPO_MARGEN?: TipoMargen;
   ACTIVA?: boolean;
   /** Si true (default true), al crear se insertan precios en PRODUCTO_LISTA_PRECIOS
    *  para todos los productos con PRECIO_COMPRA > 0 aplicando el MARGEN configurado. */
   aplicarMargenInicial?: boolean;
   /** Si true, al actualizar también se recalculan los precios de los productos
-   *  ya asociados a la lista (PRECIO = PRECIO_COMPRA * (1 + MARGEN/100)),
+   *  ya asociados a la lista usando la fórmula del TIPO_MARGEN de la lista,
    *  limpiando el MARGEN_INDIVIDUAL. */
   recalcularPorMargen?: boolean;
   /** Paso de redondeo a aplicar después del recálculo (ej. 50, 100, 500).
@@ -98,23 +101,33 @@ async function setMargenIndividualForProducto(
     .input('productoId', sql.Int, productoId)
     .input('precio', sql.Decimal(18, 4), precio);
 
-  // Calcular margen real y margen default de la lista en una sola query
+  // Calcular margen real (en la moneda de la lista) y margen default de la lista.
+  // Markup:  margen = (precio / costo - 1) * 100
+  // Utilidad: margen = (1 - costo / precio) * 100
   const result = await req.query(`
     DECLARE @margenReal DECIMAL(9, 4);
     DECLARE @margenDefault DECIMAL(9, 4);
     DECLARE @precioCompra DECIMAL(18, 4);
+    DECLARE @tipoMargen CHAR(1);
 
     SELECT @precioCompra = ISNULL(PRECIO_COMPRA, 0) FROM PRODUCTOS WHERE PRODUCTO_ID = @productoId;
-    SELECT @margenDefault = ISNULL(MARGEN, 0) FROM LISTA_PRECIOS WHERE LISTA_ID = @listaId;
+    SELECT @margenDefault = ISNULL(MARGEN, 0),
+           @tipoMargen = ISNULL(TIPO_MARGEN, 'M')
+    FROM LISTA_PRECIOS WHERE LISTA_ID = @listaId;
 
-    IF @precioCompra > 0
-        SET @margenReal = ROUND(((@precio / @precioCompra) - 1) * 100, 4);
+    IF @precioCompra > 0 AND @precio > 0
+    BEGIN
+        IF @tipoMargen = 'U'
+            SET @margenReal = ROUND((1 - (@precioCompra / @precio)) * 100, 4);
+        ELSE
+            SET @margenReal = ROUND(((@precio / @precioCompra) - 1) * 100, 4);
+    END
     ELSE
         SET @margenReal = 0;
 
     UPDATE PRODUCTO_LISTA_PRECIOS
     SET MARGEN_INDIVIDUAL = CASE
-        WHEN @precioCompra > 0 AND ABS(@margenReal - @margenDefault) > ${MARGEN_INDIVIDUAL_TOLERANCE}
+        WHEN @precioCompra > 0 AND @precio > 0 AND ABS(@margenReal - @margenDefault) > ${MARGEN_INDIVIDUAL_TOLERANCE}
             THEN @margenReal
         ELSE NULL
     END
@@ -128,14 +141,17 @@ async function getListaActiva(listaId: number): Promise<ListaPrecio> {
   const result = await pool.request()
     .input('id', sql.Int, listaId)
     .query<ListaPrecio>(`
-      SELECT LISTA_ID, CODIGOPARTICULAR, NOMBRE, DESCRIPCION, MARGEN, ACTIVA
+      SELECT LISTA_ID, CODIGOPARTICULAR, NOMBRE, DESCRIPCION, MARGEN,
+             ISNULL(TIPO_MARGEN, 'M') AS TIPO_MARGEN, ACTIVA
       FROM LISTA_PRECIOS
       WHERE LISTA_ID = @id
     `);
   if (result.recordset.length === 0) {
     throw Object.assign(new Error('Lista de precio no encontrada'), { name: 'ValidationError' });
   }
-  return result.recordset[0];
+  const row = result.recordset[0];
+  row.TIPO_MARGEN = normalizarTipoMargen(row.TIPO_MARGEN);
+  return row;
 }
 
 async function syncMarginsForList(listaId: number, productoIds: number[]) {
@@ -187,7 +203,8 @@ export const priceListService = {
     dataReq.input('offset', sql.Int, offset);
     dataReq.input('pageSize', sql.Int, pageSize);
     const dataResult = await dataReq.query<ListaPrecio>(`
-      SELECT LISTA_ID, CODIGOPARTICULAR, NOMBRE, DESCRIPCION, MARGEN, ACTIVA
+      SELECT LISTA_ID, CODIGOPARTICULAR, NOMBRE, DESCRIPCION, MARGEN,
+             ISNULL(TIPO_MARGEN, 'M') AS TIPO_MARGEN, ACTIVA
       FROM LISTA_PRECIOS
       ${where}
       ORDER BY ${orderCol} ${orderDir}
@@ -197,7 +214,7 @@ export const priceListService = {
     const data = [] as (ListaPrecio & PriceListStats)[];
     for (const row of dataResult.recordset) {
       const stats = await this.getStats(row.LISTA_ID);
-      data.push({ ...row, ...stats });
+      data.push({ ...row, ...stats, TIPO_MARGEN: normalizarTipoMargen(row.TIPO_MARGEN) });
     }
 
     return { data, total, page, pageSize };
@@ -213,6 +230,14 @@ export const priceListService = {
     validateListId(id);
     if (!input.NOMBRE?.trim()) {
       throw Object.assign(new Error('El nombre es obligatorio'), { name: 'ValidationError' });
+    }
+
+    const tipoMargen: TipoMargen = input.TIPO_MARGEN ?? 'M';
+    const margenNuevo = input.MARGEN ?? 0;
+    try {
+      validateMargenPorTipo(margenNuevo, tipoMargen);
+    } catch (err: any) {
+      throw Object.assign(new Error(err.message), { name: 'ValidationError' });
     }
 
     const pool = await getPool();
@@ -233,7 +258,8 @@ export const priceListService = {
       .input('codigo', sql.NVarChar, input.CODIGOPARTICULAR?.trim() || String(id))
       .input('nombre', sql.NVarChar, input.NOMBRE.trim())
       .input('descripcion', sql.NVarChar, input.DESCRIPCION?.trim() || null)
-      .input('margen', sql.Decimal(18, 4), input.MARGEN ?? 0)
+      .input('margen', sql.Decimal(18, 4), margenNuevo)
+      .input('tipoMargen', sql.Char(1), tipoMargen)
       .input('activa', sql.Bit, input.ACTIVA !== false ? 1 : 0)
       .query(`
         UPDATE LISTA_PRECIOS SET
@@ -241,25 +267,38 @@ export const priceListService = {
           NOMBRE = @nombre,
           DESCRIPCION = @descripcion,
           MARGEN = @margen,
+          TIPO_MARGEN = @tipoMargen,
           ACTIVA = @activa
         WHERE LISTA_ID = @id
       `);
 
     // Si se solicitó recalcular precios con el nuevo margen, actualizar todos
-    // los productos asociados a esta lista. Se limpia MARGEN_INDIVIDUAL ya
-    // que el margen real volverá a coincidir con el margen default de la lista.
+    // los productos asociados a esta lista. La fórmula depende del TIPO_MARGEN
+    // de la lista ('M' → Markup, 'U' → Utilidad). Se limpia MARGEN_INDIVIDUAL
+    // ya que el margen real volverá a coincidir con el margen default.
     if (input.recalcularPorMargen) {
-      const margenNuevo = input.MARGEN ?? 0;
+      // CASE que refleja normalizarTipoMargen + precioFromMargen en SQL.
+      // Markup: PRECIO_COMPRA * (1 + margen/100)
+      // Utilidad: PRECIO_COMPRA / (1 - margen/100)  (sólo si margen < 100)
+      const precioExpr = `
+        CASE
+          WHEN lp.TIPO_MARGEN = 'U' AND @margen < 100
+            THEN ISNULL(p.PRECIO_COMPRA, 0) / NULLIF(1 - @margen / 100.0, 0)
+          ELSE
+            ISNULL(p.PRECIO_COMPRA, 0) * (1 + @margen / 100.0)
+        END
+      `;
       const recalcResult = await pool.request()
         .input('listaId', sql.Int, id)
         .input('margen', sql.Decimal(9, 4), margenNuevo)
         .query(`
           UPDATE plp
-          SET plp.PRECIO = CAST(ROUND(ISNULL(p.PRECIO_COMPRA, 0) * (1 + @margen / 100.0), 2) AS DECIMAL(18, 4)),
+          SET plp.PRECIO = CAST(ROUND(${precioExpr}, 2) AS DECIMAL(18, 4)),
               plp.MARGEN_INDIVIDUAL = NULL,
               plp.FECHA_ACTUALIZACION = GETDATE()
           FROM PRODUCTO_LISTA_PRECIOS plp
           INNER JOIN PRODUCTOS p ON p.PRODUCTO_ID = plp.PRODUCTO_ID
+          INNER JOIN LISTA_PRECIOS lp ON lp.LISTA_ID = plp.LISTA_ID
           WHERE plp.LISTA_ID = @listaId
             AND ISNULL(p.PRECIO_COMPRA, 0) > 0
             AND ISNULL(plp.PRECIO, 0) > 0
@@ -304,6 +343,14 @@ export const priceListService = {
         throw Object.assign(new Error('El nombre es obligatorio'), { name: 'ValidationError' });
       }
 
+      const tipoMargen: TipoMargen = input.TIPO_MARGEN ?? 'M';
+      const margenInicial = input.MARGEN ?? 0;
+      try {
+        validateMargenPorTipo(margenInicial, tipoMargen);
+      } catch (err: any) {
+        throw Object.assign(new Error(err.message), { name: 'ValidationError' });
+      }
+
       const trimmedCode = input.CODIGOPARTICULAR?.trim() || null;
 
       if (trimmedCode) {
@@ -331,11 +378,12 @@ export const priceListService = {
           .input('codigo', sql.NVarChar, trimmedCode)
           .input('nombre', sql.NVarChar, input.NOMBRE.trim())
           .input('descripcion', sql.NVarChar, input.DESCRIPCION?.trim() || null)
-          .input('margen', sql.Decimal(18, 4), input.MARGEN ?? 0)
+          .input('margen', sql.Decimal(18, 4), margenInicial)
+          .input('tipoMargen', sql.Char(1), tipoMargen)
           .input('activa', sql.Bit, input.ACTIVA !== false ? 1 : 0)
           .query(`
-            INSERT INTO LISTA_PRECIOS (CODIGOPARTICULAR, NOMBRE, DESCRIPCION, MARGEN, ACTIVA)
-            VALUES (@codigo, @nombre, @descripcion, @margen, @activa);
+            INSERT INTO LISTA_PRECIOS (CODIGOPARTICULAR, NOMBRE, DESCRIPCION, MARGEN, TIPO_MARGEN, ACTIVA)
+            VALUES (@codigo, @nombre, @descripcion, @margen, @tipoMargen, @activa);
             SELECT SCOPE_IDENTITY() AS LISTA_ID;
           `);
         nextId = Number(insertResult.recordset[0]?.LISTA_ID);
@@ -359,27 +407,38 @@ export const priceListService = {
           .input('codigo', sql.NVarChar, code)
           .input('nombre', sql.NVarChar, input.NOMBRE.trim())
           .input('descripcion', sql.NVarChar, input.DESCRIPCION?.trim() || null)
-          .input('margen', sql.Decimal(18, 4), input.MARGEN ?? 0)
+          .input('margen', sql.Decimal(18, 4), margenInicial)
+          .input('tipoMargen', sql.Char(1), tipoMargen)
           .input('activa', sql.Bit, input.ACTIVA !== false ? 1 : 0)
           .query(`
-            INSERT INTO LISTA_PRECIOS (LISTA_ID, CODIGOPARTICULAR, NOMBRE, DESCRIPCION, MARGEN, ACTIVA)
-            VALUES (@id, @codigo, @nombre, @descripcion, @margen, @activa)
+            INSERT INTO LISTA_PRECIOS (LISTA_ID, CODIGOPARTICULAR, NOMBRE, DESCRIPCION, MARGEN, TIPO_MARGEN, ACTIVA)
+            VALUES (@id, @codigo, @nombre, @descripcion, @margen, @tipoMargen, @activa)
           `);
       }
 
       // Inicializar precios para todos los productos con PRECIO_COMPRA > 0
-      // aplicando el margen configurado. Default: sí (a menos que se pida lo contrario).
+      // aplicando el margen configurado. La fórmula respeta TIPO_MARGEN.
+      // Default: sí (a menos que se pida lo contrario).
       let productosConPrecio = 0;
       const aplicarMargen = input.aplicarMargenInicial !== false;
       if (aplicarMargen) {
+        const precioExpr = `
+          CASE
+            WHEN @tipoMargen = 'U' AND @margen < 100
+              THEN ISNULL(p.PRECIO_COMPRA, 0) / NULLIF(1 - @margen / 100.0, 0)
+            ELSE
+              ISNULL(p.PRECIO_COMPRA, 0) * (1 + @margen / 100.0)
+          END
+        `;
         const preciosResult = await tx.request()
           .input('listaId', sql.Int, nextId)
-          .input('margen', sql.Decimal(9, 4), input.MARGEN ?? 0)
+          .input('margen', sql.Decimal(9, 4), margenInicial)
+          .input('tipoMargen', sql.Char(1), tipoMargen)
           .query(`
             INSERT INTO PRODUCTO_LISTA_PRECIOS (LISTA_ID, PRODUCTO_ID, PRECIO)
             SELECT @listaId,
                    p.PRODUCTO_ID,
-                   CAST(ROUND(ISNULL(p.PRECIO_COMPRA, 0) * (1 + @margen / 100.0), 2) AS DECIMAL(18, 4))
+                   CAST(ROUND(${precioExpr}, 2) AS DECIMAL(18, 4))
             FROM PRODUCTOS p
             WHERE ISNULL(p.PRECIO_COMPRA, 0) > 0
           `);
@@ -519,7 +578,7 @@ export const priceListService = {
         p.CANTIDAD, p.CATEGORIA_ID, p.PRECIO_COMPRA, p.MARCA_ID,
         p.STOCK_MINIMO, p.UNIDAD_ID, p.ACTIVO,
         p.LISTA_DEFECTO, p.COSTO_USD, p.TASA_IVA_ID,
-        p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, p.PRECIO_COMPRA_BASE, p.IMP_INT,
+        p.ES_CONJUNTO, p.ES_SERVICIO, p.DESCUENTA_STOCK, ISNULL(p.PERMITE_STOCK_NEGATIVO, 0) AS PERMITE_STOCK_NEGATIVO, p.PRECIO_COMPRA_BASE, p.IMP_INT,
         p.FECHA_VENCIMIENTO, p.MARGEN_INDIVIDUAL,
         c.NOMBRE AS CATEGORIA_NOMBRE,
         m.NOMBRE AS MARCA_NOMBRE,
@@ -663,9 +722,18 @@ export const priceListService = {
     if (input.actualizarMargen) {
       const margenResult = await pool.request()
         .input('id', sql.Int, listaId)
-        .query<{ MARGEN: number }>(`SELECT MARGEN FROM LISTA_PRECIOS WHERE LISTA_ID = @id`);
+        .query<{ MARGEN: number; TIPO_MARGEN: string }>(`SELECT MARGEN, TIPO_MARGEN FROM LISTA_PRECIOS WHERE LISTA_ID = @id`);
       margenAnterior = margenResult.recordset[0]?.MARGEN ?? 0;
+      const tipoMargen = normalizarTipoMargen(margenResult.recordset[0]?.TIPO_MARGEN);
+      // Ajuste por % compuesto sobre el margen default. La fórmula es la misma
+      // para Markup y Utilidad (no es lineal en Utilidad pero se mantiene la
+      // semántica histórica de "ajuste por %"; el usuario lo confirma en UI).
       margenNuevo = Math.round(margenAnterior * (1 + porcentaje / 100) * 10000) / 10000;
+      try {
+        validateMargenPorTipo(margenNuevo, tipoMargen);
+      } catch (err: any) {
+        throw Object.assign(new Error(err.message), { name: 'ValidationError' });
+      }
       await pool.request()
         .input('id', sql.Int, listaId)
         .input('margen', sql.Decimal(18, 4), margenNuevo)

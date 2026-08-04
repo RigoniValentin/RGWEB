@@ -27,6 +27,9 @@ import { RGLogo } from '../components/RGLogo';
 import { CajeroDashboardPage } from './CajeroDashboardPage';
 import { useTabStore } from '../store/tabStore';
 import { BarChart, DonutChart, Heatmap, type BarPoint } from '../components/dashboard/Charts';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
+import { CajerosRendimientoModal } from '../components/dashboard/CajerosRendimientoModal';
 
 const { Title, Text } = Typography;
 
@@ -199,6 +202,7 @@ export function DashboardPage() {
   const [desgloseData, setDesgloseData] = useState<DesgloseMetodo[]>([]);
   const [heatmapModalOpen, setHeatmapModalOpen] = useState(false);
   const [ccDesgloseOpen, setCcDesgloseOpen] = useState<null | 'EFECTIVO' | 'DIGITAL'>(null);
+  const [rendCajerosOpen, setRendCajerosOpen] = useState(false);
 
   const periodRng = useMemo(() => getDashboardRange(period, fechaDesde, fechaHasta), [period, fechaDesde, fechaHasta]);
   const effGranularity: DashboardGranularity = granularity === 'auto' ? periodRng.granularity : granularity;
@@ -693,6 +697,44 @@ export function DashboardPage() {
             </Col>
           </Row>
 
+          {/* ── Rendimiento de cajeros (card trigger) ─────────── */}
+          <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+            <Col xs={24}>
+              <Card
+                hoverable
+                className="kpi-card animate-fade-up rg-rendimiento-trigger"
+                onClick={() => setRendCajerosOpen(true)}
+                styles={{ body: { padding: '16px 20px' } }}
+              >
+                <Row align="middle" gutter={16}>
+                  <Col flex="none">
+                    <div className="rg-rendimiento-trigger__icon">
+                      <TrophyOutlined />
+                    </div>
+                  </Col>
+                  <Col flex="auto">
+                    <Space size={8} wrap align="center">
+                      <Text strong style={{ fontSize: 15, lineHeight: 1.2 }}>
+                        Rendimiento de cajeros
+                      </Text>
+                      <Tag color="gold" style={{ fontWeight: 600, borderRadius: 999, margin: 0 }}>
+                        {periodLabel}
+                      </Tag>
+                    </Space>
+                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 2 }}>
+                      Visualizá KPIs por cajero (ventas, ticket promedio, etc.) para reconocer el esfuerzo y decidir bonos.
+                    </Text>
+                  </Col>
+                  <Col flex="none">
+                    <Button type="primary" className="btn-gold" icon={<TrophyOutlined />}>
+                      Ver rendimiento
+                    </Button>
+                  </Col>
+                </Row>
+              </Card>
+            </Col>
+          </Row>
+
           {/* ── Top Productos + Top Clientes ──────────────── */}
           <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
             <Col xs={24} lg={14}>
@@ -850,9 +892,16 @@ export function DashboardPage() {
         open={desgloseModalOpen}
         onCancel={() => setDesgloseModalOpen(false)}
         footer={<Button onClick={() => setDesgloseModalOpen(false)}>Cerrar</Button>}
-        title={`Desglose por método de pago — ${periodLabel}`}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('dashboard')}
+            title={`Desglose por método de pago — ${periodLabel}`}
+            subtitle="Distribución de ventas por medio de pago"
+          />
+        }
         width={520}
         destroyOnClose
+        className="rg-modal"
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {desgloseData.length === 0 ? (
@@ -896,9 +945,16 @@ export function DashboardPage() {
         open={heatmapModalOpen}
         onCancel={() => setHeatmapModalOpen(false)}
         footer={<Button onClick={() => setHeatmapModalOpen(false)}>Cerrar</Button>}
-        title={`Concentración de ventas — ${periodLabel}`}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('dashboard')}
+            title={`Concentración de ventas — ${periodLabel}`}
+            subtitle="Distribución de ventas por día y hora"
+          />
+        }
         width={820}
         destroyOnClose
+        className="rg-modal"
         styles={{ body: { maxHeight: 'calc(85dvh - 120px)', overflowY: 'auto' } }}
       >
         <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 12 }}>
@@ -914,9 +970,16 @@ export function DashboardPage() {
         open={ccDesgloseOpen !== null}
         onCancel={() => setCcDesgloseOpen(null)}
         footer={<Button onClick={() => setCcDesgloseOpen(null)}>Cerrar</Button>}
-        title={`Desglose ${ccDesgloseOpen === 'EFECTIVO' ? 'Efectivo' : 'Digital'} — ${periodLabel}`}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('dashboard')}
+            title={`Desglose ${ccDesgloseOpen === 'EFECTIVO' ? 'Efectivo' : 'Digital'} — ${periodLabel}`}
+            subtitle="Movimientos de Caja Central por método"
+          />
+        }
         width={520}
         destroyOnClose
+        className="rg-modal"
         styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       >
         {ccDesgloseLoading ? (
@@ -975,6 +1038,16 @@ export function DashboardPage() {
           );
         })()}
       </Modal>
+
+      {/* ── Modal Rendimiento de Cajeros ─────────────── */}
+      <CajerosRendimientoModal
+        open={rendCajerosOpen}
+        onClose={() => setRendCajerosOpen(false)}
+        from={periodRng.from}
+        to={periodRng.to}
+        puntoVentaId={pvFilter}
+        periodLabel={periodLabel}
+      />
     </div>
   );
 }

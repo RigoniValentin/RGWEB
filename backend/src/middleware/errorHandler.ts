@@ -1,16 +1,24 @@
 import { Request, Response, NextFunction } from 'express';
 
-export function errorHandler(err: Error, _req: Request, res: Response, _next: NextFunction): void {
+interface ErrorWithCode extends Error {
+  code?: string;
+  status?: number;
+  detalles?: any;
+}
+
+export function errorHandler(err: ErrorWithCode, _req: Request, res: Response, _next: NextFunction): void {
   console.error('❌ Error:', err.message);
 
-  if (err.name === 'ValidationError') {
-    res.status(400).json({ error: err.message });
-    return;
-  }
+  const status = err.status || (err.name === 'ValidationError' ? 400 : 500);
 
-  res.status(500).json({
-    error: process.env.NODE_ENV === 'production'
+  const body: Record<string, any> = {
+    error: status === 500 && process.env.NODE_ENV === 'production'
       ? 'Error interno del servidor'
       : err.message,
-  });
+  };
+
+  if (err.code) body.code = err.code;
+  if (err.detalles) body.detalles = err.detalles;
+
+  res.status(status).json(body);
 }

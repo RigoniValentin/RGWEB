@@ -13,6 +13,8 @@ import { usuariosApi } from '../services/usuarios.api';
 import { useTabStore } from '../store/tabStore';
 import type { PuntoVenta } from '../types';
 import { RowContextMenu } from '../components/RowContextMenu';
+import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
+import { rgIcon } from '../components/rg-icons';
 import { useRowActions, type RowAction } from '../hooks/useRowActions';
 import { notify } from '../utils/notify.ts';
 
@@ -276,7 +278,13 @@ export function PuntosVentaPage() {
 
       {/* ── Form Modal ────────────────────────── */}
       <Modal
-        title={editId ? 'Editar Punto de Venta' : 'Nuevo Punto de Venta'}
+        title={
+          <RGCajaModalHeader
+            icon={rgIcon('punto-venta')}
+            title={editId ? 'Editar Punto de Venta' : 'Nuevo Punto de Venta'}
+            subtitle={editId ? 'Modificá la configuración del punto de venta' : 'Configurá un nuevo punto de venta'}
+          />
+        }
         open={formOpen}
         onCancel={() => { setFormOpen(false); setEditId(null); resetForm(); }}
         onOk={handleSave}

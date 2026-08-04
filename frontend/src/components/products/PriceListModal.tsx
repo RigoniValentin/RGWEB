@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Modal, InputNumber, Typography, Space, Tag, Segmented, Button, Divider, Tooltip, Spin, Select, Dropdown, Tabs } from 'antd';
 import {
-  DollarOutlined, ReloadOutlined, UndoOutlined, PercentageOutlined,
+  ReloadOutlined, UndoOutlined, PercentageOutlined,
   VerticalAlignTopOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
@@ -9,6 +9,9 @@ import { catalogApi } from '../../services/catalog.api';
 import { productApi } from '../../services/product.api';
 import type { ListaPrecio, Producto } from '../../types';
 import { notify } from '../../utils/notify.ts';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
+import { margenFromPrecio, normalizarTipoMargen, precioFromMargen, shortTipoMargen } from '../../utils/pricing';
 
 const { Text } = Typography;
 
@@ -67,10 +70,17 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
         setListaDefecto(d.LISTA_DEFECTO ?? null);
         setOrigListaDefecto(d.LISTA_DEFECTO ?? null);
 
+        // Mapa LISTA_ID → TIPO_MARGEN para resolver el back-calc correctamente.
+        const tipoByLista = new Map<number, 'M' | 'U'>();
+        for (const l of listasActivas) {
+          tipoByLista.set(l.LISTA_ID, normalizarTipoMargen(l.TIPO_MARGEN));
+        }
+
         const initMargenes: Record<number, number> = {};
         if (c > 0) {
           for (const p of (d.precios ?? [])) {
-            initMargenes[p.LISTA_ID] = p.PRECIO > 0 ? r2(((p.PRECIO / c) - 1) * 100) : 0;
+            const tipo = tipoByLista.get(p.LISTA_ID) ?? 'M';
+            initMargenes[p.LISTA_ID] = p.PRECIO > 0 ? r2(margenFromPrecio(c, p.PRECIO, tipo)) : 0;
           }
         }
         setMargenes(initMargenes);
@@ -79,7 +89,7 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
         setMarginSource(hasStored || d.MARGEN_INDIVIDUAL ? 'individual' : 'lista');
       }).finally(() => setLoading(false));
     }
-  }, [product, open]);
+  }, [product, open, listasActivas]);
 
   const isModified = useMemo(() => {
     if (Math.abs(costo - origCosto) > 0.01) return true;
@@ -99,10 +109,11 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
     const newMargenes: Record<number, number> = {};
     for (const lista of listasActivas) {
       const id = lista.LISTA_ID;
+      const tipo = normalizarTipoMargen(lista.TIPO_MARGEN);
       const margen = marginSource === 'individual'
         ? (origMargenes[id] || 0)
         : (lista.MARGEN || 0);
-      newPrecios[id] = r2(costo * (1 + margen / 100));
+      newPrecios[id] = r2(precioFromMargen(costo, margen, tipo));
       newMargenes[id] = margen;
     }
     setPrecios(newPrecios);
@@ -121,20 +132,24 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
     const margen = value ?? 0;
     setMargenes(prev => ({ ...prev, [listaId]: margen }));
     if (costo > 0) {
-      const precio = r2(costo * (1 + margen / 100));
+      const lista = listasActivas.find(l => l.LISTA_ID === listaId);
+      const tipo = normalizarTipoMargen(lista?.TIPO_MARGEN);
+      const precio = r2(precioFromMargen(costo, margen, tipo));
       setPrecios(prev => ({ ...prev, [listaId]: precio }));
     }
-  }, [costo]);
+  }, [costo, listasActivas]);
 
   const handlePriceChange = useCallback((listaId: number, value: number | null) => {
     const precio = value ?? 0;
     setPrecios(prev => ({ ...prev, [listaId]: precio }));
     if (costo > 0 && precio > 0) {
-      setMargenes(prev => ({ ...prev, [listaId]: r2(((precio / costo) - 1) * 100) }));
+      const lista = listasActivas.find(l => l.LISTA_ID === listaId);
+      const tipo = normalizarTipoMargen(lista?.TIPO_MARGEN);
+      setMargenes(prev => ({ ...prev, [listaId]: r2(margenFromPrecio(costo, precio, tipo)) }));
     } else {
       setMargenes(prev => ({ ...prev, [listaId]: 0 }));
     }
-  }, [costo]);
+  }, [costo, listasActivas]);
 
   const handleCostoChange = useCallback((value: number | null) => {
     const newCosto = value ?? 0;
@@ -143,11 +158,13 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
       const newPrecios: Record<number, number> = {};
       for (const idStr of Object.keys(margenes)) {
         const id = Number(idStr);
-        newPrecios[id] = r2(newCosto * (1 + (margenes[id] || 0) / 100));
+        const lista = listasActivas.find(l => l.LISTA_ID === id);
+        const tipo = normalizarTipoMargen(lista?.TIPO_MARGEN);
+        newPrecios[id] = r2(precioFromMargen(newCosto, margenes[id] || 0, tipo));
       }
       setPrecios(newPrecios);
     }
-  }, [margenes]);
+  }, [margenes, listasActivas]);
 
   const handleRedondearPrecios = useCallback((step: number) => {
     const newPrecios: Record<number, number> = { ...precios };
@@ -159,13 +176,15 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
         const redondeado = Math.ceil(precio / step) * step;
         newPrecios[id] = redondeado;
         if (costo > 0) {
-          newMargenes[id] = r2(((redondeado / costo) - 1) * 100);
+          const lista = listasActivas.find(l => l.LISTA_ID === id);
+          const tipo = normalizarTipoMargen(lista?.TIPO_MARGEN);
+          newMargenes[id] = r2(margenFromPrecio(costo, redondeado, tipo));
         }
       }
     }
     setPrecios(newPrecios);
     setMargenes(newMargenes);
-  }, [precios, margenes, costo]);
+  }, [precios, margenes, costo, listasActivas]);
 
   const handleSave = async () => {
     if (!product || !isModified) {
@@ -197,6 +216,7 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
 
   const renderTabContent = (lista: ListaPrecio) => {
     const id = lista.LISTA_ID;
+    const tipo = normalizarTipoMargen(lista.TIPO_MARGEN);
     const isDefault = listaDefecto === id;
     const origPrice = origPrecios[id] || 0;
     const currPrice = precios[id] || 0;
@@ -206,14 +226,19 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
       ? (origMargenes[id] || 0)
       : (lista.MARGEN || 0);
     const actualMargin = costo > 0 && currPrice > 0
-      ? r2(((currPrice / costo) - 1) * 100)
+      ? r2(margenFromPrecio(costo, currPrice, tipo))
       : 0;
     const marginDiff = Math.abs(actualMargin - configMargin) > 0.5;
 
     return (
       <div style={{ paddingTop: 8 }}>
-        <Space size={6} style={{ marginBottom: 12 }}>
+        <Space size={6} style={{ marginBottom: 12 }} wrap>
           {isDefault && <Tag color="gold">Lista predeterminada</Tag>}
+          <Tooltip title={`Método: ${tipo === 'U' ? 'Utilidad sobre venta' : 'Markup sobre costo'}`}>
+            <Tag color={tipo === 'U' ? 'purple' : 'blue'} style={{ fontSize: 10 }}>
+              {shortTipoMargen(tipo)}
+            </Tag>
+          </Tooltip>
           <Tooltip title={`Margen ${marginSource === 'individual' ? 'individual' : 'de lista'}`}>
             <Tag color={configMargin < 5 ? 'red' : configMargin < 15 ? 'orange' : 'green'}>
               <PercentageOutlined /> {configMargin.toFixed(1)}%
@@ -285,7 +310,13 @@ export function PriceListModal({ open, product, onClose, onSaved }: Props) {
 
   return (
     <Modal
-      title={<span><DollarOutlined /> Listas de Precios</span>}
+      title={
+        <RGCajaModalHeader
+          icon={rgIcon('precio-lista')}
+          title="Listas de Precios"
+          subtitle={product ? `${product.CODIGOPARTICULAR} — ${product.NOMBRE}` : undefined}
+        />
+      }
       open={open}
       onOk={handleSave}
       onCancel={onClose}

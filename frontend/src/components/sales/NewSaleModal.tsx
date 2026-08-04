@@ -28,13 +28,19 @@ import { generateFacturaPdf } from './facturaPdf';
 import { printFacturaTicket } from './facturaTicket';
 import { settingsApi } from '../../services/settings.api';
 import { invalidateInventoryQueries } from '../../utils/invalidateInventoryQueries';
+import { invalidateCashQueries } from '../../utils/invalidateCashQueries';
 import { usePaymentMethodKeyboardNavigation } from '../../hooks/usePaymentMethodKeyboardNavigation';
+import { useStockValidator } from '../../hooks/useStockValidator';
 import { FilePdfOutlined } from '@ant-design/icons';
 
 import type { ReceiptData } from '../../utils/printReceipt';
 import type { ProductoSearch, VentaInput, ClienteVenta, RemitoPendiente } from '../../types';
 import { ProductSearchModal } from '../ProductSearchModal';
+import { StockInsuficienteModal } from './StockInsuficienteModal';
+import { StockExcedidoCeldaModal } from './StockExcedidoCeldaModal';
 import { notify, extractErrorMessage } from '../../utils/notify';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
 
 const { Title, Text } = Typography;
 
@@ -167,6 +173,9 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     const newVal = typeof v === 'function' ? v(st.getActiveDraft()?.selectedRemitoIds ?? []) : v;
     st.updateDraft(id, { selectedRemitoIds: newVal });
   }, []);
+
+  // ── Stock validator (issues persiste en el carrito) ─────
+  const stockValidator = useStockValidator(cart, setCart);
 
   // ── Local-only state (ephemeral / UI) ──────────
   const searchRef = useRef<any>(null);
@@ -619,6 +628,10 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       completedDraftIdsRef.current.add(variables.draftId);
       refreshSubmitLocks(v => v + 1);
       invalidateInventoryQueries(queryClient);
+      // La venta genera movimientos en la sesión de caja activa. Invalidar
+      // todas las queries de caja para que el cajero vea los datos frescos
+      // al hacer click en "Ver mi caja" sin tener que refrescar el navegador.
+      invalidateCashQueries(queryClient);
 
       // Show appropriate message based on anticipo usage
       if (result.MONTO_ANTICIPO && result.MONTO_ANTICIPO > 0) {
@@ -732,6 +745,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       const remainingDrafts = useSaleDraftsStore.getState().drafts.filter(d => d.id !== variables.draftId);
       resetForm(variables.draftId);
       queryClient.invalidateQueries({ queryKey: ['sales'] });
+      invalidateCashQueries(queryClient);
       if (reabrir || remainingDrafts.length > 0) {
         // Keep modal open: either setting says reopen, or there are other drafts
         if (reabrir && remainingDrafts.length === 0) {
@@ -744,6 +758,29 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       }
     },
     onError: (err: any) => {
+      const code = err?.response?.data?.code || err?.code;
+      if (code === 'STOCK_INSUFICIENTE') {
+        // El stock cambió mientras el carrito estaba abierto. Refrescamos
+        // el carrito al stock disponible y devolvemos al usuario al paso
+        // del carrito para que vea el banner con el detalle.
+        const detalles = err?.response?.data?.detalles;
+        if (detalles) {
+          setCart(prev => prev.map(item => {
+            if (item.PRODUCTO_ID !== detalles.PRODUCTO_ID) return item;
+            const nuevoStock = Number(detalles.STOCK_ACTUAL) || 0;
+            const clamped = item.PERMITE_STOCK_NEGATIVO || item.ES_SERVICIO || item.ES_CONJUNTO
+              ? item.CANTIDAD
+              : Math.min(item.CANTIDAD, nuevoStock);
+            return { ...item, STOCK: nuevoStock, CANTIDAD: clamped };
+          }));
+        } else {
+          // Si no tenemos detalles, clampamos todo el carrito.
+          stockValidator.autoFixAll();
+        }
+        setStep('cart');
+        notify.error(extractErrorMessage(err, 'Stock insuficiente. Se ajustaron las cantidades al stock disponible.'));
+        return;
+      }
       notify.error(extractErrorMessage(err, 'Error al crear la venta'));
     },
     onSettled: (_data, _error, variables) => {
@@ -928,6 +965,9 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         DEPOSITO_ID: depositoVentaId || undefined,
         LISTA_ID: product.LISTA_DEFECTO || 1,
         PRECIOS: product.PRECIOS,
+        PERMITE_STOCK_NEGATIVO: !!product.PERMITE_STOCK_NEGATIVO,
+        ES_SERVICIO: !!product.ES_SERVICIO,
+        ES_CONJUNTO: !!product.ES_CONJUNTO,
       }];
     });
     setSearchText('');
@@ -961,6 +1001,9 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         DEPOSITO_ID: depositoVentaId || undefined,
         LISTA_ID: product.LISTA_DEFECTO || 1,
         PRECIOS: product.PRECIOS,
+        PERMITE_STOCK_NEGATIVO: !!product.PERMITE_STOCK_NEGATIVO,
+        ES_SERVICIO: !!product.ES_SERVICIO,
+        ES_CONJUNTO: !!product.ES_CONJUNTO,
       }];
     });
     setSearchText('');
@@ -1213,6 +1256,68 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     return true;
   }, [cart]);
 
+  // ── Stock-insuficiente modal flow ──────────────
+  // Mientras el modal está abierto, recordamos la acción pendiente
+  // (cobrar / confirmar cobro) para ejecutarla después de aceptar.
+  const [stockModalOpen, setStockModalOpen] = useState(false);
+  const pendingActionRef = useRef<null | (() => void | Promise<void>)>(null);
+
+  const requestStockValidation = useCallback((action: () => void | Promise<void>) => {
+    if (stockValidator.issues.length === 0) {
+      action();
+      return;
+    }
+    pendingActionRef.current = action;
+    setStockModalOpen(true);
+  }, [stockValidator.issues]);
+
+  const handleStockAccept = useCallback(() => {
+    stockValidator.autoFixAll();
+    setStockModalOpen(false);
+    const pending = pendingActionRef.current;
+    pendingActionRef.current = null;
+    // Damos un microtask para que React aplique el state del cart antes de
+    // ejecutar la acción que enviará la venta al backend.
+    if (pending) {
+      setTimeout(() => { void pending(); }, 0);
+    }
+  }, [stockValidator]);
+
+  const handleStockCancel = useCallback(() => {
+    setStockModalOpen(false);
+    pendingActionRef.current = null;
+    setStep('cart');
+  }, []);
+
+  // ── Cell-event modal flow ──────────────────────
+  // Se dispara en tiempo real cuando el usuario escribe en la celda de
+  // cantidad un valor que excede el stock disponible. Al cerrar el modal
+  // (cualquier forma: botón, X, ESC) la cantidad se ajusta al stock.
+  const [cellModal, setCellModal] = useState<{
+    key: string;
+    cantidadIngresada: number;
+    stock: number;
+    nombre: string;
+    unidad: string;
+    esPrecioFinal: boolean;
+    precioUnitario: number;
+  } | null>(null);
+
+  const handleCellModalClose = useCallback(() => {
+    setCellModal(prev => {
+      if (prev) {
+        // Ajusta la cantidad al stock disponible
+        updateCartItem(prev.key, 'CANTIDAD', prev.stock);
+        // Si está en modo precio final, recalcular el total
+        if (prev.esPrecioFinal && prev.precioUnitario > 0) {
+          const newTotal = prev.stock * prev.precioUnitario;
+          setPrecioFinalValues(p => ({ ...p, [prev.key]: Math.round(newTotal * 100) / 100 }));
+        }
+      }
+      return null;
+    });
+  }, []);
+
   // Submit sale
   const handleSubmit = async (cobrar: boolean) => {
     if (saleSubmitBusy) {
@@ -1228,39 +1333,43 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
 
     if (!ensureDepositoParaVenta()) return;
 
-    if (cobrar) {
-      // Open payment method selection modal
-      const initialSelection = selectedMetodos.length > 0
-        ? [...selectedMetodos]
-        : (defaultMetodoEfectivoId ? [defaultMetodoEfectivoId] : []);
-      setMetodoModalSelection(initialSelection);
-      setMetodoModalOpen(true);
+    const doContinue = () => {
+      if (cobrar) {
+        const initialSelection = selectedMetodos.length > 0
+          ? [...selectedMetodos]
+          : (defaultMetodoEfectivoId ? [defaultMetodoEfectivoId] : []);
+        setMetodoModalSelection(initialSelection);
+        setMetodoModalOpen(true);
+        return;
+      }
+
+      if (esCtaCorriente) {
+        setCheckingSaldo(true);
+        (async () => {
+          try {
+            const { saldo } = await salesApi.getSaldoCtaCte(clienteId);
+            if (saldo < 0) {
+              const creditoDisponible = Math.abs(saldo);
+              const cobertura = creditoDisponible >= total ? 'total' : 'parcial';
+              setSaldoInfo({ saldo, creditoDisponible, cobertura });
+              setSaldoModalOpen(true);
+            } else {
+              doSaveCtaCte();
+            }
+          } catch {
+            doSaveCtaCte();
+          } finally {
+            setCheckingSaldo(false);
+          }
+        })();
+      }
+    };
+
+    if (stockValidator.issues.length > 0) {
+      requestStockValidation(doContinue);
       return;
     }
-
-    // CTA CTE: check saldo before saving
-    if (esCtaCorriente) {
-      setCheckingSaldo(true);
-      try {
-        const { saldo } = await salesApi.getSaldoCtaCte(clienteId);
-        // saldo < 0 means client has credit
-        if (saldo < 0) {
-          const creditoDisponible = Math.abs(saldo);
-          const cobertura = creditoDisponible >= total ? 'total' : 'parcial';
-          setSaldoInfo({ saldo, creditoDisponible, cobertura });
-          setSaldoModalOpen(true);
-          setCheckingSaldo(false);
-          return; // Wait for user confirmation
-        }
-      } catch {
-        // Ignore saldo check errors, proceed without anticipo
-      } finally {
-        setCheckingSaldo(false);
-      }
-    }
-
-    // Save as pending (cta corriente) — no saldo disponible
-    doSaveCtaCte();
+    doContinue();
   };
 
   // Confirmed save after saldo modal
@@ -1300,24 +1409,14 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     return Math.abs(totalRecibido - total) < 0.01;
   }, [selectedMetodos, totalRecibido, total, soloEfectivo]);
 
-  const handleConfirmCobro = () => {
-    if (saleSubmitBusy) {
-      notify.info('La venta ya se está procesando');
-      return;
-    }
-    if (!pagoValido) return;
-    if (!ensureCantidadesValidas()) return;
-    if (!ensureDepositoParaVenta()) return;
-
+  const executeConfirmCobro = useCallback(() => {
     const vueltoFinal = vuelto;
 
-    // Build metodos_pago array — adjust efectivo amounts to subtract change
     const metodosPagoInput = selectedMetodos
       .filter(id => (montosPorMetodo[id] || 0) > 0)
       .map(id => {
         const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
         let monto = montosPorMetodo[id] || 0;
-        // If only one efectivo method and there's change, store the sale amount
         if (m?.CATEGORIA === 'EFECTIVO' && vueltoFinal > 0 && soloEfectivo) {
           monto = monto - vueltoFinal;
         }
@@ -1325,7 +1424,6 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       })
       .filter(mp => mp.MONTO > 0);
 
-    // Derive category totals
     let efectivoFinal = 0;
     let digitalFinal = 0;
     for (const mp of metodosPagoInput) {
@@ -1350,6 +1448,22 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       ...(selectedRemitoIds.length > 0 ? { REMITO_IDS: selectedRemitoIds } : {}),
     };
     submitSale(input);
+  }, [vuelto, selectedMetodos, montosPorMetodo, metodosPago, soloEfectivo, clienteId, puntoVentaActivo, tipoComprobante, comprobanteAutoValue, esCtaCorriente, dtoGral, buildVentaItems, submitSale, pedido, selectedRemitoIds]);
+
+  const handleConfirmCobro = () => {
+    if (saleSubmitBusy) {
+      notify.info('La venta ya se está procesando');
+      return;
+    }
+    if (!pagoValido) return;
+    if (!ensureCantidadesValidas()) return;
+    if (!ensureDepositoParaVenta()) return;
+
+    if (stockValidator.issues.length > 0) {
+      requestStockValidation(executeConfirmCobro);
+      return;
+    }
+    executeConfirmCobro();
   };
 
   // When a single method is selected, auto-fill total to it
@@ -1464,6 +1578,16 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
               <span className="nsm-cart-product-code">{record.CODIGO}</span>
               {unitTag && <span className="nsm-cart-product-unit-tag">{unitTag}</span>}
               <span className="nsm-cart-product-stock">Stock: {record.STOCK} {record.UNIDAD}</span>
+              {record.PERMITE_STOCK_NEGATIVO && !record.ES_SERVICIO && !record.ES_CONJUNTO && (
+                <Tooltip title="Este producto puede venderse sin stock suficiente">
+                  <Tag color="orange" style={{ marginLeft: 4, fontSize: 10 }}>Permite neg.</Tag>
+                </Tooltip>
+              )}
+              {record.CANTIDAD > record.STOCK && !record.PERMITE_STOCK_NEGATIVO && !record.ES_SERVICIO && !record.ES_CONJUNTO && (
+                <Tooltip title="La cantidad supera el stock disponible">
+                  <WarningOutlined style={{ color: '#cf1322', marginLeft: 4 }} />
+                </Tooltip>
+              )}
               {hasListPrices && activeListasPrecios.length > 1 ? (
                 <Popover
                   trigger="click"
@@ -1564,13 +1688,49 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         const step = inGramos ? 1 : (isWeightOrVolume ? 0.1 : 1);
         const unitLabel = isKg ? 'kg' : (isLt ? 'lt' : record.UNIDAD);
 
+        // Reglas de stock:
+        //   - Si el producto es servicio, kit, viene de remito o permite
+        //     stock negativo, no validamos.
+        //   - En el input directo (handleChange) NO clampeamos al stock: dejamos
+        //     que el valor escrito quede visible y el banner (StockIssuesBanner)
+        //     muestra el aviso con detalle. El botón "Ajustar a stock disponible"
+        //     del banner hace el clamp real.
+        //   - En los botones +/- (handleStep) sí clampeamos para evitar que el
+        //     usuario quede varado con un valor fuera de control.
+        const canHaveNegative = !!(record.PERMITE_STOCK_NEGATIVO || record.ES_SERVICIO || record.ES_CONJUNTO || record.DESDE_REMITO);
+        const stockLimite = canHaveNegative ? Infinity : (record.STOCK || 0);
+
+        const clampCantidad = (cantidad: number): number => {
+          if (!Number.isFinite(cantidad) || cantidad < 0) return Math.max(0, cantidad || 0);
+          if (canHaveNegative) return Math.max(0.01, cantidad);
+          if (cantidad > stockLimite) return stockLimite;
+          return Math.max(0.01, cantidad);
+        };
+
         const handleChange = (v: number | null) => {
           const raw = v ?? (inGramos ? 0 : 1);
           const finalVal = inGramos ? raw / 1000 : raw;
-          updateCartItem(record.key, 'CANTIDAD', Math.max(0, finalVal));
+          // Sólo clampamos mínimo a 0. Si excede el stock, dejamos que el
+          // input lo muestre y disparamos el modal de cell-event.
+          const validated = Math.max(0, finalVal);
+          updateCartItem(record.key, 'CANTIDAD', validated);
           if (inPrecioFinal && record.PRECIO_UNITARIO > 0) {
-            const newTotal = finalVal * record.PRECIO_UNITARIO;
+            const newTotal = validated * record.PRECIO_UNITARIO;
             setPrecioFinalValues(prev => ({ ...prev, [record.key]: Math.round(newTotal * 100) / 100 }));
+          }
+          // Detectar exceso en tiempo real (sólo si el producto no permite
+          // stock negativo). El modal queda a la espera del usuario; al
+          // cerrarlo, se ajusta la cantidad al stock.
+          if (!canHaveNegative && validated > stockLimite) {
+            setCellModal({
+              key: record.key,
+              cantidadIngresada: validated,
+              stock: stockLimite,
+              nombre: record.NOMBRE,
+              unidad: record.UNIDAD,
+              esPrecioFinal: !!inPrecioFinal,
+              precioUnitario: record.PRECIO_UNITARIO,
+            });
           }
         };
 
@@ -1582,8 +1742,10 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
           } else {
             newVal = Math.max(0.01, val + delta);
           }
-          updateCartItem(record.key, 'CANTIDAD', newVal);
-          if (inPrecioFinal) setPrecioFinalValues(prev => ({ ...prev, [record.key]: Math.round(newVal * record.PRECIO_UNITARIO * 100) / 100 }));
+          // En botones +/- sí clampeamos para evitar que crezca sin freno.
+          const validated = clampCantidad(newVal);
+          updateCartItem(record.key, 'CANTIDAD', validated);
+          if (inPrecioFinal) setPrecioFinalValues(prev => ({ ...prev, [record.key]: Math.round(validated * record.PRECIO_UNITARIO * 100) / 100 }));
         };
 
         // Non-weight/volume: simple inline controls
@@ -1598,7 +1760,27 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
                 ref={el => { if (el) qtyRefs.current[record.key] = el; }}
                 value={val} min={0.01} step={1} size="middle" style={{ width: 64 }}
                 className="nsm-cart-input"
-                onChange={(v) => updateCartItem(record.key, 'CANTIDAD', v || 1)}
+                onChange={(v) => {
+                  const num = v || 0;
+                  updateCartItem(record.key, 'CANTIDAD', num);
+                  if (inPrecioFinal && record.PRECIO_UNITARIO > 0) {
+                    const newTotal = num * record.PRECIO_UNITARIO;
+                    setPrecioFinalValues(prev => ({ ...prev, [record.key]: Math.round(newTotal * 100) / 100 }));
+                  }
+                  // Detectar exceso en tiempo real (sólo si el producto no
+                  // permite stock negativo). El modal ajustará al cerrar.
+                  if (!canHaveNegative && num > stockLimite) {
+                    setCellModal({
+                      key: record.key,
+                      cantidadIngresada: num,
+                      stock: stockLimite,
+                      nombre: record.NOMBRE,
+                      unidad: record.UNIDAD,
+                      esPrecioFinal: !!inPrecioFinal,
+                      precioUnitario: record.PRECIO_UNITARIO,
+                    });
+                  }
+                }}
                 onPressEnter={() => {
                   // Enter flow: qty → dto
                   setTimeout(() => {
@@ -1799,7 +1981,7 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       style={{ top: 20, maxWidth: 1400 }}
       footer={null}
       closable={false}
-      className="new-sale-modal"
+      className="new-sale-modal rg-modal"
       styles={{ body: { padding: 0, overflow: 'hidden' } }}
       afterOpenChange={handleAfterOpenChange}
     >
@@ -2619,12 +2801,14 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       centered
       width={520}
       destroyOnClose
+      className="rg-modal"
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       title={
-        <Space>
-          <WalletOutlined style={{ color: '#EABD23', fontSize: 20 }} />
-          <span>Seleccionar método de pago</span>
-        </Space>
+        <RGCajaModalHeader
+          icon={rgIcon('pago')}
+          title="Seleccionar método de pago"
+          subtitle="Elegí uno o más métodos para cobrar la venta"
+        />
       }
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -2725,15 +2909,17 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     <Modal
       open={saldoModalOpen}
       title={
-        <Space>
-          <WalletOutlined style={{ color: '#52c41a', fontSize: 20 }} />
-          <span>Saldo disponible en cuenta corriente</span>
-        </Space>
+        <RGCajaModalHeader
+          icon={rgIcon('pago')}
+          title="Saldo en cuenta corriente"
+          subtitle="Crédito disponible del cliente para aplicar a la venta"
+        />
       }
       onCancel={() => { setSaldoModalOpen(false); setSaldoInfo(null); }}
       centered
       width={460}
       destroyOnClose
+      className="rg-modal"
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -2812,16 +2998,18 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
     <Modal
       open={wspModalOpen}
       title={
-        <Space>
-          <WhatsAppOutlined style={{ color: '#25D366', fontSize: 20 }} />
-          <span>Enviar detalle por WhatsApp</span>
-        </Space>
+        <RGCajaModalHeader
+          icon={rgIcon('venta-detalle')}
+          title="Enviar detalle por WhatsApp"
+          subtitle="Compartí el comprobante de la venta al cliente"
+        />
       }
       onCancel={handleCloseWspModal}
       footer={null}
       centered
       width={420}
       destroyOnClose
+      className="rg-modal"
       styles={{ body: { maxHeight: 'calc(80dvh - 120px)', overflowY: 'auto', paddingRight: 4 } }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 16 }}>
@@ -2864,6 +3052,24 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
         </div>
       </div>
     </Modal>
+
+    {/* ── Stock insuficiente — message box desktop-style ── */}
+    <StockInsuficienteModal
+      open={stockModalOpen}
+      issues={stockValidator.issues}
+      onAccept={handleStockAccept}
+      onCancel={handleStockCancel}
+    />
+
+    {/* ── Cell-event modal: se dispara al escribir en la celda de cantidad ── */}
+    <StockExcedidoCeldaModal
+      open={cellModal !== null}
+      productoNombre={cellModal?.nombre ?? ''}
+      unidad={cellModal?.unidad ?? ''}
+      cantidadIngresada={cellModal?.cantidadIngresada ?? 0}
+      stockDisponible={cellModal?.stock ?? 0}
+      onClose={handleCellModalClose}
+    />
 
     <ProductSearchModal
       key={productSearchKey.current}

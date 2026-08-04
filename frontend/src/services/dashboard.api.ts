@@ -2,6 +2,7 @@ import api from './api';
 import type {
   DashboardStats, VentaDiaria, DesgloseMetodo,
   DashboardAnalytics, DashboardGranularity,
+  CajeroRendimientoResponse,
 } from '../types';
 
 export const dashboardApi = {
@@ -22,6 +23,15 @@ export const dashboardApi = {
     soloFiscal?: boolean;
   }) =>
     api.get<DashboardAnalytics>('/dashboard/analytics', { params }).then(r => r.data),
+
+  getCajerosRendimiento: (params: {
+    from: string;
+    to: string;
+    puntoVentaId?: number;
+    usuarioId?: number;
+    top?: number;
+  }) =>
+    api.get<CajeroRendimientoResponse>('/dashboard/cajeros-rendimiento', { params }).then(r => r.data),
 
   getLogo: async (): Promise<string | null> => {
     try {

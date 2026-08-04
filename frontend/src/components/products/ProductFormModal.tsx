@@ -11,6 +11,9 @@ import { productApi, type TasaImpuesto } from '../../services/product.api';
 import { useAuthStore } from '../../store/authStore';
 import type { ListaPrecio, Producto } from '../../types';
 import { notify } from '../../utils/notify.ts';
+import { RGCajaModalHeader } from '../RGCajaModalHeader';
+import { rgIcon } from '../rg-icons';
+import { margenFromPrecio, normalizarTipoMargen, precioFromMargen, shortTipoMargen } from '../../utils/pricing';
 
 const { Text } = Typography;
 
@@ -149,15 +152,18 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
       if (costo > 0) {
         const precioMap = new Map<number, number>();
         for (const p of (detail.precios ?? [])) precioMap.set(p.LISTA_ID, p.PRECIO);
-        // Para todas las listas activas, calcular margen real desde el precio guardado.
+        // Para todas las listas activas, calcular margen real desde el precio guardado
+        // respetando el TIPO_MARGEN de cada lista (Markup vs Utilidad).
         for (const l of listasActivas) {
           const precio = precioMap.get(l.LISTA_ID) || 0;
+          const tipo = normalizarTipoMargen(l.TIPO_MARGEN);
           calcMargenes[l.LISTA_ID] = precio > 0
-            ? Math.round(((precio / costo) - 1) * 10000) / 100
+            ? Math.round(margenFromPrecio(costo, precio, tipo) * 100) / 100
             : 0;
         }
       } else {
         // Sin costo: usar márgenes individuales override desde PRODUCTO_LISTA_PRECIOS.
+        // El valor ya viene en la "moneda" de la lista (Markup/Utilidad), no recalcular.
         for (const l of listasActivas) calcMargenes[l.LISTA_ID] = 0;
         for (const p of (detail.precios ?? [])) {
           if (p.MARGEN_INDIVIDUAL != null) {
@@ -172,6 +178,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
         CODIGOPARTICULAR: '',
         NOMBRE: copyFrom.NOMBRE + ' (copia)',
         FECHA_VENCIMIENTO: null,
+        PERMITE_STOCK_NEGATIVO: !!copyFrom.PERMITE_STOCK_NEGATIVO,
       });
       setBarcodes([]);
       setDepositos([]);
@@ -183,6 +190,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
       const defaults: Record<string, any> = {
         ACTIVO: true,
         DESCUENTA_STOCK: true,
+        PERMITE_STOCK_NEGATIVO: false,
         ES_SERVICIO: false,
         PRECIO_COMPRA: 0,
         COSTO_USD: 0,
@@ -311,7 +319,8 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
     const fields: Record<string, number> = {};
     for (const l of listasActivas) {
       const margen = currentMargenes[l.LISTA_ID] || 0;
-      fields[listaFieldName(l.LISTA_ID)] = Math.round((costo * (1 + margen / 100)) * 100) / 100;
+      const tipo = normalizarTipoMargen(l.TIPO_MARGEN);
+      fields[listaFieldName(l.LISTA_ID)] = Math.round(precioFromMargen(costo, margen, tipo) * 100) / 100;
     }
     form.setFieldsValue(fields);
   }, [form, listasActivas]);
@@ -397,22 +406,26 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
     setMargenes(newMargenes);
     const costo = form.getFieldValue('PRECIO_COMPRA') || 0;
     if (costo > 0) {
-      const precio = Math.round((costo * (1 + (newMargenes[listaId] || 0) / 100)) * 100) / 100;
+      const lista = listasActivas.find(l => l.LISTA_ID === listaId);
+      const tipo = normalizarTipoMargen(lista?.TIPO_MARGEN);
+      const precio = Math.round(precioFromMargen(costo, newMargenes[listaId] || 0, tipo) * 100) / 100;
       form.setFieldsValue({ [listaFieldName(listaId)]: precio });
     }
-  }, [form, margenes]);
+  }, [form, margenes, listasActivas]);
 
   const handlePrecioListaChange = useCallback((listaId: number, value: number | null) => {
     const precio = value ?? 0;
     form.setFieldsValue({ [listaFieldName(listaId)]: precio });
     const costo = form.getFieldValue('PRECIO_COMPRA') || 0;
     if (costo > 0 && precio > 0) {
-      const nuevoMargen = Math.round(((precio / costo) - 1) * 10000) / 100;
+      const lista = listasActivas.find(l => l.LISTA_ID === listaId);
+      const tipo = normalizarTipoMargen(lista?.TIPO_MARGEN);
+      const nuevoMargen = Math.round(margenFromPrecio(costo, precio, tipo) * 100) / 100;
       setMargenes(prev => ({ ...prev, [listaId]: nuevoMargen }));
     } else if (precio === 0) {
       setMargenes(prev => ({ ...prev, [listaId]: 0 }));
     }
-  }, [form]);
+  }, [form, listasActivas]);
 
   const handleResetMargenesDefecto = useCallback(() => {
     if (listasActivas.length === 0) return;
@@ -473,6 +486,7 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
         ...values,
         ES_SERVICIO: esServicio,
         DESCUENTA_STOCK: esServicio ? false : values.DESCUENTA_STOCK,
+        PERMITE_STOCK_NEGATIVO: esServicio ? false : (values.PERMITE_STOCK_NEGATIVO === true),
         FECHA_VENCIMIENTO: null,
         MARGEN_INDIVIDUAL: true,
         codigosBarras: barcodes,
@@ -516,7 +530,13 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
 
   return (
     <Modal
-      title={<span style={{ fontWeight: 700 }}>{title}</span>}
+      title={
+        <RGCajaModalHeader
+          icon={rgIcon('producto')}
+          title={title}
+          subtitle={isEdit ? 'Modificá los datos del producto existente' : copyFrom ? 'Creando un producto a partir de otro existente' : 'Cargá los datos de un producto nuevo'}
+        />
+      }
       open={open}
       onCancel={onClose}
       width={900}
@@ -640,6 +660,18 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                       </Form.Item>
                     </Col>
                   </Row>
+                  <Row gutter={16}>
+                    <Col span={8}>
+                      <Form.Item
+                        name="PERMITE_STOCK_NEGATIVO"
+                        label="Permite Stock Negativo"
+                        valuePropName="checked"
+                        tooltip="Si está desactivado, no se podrá vender ni sacar stock cuando no haya existencia suficiente. El sistema mostrará un aviso y bloqueará la operación."
+                      >
+                        <Switch disabled={esServicio} />
+                      </Form.Item>
+                    </Col>
+                  </Row>
                 </>
               ),
             },
@@ -740,31 +772,48 @@ export function ProductFormModal({ open, onClose, onSaved, editId, copyFrom }: P
                         title: 'Nombre', dataIndex: 'NOMBRE', width: '40%',
                         render: (value: string, row: any) => {
                           const esDefecto = row.LISTA_ID === listaDefectoActual;
+                          const tipo = normalizarTipoMargen(
+                            listasActivas.find(l => l.LISTA_ID === row.LISTA_ID)?.TIPO_MARGEN,
+                          );
                           return (
-                            <Space size={6}>
+                            <Space size={6} wrap>
                               <Text strong={esDefecto}>{value}</Text>
                               {esDefecto && (
                                 <Tag style={{ margin: 0, borderColor: '#EABD23', color: '#1E1F22', background: '#EABD23' }}>
                                   Por defecto
                                 </Tag>
                               )}
+                              <Tooltip title={tipo === 'U' ? 'Margen sobre venta (utilidad)' : 'Margen sobre costo (markup)'}>
+                                <Tag
+                                  color={tipo === 'U' ? 'purple' : 'blue'}
+                                  style={{ margin: 0, fontSize: 10 }}
+                                >
+                                  {shortTipoMargen(tipo)}
+                                </Tag>
+                              </Tooltip>
                             </Space>
                           );
                         },
                       },
                       {
                         title: 'Margen (%)', dataIndex: 'LISTA_ID', width: '30%',
-                        render: (_: any, row: any) => (
-                          <InputNumber
-                            size="small"
-                            min={0}
-                            precision={2}
-                            style={{ width: '100%' }}
-                            suffix="%"
-                            value={margenes[row.LISTA_ID] ?? 0}
-                            onChange={(v) => handleMargenChange(row.LISTA_ID, v)}
-                          />
-                        ),
+                        render: (_: any, row: any) => {
+                          const lista = listasActivas.find(l => l.LISTA_ID === row.LISTA_ID);
+                          const tipo = normalizarTipoMargen(lista?.TIPO_MARGEN);
+                          const maxMargen = tipo === 'U' ? 99.99 : 9999;
+                          return (
+                            <InputNumber
+                              size="small"
+                              min={0}
+                              max={maxMargen}
+                              precision={2}
+                              style={{ width: '100%' }}
+                              suffix="%"
+                              value={margenes[row.LISTA_ID] ?? 0}
+                              onChange={(v) => handleMargenChange(row.LISTA_ID, v)}
+                            />
+                          );
+                        },
                       },
                       {
                         title: 'Precio ($)', dataIndex: 'LISTA_ID', width: '30%',
