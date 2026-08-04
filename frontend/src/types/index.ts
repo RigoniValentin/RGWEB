@@ -877,6 +877,9 @@ export interface CompraInput {
   /** Si viene, indica que la compra se origina en un remito de entrada.
    *  El backend forzará ACTUALIZAR_STOCK=false. */
   REMITO_ID?: number | null;
+  /** Path de la imagen del comprobante subida vía POST /purchases/parse-image.
+   *  Se persiste en COMPRAS.COMPROBANTE_IMG_PATH. */
+  comprobante_image_path?: string | null;
   items: CompraItemInput[];
   metodos_pago?: MetodoPagoItem[];
   cheques_ids?: number[];

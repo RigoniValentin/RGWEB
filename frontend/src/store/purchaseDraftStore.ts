@@ -53,6 +53,10 @@ export interface PurchaseDraft {
     FECHA: string;
     TOTAL: number;
   } | null;
+  /** Ruta de la imagen del comprobante subida por IA (parse-image).
+   *  Se persiste hasta confirmar la compra, donde viaja al backend
+   *  y queda ligada a COMPRAS.COMPROBANTE_IMG_PATH. */
+  comprobanteImagePath: string | null;
 }
 
 const EMPTY_DRAFT: PurchaseDraft = {
@@ -79,6 +83,7 @@ const EMPTY_DRAFT: PurchaseDraft = {
   destinoPago: 'CAJA_CENTRAL',
   remitoId: null,
   remitoSnap: null,
+  comprobanteImagePath: null,
 };
 
 interface PurchaseDraftState {

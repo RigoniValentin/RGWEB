@@ -5,7 +5,7 @@ import {
   FileTextOutlined, ArrowLeftOutlined, CheckCircleOutlined,
   DollarOutlined, CreditCardOutlined, WalletOutlined,
   BankOutlined, InboxOutlined, SettingOutlined,
-  WarningOutlined,
+  WarningOutlined, CameraOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
@@ -17,6 +17,7 @@ import { ProductSearchModal } from '../ProductSearchModal';
 import { ChequePicker } from '../cheques/ChequePicker';
 import { RemitoPickerModal } from './RemitoPickerModal';
 import { ComprobanteConfigModal } from './ComprobanteConfigModal';
+import { PurchaseReceiptReviewModal, type ReceiptAppliedData } from './PurchaseReceiptReviewModal';
 import { usePurchaseDraftStore } from '../../store/purchaseDraftStore';
 import { useAuthStore } from '../../store/authStore';
 import { invalidateInventoryQueries } from '../../utils/invalidateInventoryQueries';
@@ -115,6 +116,9 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const [saldoModalOpen, setSaldoModalOpen] = useState(false);
   const [saldoInfo, setSaldoInfo] = useState<{ saldo: number; creditoDisponible: number; cobertura: 'total' | 'parcial' } | null>(null);
   const [checkingSaldo, setCheckingSaldo] = useState(false);
+
+  // ── AI Receipt Modal ──
+  const [receiptModalOpen, setReceiptModalOpen] = useState(false);
 
   // Fetch proveedores
   const { data: proveedores = [] } = useQuery({
@@ -682,7 +686,12 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
 
   // Close modal — purge draft if cart is empty, otherwise keep for next open
   const handleClose = () => {
-    usePurchaseDraftStore.getState().purgeIfEmpty();
+    if (cart.length === 0) {
+      // Si el carrito está vacío al cerrar y todavía quedó una imagen de IA,
+      // la descartamos en el backend para no acumular basura.
+      cleanupOrphanImage(usePurchaseDraftStore.getState().draft.comprobanteImagePath);
+      usePurchaseDraftStore.getState().purgeIfEmpty();
+    }
     onClose();
   };
 
@@ -797,6 +806,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       DESTINO_PAGO: esCtaCorriente ? undefined : destinoPago,
       PUNTO_VENTA_ID: esCtaCorriente ? undefined : puntoVentaActivo,
       REMITO_ID: remitoId || undefined,
+      comprobante_image_path: usePurchaseDraftStore.getState().draft.comprobanteImagePath ?? undefined,
       metodos_pago: metodosPagoInput.length > 0 ? metodosPagoInput : undefined,
       cheques_ids: !esCtaCorriente && chequesIds.length > 0 ? chequesIds : undefined,
       items: cart.map(item => ({
@@ -912,6 +922,64 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     } catch (err: any) {
       notify.error(err?.response?.data?.error || 'No se pudieron cargar los items del remito');
     }
+  };
+
+  // ── AI Receipt: volcar datos parseados al carrito ───────────────
+  // Cleanup: si quedó un comprobante_img_path huérfano y el carrito se
+  // vacía, descarta el archivo en el backend y limpia el draft.
+  const cleanupOrphanImage = (path: string | null) => {
+    if (!path) return;
+    purchasesApi.discardParsedImage(path).catch(() => { /* best-effort */ });
+    usePurchaseDraftStore.getState().updateDraft({ comprobanteImagePath: null });
+  };
+
+  // Si el carrito se vacía por completo y había imagen pendiente, limpiar.
+  const prevCartLenRef = useRef(cart.length);
+  useEffect(() => {
+    const prev = prevCartLenRef.current;
+    prevCartLenRef.current = cart.length;
+    if (prev > 0 && cart.length === 0) {
+      const orphanPath = usePurchaseDraftStore.getState().draft.comprobanteImagePath;
+      cleanupOrphanImage(orphanPath);
+    }
+  }, [cart]);
+
+  const handleReceiptApplied = (data: ReceiptAppliedData) => {
+    // Encabezado
+    setProveedorId(data.proveedorId);
+    if (data.tipoComprobante) setTipoComprobante(data.tipoComprobante);
+    if (data.ptoVta) setPtoVta(data.ptoVta);
+    if (data.nroComprobante) setNroComprobante(data.nroComprobante);
+    if (data.fechaEmision) setFechaCompra(dayjs(data.fechaEmision));
+
+    // Items mapeados a CartItem
+    const newCart: CartItem[] = data.items.map((it, idx) => ({
+      key: `ai-${it.PRODUCTO_ID}-${Date.now()}-${idx}`,
+      PRODUCTO_ID: it.PRODUCTO_ID,
+      PRECIO_COMPRA: it.PRECIO_COMPRA,
+      CANTIDAD: it.CANTIDAD,
+      DEPOSITO_ID: it.DEPOSITO_ID ?? depositoId ?? undefined,
+      BONIFICACION: it.BONIFICACION,
+      IMP_INTERNOS: it.IMP_INTERNOS ?? 0,
+      IVA_ALICUOTA: it.IVA_ALICUOTA ?? 0.21,
+      TASA_IVA_ID: it.TASA_IVA_ID ?? null,
+      NOMBRE: it.NOMBRE ?? '',
+      CODIGO: it.CODIGO ?? '',
+      STOCK: 0,
+      UNIDAD: 'u',
+      IVA_PORCENTAJE: (it.IVA_ALICUOTA ?? 0.21) * 100,
+      PRECIO_FINAL: r2(it.PRECIO_COMPRA * (1 - it.BONIFICACION / 100) * it.CANTIDAD),
+    }));
+    setCart(newCart);
+    setLastAddedKey(newCart[0]?.key ?? null);
+
+    // Persistir el path de la imagen en el draft para enviarlo al crear la compra
+    usePurchaseDraftStore.getState().updateDraft({
+      comprobanteImagePath: data.saved_path,
+    });
+
+    notify.success(`${newCart.length} ítems cargados desde la imagen. Revisá los precios y confirmá.`, 5);
+    setReceiptModalOpen(false);
   };
 
   // ── Item columns ───────────────────────────────
@@ -1094,15 +1162,25 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                 })()}
               </div>
             </div>
-            <Button
-              type="primary"
-              size="middle"
-              icon={<SettingOutlined />}
-              onClick={() => setComprobanteModalOpen(true)}
-              className={comprobanteConfigurado ? 'npm-comprobante-btn-edit' : 'btn-gold npm-comprobante-btn-setup'}
-            >
-              {comprobanteConfigurado ? 'Editar comprobante' : 'Configurar comprobante'}
-            </Button>
+            <Space size={8} wrap>
+              <Button
+                size="middle"
+                icon={<CameraOutlined />}
+                onClick={() => setReceiptModalOpen(true)}
+                className="npm-comprobante-btn-ai"
+              >
+                Cargar comprobante
+              </Button>
+              <Button
+                type="primary"
+                size="middle"
+                icon={<SettingOutlined />}
+                onClick={() => setComprobanteModalOpen(true)}
+                className={comprobanteConfigurado ? 'npm-comprobante-btn-edit' : 'btn-gold npm-comprobante-btn-setup'}
+              >
+                {comprobanteConfigurado ? 'Editar comprobante' : 'Configurar comprobante'}
+              </Button>
+            </Space>
           </div>
         )}
 
@@ -1821,6 +1899,13 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       onClose={() => setComprobanteModalOpen(false)}
       onContinue={() => setComprobanteModalOpen(false)}
       mode="edit"
+    />
+
+    <PurchaseReceiptReviewModal
+      open={receiptModalOpen}
+      onClose={() => setReceiptModalOpen(false)}
+      onApplied={handleReceiptApplied}
+      defaultDepositoId={depositoId}
     />
     </>
   );

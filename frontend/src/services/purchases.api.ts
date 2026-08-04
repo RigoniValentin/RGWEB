@@ -38,6 +38,75 @@ export interface PriceCheckUpdate {
   precios: { LISTA_ID: number; PRECIO: number }[];
 }
 
+// ── IA — Cargar comprobante por imagen ─────────────────────────────────
+export type MatchStatus =
+  | 'vinculado'
+  | 'candidatos_multiples'
+  | 'crear_nuevo'
+  | 'omitir'
+  | 'sin_match';
+
+export interface ProductoCandidato {
+  PRODUCTO_ID: number;
+  CODIGOPARTICULAR: string | null;
+  NOMBRE: string;
+  STOCK_ACTUAL: number | null;
+  PRECIO_COMPRA: number | null;
+  PRECIO_VENTA: number | null;
+  TASA_IVA_ID: number | null;
+  UNIDAD_ABREVIACION: string | null;
+  IVA_PORCENTAJE: number | null;
+}
+
+export interface EnrichedReceiptItem {
+  codigo_proveedor: string | null;
+  descripcion_proveedor: string;
+  cantidad: number;
+  unidad_medida: string | null;
+  precio_unitario: number;
+  descuento_porcentaje: number;
+  subtotal_linea: number;
+  sugerencia_accion: 'VINCULAR' | 'CREAR_NUEVO' | 'OMITIR';
+  motivo_sugerencia: string;
+  match_status: MatchStatus;
+  linked_producto_id?: number;
+  linked_producto?: ProductoCandidato;
+  candidatos: ProductoCandidato[];
+}
+
+export interface ProveedorMatch {
+  PROVEEDOR_ID: number;
+  NOMBRE: string;
+  CUIT: string | null;
+}
+
+export interface ParsedReceiptTotales {
+  subtotal: number | null;
+  bonificacion_total: number | null;
+  iva_total: number | null;
+  percepciones: number | null;
+  total_final: number | null;
+}
+
+export interface ParsedReceiptResponse {
+  ok: boolean;
+  saved_path: string;
+  public_url: string;
+  tipo_comprobante_interno: string;
+  comprobante: {
+    tipo_comprobante: 'FACTURA A' | 'FACTURA B' | 'REMITO' | 'TICKET' | 'OTRO';
+    numero_comprobante: string | null;
+    fecha_emision: string | null;
+    proveedor: { razon_social: string | null; cuit: string | null };
+    cliente: { razon_social: string | null; cuit: string | null };
+  };
+  items: EnrichedReceiptItem[];
+  totales: ParsedReceiptTotales;
+  proveedor_match: ProveedorMatch | null;
+  proveedores_candidatos: ProveedorMatch[];
+  usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
+}
+
 export const purchasesApi = {
   getAll: (params?: Record<string, any>) =>
     api.get<PaginatedResponse<Compra>>('/purchases', { params }).then(r => r.data),
@@ -121,4 +190,29 @@ export const purchasesApi = {
         }[]
       >(`/remitos/${remitoId}/items-para-compra`)
       .then(r => r.data),
+
+  /** Sube una imagen de comprobante, la IA devuelve encabezado + items
+   *  estructurados con matches sugeridos contra PRODUCTOS / PROVEEDORES. */
+  parseReceipt: (file: File) => {
+    const form = new FormData();
+    form.append('image', file);
+    return api
+      .post<ParsedReceiptResponse>('/purchases/parse-image', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then(r => r.data);
+  },
+
+  /** Borra una imagen guardada por parseReceipt cuando el usuario cancela
+   *  la revisión sin confirmar la compra. */
+  discardParsedImage: (savedPath: string) => {
+    // saved_path viene en formato "uploads/comprobantes/2026-08/usuario_ts_hash.ext"
+    const parts = savedPath.split('/');
+    const filename = parts[parts.length - 1] || '';
+    const folder = parts[parts.length - 2] || '';
+    if (!folder || !filename) return Promise.resolve({ ok: false });
+    return api
+      .delete<{ ok: boolean }>(`/purchases/parse-image/${folder}/${filename}`)
+      .then(r => r.data);
+  },
 };

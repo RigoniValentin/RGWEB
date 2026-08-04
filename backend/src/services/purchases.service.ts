@@ -65,6 +65,9 @@ export interface CompraInput {
   /** IDs de cheques EN_CARTERA a egresar como pago (endoso). El backend
    *  marca cada cheque como EGRESADO con DESTINO_TIPO='COMPRA'. */
   cheques_ids?: number[];
+  /** Ruta relativa (al rootDir del backend) de la imagen del comprobante
+   *  subida vía POST /purchases/parse-image. Se persiste en COMPRAS.COMPROBANTE_IMG_PATH. */
+  comprobante_image_path?: string | null;
   items: CompraItemInput[];
   metodos_pago?: CompraMetodoPagoItem[];
 }
@@ -981,6 +984,7 @@ export const purchasesService = {
         .input('montoAnticipo', sql.Decimal(18, 2), montoAnticipo)
         .input('dtoGral', sql.Decimal(5, 2), dtoGral)
         .input('remitoId', sql.Int, input.REMITO_ID || null)
+        .input('comprobanteImgPath', sql.NVarChar, input.comprobante_image_path || null)
         .query(`
           INSERT INTO COMPRAS (
             COMPRA_ID, PROVEEDOR_ID, FECHA_COMPRA, TOTAL, ES_CTA_CORRIENTE,
@@ -988,14 +992,14 @@ export const purchasesService = {
             COBRADA, PTO_VTA, NRO_COMPROBANTE, PRECIOS_SIN_IVA,
             IMP_INT_GRAVA_IVA, PERCEPCION_IVA, PERCEPCION_IIBB,
             IMPUESTO_INTERNO, IVA_TOTAL, BONIFICACION_TOTAL, MONTO_ANTICIPO,
-            DTO_GRAL, REMITO_ID
+            DTO_GRAL, REMITO_ID, COMPROBANTE_IMG_PATH
           ) VALUES (
             @compraId, @proveedorId, @fechaCompra, @total, @esCtaCorriente,
             @montoEfectivo, @montoDigital, @vuelto, @tipoComprobante,
             @cobrada, @ptoVta, @nroComprobante, @preciosSinIva,
             @impIntGravaIva, @percIVA, @percIIBB,
             @impInterno, @ivaTotal, @bonifTotal, @montoAnticipo,
-            @dtoGral, @remitoId
+            @dtoGral, @remitoId, @comprobanteImgPath
           );
         `);
 
