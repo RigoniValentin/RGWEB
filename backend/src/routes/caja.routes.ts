@@ -306,9 +306,18 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 });
 
 // ── GET /api/caja/:id/desglose-metodos — desglose de sesión ──
+// `:id` es el SESION_ID. Resolvemos el CAJA_ID correspondiente para
+// alimentar a getDesgloseMetodosCaja, que filtra por CAJA_ID.
 router.get('/:id/desglose-metodos', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const data = await salesService.getDesgloseMetodosCaja(Number(req.params.id));
+    const sesionId = Number(req.params.id);
+    const sesion = await cajaService.getSesionById(sesionId);
+    const cajaId = sesion?.CAJA_ID;
+    if (!cajaId) {
+      res.json([]);
+      return;
+    }
+    const data = await salesService.getDesgloseMetodosCaja(cajaId);
     res.json(data);
   } catch (err) { next(err); }
 });

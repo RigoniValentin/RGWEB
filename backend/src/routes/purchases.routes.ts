@@ -171,19 +171,22 @@ router.post('/parse-image', receiptUpload.single('image'), async (req: AuthReque
     return;
   }
   const usuarioId = req.user?.id;
+  // Proveedor pre-seleccionado por el usuario desde el modal padre. Si
+  // viene, el matcher prioriza PRODUCTOS_PROVEEDORES.CODIGO_PROVEEDOR contra
+  // ese proveedor aunque la IA no haya podido detectarlo por CUIT/razón
+  // social. La detección por IA sigue corriendo en paralelo para devolver
+  // `proveedor_match` (informativo).
+  const proveedorIdHint = req.body?.proveedorId
+    ? parseInt(String(req.body.proveedorId), 10)
+    : null;
   const filePath = req.file.path;
   const relativePath = path.relative(rootDir, filePath).replace(/\\/g, '/');
   const publicUrl = `/uploads/${relativePath.split('/').slice(-2).join('/')}`;
 
   try {
     const { parsed, usage } = await purchaseReceiptService.parseReceiptFromImage(filePath);
-    const enriched = await purchaseReceiptMatcher.enrichParsedReceipt(parsed);
+    const enriched = await purchaseReceiptMatcher.enrichParsedReceipt(parsed, Number.isFinite(proveedorIdHint) ? proveedorIdHint : null);
     const tipoInterno = purchaseReceiptService.mapTipoComprobante(parsed.comprobante.tipo_comprobante);
-
-    console.log(
-      `[parse-image] usuario=${usuarioId} file=${path.basename(filePath)} ` +
-      `tokens=${usage?.totalTokens ?? '?'} tipo=${tipoInterno} items=${parsed.items.length}`
-    );
 
     res.json({
       ok: true,
@@ -252,7 +255,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       res.status(401).json({ error: 'Usuario no autenticado' });
       return;
     }
-    const result = await purchasesService.create(req.body, usuarioId);
+    const body = req.body;
+    const result = await purchasesService.create(body, usuarioId);
     res.status(201).json(result);
   } catch (err: any) {
     const status = err.name === 'ValidationError' ? 400 : 500;

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Modal, InputNumber, Button, Space, Typography, Divider, Tag, Tooltip } from 'antd';
 import {
   SaveOutlined, ReloadOutlined, UndoOutlined,
-  PercentageOutlined, StarFilled, EditOutlined, CloseOutlined,
+  PercentageOutlined, StarFilled, EditOutlined,
 } from '@ant-design/icons';
 import type { PriceCheckProduct } from '../../services/purchases.api';
 import { fmtMoney, fmtNum } from '../../utils/format';
@@ -11,7 +11,7 @@ import { RGCajaModalHeader } from '../RGCajaModalHeader';
 import { rgIcon } from '../rg-icons';
 import { margenFromPrecio, normalizarTipoMargen, precioFromMargen, shortTipoMargen } from '../../utils/pricing';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const MARGEN_TOLERANCE = 0.5;
@@ -160,7 +160,7 @@ export function ProductPriceEditorModal({
       style={{ maxWidth: 1100 }}
       centered
       destroyOnClose
-      closable={false}
+      closable={true}
       className="new-sale-modal rg-modal"
       title={
         <RGCajaModalHeader
@@ -171,32 +171,6 @@ export function ProductPriceEditorModal({
       }
       styles={{ body: { padding: 0, overflow: 'hidden' } }}
     >
-      {/* ── Dark header bar ───────────────────────── */}
-      <div className="nsm-header">
-        <div className="nsm-header-left">
-          <EditOutlined className="nsm-header-icon" />
-          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
-            <Text type="secondary" style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontFamily: 'monospace' }}>
-              #{product.CODIGO}
-            </Text>
-            <Title level={5} style={{ margin: 0, color: '#fff' }}>
-              {product.DESCRIPCION}
-            </Title>
-          </div>
-          {isModified && (
-            <Tag color="green" style={{ margin: 0, fontWeight: 600 }}>
-              {modifiedCount} cambio{modifiedCount > 1 ? 's' : ''}
-            </Tag>
-          )}
-        </div>
-        <Button
-          type="text"
-          onClick={onClose}
-          icon={<CloseOutlined />}
-          style={{ color: 'rgba(255,255,255,0.7)', fontSize: 18 }}
-        />
-      </div>
-
       {/* ── Toolbar ──────────────────────────────── */}
       <div style={{
         padding: '12px 20px 8px',
@@ -219,6 +193,11 @@ export function ProductPriceEditorModal({
         <Tooltip title="Redondear todos los precios al múltiplo de $100">
           <Button size="small" onClick={() => roundAll(100)}>Red. $100</Button>
         </Tooltip>
+        {isModified && (
+          <Tag color="green" style={{ margin: 0, fontWeight: 600 }}>
+            {modifiedCount} cambio{modifiedCount > 1 ? 's' : ''}
+          </Tag>
+        )}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <Tag color="blue">Costo {fmtMoney(product.COSTO)}</Tag>
           {product.IMP_INTERNO > 0 && (

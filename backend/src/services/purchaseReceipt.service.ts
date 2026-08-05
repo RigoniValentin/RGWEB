@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import fs from 'fs';
+import { aplicarProrrateoBonificacion, r2 } from './purchaseReceipt.prorrateo.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Purchase Receipt Parser Service
@@ -116,6 +117,16 @@ export interface ParsedReceiptItem {
   subtotal_linea: number;
   sugerencia_accion: 'VINCULAR' | 'CREAR_NUEVO' | 'OMITIR';
   motivo_sugerencia: string;
+  /** Precio unitario luego de aplicar la bonificación global prorrateada.
+   *  Igual a `precio_unitario` cuando no hay bonificación. */
+  precio_unitario_neto: number;
+  /** Subtotal de la línea con la bonificación ya aplicada (= cantidad * neto). */
+  subtotal_linea_neto: number;
+  /** Porcentaje de bonificación aplicado a la factura (0 si no hay). */
+  porcentaje_bonificacion_aplicado: number;
+  /** Permite pasar esta interfaz a `aplicarProrrateoBonificacion` (que
+   *  usa un tipo genérico con index signature). */
+  [k: string]: unknown;
 }
 
 export interface ParsedReceiptTotales {
@@ -188,16 +199,25 @@ function sanitizeItem(raw: any): ParsedReceiptItem | null {
   const accionRaw = asStringOrNull(raw.sugerencia_accion)?.toUpperCase() || 'VINCULAR';
   const sugerencia_accion = (ACCIONES_VALIDAS.has(accionRaw) ? accionRaw : 'VINCULAR') as ParsedReceiptItem['sugerencia_accion'];
 
+  const cantidad = asNumberOrNull(raw.cantidad) ?? 1;
+  const precio_unitario = asNumberOrNull(raw.precio_unitario) ?? 0;
+  const subtotal_linea = asNumberOrNull(raw.subtotal_linea) ?? 0;
+
   return {
     codigo_proveedor: asStringOrNull(raw.codigo_proveedor),
     descripcion_proveedor: descripcion,
-    cantidad: asNumberOrNull(raw.cantidad) ?? 1,
+    cantidad,
     unidad_medida: asStringOrNull(raw.unidad_medida),
-    precio_unitario: asNumberOrNull(raw.precio_unitario) ?? 0,
+    precio_unitario,
     descuento_porcentaje: asNumberOrNull(raw.descuento_porcentaje) ?? 0,
-    subtotal_linea: asNumberOrNull(raw.subtotal_linea) ?? 0,
+    subtotal_linea,
     sugerencia_accion,
     motivo_sugerencia: asStringOrNull(raw.motivo_sugerencia) || 'Mercadería detectada en el comprobante',
+    // Las claves prorrateadas se completan luego en sanitizeParsedReceipt
+    // cuando tenemos los totales disponibles.
+    precio_unitario_neto: r2(precio_unitario),
+    subtotal_linea_neto: r2(subtotal_linea),
+    porcentaje_bonificacion_aplicado: 0,
   };
 }
 
@@ -239,10 +259,17 @@ export function sanitizeParsedReceipt(raw: unknown): ParsedReceipt {
     if (sanitized) items.push(sanitized);
   }
 
+  const totales = sanitizeTotales(root.totales);
+
+  // Prorratear bonificación global sobre los ítems (ver purchaseReceipt.prorrateo.ts
+  // para el detalle matemático). Esto preserva la precisión de costos
+  // cuando el proveedor aplica un descuento al pie de la factura.
+  const itemsProrrateados = aplicarProrrateoBonificacion(items, totales);
+
   return {
     comprobante: sanitizeComprobante(root.comprobante),
-    items,
-    totales: sanitizeTotales(root.totales),
+    items: itemsProrrateados,
+    totales,
   };
 }
 

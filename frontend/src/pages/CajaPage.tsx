@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useLocation, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, ColorPicker, DatePicker, Drawer, Dropdown, Form, Input, InputNumber, Modal, Popover, Radio, Segmented, Select, Space, Spin, Table, Tag, Tooltip, Typography, message, Alert, Descriptions } from 'antd';
 import { ShopOutlined, PlusOutlined, EditOutlined, EyeOutlined, SwapOutlined, PrinterOutlined, ArrowUpOutlined, ArrowDownOutlined, LockOutlined, ExportOutlined, InboxOutlined, WalletOutlined, ImportOutlined, InfoCircleOutlined, StopOutlined, CheckCircleOutlined, RightOutlined, BankOutlined, TeamOutlined, HistoryOutlined, ClockCircleOutlined, ThunderboltFilled, DownOutlined, MoreOutlined, UserOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -47,7 +47,8 @@ export default function CajaPage() {
 
   const queryClient = useQueryClient();
   const location = useLocation();
-  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // Estado del grid de cajas (foco principal)
   const [cajaDrawerActiva, setCajaDrawerActiva] = useState<Caja | null>(null);
@@ -462,7 +463,6 @@ export default function CajaPage() {
 
   useEffect(() => {
     if (abrirModalOpen) {
-      setCajaSeleccionadaAbrir(null);
       setFuenteApertura('APORTE_CC');
       setMontoApertura(0);
       setObsApertura('');
@@ -514,7 +514,7 @@ export default function CajaPage() {
       const caja = cajasList.find(c => c.CAJA_ID === st.openCajaId);
       if (caja) {
         setCajaDrawerActiva(caja);
-        window.history.replaceState({}, '', location.pathname);
+        navigate(location.pathname, { replace: true, state: {} });
       }
       return;
     }
@@ -526,7 +526,7 @@ export default function CajaPage() {
         setCajaDrawerActiva(first);
         setCajaSeleccionadaAbrir(first.CAJA_ID);
         setAbrirModalOpen(true);
-        window.history.replaceState({}, '', location.pathname);
+        navigate(location.pathname, { replace: true, state: {} });
       }
       return;
     }
@@ -538,8 +538,7 @@ export default function CajaPage() {
         const caja = cajasList.find(c => c.CAJA_ID === cajaId);
         if (caja) {
           setCajaDrawerActiva(caja);
-          searchParams.delete('sesion');
-          window.history.replaceState({}, '', `${location.pathname}`);
+          setSearchParams({}, { replace: true });
         }
       }
     }

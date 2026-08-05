@@ -15,6 +15,7 @@ import {
   ExportOutlined,
   EyeOutlined,
   FallOutlined,
+  FileImageOutlined,
   FileProtectOutlined,
   FileTextOutlined,
   HistoryOutlined,
@@ -61,6 +62,7 @@ export type RGModalIconKey =
   | 'cta-corriente'
   | 'compra'
   | 'comprobante-config'
+  | 'imagen-ia'
   | 'orden-pago'
   | 'op-general'
   | 'cheque'
@@ -119,6 +121,7 @@ const RG_MODAL_ICON_MAP: Record<RGModalIconKey, ReactNode> = {
   'cta-corriente': <AccountBookOutlined />,
   compra: <ShoppingOutlined />,
   'comprobante-config': <SettingOutlined />,
+  'imagen-ia': <FileImageOutlined />,
   'orden-pago': <DollarOutlined />,
   'op-general': <DollarOutlined />,
   cheque: <FileProtectOutlined />,

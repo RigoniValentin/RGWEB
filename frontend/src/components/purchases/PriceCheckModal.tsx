@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Modal, Button, Space, Typography, Input, Tag, Tooltip } from 'antd';
 import {
   SaveOutlined, SearchOutlined,
-  CheckCircleOutlined, EditOutlined, PercentageOutlined, CloseOutlined,
+  CheckCircleOutlined, EditOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { purchasesApi, type PriceCheckProduct, type PriceCheckUpdate } from '../../services/purchases.api';
@@ -13,7 +13,7 @@ import { RGCajaModalHeader } from '../RGCajaModalHeader';
 import { rgIcon } from '../rg-icons';
 import { margenFromPrecio, normalizarTipoMargen, shortTipoMargen } from '../../utils/pricing';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 
 interface Props {
   open: boolean;
@@ -184,7 +184,7 @@ export function PriceCheckModal({ open, compraId, onClose }: Props) {
         style={{ maxWidth: 1400 }}
         centered
         destroyOnClose
-        closable={false}
+        closable={true}
         className="new-sale-modal rg-modal"
         title={
           <RGCajaModalHeader
@@ -195,25 +195,6 @@ export function PriceCheckModal({ open, compraId, onClose }: Props) {
         }
         styles={{ body: { padding: 0, overflow: 'hidden' } }}
       >
-        {/* ── Dark header bar ───────────────────────── */}
-        <div className="nsm-header">
-          <div className="nsm-header-left">
-            <PercentageOutlined className="nsm-header-icon" />
-            <Title level={4} style={{ margin: 0, color: '#fff' }}>
-              Chequeo de Precios
-            </Title>
-            <Tag color="gold" style={{ margin: 0, fontWeight: 600 }}>
-              Compra #{compraId}
-            </Tag>
-          </div>
-          <Button
-            type="text"
-            onClick={handleClose}
-            icon={<CloseOutlined />}
-            style={{ color: 'rgba(255,255,255,0.7)', fontSize: 18 }}
-          />
-        </div>
-
         {/* ── Toolbar ──────────────────────────────── */}
         <div style={{
           padding: '14px 20px 8px',

@@ -922,6 +922,11 @@ export interface CompraItemInput {
   TASA_IVA_ID?: number | null;
   NOMBRE?: string;
   CODIGO?: string;
+  /** Código con el que el proveedor identifica al producto en su catálogo
+   *  (extraído por la IA del comprobante o editado manualmente). Se persiste
+   *  en PRODUCTOS_PROVEEDORES.CODIGO_PROVEEDOR para que la próxima factura
+   *  del mismo proveedor pueda matchear el producto por código. */
+  codigo_proveedor?: string | null;
 }
 
 export interface CompraInput {

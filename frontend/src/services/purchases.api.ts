@@ -65,9 +65,16 @@ export interface EnrichedReceiptItem {
   descripcion_proveedor: string;
   cantidad: number;
   unidad_medida: string | null;
+  /** Precio unitario bruto publicado por el proveedor (sin descontar bonificación global). */
   precio_unitario: number;
+  /** Precio unitario luego de descontar la bonificación global prorrateada por línea. */
+  precio_unitario_neto?: number;
   descuento_porcentaje: number;
   subtotal_linea: number;
+  /** Subtotal_linea × (1 - bonificación_pct) — equivale a la suma del carrito al cerrar. */
+  subtotal_linea_neto?: number;
+  /** Porcentaje de bonificación aplicado a la factura (0 si no hay). */
+  porcentaje_bonificacion_aplicado?: number;
   sugerencia_accion: 'VINCULAR' | 'CREAR_NUEVO' | 'OMITIR';
   motivo_sugerencia: string;
   match_status: MatchStatus;
@@ -194,10 +201,15 @@ export const purchasesApi = {
       .then(r => r.data),
 
   /** Sube una imagen de comprobante, la IA devuelve encabezado + items
-   *  estructurados con matches sugeridos contra PRODUCTOS / PROVEEDORES. */
-  parseReceipt: (file: File) => {
+   *  estructurados con matches sugeridos contra PRODUCTOS / PROVEEDORES.
+   *  Si el usuario ya eligió un proveedor en el modal padre, se manda
+   *  `proveedorId` como hint para que el matcher priorice CODIGO_PROVEEDOR
+   *  contra ese proveedor (aunque la IA no haya podido detectarlo por
+   *  CUIT/razón social). */
+  parseReceipt: (file: File, proveedorId?: number | null) => {
     const form = new FormData();
     form.append('image', file);
+    if (proveedorId != null) form.append('proveedorId', String(proveedorId));
     return api
       .post<ParsedReceiptResponse>('/purchases/parse-image', form, {
         headers: { 'Content-Type': 'multipart/form-data' },

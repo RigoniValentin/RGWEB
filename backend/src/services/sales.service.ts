@@ -382,10 +382,15 @@ async function registrarAuditoria(
 async function getCajaAbiertaTx(
   tx: any,
   usuarioId: number
-): Promise<{ CAJA_ID: number } | null> {
+): Promise<{ CAJA_ID: number; SESION_ID: number; PUNTO_VENTA_ID: number | null } | null> {
   const result = await tx.request()
     .input('uid', sql.Int, usuarioId)
-    .query(`SELECT CAJA_ID FROM CAJA WHERE USUARIO_ID = @uid AND ESTADO = 'ACTIVA'`);
+    .query(`
+      SELECT cs.SESION_ID, cs.CAJA_ID, c.PUNTO_VENTA_ID
+      FROM CAJA_SESIONES cs
+      INNER JOIN CAJA c ON c.CAJA_ID = cs.CAJA_ID
+      WHERE cs.USUARIO_ID = @uid AND cs.ESTADO = 'ACTIVA'
+    `);
   return result.recordset.length > 0 ? result.recordset[0] : null;
 }
 
@@ -1182,6 +1187,7 @@ export const salesService = {
           : Math.max(0, montoEfectivo - vuelto);
         if (efectivoNeto > 0 || montoDigital > 0) {
           await tx.request()
+            .input('sesionId', sql.Int, caja.SESION_ID)
             .input('cajaId', sql.Int, caja.CAJA_ID)
             .input('origenTipo', sql.VarChar(30), 'VENTA')
             .input('origenId', sql.Int, ventaId)
@@ -1190,9 +1196,9 @@ export const salesService = {
             .input('desc', sql.NVarChar(255), `Venta #${ventaId}`)
             .input('uid', sql.Int, usuarioId)
             .query(`
-              INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
+              INSERT INTO CAJA_ITEMS (SESION_ID, CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
                 MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
-              VALUES (@cajaId, GETDATE(), @origenTipo, @origenId,
+              VALUES (@sesionId, @cajaId, GETDATE(), @origenTipo, @origenId,
                 @efectivo, @digital, @desc, @uid)
             `);
         }
@@ -1209,6 +1215,7 @@ export const salesService = {
         if (montoChequesAporte > 0) {
           await tx.request()
             .input('idEntidad', sql.Int, ventaId)
+            .input('cajaId', sql.Int, caja!.CAJA_ID)
             .input('tipoEntidad', sql.VarChar(20), 'VENTA')
             .input('movimiento', sql.NVarChar(500), `Ingreso cheque(s) Venta #${ventaId}`)
             .input('uid', sql.Int, usuarioId)
@@ -1216,8 +1223,8 @@ export const salesService = {
             .input('total', sql.Decimal(18, 2), montoChequesAporte)
             .input('pvId', sql.Int, input.PUNTO_VENTA_ID)
             .query(`
-              INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
-              VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 0)
+              INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, CAJA_ID, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+              VALUES (@idEntidad, @cajaId, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 0)
             `);
         }
       }
@@ -1602,6 +1609,7 @@ export const salesService = {
           : Math.max(0, montoEfectivo - vuelto);
         if (efectivoNeto > 0 || montoDigital > 0) {
           await tx.request()
+            .input('sesionId', sql.Int, caja.SESION_ID)
             .input('cajaId', sql.Int, caja.CAJA_ID)
             .input('origenTipo', sql.VarChar(30), 'VENTA')
             .input('origenId', sql.Int, id)
@@ -1610,9 +1618,9 @@ export const salesService = {
             .input('desc', sql.NVarChar(255), `Venta #${id}`)
             .input('uid', sql.Int, usuarioId)
             .query(`
-              INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
+              INSERT INTO CAJA_ITEMS (SESION_ID, CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
                 MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
-              VALUES (@cajaId, GETDATE(), @origenTipo, @origenId,
+              VALUES (@sesionId, @cajaId, GETDATE(), @origenTipo, @origenId,
                 @efectivo, @digital, @desc, @uid)
             `);
         }
@@ -1872,6 +1880,7 @@ export const salesService = {
           : Math.max(0, payEfectivo - payment.VUELTO);
         if (efectivoNeto > 0 || payDigital > 0) {
           await tx.request()
+            .input('sesionId', sql.Int, caja.SESION_ID)
             .input('cajaId', sql.Int, caja.CAJA_ID)
             .input('origenTipo', sql.VarChar(30), 'VENTA')
             .input('origenId', sql.Int, id)
@@ -1880,9 +1889,9 @@ export const salesService = {
             .input('desc', sql.NVarChar(255), `Cobro Venta #${id}`)
             .input('uid', sql.Int, usuarioId)
             .query(`
-              INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
+              INSERT INTO CAJA_ITEMS (SESION_ID, CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
                 MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
-              VALUES (@cajaId, GETDATE(), @origenTipo, @origenId,
+              VALUES (@sesionId, @cajaId, GETDATE(), @origenTipo, @origenId,
                 @efectivo, @digital, @desc, @uid)
             `);
         }
@@ -1897,6 +1906,7 @@ export const salesService = {
         if (payCheques > 0) {
           await tx.request()
             .input('idEntidad', sql.Int, id)
+            .input('cajaId', sql.Int, caja!.CAJA_ID)
             .input('tipoEntidad', sql.VarChar(20), 'VENTA')
             .input('movimiento', sql.NVarChar(500), `Cobro cheque(s) Venta #${id}`)
             .input('uid', sql.Int, usuarioId)
@@ -1904,8 +1914,8 @@ export const salesService = {
             .input('total', sql.Decimal(18, 2), payCheques)
             .input('pvId', sql.Int, venta.PUNTO_VENTA_ID)
             .query(`
-              INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
-              VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 0)
+              INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, CAJA_ID, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+              VALUES (@idEntidad, @cajaId, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 0)
             `);
         }
       }
