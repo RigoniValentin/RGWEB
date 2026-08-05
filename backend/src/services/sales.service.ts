@@ -2442,21 +2442,46 @@ export const salesService = {
     return result.recordset;
   },
 
-  // ── Get aggregated payment method breakdown for a caja ─
-  async getDesgloseMetodosCaja(cajaId: number) {
+  // ── Get aggregated payment method breakdown for a session ─
+  // Filtra ventas por SESION_ID (no por CAJA_ID) y localiza el cierre de
+  // ESA sesión contra CAJA_SESIONES. Para sesiones activas (FECHA_CIERRE
+  // NULL) no hay match → no se prorratea contra cierres de otras sesiones.
+  async getDesgloseMetodosSesion(sesionId: number) {
     const pool = await getPool();
     await ensureVentasMetodosPagoTable(pool);
     const result = await pool.request()
-      .input('cajaId', sql.Int, cajaId)
+      .input('sesionId', sql.Int, sesionId)
       .query(`
-        ;WITH CierreCaja AS (
-          SELECT ISNULL(EFECTIVO, 0) AS EFECTIVO_CIERRE,
-                 ISNULL(DIGITAL, 0)  AS DIGITAL_CIERRE
-          FROM MOVIMIENTOS_CAJA
-          WHERE CAJA_ID = @cajaId AND TIPO_ENTIDAD = 'CIERRE_CAJA'
+        ;WITH CierreMatches AS (
+          -- Localiza el/los movimiento(s) de cierre correspondientes a ESTA
+          -- sesión:
+          --   · DEPOSITO_CIERRE: vínculo directo ID_ENTIDAD = SESION_ID.
+          --   · CIERRE_CAJA: mismo CAJA_ID y mc.FECHA ≈ cs.FECHA_CIERRE (60s).
+          -- Si la sesión está activa (FECHA_CIERRE NULL), no hay match y el
+          -- resto del query trabaja sin prorratear contra un cierre ajeno.
+          SELECT mc.EFECTIVO, mc.DIGITAL
+          FROM MOVIMIENTOS_CAJA mc
+          INNER JOIN CAJA_SESIONES cs
+            ON cs.SESION_ID = @sesionId
+           AND (
+             (mc.TIPO_ENTIDAD = 'DEPOSITO_CIERRE' AND mc.ID_ENTIDAD = cs.SESION_ID)
+             OR
+             (mc.TIPO_ENTIDAD = 'CIERRE_CAJA'
+              AND cs.CAJA_ID = mc.CAJA_ID
+              AND cs.FECHA_CIERRE IS NOT NULL
+              AND ABS(DATEDIFF(SECOND, cs.FECHA_CIERRE, mc.FECHA)) < 60)
+           )
+        ),
+        CierreSesion AS (
+          -- SUM defensivo: si hubiera más de un match para la misma sesión
+          -- (p.ej. reinserción del cierre), los subqueries escalares de abajo
+          -- siguen recibiendo un único valor.
+          SELECT ISNULL(SUM(EFECTIVO), 0) AS EFECTIVO_CIERRE,
+                 ISNULL(SUM(DIGITAL),  0) AS DIGITAL_CIERRE
+          FROM CierreMatches
         ),
         HasCierre AS (
-          SELECT CASE WHEN EXISTS (SELECT 1 FROM CierreCaja) THEN 1 ELSE 0 END AS VAL
+          SELECT CASE WHEN EXISTS (SELECT 1 FROM CierreMatches) THEN 1 ELSE 0 END AS VAL
         ),
         VentasBruto AS (
           SELECT mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64,
@@ -2464,7 +2489,7 @@ export const salesService = {
           FROM CAJA_ITEMS ci
           JOIN VENTAS_METODOS_PAGO vmp ON ci.ORIGEN_ID = vmp.VENTA_ID AND ci.ORIGEN_TIPO = 'VENTA'
           JOIN METODOS_PAGO mp ON vmp.METODO_PAGO_ID = mp.METODO_PAGO_ID
-          WHERE ci.CAJA_ID = @cajaId
+          WHERE ci.SESION_ID = @sesionId
           GROUP BY mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64
         ),
         BrutosPorCat AS (
@@ -2477,9 +2502,9 @@ export const salesService = {
                  CASE
                    WHEN (SELECT VAL FROM HasCierre) = 0 THEN vb.TOTAL
                    WHEN vb.CATEGORIA = 'EFECTIVO' AND (SELECT BRUTO_EF FROM BrutosPorCat) > 0
-                   THEN CAST(ROUND(vb.TOTAL * 1.0 * (SELECT EFECTIVO_CIERRE FROM CierreCaja) / (SELECT BRUTO_EF FROM BrutosPorCat), 2) AS DECIMAL(18,2))
+                   THEN CAST(ROUND(vb.TOTAL * 1.0 * (SELECT EFECTIVO_CIERRE FROM CierreSesion) / (SELECT BRUTO_EF FROM BrutosPorCat), 2) AS DECIMAL(18,2))
                    WHEN vb.CATEGORIA = 'DIGITAL' AND (SELECT BRUTO_DIG FROM BrutosPorCat) > 0
-                   THEN CAST(ROUND(vb.TOTAL * 1.0 * (SELECT DIGITAL_CIERRE FROM CierreCaja) / (SELECT BRUTO_DIG FROM BrutosPorCat), 2) AS DECIMAL(18,2))
+                   THEN CAST(ROUND(vb.TOTAL * 1.0 * (SELECT DIGITAL_CIERRE FROM CierreSesion) / (SELECT BRUTO_DIG FROM BrutosPorCat), 2) AS DECIMAL(18,2))
                    ELSE vb.TOTAL
                  END AS TOTAL
           FROM VentasBruto vb
@@ -2496,19 +2521,19 @@ export const salesService = {
         ),
         FallbackEfectivo AS (
           SELECT de.METODO_PAGO_ID, de.NOMBRE, de.CATEGORIA, de.IMAGEN_BASE64,
-                 (SELECT EFECTIVO_CIERRE FROM CierreCaja) AS TOTAL
+                 (SELECT EFECTIVO_CIERRE FROM CierreSesion) AS TOTAL
           FROM DefaultEfectivo de
           WHERE (SELECT VAL FROM HasCierre) = 1
             AND (SELECT BRUTO_EF FROM BrutosPorCat) = 0
-            AND (SELECT EFECTIVO_CIERRE FROM CierreCaja) <> 0
+            AND (SELECT EFECTIVO_CIERRE FROM CierreSesion) <> 0
         ),
         FallbackDigital AS (
           SELECT dd.METODO_PAGO_ID, dd.NOMBRE, dd.CATEGORIA, dd.IMAGEN_BASE64,
-                 (SELECT DIGITAL_CIERRE FROM CierreCaja) AS TOTAL
+                 (SELECT DIGITAL_CIERRE FROM CierreSesion) AS TOTAL
           FROM DefaultDigital dd
           WHERE (SELECT VAL FROM HasCierre) = 1
             AND (SELECT BRUTO_DIG FROM BrutosPorCat) = 0
-            AND (SELECT DIGITAL_CIERRE FROM CierreCaja) <> 0
+            AND (SELECT DIGITAL_CIERRE FROM CierreSesion) <> 0
         ),
         AllMetodos AS (
           SELECT * FROM MetodosAjustados

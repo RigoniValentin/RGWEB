@@ -306,18 +306,17 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 });
 
 // ── GET /api/caja/:id/desglose-metodos — desglose de sesión ──
-// `:id` es el SESION_ID. Resolvemos el CAJA_ID correspondiente para
-// alimentar a getDesgloseMetodosCaja, que filtra por CAJA_ID.
+// `:id` es el SESION_ID. El query filtra ventas por SESION_ID y localiza
+// el cierre de ESA sesión (si está cerrada) o devuelve el bruto (si
+// está activa).
 router.get('/:id/desglose-metodos', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const sesionId = Number(req.params.id);
-    const sesion = await cajaService.getSesionById(sesionId);
-    const cajaId = sesion?.CAJA_ID;
-    if (!cajaId) {
+    if (!Number.isFinite(sesionId) || sesionId <= 0) {
       res.json([]);
       return;
     }
-    const data = await salesService.getDesgloseMetodosCaja(cajaId);
+    const data = await salesService.getDesgloseMetodosSesion(sesionId);
     res.json(data);
   } catch (err) { next(err); }
 });
