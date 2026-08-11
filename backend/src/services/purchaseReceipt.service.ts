@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import fs from 'fs';
+import sharp from 'sharp';
 import { aplicarProrrateoBonificacion, r2 } from './purchaseReceipt.prorrateo.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -78,6 +79,64 @@ ESTRUCTURA DE SALIDA (JSON):
 }
 
 ---
+REGLAS CRÍTICAS PARA codigo_proveedor (PRIORIDAD MÁXIMA):
+
+El "código de proveedor" es el vínculo principal con nuestro sistema de stock. Sin él, ningún producto podrá matchearse automáticamente en futuras compras. Por eso su lectura requiere el MÁXIMO ESFUERZO:
+
+1. DÓNDE BUSCAR (revisar TODAS estas zonas en cada ítem antes de rendirte):
+   - Columna izquierda de la descripción (típico en facturas tipo A/B).
+   - Columna derecha, antes o después de la cantidad.
+   - Encabezado de la fila (sobre o debajo de la descripción).
+   - Sub-bloque "Código" / "Cod" / "Cód" / "Ref" / "SKU" / "Art" / "EAN" si existe.
+   - Códigos de barras impresos al final de la línea (EAN-13, EAN-8, Code 128). Si el barcode representa un código interno del proveedor (no un EAN global), usarlo. Si es EAN global estándar, ignorarlo y seguir buscando el código del proveedor.
+   - Línea siguiente o pie de la fila (muchos proveedores lo ponen abajo).
+   - Si la tabla tiene columna explícita "Cód. Proveedor" / "Cód. Art.", ese valor es el definitivo.
+
+2. CÓMO INTERPRETAR:
+   - Pueden ser numéricos puros (12345), alfanuméricos (ART-1234-XL), con guiones/puntos (7760.55).
+   - NO confundir con: número de línea, número de orden de compra, número de remito, página, o código de barras EAN global.
+   - Si el mismo código aparece en varias líneas, es válido repetirlo.
+   - Si hay un código "padre" + "variante" (ej. "TALLE-M"), usar el código completo concatenado, no solo el padre.
+   - Si la imagen es de baja calidad y el código es ilegible, igual poner el mejor intento en vez de null, y mencionarlo en motivo_sugerencia.
+
+3. CUANDO NO HAY CÓDIGO VISIBLE:
+   - Solo entonces poner null, pero antes de hacerlo confirmar exhaustivamente que no existe en ninguna de las zonas listadas.
+   - Indicar en motivo_sugerencia: "Sin código visible" o "Código ilegible".
+
+---
+REGLAS CRÍTICAS PARA cantidad (PRIORIDAD MÁXIMA):
+
+La cantidad es el segundo dato más importante del comprobante. Errores acá descuadran el stock y los totales. Por eso su lectura requiere el MÁXIMO ESFUERZO y validación cruzada:
+
+1. DÓNDE BUSCAR:
+   - Columna rotulada "Cant." / "Cantidad" / "Ctd." / "Cdad." / "Unid." (la celda numérica de esa columna).
+   - Si la factura muestra la cantidad como "1 x 12", el segundo número (12) es la cantidad real.
+   - Si la factura tiene columna "Bultos" + "Unid/Bulto" + "Cantidad", la columna "Cantidad" es la definitiva.
+
+2. FORMATO NUMÉRICO ARGENTINO (CRUCIAL — causa principal de errores):
+   - El separador decimal es la COMA, no el punto.
+   - El separador de miles es el PUNTO.
+   - "1.500" sin decimales = MIL QUINIENTOS (1500), NO uno coma cinco.
+   - "1,5" = UNO COMA CINCO (1.5).
+   - "1.500,50" = MIL QUINIENTOS CON 50/100 (1500.50).
+   - "1.500.500" = UN MILLÓN QUINIENTOS MIL (1500500).
+   - En el JSON de salida, la cantidad SIEMPRE debe escribirse con punto como decimal (estándar JSON) y sin separadores de miles.
+   - Si la factura dice "1500" como cantidad (sin separadores), asumir 1500 unidades, NO 1.5.
+
+3. VALIDACIÓN CRUZADA OBLIGATORIA (hacer antes de cerrar el JSON):
+   - Para CADA ítem, verificar que subtotal_linea ≈ cantidad × precio_unitario (con tolerancia ±2% por redondeos, IVA, o bonificación de línea).
+   - Si no cuadra, REVISAR la cantidad: es muy común confundir 1 con 10, o 1 con 100 cuando la foto tiene poca resolución.
+   - Si la cantidad de TODAS las filas es exactamente 1, sospechar: probablemente se está leyendo mal la columna (confundir cantidad con código, precio, o subtotal).
+   - Si una cantidad parece absurda (ej. 99999, 0.01, 0), re-leer la celda y revisar columnas vecinas.
+
+4. CASOS ESPECIALES:
+   - Bonificación por entrega: "10 + 2 bonif" → cantidad = 10, no 12 (los 2 son bonificados aparte).
+   - Devoluciones: si la línea tiene signo negativo en subtotal, la cantidad también es positiva pero el subtotal se mantiene negativo, o bien cantidad negativa según el formato del proveedor. Priorizar el formato visual.
+   - Bultos: "1 caja x 12 un." → cantidad = 12 (la cantidad real de unidades que entra a stock).
+   - Unidad de medida "KG" o "LT": la cantidad es el peso/volumen, no las unidades (ej. 1,500 kg = 1.5).
+   - Si la fila es OMITIR (flete, IVA, etc.) la cantidad puede ser null o irrelevante; no fallar por esto.
+
+---
 REGLAS PARA EL MANEJO DE ÍTEMS (sugerencia_accion):
 
 Analiza la naturaleza de cada línea detectada en el comprobante y asigna un valor en "sugerencia_accion":
@@ -99,7 +158,13 @@ REGLAS GENERALES DE FORMATO Y EXTRACCIÓN:
 - Fechas siempre en formato ISO (YYYY-MM-DD).
 - Si la imagen está rotada o inclinada, analízala reorientando el texto correctamente antes de parsear.
 - Si un campo no es legible o no está presente, asigna null.
-- Devuelve ÚNICAMENTE el JSON. No incluyas bloques de código markdown (como \`\`\`json) ni texto explicativo antes o después de la estructura.`;
+- Devuelve ÚNICAMENTE el JSON. No incluyas bloques de código markdown (como \`\`\`json) ni texto explicativo antes o después de la estructura.
+
+Antes de generar el JSON final, hacé DOS pasadas mentales obligatorias sobre la imagen:
+1. Pasada de CÓDIGOS: revisá CADA fila en busca del código de proveedor.
+2. Pasada de CANTIDADES: para CADA ítem, validá que subtotal_linea ≈ cantidad × precio_unitario (±2%). Si no cuadra, re-leé la cantidad.
+
+Ambas lecturas dedicadas son OBLIGATORIAS y son la parte más importante de la tarea.`;
 
 // ── Tipos del contrato de salida ─────────────────────────────────────────
 export interface ParsedReceiptProveedor {
@@ -293,18 +358,37 @@ export interface ParseResult {
   usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
 }
 
-export async function parseReceiptFromImage(imagePath: string): Promise<ParseResult> {
-  const buffer = await fs.promises.readFile(imagePath);
-  const b64 = buffer.toString('base64');
+// ── Pre-procesado de imagen para reducir tokens de visión sin perder precisión ──
+// OpenAI cobra por "tiles" de 512×512 en modo detail:high. Una foto de celular
+// de 4000×3000 genera ~20 tiles (~1700 tokens solo de imagen). Con este pipeline:
+//   1. Auto-rotar (EXIF) — fotos de celular suelen venir rotadas.
+//   2. Limitar lado mayor a 2000px — suficiente para leer códigos y cantidades
+//      en tipografía de facturas (≥6pt) sin pagar tiles de más.
+//   3. Normalizar contraste — fotos con sombra/soporte se leen mucho mejor.
+//   4. Convertir a JPEG q=90 — payload ~5x menor que PNG/HEIC sin perder OCR.
+// Resultado típico: 2000×1500 → 6 tiles (~510 tokens) en vez de 20 (~1700).
+// Para mantener la imagen original persistida (la que ve el usuario) NO se
+// sobreescribe el archivo: el procesamiento es solo en memoria.
+async function preprocessImageForVision(imagePath: string): Promise<{ buffer: Buffer; mime: string }> {
   const ext = imagePath.toLowerCase().split('.').pop() || 'jpg';
-  const mimeMap: Record<string, string> = {
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    png: 'image/png',
-    webp: 'image/webp',
-    heic: 'image/heic',
-  };
-  const mime = mimeMap[ext] || 'image/jpeg';
+  const supported = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'tif', 'tiff'];
+  // Formatos que sharp no puede leer (ej. PDF) se mandan tal cual.
+  if (!supported.includes(ext)) {
+    const buffer = await fs.promises.readFile(imagePath);
+    return { buffer, mime: ext === 'pdf' ? 'application/pdf' : 'image/jpeg' };
+  }
+  const buffer = await sharp(imagePath, { failOn: 'none' })
+    .rotate()                                       // respeta orientación EXIF
+    .resize({ width: 2000, height: 2000, fit: 'inside', withoutEnlargement: true })
+    .normalize()                                    // estira contraste
+    .jpeg({ quality: 90, mozjpeg: true })
+    .toBuffer();
+  return { buffer, mime: 'image/jpeg' };
+}
+
+export async function parseReceiptFromImage(imagePath: string): Promise<ParseResult> {
+  const { buffer, mime } = await preprocessImageForVision(imagePath);
+  const b64 = buffer.toString('base64');
 
   const openai = getOpenAI();
 
@@ -322,7 +406,10 @@ export async function parseReceiptFromImage(imagePath: string): Promise<ParseRes
           },
           {
             type: 'image_url',
-            image_url: { url: `data:${mime};base64,${b64}` },
+            image_url: {
+              url: `data:${mime};base64,${b64}`,
+              detail: 'high',
+            },
           },
         ],
       },

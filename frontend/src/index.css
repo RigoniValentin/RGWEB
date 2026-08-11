@@ -5207,9 +5207,21 @@ body {
   background: var(--caja-accent, var(--rg-gold));
 }
 .rg-caja-card.has-accent {
+  /* Degradado con el color de énfasis: arranca con un tinte visible
+     (22%) en la esquina superior-izquierda y se desvanece hacia el
+     blanco + gris muy claro. Mismo ángulo (135deg) que usan
+     .rg-caja-card__icon y .rg-caja-info-hero para coherencia. */
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--caja-accent, var(--rg-gold)) 22%, #fff) 0%,
+    #fff 55%,
+    #fafafa 100%);
   border-color: color-mix(in srgb, var(--caja-accent, var(--rg-gold)) 30%, var(--rg-border));
 }
 .rg-caja-card.has-accent:hover {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--caja-accent, var(--rg-gold)) 32%, #fff) 0%,
+    #fff 55%,
+    #fafafa 100%);
   border-color: var(--caja-accent, var(--rg-gold));
 }
 

@@ -153,9 +153,15 @@ export default function CajaPage() {
     if (changed) setCajaDrawerActiva(fresh);
   }, [cajasList, cajaDrawerActiva]);
 
+  // El saldo de efectivo de Caja Central es información administrativa.
+  // Sólo los usuarios con permiso de administrar cajas pueden consultarlo;
+  // los cajeros sólo ven su propio saldo retenido.
+  const canVerCCEfectivo = hasPermiso('caja.administrar');
+
   const { data: ccEfectivo } = useQuery({
     queryKey: ['cc-efectivo', puntoVentaActivo],
     queryFn: () => cajaApi.getEfectivoCajaCentral(puntoVentaActivo || undefined),
+    enabled: canVerCCEfectivo,
   });
 
   // Mapa reactivo de colores personalizados por caja (localStorage)
@@ -394,26 +400,56 @@ export default function CajaPage() {
   // ═══════════════ CÁLCULOS PARA MODALES ═══════════════
 
   const cajaParaAbrir = misCajas.find(c => c.CAJA_ID === cajaSeleccionadaAbrir);
-  const maxAporteCC = ccEfectivo?.efectivo ?? 0;
+  const maxAporteCC = canVerCCEfectivo ? (ccEfectivo?.efectivo ?? 0) : 0;
   const retenidoDisponible = cajaParaAbrir?.SALDO_RETENIDO ?? 0;
   const totalDisponible = maxAporteCC + retenidoDisponible;
 
   const fuenteOpciones = useMemo(() => {
     if (!cajaParaAbrir) return [];
     const hasRetenido = retenidoDisponible > 0;
-    return [
-      {
-        value: 'APORTE_CC' as const,
-        icon: <ImportOutlined style={{ color: '#1677ff', fontSize: 20 }} />,
-        title: 'Aporte desde Caja Central',
-        desc: hasRetenido
-          ? `No disponible: la caja tiene ${fmtMoney(retenidoDisponible)} retenido que debe incluirse en la apertura.`
-          : maxAporteCC > 0
-            ? `Tomar todo el efectivo de CC. Máximo: ${fmtMoney(maxAporteCC)}.`
-            : 'No hay efectivo disponible en Caja Central.',
-        disabled: hasRetenido || maxAporteCC === 0,
-        montoMax: maxAporteCC,
-      },
+    const opciones: Array<{
+      value: 'USAR_RETENIDO' | 'APORTE_CC' | 'MIXTO' | 'NINGUNO';
+      icon: JSX.Element;
+      title: string;
+      desc: string;
+      disabled: boolean;
+      montoMax: number;
+    }> = [];
+
+    // Las opciones que toman dinero de Caja Central sólo se muestran
+    // a usuarios con permiso de administrar cajas (que son quienes
+    // pueden ver el saldo de CC). Los cajeros sólo pueden abrir con
+    // saldo retenido o sin aporte inicial.
+    if (canVerCCEfectivo) {
+      opciones.push(
+        {
+          value: 'APORTE_CC' as const,
+          icon: <ImportOutlined style={{ color: '#1677ff', fontSize: 20 }} />,
+          title: 'Aporte desde Caja Central',
+          desc: hasRetenido
+            ? `No disponible: la caja tiene ${fmtMoney(retenidoDisponible)} retenido que debe incluirse en la apertura.`
+            : maxAporteCC > 0
+              ? `Tomar todo el efectivo de CC. Máximo: ${fmtMoney(maxAporteCC)}.`
+              : 'No hay efectivo disponible en Caja Central.',
+          disabled: hasRetenido || maxAporteCC === 0,
+          montoMax: maxAporteCC,
+        },
+        {
+          value: 'MIXTO' as const,
+          icon: <SwapOutlined style={{ color: '#52c41a', fontSize: 20 }} />,
+          title: 'Mixto (retenido + Caja Central)',
+          desc: hasRetenido
+            ? `Toma los ${fmtMoney(retenidoDisponible)} retenidos y suma desde CC. Máximo total: ${fmtMoney(totalDisponible)}.`
+            : totalDisponible > 0
+              ? `Primero se usa el retenido, después CC. Máximo: ${fmtMoney(totalDisponible)}.`
+              : 'No hay efectivo disponible (ni retenido ni en CC).',
+          disabled: totalDisponible === 0 || (retenidoDisponible === 0 || maxAporteCC === 0),
+          montoMax: totalDisponible,
+        },
+      );
+    }
+
+    opciones.push(
       {
         value: 'USAR_RETENIDO' as const,
         icon: <LockOutlined style={{ color: '#722ed1', fontSize: 20 }} />,
@@ -425,18 +461,6 @@ export default function CajaPage() {
         montoMax: retenidoDisponible,
       },
       {
-        value: 'MIXTO' as const,
-        icon: <SwapOutlined style={{ color: '#52c41a', fontSize: 20 }} />,
-        title: 'Mixto (retenido + Caja Central)',
-        desc: hasRetenido
-          ? `Toma los ${fmtMoney(retenidoDisponible)} retenidos y suma desde CC. Máximo total: ${fmtMoney(totalDisponible)}.`
-          : totalDisponible > 0
-            ? `Primero se usa el retenido, después CC. Máximo: ${fmtMoney(totalDisponible)}.`
-            : 'No hay efectivo disponible (ni retenido ni en CC).',
-        disabled: totalDisponible === 0 || (retenidoDisponible === 0 || maxAporteCC === 0),
-        montoMax: totalDisponible,
-      },
-      {
         value: 'NINGUNO' as const,
         icon: <StopOutlined style={{ color: '#8c8c8c', fontSize: 20 }} />,
         title: 'Sin aporte inicial',
@@ -446,8 +470,10 @@ export default function CajaPage() {
         disabled: hasRetenido,
         montoMax: 0,
       },
-    ];
-  }, [cajaParaAbrir, maxAporteCC, retenidoDisponible, totalDisponible]);
+    );
+
+    return opciones;
+  }, [cajaParaAbrir, maxAporteCC, retenidoDisponible, totalDisponible, canVerCCEfectivo]);
 
   useEffect(() => {
     if (!cajaParaAbrir) return;
@@ -463,11 +489,14 @@ export default function CajaPage() {
 
   useEffect(() => {
     if (abrirModalOpen) {
-      setFuenteApertura('APORTE_CC');
+      // Para cajeros sin permiso de administrar, las opciones APORTE_CC/MIXTO
+      // no existen; partimos de USAR_RETENIDO para que el modal abra con
+      // una opción válida seleccionada (no "undefined" que deja el botón deshabilitado).
+      setFuenteApertura(canVerCCEfectivo ? 'APORTE_CC' : 'USAR_RETENIDO');
       setMontoApertura(0);
       setObsApertura('');
     }
-  }, [abrirModalOpen]);
+  }, [abrirModalOpen, canVerCCEfectivo]);
 
   const fuenteActual = fuenteOpciones.find(o => o.value === fuenteApertura);
   const montoMaximoApertura = fuenteActual?.montoMax ?? 0;
@@ -724,15 +753,17 @@ export default function CajaPage() {
                     </div>
                   </div>
                 </div>
-                <div className="rg-mini-stat" style={{ borderLeftColor: '#1677ff' }}>
-                  <ImportOutlined className="rg-mini-stat__icon" style={{ color: '#1677ff' }} />
-                  <div>
-                    <div className="rg-mini-stat__label">Efectivo CC</div>
-                    <div className="rg-mini-stat__value" style={{ color: maxAporteCC > 0 ? '#1677ff' : '#999' }}>
-                      {fmtMoney(maxAporteCC)}
+                {canVerCCEfectivo && (
+                  <div className="rg-mini-stat" style={{ borderLeftColor: '#1677ff' }}>
+                    <ImportOutlined className="rg-mini-stat__icon" style={{ color: '#1677ff' }} />
+                    <div>
+                      <div className="rg-mini-stat__label">Efectivo CC</div>
+                      <div className="rg-mini-stat__value" style={{ color: maxAporteCC > 0 ? '#1677ff' : '#999' }}>
+                        {fmtMoney(maxAporteCC)}
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
                 <div className="rg-mini-stat" style={{ borderLeftColor: '#52c41a' }}>
                   <WalletOutlined className="rg-mini-stat__icon" style={{ color: '#52c41a' }} />
                   <div>

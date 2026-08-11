@@ -129,29 +129,34 @@ const PRECIO_VENTA_SQL = `
   ) AS PRECIO_VENTA
 `;
 
+/**
+ * Busca un producto por código de proveedor en la tabla PRODUCTOS_PROVEEDORES.
+ *
+ * Reglas:
+ * - Si el proveedor está identificado (pre-seleccionado por el usuario o
+ *   detectado por IA), filtra EXCLUSIVAMENTE por `PRODUCTOS_PROVEEDORES`
+ *   donde `PROVEEDOR_ID = @proveedorId` y `CODIGO_PROVEEDOR = @codigo`.
+ * - Si no hay proveedor identificado, busca por `CODIGO_PROVEEDOR = @codigo`
+ *   contra CUALQUIER proveedor — el usuario re-vincula manualmente si hay
+ *   ambigüedad.
+ *
+ * NO se hace fallback por CODIGOPARTICULAR ni por código de barras: son
+ * códigos del producto en nuestro sistema (no del proveedor). El vínculo
+ * siempre es por PRODUCTO_ID ↔ PROVEEDOR_ID ↔ CODIGO_PROVEEDOR.
+ *
+ * Una vez que el operador confirma la compra y se persiste ese código en
+ * PRODUCTOS_PROVEEDORES, la próxima factura del mismo proveedor para el mismo
+ * ítem matchea automáticamente sin necesidad de re-vincular.
+ */
 async function findByCodigo(codigo: string, proveedorId: number | null): Promise<ProductoCandidato[]> {
   const pool = await getPool();
-  // IMPORTANTE: siempre se busca por CODIGO_PROVEEDOR en PRODUCTOS_PROVEEDORES,
-  // independientemente de si el matcher detectó el proveedor o no. Si el
-  // usuario pre-seleccionó un proveedor y la IA no pudo matchearlo por
-  // CUIT/razón social, el codigo_proveedor guardado contra ESE proveedor
-  // también tiene que aparecer.
-  //
-  // Cuando `proveedorId` viene, prioriza matches del mismo proveedor (rank 2).
-  // Si viene null, matchea contra cualquier proveedor (rank 1) — igualmente
-  // útil porque en la UI el usuario puede re-vincular manualmente.
-  //
-  // Fallbacks finales:
-  //   - p.CODIGOPARTICULAR del producto
-  //   - PRODUCTOS_COD_BARRAS.CODIGO_BARRAS
-  const req = pool.request().input('codigo', sql.NVarChar, codigo);
+  const req = pool.request()
+    .input('codigo', sql.NVarChar, codigo)
+    .input('proveedorId', sql.Int, proveedorId);
 
   let proveedorCondition = '';
-  let proveedorConditionAlt = '';
   if (proveedorId !== null) {
-    req.input('proveedorId', sql.Int, proveedorId);
-    proveedorCondition = 'AND pp_cod.PROVEEDOR_ID = @proveedorId';
-    proveedorConditionAlt = 'AND pp_alt.PROVEEDOR_ID = @proveedorId';
+    proveedorCondition = 'AND pp.PROVEEDOR_ID = @proveedorId';
   }
 
   const r = await req.query<ProductoCandidato>(`
@@ -162,35 +167,18 @@ async function findByCodigo(codigo: string, proveedorId: number | null): Promise
       ${PRECIO_VENTA_SQL},
       p.TASA_IVA_ID,
       u.ABREVIACION AS UNIDAD_ABREVIACION,
-      ISNULL(ti.PORCENTAJE, 0) AS IVA_PORCENTAJE,
-      (CASE
-        WHEN pp_cod.PRODUCTO_ID IS NOT NULL THEN 3                      -- match exacto por CODIGO_PROVEEDOR
-        WHEN pp_alt.PRODUCTO_ID IS NOT NULL THEN 2                       -- match por CODIGOPARTICULAR bajo el mismo proveedor
-        WHEN p.CODIGOPARTICULAR = @codigo THEN 1                          -- match por CODIGOPARTICULAR del producto
-        ELSE 0
-      END) AS _MATCH_RANK
+      ISNULL(ti.PORCENTAJE, 0) AS IVA_PORCENTAJE
     FROM PRODUCTOS p
+    INNER JOIN PRODUCTOS_PROVEEDORES pp
+        ON pp.PRODUCTO_ID = p.PRODUCTO_ID
+       AND pp.CODIGO_PROVEEDOR = @codigo
+       ${proveedorCondition}
     LEFT JOIN UNIDADES_MEDIDA u ON p.UNIDAD_ID = u.UNIDAD_ID
     LEFT JOIN TASAS_IMPUESTOS ti ON p.TASA_IVA_ID = ti.TASA_ID
-    LEFT JOIN PRODUCTOS_PROVEEDORES pp_cod
-      ON pp_cod.PRODUCTO_ID = p.PRODUCTO_ID
-     AND pp_cod.CODIGO_PROVEEDOR = @codigo
-     ${proveedorCondition}
-    LEFT JOIN PRODUCTOS_PROVEEDORES pp_alt
-      ON pp_alt.PRODUCTO_ID = p.PRODUCTO_ID
-     AND pp_alt.PROVEEDOR_ID <> ISNULL(pp_cod.PROVEEDOR_ID, 0)
-     ${proveedorConditionAlt}
     WHERE p.ACTIVO = 1
-      AND (
-        pp_cod.PRODUCTO_ID IS NOT NULL
-        OR pp_alt.PRODUCTO_ID IS NOT NULL
-        OR p.CODIGOPARTICULAR = @codigo
-        OR EXISTS (
-          SELECT 1 FROM PRODUCTOS_COD_BARRAS cb
-          WHERE cb.PRODUCTO_ID = p.PRODUCTO_ID AND cb.CODIGO_BARRAS = @codigo
-        )
-      )
-    ORDER BY _MATCH_RANK DESC, p.NOMBRE
+    ORDER BY
+      pp.PROVEEDOR_ID,
+      p.NOMBRE
   `);
   return r.recordset;
 }
@@ -256,9 +244,9 @@ async function enrichItem(item: ParsedReceiptItem, proveedorId: number | null): 
     candidatos = await findByCodigo(codigo, proveedorId);
   }
   if (candidatos.length === 0 && item.descripcion_proveedor) {
-    // Primero buscamos dentro de los productos que el sistema ya tiene
-    // asociados a este proveedor (vía PRODUCTOS_PROVEEDORES). Si esa lista
-    // queda vacía, caemos al catálogo global como fallback.
+    // Sin match por código: intentar por descripción. Primero filtrado por
+    // proveedor (sólo productos ya asociados vía PRODUCTOS_PROVEEDORES), y
+    // si no hay ninguno, búsqueda global como último recurso.
     candidatos = await findByDescription(item.descripcion_proveedor, proveedorId);
     if (candidatos.length === 0 && proveedorId !== null) {
       candidatos = await findByDescription(item.descripcion_proveedor, null);
@@ -304,12 +292,17 @@ async function enrichItem(item: ParsedReceiptItem, proveedorId: number | null): 
 /**
  * Enriquece el JSON de la IA con matches contra PRODUCTOS / PROVEEDORES.
  *
+ * El vínculo producto↔proveedor se hace exclusivamente por
+ * `PRODUCTOS_PROVEEDORES (PRODUCTO_ID, PROVEEDOR_ID, CODIGO_PROVEEDOR)`:
+ * ningún fallback por CODIGOPARTICULAR ni por código de barras. Ver
+ * `findByCodigo` para el detalle.
+ *
  * @param parsed                  JSON crudo ya sanitizado.
  * @param proveedorIdHint         Proveedor pre-seleccionado por el usuario
  *                                en el modal padre. Si viene, gana sobre el
  *                                match por IA: el matcher prioriza
- *                                PRODUCTOS_PROVEEDORES.CODIGO_PROVEEDOR
- *                                contra ESTE proveedor aunque la IA no haya
+ *                                `PRODUCTOS_PROVEEDORES.CODIGO_PROVEEDOR`
+ *                                contra ESE proveedor aunque la IA no haya
  *                                podido detectarlo por CUIT/razón social.
  *                                La detección por IA sigue corriendo para
  *                                informar al usuario.
