@@ -33,6 +33,7 @@ const ORIGEN_TIPO_LABELS: Record<string, { label: string; color: string }> = {
   COBRANZA: { label: 'Cobranza', color: 'green' },
   ORDEN_PAGO: { label: 'OP', color: 'red' },
   COMPRA: { label: 'Compra', color: 'red' },
+  GASTO: { label: 'Gasto', color: 'red' },
   NC_COMPRA: { label: 'NC Compra', color: 'orange' },
   NC_VENTA: { label: 'NC Venta', color: 'orange' },
   ND_COMPRA: { label: 'ND Compra', color: 'volcano' },
@@ -52,6 +53,8 @@ export default function CajaPage() {
 
   // Estado del grid de cajas (foco principal)
   const [cajaDrawerActiva, setCajaDrawerActiva] = useState<Caja | null>(null);
+  // Tab inicial del drawer de detalle (controlado por el botón clickeado en la card)
+  const [drawerDefaultTab, setDrawerDefaultTab] = useState<'sesion' | 'info' | undefined>(undefined);
 
   // Estado ABM
   const [abmModalOpen, setAbmModalOpen] = useState(false);
@@ -129,6 +132,13 @@ export default function CajaPage() {
   const { data: miSesionActiva, refetch: refetchMiSesion } = useQuery({
     queryKey: ['mi-sesion-activa', user?.USUARIO_ID],
     queryFn: () => cajaApi.getMiSesionActiva(),
+  });
+
+  // Sesión detallada que se está por cerrar — para mostrar el desglose de egresos del período.
+  const { data: sesionCerrarDetalle } = useQuery({
+    queryKey: ['caja-sesion', sesionParaCerrar?.SESION_ID],
+    queryFn: () => cajaApi.getSesionById(sesionParaCerrar!.SESION_ID),
+    enabled: !!sesionParaCerrar?.SESION_ID && cerrarModalOpen,
   });
 
   const { data: cajasList = [], isLoading: cajasListLoading } = useQuery({
@@ -664,7 +674,13 @@ export default function CajaPage() {
                 caja={caja}
                 miSesionActiva={miSesionActiva}
                 accentColor={accentColorsByCaja[caja.CAJA_ID] ?? null}
-                onClick={() => setCajaDrawerActiva(caja)}
+                onClick={() => { setDrawerDefaultTab(undefined); setCajaDrawerActiva(caja); }}
+                onClickSesiones={() => { setDrawerDefaultTab('info'); setCajaDrawerActiva(caja); }}
+                onClickUsuarios={() => {
+                  setCajaParaUsuarios(caja);
+                  setUsuariosSeleccionados(caja.USUARIOS_ASIGNADOS?.map(u => u.USUARIO_ID) || []);
+                  setUsuariosModalOpen(true);
+                }}
               />
             ))}
         </div>
@@ -672,7 +688,7 @@ export default function CajaPage() {
 
       <CajaDetalleDrawer
         caja={cajaDrawerActiva}
-        onClose={() => setCajaDrawerActiva(null)}
+        onClose={() => { setCajaDrawerActiva(null); setDrawerDefaultTab(undefined); }}
         onVerSesion={(s) => setSesionActivaDetalle(s)}
         onAbrirSesion={(c) => {
           setCajaSeleccionadaAbrir(c.CAJA_ID);
@@ -696,6 +712,7 @@ export default function CajaPage() {
         canEgreso={hasPermiso('caja.egreso')}
         canCerrar={hasPermiso('caja.cerrar')}
         canAdministrar={hasPermiso('caja.administrar')}
+        defaultTab={drawerDefaultTab}
       />
 
       {/* Modal Abrir Sesión */}
@@ -1079,6 +1096,47 @@ export default function CajaPage() {
                       </div>
                     </div>
                   </div>
+                )}
+
+                {Number(sesionCerrarDetalle?.totales?.egresos) > 0 && (
+                  <Popover
+                    content={
+                      <div style={{ maxWidth: 280 }}>
+                        <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+                          Detalle de egresos del período
+                        </Text>
+                        {Object.entries(
+                          (sesionCerrarDetalle?.items ?? []).reduce<Record<string, number>>((acc, it) => {
+                            const ot = it.ORIGEN_TIPO;
+                            const EGRESO_TYPES = ['EGRESO', 'GASTO', 'COMPRA', 'ORDEN_PAGO', 'NC_VENTA', 'ND_COMPRA'];
+                            if (EGRESO_TYPES.includes(ot)) {
+                              acc[ot] = (acc[ot] || 0) + Math.abs(Number(it.MONTO_EFECTIVO) || 0) + Math.abs(Number(it.MONTO_DIGITAL) || 0);
+                            }
+                            return acc;
+                          }, {})
+                        )
+                          .filter(([, v]) => v > 0)
+                          .sort((a, b) => b[1] - a[1])
+                          .map(([ot, v]) => (
+                            <div key={ot} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0' }}>
+                              <span>{ORIGEN_TIPO_LABELS[ot]?.label ?? ot}</span>
+                              <Text type="danger">{fmtMoney(v)}</Text>
+                            </div>
+                          ))}
+                      </div>
+                    }
+                    trigger="hover"
+                  >
+                    <div className="rg-mini-stat" style={{ borderLeftColor: '#ff4d4f', cursor: 'help' }}>
+                      <ArrowDownOutlined className="rg-mini-stat__icon" style={{ color: '#ff4d4f' }} />
+                      <div>
+                        <div className="rg-mini-stat__label">Egresos del período</div>
+                        <div className="rg-mini-stat__value" style={{ color: '#cf1322' }}>
+                          {fmtMoney(Number(sesionCerrarDetalle?.totales?.egresos) || 0)}
+                        </div>
+                      </div>
+                    </div>
+                  </Popover>
                 )}
               </div>
             </div>
@@ -1947,9 +2005,11 @@ interface CajaCardProps {
   miSesionActiva?: CajaSesion | null;
   accentColor?: string | null;
   onClick: () => void;
+  onClickSesiones: () => void;
+  onClickUsuarios: () => void;
 }
 
-function CajaCard({ caja, miSesionActiva, accentColor, onClick }: CajaCardProps) {
+function CajaCard({ caja, miSesionActiva, accentColor, onClick, onClickSesiones, onClickUsuarios }: CajaCardProps) {
   const esMiSesion = !!(caja.SESION_ACTIVA_ID && miSesionActiva && caja.CAJA_ID === miSesionActiva.CAJA_ID);
   const tieneSesionAjena = !!(caja.SESION_ACTIVA_ID && !esMiSesion);
   const libre = !caja.SESION_ACTIVA_ID;
@@ -2054,18 +2114,28 @@ function CajaCard({ caja, miSesionActiva, accentColor, onClick }: CajaCardProps)
         </div>
 
         <div className="rg-caja-card__stats">
-          <div className="rg-caja-card__stat">
+          <button
+            type="button"
+            className="rg-caja-card__stat rg-caja-card__stat--button"
+            onClick={(e) => { e.stopPropagation(); onClickSesiones(); }}
+            aria-label="Ver sesiones de la caja"
+          >
             <div className="rg-caja-card__stat-label">
               <HistoryOutlined /> Sesiones
             </div>
             <div className="rg-caja-card__stat-value">{sesionesCount}</div>
-          </div>
-          <div className="rg-caja-card__stat">
+          </button>
+          <button
+            type="button"
+            className="rg-caja-card__stat rg-caja-card__stat--button"
+            onClick={(e) => { e.stopPropagation(); onClickUsuarios(); }}
+            aria-label="Ver usuarios asignados a la caja"
+          >
             <div className="rg-caja-card__stat-label">
               <TeamOutlined /> Usuarios
             </div>
             <div className="rg-caja-card__stat-value">{usuariosCount}</div>
-          </div>
+          </button>
         </div>
 
         {(usuariosNombres && usuariosNombres.length > 0) || inactiva ? (
@@ -2107,12 +2177,14 @@ interface CajaDetalleDrawerProps {
   canEgreso?: boolean;
   canCerrar?: boolean;
   canAdministrar?: boolean;
+  defaultTab?: 'sesion' | 'info';
 }
 
 function CajaDetalleDrawer({
   caja, onClose, onVerSesion, onAbrirSesion, onIngreso, onEgreso, onCerrar, onTransferir,
   onEditar, onAsignarUsuarios, onDesgloseItem, onDesgloseTotal,
   currentUserId, canAbrir, canIngreso, canEgreso, canCerrar, canAdministrar,
+  defaultTab,
 }: CajaDetalleDrawerProps) {
   const [rangoFechas, setRangoFechas] = useState<[Dayjs, Dayjs] | null>(null);
   const [estadoFiltro, setEstadoFiltro] = useState<string | undefined>(undefined);
@@ -2146,8 +2218,12 @@ function CajaDetalleDrawer({
   useEffect(() => {
     setRangoFechas(null);
     setEstadoFiltro(undefined);
-    setTabActiva(caja?.SESION_ACTIVA_ID ? 'sesion' : 'info');
-  }, [cajaId, caja?.SESION_ACTIVA_ID]);
+    if (defaultTab === 'info') {
+      setTabActiva('info');
+    } else {
+      setTabActiva(caja?.SESION_ACTIVA_ID ? 'sesion' : 'info');
+    }
+  }, [cajaId, caja?.SESION_ACTIVA_ID, defaultTab]);
 
   // Reset filtros al cambiar de caja
   useEffect(() => {

@@ -129,6 +129,10 @@ export interface GastoServicioInput {
    *  con el MONTO de los métodos de categoría CHEQUES en metodos_pago. */
   cheques_ids?: number[];
   puntoVentaId?: number;
+  /** Origen del egreso: 'CAJA_CENTRAL' (default) o 'CAJA' (sesión de caja activa del usuario).
+   *  Si es 'CAJA', el usuario debe tener una sesión activa y todos los métodos deben
+   *  ser de categoría EFECTIVO. */
+  DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
 }
 
 export interface GastoServicioFilter {
@@ -218,12 +222,50 @@ async function registrarEgresoCajaCentral(
   return movId;
 }
 
+/** Inserta un egreso del gasto en la sesión de caja activa del usuario
+ *  (CAJA_ITEMS, ORIGEN_TIPO='GASTO'). Solo válido para métodos EFECTIVO. */
+async function registrarEgresoCajaSesion(
+  tx: any,
+  gastoId: number,
+  descripcion: string,
+  efectivo: number,
+  sesionId: number,
+  cajaId: number,
+  puntoVentaId: number | null,
+  fecha: Date,
+  usuarioId: number,
+): Promise<number> {
+  const result = await tx.request()
+    .input('sesionId', sql.Int, sesionId)
+    .input('cajaId', sql.Int, cajaId)
+    .input('fecha', sql.DateTime, fecha)
+    .input('origenTipo', sql.VarChar(30), 'GASTO')
+    .input('origenId', sql.Int, gastoId)
+    .input('efectivo', sql.Decimal(18, 2), -efectivo)
+    .input('desc', sql.NVarChar(500), descripcion)
+    .input('uid', sql.Int, usuarioId)
+    .input('pvId', sql.Int, puntoVentaId)
+    .query(`
+      INSERT INTO CAJA_ITEMS (SESION_ID, CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
+        MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
+      OUTPUT INSERTED.ITEM_ID
+      VALUES (@sesionId, @cajaId, @fecha, @origenTipo, @origenId,
+        @efectivo, 0, @desc, @uid)
+    `);
+  return result.recordset[0].ITEM_ID;
+}
+
 async function eliminarEgresoCajaCentral(tx: any, gastoId: number): Promise<void> {
   await ensureMovCajaMetodosPagoTable(tx);
   await tx.request().input('id', sql.Int, gastoId)
     .query(`DELETE FROM MOVIMIENTOS_CAJA_METODOS_PAGO WHERE MOVIMIENTO_ID IN (SELECT ID FROM MOVIMIENTOS_CAJA WHERE ID_ENTIDAD = @id AND TIPO_ENTIDAD = 'GASTO')`);
   await tx.request().input('id', sql.Int, gastoId)
     .query(`DELETE FROM MOVIMIENTOS_CAJA WHERE ID_ENTIDAD = @id AND TIPO_ENTIDAD = 'GASTO'`);
+}
+
+async function eliminarEgresoCajaSesion(tx: any, gastoId: number): Promise<void> {
+  await tx.request().input('id', sql.Int, gastoId)
+    .query(`DELETE FROM CAJA_ITEMS WHERE ORIGEN_ID = @id AND ORIGEN_TIPO = 'GASTO'`);
 }
 
 // ═══════════════════════════════════════════════════
@@ -418,9 +460,22 @@ export const expensesService = {
         throw new ValidationError('Debe seleccionar cheques de cartera para el método CHEQUES');
       }
 
-      // Resolve PV from caja (if any)
+      // Resolve session (if any) for PV and possible egreso to Mi Caja.
       const caja = await getCajaAbiertaTx(tx, usuarioId);
       const pvId = input.puntoVentaId ?? caja?.PUNTO_VENTA_ID ?? null;
+
+      const destino = input.DESTINO_PAGO || 'CAJA_CENTRAL';
+      if (destino === 'CAJA' && !caja) {
+        throw new ValidationError(
+          'No se encontró una caja abierta para el usuario. Abrí una sesión de caja o seleccioná "Caja Central".',
+        );
+      }
+      // Si el destino es CAJA (sesión de caja chica), sólo se admite EFECTIVO.
+      if (destino === 'CAJA' && (digital > 0 || cheques > 0)) {
+        throw new ValidationError(
+          'Para egresar desde una caja chica el gasto debe ser únicamente en efectivo.',
+        );
+      }
 
       // 1) Insert gasto
       const insertResult = await tx.request()
@@ -476,17 +531,27 @@ export const expensesService = {
           .query(`INSERT INTO GASTOS_SERVICIOS_METODOS_PAGO (GASTO_ID, METODO_PAGO_ID, MONTO) VALUES (@gastoId, @mpId, @monto)`);
       }
 
-      // 3) Register egreso in MOVIMIENTOS_CAJA (Caja Central)
+      // 4) Registrar egreso: en CAJA (sesión) o en CAJA CENTRAL
       const descEgreso = `Gasto #${gastoId} - ${input.ENTIDAD.trim()}`;
-      const movId = await registrarEgresoCajaCentral(
-        tx, gastoId, descEgreso, efectivo, digital, cheques, metodosValidos, usuarioId, pvId, new Date(input.FECHA),
-      );
+      const fechaEgreso = new Date(input.FECHA);
 
-      // 4) Save MOVIMIENTO_CAJA_ID for traceability back from gasto detail
-      await tx.request()
-        .input('id', sql.Int, gastoId)
-        .input('movId', sql.Int, movId)
-        .query(`UPDATE GASTOS_SERVICIOS SET MOVIMIENTO_CAJA_ID = @movId WHERE GASTO_ID = @id`);
+      if (destino === 'CAJA' && caja) {
+        // Egreso en la sesión de caja activa del usuario (sólo efectivo).
+        await registrarEgresoCajaSesion(
+          tx, gastoId, descEgreso, efectivo,
+          caja.SESION_ID, caja.CAJA_ID, pvId, fechaEgreso, usuarioId,
+        );
+        // MOVIMIENTO_CAJA_ID queda NULL (no aplica a Caja Central).
+      } else {
+        const movId = await registrarEgresoCajaCentral(
+          tx, gastoId, descEgreso, efectivo, digital, cheques, metodosValidos, usuarioId, pvId, fechaEgreso,
+        );
+        // Save MOVIMIENTO_CAJA_ID for traceability back from gasto detail
+        await tx.request()
+          .input('id', sql.Int, gastoId)
+          .input('movId', sql.Int, movId)
+          .query(`UPDATE GASTOS_SERVICIOS SET MOVIMIENTO_CAJA_ID = @movId WHERE GASTO_ID = @id`);
+      }
 
       await tx.commit();
       return { GASTO_ID: gastoId };
@@ -592,19 +657,46 @@ export const expensesService = {
           .query(`INSERT INTO GASTOS_SERVICIOS_METODOS_PAGO (GASTO_ID, METODO_PAGO_ID, MONTO) VALUES (@gastoId, @mpId, @monto)`);
       }
 
-      // 3) Replace egreso in Caja Central
+      // 3) Revertir egresos previos (pueden estar en Caja Central o en Mi Caja)
       await eliminarEgresoCajaCentral(tx, gastoId);
+      await eliminarEgresoCajaSesion(tx, gastoId);
 
-      const pvId = input.puntoVentaId ?? exists.recordset[0].PUNTO_VENTA_ID ?? null;
+      // 4) Resolver sesión y validar destino
+      const caja = await getCajaAbiertaTx(tx, usuarioId);
+      const pvId = input.puntoVentaId ?? caja?.PUNTO_VENTA_ID ?? exists.recordset[0].PUNTO_VENTA_ID ?? null;
+
+      const destino = input.DESTINO_PAGO || 'CAJA_CENTRAL';
+      if (destino === 'CAJA' && !caja) {
+        throw new ValidationError(
+          'No se encontró una caja abierta para el usuario. Abrí una sesión de caja o seleccioná "Caja Central".',
+        );
+      }
+      if (destino === 'CAJA' && (digital > 0 || cheques > 0)) {
+        throw new ValidationError(
+          'Para egresar desde una caja chica el gasto debe ser únicamente en efectivo.',
+        );
+      }
+
       const descEgreso = `Gasto #${gastoId} - ${input.ENTIDAD.trim()}`;
-      const movId = await registrarEgresoCajaCentral(
-        tx, gastoId, descEgreso, efectivo, digital, cheques, metodosValidos, usuarioId, pvId, new Date(input.FECHA),
-      );
+      const fechaEgreso = new Date(input.FECHA);
 
-      await tx.request()
-        .input('id', sql.Int, gastoId)
-        .input('movId', sql.Int, movId)
-        .query(`UPDATE GASTOS_SERVICIOS SET MOVIMIENTO_CAJA_ID = @movId WHERE GASTO_ID = @id`);
+      if (destino === 'CAJA' && caja) {
+        await registrarEgresoCajaSesion(
+          tx, gastoId, descEgreso, efectivo,
+          caja.SESION_ID, caja.CAJA_ID, pvId, fechaEgreso, usuarioId,
+        );
+        // Limpiar MOVIMIENTO_CAJA_ID si quedó de antes.
+        await tx.request().input('id', sql.Int, gastoId)
+          .query(`UPDATE GASTOS_SERVICIOS SET MOVIMIENTO_CAJA_ID = NULL WHERE GASTO_ID = @id`);
+      } else {
+        const movId = await registrarEgresoCajaCentral(
+          tx, gastoId, descEgreso, efectivo, digital, cheques, metodosValidos, usuarioId, pvId, fechaEgreso,
+        );
+        await tx.request()
+          .input('id', sql.Int, gastoId)
+          .input('movId', sql.Int, movId)
+          .query(`UPDATE GASTOS_SERVICIOS SET MOVIMIENTO_CAJA_ID = @movId WHERE GASTO_ID = @id`);
+      }
 
       await tx.commit();
     } catch (err) {
@@ -626,8 +718,9 @@ export const expensesService = {
       // 1) Revertir cheques egresados a este gasto (vuelven a EN_CARTERA)
       await revertirEgresoCheques(tx, 'GASTO', gastoId, 0, null);
 
-      // 2) Remove caja central egreso
+      // 2) Remove egresos (Caja Central y/o sesión de caja)
       await eliminarEgresoCajaCentral(tx, gastoId);
+      await eliminarEgresoCajaSesion(tx, gastoId);
 
       // 3) Remove method breakdown
       await tx.request().input('id', sql.Int, gastoId)

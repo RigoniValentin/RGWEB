@@ -2713,7 +2713,7 @@ export const salesService = {
         FROM (
           SELECT METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64, TOTAL FROM VentasPorMetodo
           UNION ALL
-          SELECT mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, NULL AS IMAGEN_BASE64, ca.TOTAL
+          SELECT mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64, ca.TOTAL
           FROM CierresAsDefault ca
           JOIN METODOS_PAGO mp ON mp.METODO_PAGO_ID = ca.METODO_PAGO_ID
           UNION ALL

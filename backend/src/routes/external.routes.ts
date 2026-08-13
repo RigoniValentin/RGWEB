@@ -59,7 +59,7 @@ router.get('/health', (req: ExternalRequest, res: Response) => {
 router.get('/sync-stock', async (req: ExternalRequest, res: Response, next: NextFunction) => {
   const started = Date.now();
   try {
-    const items = await integracionesService.getStockParaTienda();
+    const items = await integracionesService.getStockParaTienda({ incluirNombre: true });
     res.json({ count: items.length, items });
     await logInbound(req, 'sync.stock', 'SUCCESS', 200, Date.now() - started, { count: items.length });
   } catch (err) {

@@ -315,6 +315,11 @@ export function CajaCentralPage() {
     navigate('/cashregisters', { state: { openCajaId: record.CAJA_ID } });
   };
 
+  const openCierreDetalle = (record: MovimientoCaja) => {
+    setCierreDetalle(record);
+    setCierreDetalleOpen(true);
+  };
+
   const goToNCVenta = (record: MovimientoCaja) => {
     const ncId = extractNCId(record.MOVIMIENTO);
     openTab({ key: '/nc-ventas', label: 'NC Ventas', closable: true });
@@ -342,6 +347,7 @@ export function CajaCentralPage() {
   const navigateFromMovimiento = (record: MovimientoCaja) => {
     switch (record.TIPO_ENTIDAD) {
       case 'CIERRE_CAJA': goToCierreCaja(record); break;
+      case 'DEPOSITO_CIERRE': openCierreDetalle(record); break;
       case 'NC_VENTA': goToNCVenta(record); break;
       case 'NC_COMPRA': goToNCCompra(record); break;
       case 'GASTO': goToGasto(record); break;
@@ -354,8 +360,9 @@ export function CajaCentralPage() {
       key: 'view',
       label: 'Ver detalle',
       icon: <EyeOutlined />,
-      disabled: (r) => !['CIERRE_CAJA', 'NC_VENTA', 'NC_COMPRA', 'GASTO', 'ORDEN_PAGO'].includes(r.TIPO_ENTIDAD)
+      disabled: (r) => !['CIERRE_CAJA', 'DEPOSITO_CIERRE', 'NC_VENTA', 'NC_COMPRA', 'GASTO', 'ORDEN_PAGO'].includes(r.TIPO_ENTIDAD)
         || (r.TIPO_ENTIDAD === 'CIERRE_CAJA' && !r.CAJA_ID)
+        || (r.TIPO_ENTIDAD === 'DEPOSITO_CIERRE' && !r.ID_ENTIDAD)
         || ((r.TIPO_ENTIDAD === 'GASTO' || r.TIPO_ENTIDAD === 'ORDEN_PAGO') && !r.ID_ENTIDAD),
       onClick: navigateFromMovimiento,
     },

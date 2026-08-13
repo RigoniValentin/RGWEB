@@ -669,8 +669,15 @@ async function listLogs(limit = 10): Promise<SyncLog[]> {
 /**
  * Devuelve el snapshot de stock de productos marcados como VENTA_WEB=1.
  * Suma el stock de todos los depósitos.
+ *
+ * `incluirNombre` sólo debe activarse en las consultas de catálogo que hace la
+ * tienda (GET /api/external/sync-stock), donde el nombre se usa para dar de
+ * alta productos nuevos. Los webhooks push lo omiten: el nombre en la tienda es
+ * editable allá y RG no debe pisarlo en cada cambio de precio o stock.
  */
-async function getStockParaTienda(opts: { productoIds?: number[] } = {}): Promise<StockSyncItem[]> {
+async function getStockParaTienda(
+  opts: { productoIds?: number[]; incluirNombre?: boolean } = {},
+): Promise<StockSyncItem[]> {
   const pool = await getPool();
   const req = pool.request();
   let extraFilter = '';
@@ -695,7 +702,7 @@ async function getStockParaTienda(opts: { productoIds?: number[] } = {}): Promis
   return r.recordset.map((row: any) => ({
     PRODUCTO_ID: row.PRODUCTO_ID,
     CODIGO: row.CODIGO,
-    NOMBRE: row.NOMBRE,
+    ...(opts.incluirNombre ? { NOMBRE: row.NOMBRE } : {}),
     PRECIO: Number(row.PRECIO || 0),
     STOCK: Number(row.STOCK || 0),
     ACTIVO: !!row.ACTIVO,

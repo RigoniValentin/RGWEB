@@ -4822,6 +4822,27 @@ body {
   border-radius: 6px;
   background: #fafafa;
   border: 1px solid var(--rg-border);
+  text-align: left;
+  cursor: default;
+}
+.rg-caja-card__stat--button {
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.rg-caja-card__stat--button:hover {
+  background: #fffbe6;
+  border-color: var(--rg-gold);
+  box-shadow: 0 2px 6px rgba(184, 134, 11, 0.12);
+  transform: translateY(-1px);
+}
+.rg-caja-card__stat--button:focus-visible {
+  outline: 2px solid var(--rg-gold);
+  outline-offset: 2px;
+}
+.rg-caja-card__stat--button:active {
+  transform: translateY(0);
+  box-shadow: none;
 }
 .rg-caja-card__stat-label {
   font-size: 9.5px;

@@ -15,6 +15,23 @@ interface DetalleCierreSesionModalProps {
   onClose: () => void;
 }
 
+const EGRESO_ORIGENES = ['EGRESO', 'GASTO', 'COMPRA', 'ORDEN_PAGO', 'NC_VENTA', 'ND_COMPRA'] as const;
+const INGRESO_ORIGENES = ['VENTA', 'INGRESO', 'COBRANZA', 'NC_COMPRA', 'ND_VENTA'] as const;
+
+const ORIGEN_LABEL: Record<string, string> = {
+  EGRESO: 'Egresos manuales',
+  GASTO: 'Gastos y servicios',
+  COMPRA: 'Compras',
+  ORDEN_PAGO: 'Órdenes de pago',
+  NC_VENTA: 'NC Ventas',
+  ND_COMPRA: 'ND Compras',
+  VENTA: 'Ventas',
+  INGRESO: 'Ingresos manuales',
+  COBRANZA: 'Cobranzas',
+  NC_COMPRA: 'NC Compras',
+  ND_VENTA: 'ND Ventas',
+};
+
 const metodoVisual = (categoria: string) => {
   if (categoria === 'EFECTIVO') return { tag: 'green', background: 'rgba(82,196,26,0.06)', border: '#b7eb8f' };
   if (categoria === 'CHEQUES') return { tag: 'orange', background: 'rgba(250,140,22,0.07)', border: '#ffd591' };
@@ -45,17 +62,37 @@ export function DetalleCierreSesionModal({ open, cierre, onClose }: DetalleCierr
   const ventasDigital = items
     .filter(i => i.ORIGEN_TIPO === 'VENTA')
     .reduce((s, i) => s + (i.MONTO_DIGITAL ?? 0), 0);
+
+  // Egresos: cualquier ORIGEN_TIPO de egreso efectivo (manual EGRESO, GASTO, COMPRA, ORDEN_PAGO, NC_VENTA, ND_COMPRA).
+  // El signo en MONTO_EFECTIVO es siempre negativo — usamos ABS para mostrar el monto bruto egresado.
+  const isEgresoTipo = (ot?: string | null) =>
+    !!ot && (EGRESO_ORIGENES as readonly string[]).includes(ot);
   const egresosEfectivo = items
-    .filter(i => i.ORIGEN_TIPO === 'EGRESO')
+    .filter(i => isEgresoTipo(i.ORIGEN_TIPO))
     .reduce((s, i) => s + Math.abs(i.MONTO_EFECTIVO ?? 0), 0);
   const egresosDigital = items
-    .filter(i => i.ORIGEN_TIPO === 'EGRESO')
+    .filter(i => isEgresoTipo(i.ORIGEN_TIPO))
     .reduce((s, i) => s + Math.abs(i.MONTO_DIGITAL ?? 0), 0);
 
   // "Ingresos del periodo" → neto (ventas − egresos) por categoría
   const ingresosEfectivo = ventasEfectivo - egresosEfectivo;
   const ingresosDigital = ventasDigital - egresosDigital;
   const totalIngresado = ingresosEfectivo + ingresosDigital;
+
+  // Desglose por ORIGEN_TIPO (para las secciones Egresos/Ingresos del período)
+  const desglosePorTipo = (tipos: readonly string[]) =>
+    tipos
+      .map(tipo => ({
+        tipo,
+        label: ORIGEN_LABEL[tipo] ?? tipo,
+        total: items
+          .filter(i => i.ORIGEN_TIPO === tipo)
+          .reduce((s, i) => s + Math.abs(i.MONTO_EFECTIVO ?? 0) + Math.abs(i.MONTO_DIGITAL ?? 0), 0),
+      }))
+      .filter(x => x.total > 0);
+
+  const egresosPorTipo = desglosePorTipo(EGRESO_ORIGENES);
+  const ingresosPorTipo = desglosePorTipo(INGRESO_ORIGENES);
 
   // "Efectivo en caja al cierre" → fondo inicial + delta efectivo
   const fondoInicial = Number(sesion?.MONTO_APERTURA ?? 0);
@@ -146,6 +183,53 @@ export function DetalleCierreSesionModal({ open, cierre, onClose }: DetalleCierr
               </div>
             </Col>
           </Row>
+
+          {/* ── Desglose por tipo de movimiento ─── */}
+          {(egresosPorTipo.length > 0 || ingresosPorTipo.length > 0) && (
+            <>
+              <SectionHeader>Desglose por tipo de movimiento</SectionHeader>
+              {ingresosPorTipo.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+                    Ingresos
+                  </Text>
+                  {ingresosPorTipo.map(item => (
+                    <div
+                      key={`in-${item.tipo}`}
+                      style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '4px 8px', borderLeft: '3px solid #52c41a',
+                        background: 'rgba(82,196,26,0.04)', marginBottom: 4, borderRadius: 4,
+                      }}
+                    >
+                      <Text>{item.label}</Text>
+                      <Text strong style={{ color: '#000' }}>{fmtMoney(item.total)}</Text>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {egresosPorTipo.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+                    Egresos
+                  </Text>
+                  {egresosPorTipo.map(item => (
+                    <div
+                      key={`eg-${item.tipo}`}
+                      style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '4px 8px', borderLeft: '3px solid #ff4d4f',
+                        background: 'rgba(255,77,79,0.04)', marginBottom: 4, borderRadius: 4,
+                      }}
+                    >
+                      <Text>{item.label}</Text>
+                      <Text strong style={{ color: '#cf1322' }}>{fmtMoney(item.total)}</Text>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
 
           {/* ── Efectivo en caja al cierre ──────── */}
           <SectionHeader>Efectivo en caja al cierre</SectionHeader>

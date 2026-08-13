@@ -69,7 +69,12 @@ export interface SyncLog {
 export interface StockSyncItem {
   PRODUCTO_ID: number;
   CODIGO: string | null;
-  NOMBRE: string;
+  /**
+   * Solo se incluye en las consultas de catálogo (GET /api/external/sync-stock),
+   * donde la tienda lo necesita para dar de alta productos nuevos.
+   * Se omite en los webhooks push para no pisar el nombre editado en la tienda.
+   */
+  NOMBRE?: string;
   PRECIO: number;
   STOCK: number;
   ACTIVO: boolean;
