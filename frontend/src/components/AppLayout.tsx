@@ -88,6 +88,7 @@ import { BackupsPage } from '../pages/BackupsPage';
 import { ListadoProductosPage } from '../pages/ListadoProductosPage';
 import { IntegracionesPage } from '../pages/IntegracionesPage';
 import { PedidosTiendaPage } from '../pages/PedidosTiendaPage';
+import { ReportsPage } from '../pages/ReportsPage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -132,6 +133,7 @@ const TAB_ROUTES: Record<string, TabRoute> = {
   '/libro-iva-ventas':   { label: 'Libro IVA Ventas',   icon: <AuditOutlined />,        component: LibroIvaVentasPage,  closable: true },
   '/libro-iva-compras':  { label: 'Libro IVA Compras',  icon: <ShoppingCartOutlined />, component: LibroIvaComprasPage, closable: true },
   '/reports/listings/products': { label: 'Listado Productos', icon: <UnorderedListOutlined />, component: ListadoProductosPage, closable: true },
+  '/reports/reports':           { label: 'Reportes', icon: <BarChartOutlined />, component: ReportsPage, closable: true },
   '/users/users':      { label: 'Usuarios',         icon: <SafetyOutlined />,     component: UsuariosPage,      closable: true },
   '/settings/pos':     { label: 'Puntos de Venta',  icon: <EnvironmentOutlined />, component: PuntosVentaPage,   closable: true },
   '/settings/backups': { label: 'Backups',          icon: <DatabaseOutlined />,    component: BackupsPage,       closable: true },
@@ -173,6 +175,7 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
   '/gastronomy/tables':   'gastronomy.mesas.ver',
   '/gastronomy/comandas': 'gastronomy.mesas.ver',
   '/reports/listings/products': 'productos.ver',
+  '/reports/reports':           'reportes.ver',
   '/libro-iva-ventas':    'reportes.iva.ver',
   '/libro-iva-compras':   'reportes.iva.compras.ver',
   '/users/users':         'usuarios.ver',
@@ -493,6 +496,7 @@ export function AppLayout() {
         '/gastronomy/tables': ['mesas-sectores', 'mesas-mesas'],
         '/stock':         ['stock', 'stock-depositos'],
         '/reports/listings/products': ['product-listing'],
+        '/reports/reports':           ['reports-analytics'],
       };
       const keys = keyMap[activeKey];
       if (keys) {

@@ -224,7 +224,6 @@ Cuando se presiona **Sincronizar catalogo completo** en RG WEB:
       {
         "PRODUCTO_ID": 123,
         "CODIGO": "ABC-001",
-        "NOMBRE": "Producto ejemplo",
         "PRECIO": 15000,
         "STOCK": 8,
         "ACTIVO": true,
@@ -243,7 +242,7 @@ Cuando se presiona **Sincronizar catalogo completo** en RG WEB:
 | `PRECIO` | `Product.price` |
 | `STOCK` | `Product.stockCount` |
 | `ACTIVO && STOCK > 0` | `Product.inStock` |
-| `NOMBRE` | `Product.name` si se decide pisar el nombre desde RG WEB |
+| `NOMBRE` | No se envia en los webhooks. El nombre lo gestiona la tienda y RG WEB no lo pisa. Solo se expone en `GET /api/external/sync-stock` para el alta inicial de productos nuevos |
 | `CODIGO` / `CODIGO_BARRAS` | Referencia externa opcional/log |
 
 El vinculo canonico es `managementId`. Un producto sin `managementId` no puede actualizarse automaticamente desde RG WEB.

@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Modal, Form, Input, InputNumber, DatePicker, Typography, Divider, Button, Tag, AutoComplete, Select } from 'antd';
+import { Modal, Form, Input, InputNumber, DatePicker, Space, Typography, Divider, Segmented, Button, Tag, AutoComplete, Select } from 'antd';
 import {
-  WalletOutlined, CheckCircleOutlined,
+  BankOutlined, InboxOutlined, WalletOutlined, CheckCircleOutlined,
   DollarOutlined, CreditCardOutlined, EnvironmentOutlined,
-  BankOutlined, DeleteOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { expensesApi, type GastoServicioInput } from '../../services/expenses.api';
+import { cajaApi } from '../../services/caja.api';
 import { fmtMoney } from '../../utils/format';
 import { useAuthStore } from '../../store/authStore';
 import { ChequePicker } from '../cheques/ChequePicker';
@@ -34,6 +35,9 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
 
   // ── PV state ─────────────────────────────────────
   const [pvId, setPvId] = useState<number | undefined>(undefined);
+
+  // ── Origin of cash (Caja Central vs Mi Caja) ────
+  const [destinoPago, setDestinoPago] = useState<'CAJA_CENTRAL' | 'CAJA'>('CAJA_CENTRAL');
 
   // ── Payment method state ────────────────────────
   const [selectedMetodos, setSelectedMetodos] = useState<number[]>([]);
@@ -62,6 +66,24 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
     });
     return copy;
   }, [metodosPago]);
+
+  // ── Sesión de caja activa del usuario ───────────
+  const { data: miCaja } = useQuery({
+    queryKey: ['mi-caja'],
+    queryFn: () => cajaApi.getMiCaja(),
+    enabled: open,
+    staleTime: 30000,
+  });
+
+  // Determinar si los métodos seleccionados son todos EFECTIVO
+  // (requisito para egresar desde una caja chica).
+  const todosEfectivo = useMemo(() => {
+    if (selectedMetodos.length === 0) return true;
+    return selectedMetodos.every(id => {
+      const m = metodosPago.find(mp => mp.METODO_PAGO_ID === id);
+      return m?.CATEGORIA === 'EFECTIVO';
+    });
+  }, [selectedMetodos, metodosPago]);
 
   const { data: entidades = [] } = useQuery({
     queryKey: ['expenses-entidades'],
@@ -118,6 +140,7 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
       setMontosPorMetodo({});
       setChequesIds([]);
       setChequesTotal(0);
+      setDestinoPago('CAJA_CENTRAL');
       // Default PV: only PV if user has 1, otherwise active PV
       setPvId(
         puntosVenta.length === 1
@@ -220,6 +243,18 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
         return;
       }
 
+      // Validar destino del egreso
+      if (destinoPago === 'CAJA') {
+        if (!miCaja) {
+          notify.warning('No tenés una caja abierta. Abrí una sesión o seleccioná "Caja Central".');
+          return;
+        }
+        if (!todosEfectivo) {
+          notify.warning('Para egresar desde una caja chica el gasto debe ser únicamente en efectivo.');
+          return;
+        }
+      }
+
       const payload: GastoServicioInput = {
         ENTIDAD: (values.ENTIDAD || '').trim(),
         DESCRIPCION: (values.DESCRIPCION || '').trim() || undefined,
@@ -228,6 +263,7 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
         puntoVentaId: pvId,
         metodos_pago,
         cheques_ids: chequesIds.length > 0 ? chequesIds : undefined,
+        DESTINO_PAGO: destinoPago,
       };
 
       if (isEdit) actualizarMut.mutate(payload);
@@ -315,6 +351,50 @@ export function NuevoGastoModal({ open, gastoId, onSuccess, onCancel }: Props) {
           )}
 
           <Divider style={{ margin: '8px 0' }}>Formas de pago</Divider>
+
+          {/* Origen del egreso */}
+          <div style={{ textAlign: 'center', marginBottom: 16 }}>
+            <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>Origen del pago</Text>
+            <Segmented
+              value={destinoPago}
+              onChange={val => setDestinoPago(val as 'CAJA_CENTRAL' | 'CAJA')}
+              options={[
+                {
+                  value: 'CAJA_CENTRAL',
+                  label: (
+                    <Space>
+                      <BankOutlined />
+                      <span>Caja Central</span>
+                    </Space>
+                  ),
+                },
+                ...(miCaja && todosEfectivo ? [{
+                  value: 'CAJA' as const,
+                  label: (
+                    <Space>
+                      <InboxOutlined />
+                      <span>Mi Caja</span>
+                    </Space>
+                  ),
+                }] : []),
+              ]}
+              disabled={!miCaja && destinoPago === 'CAJA'}
+            />
+            {miCaja && !todosEfectivo && (
+              <div style={{ marginTop: 4 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  La opción "Mi Caja" sólo admite pagos en efectivo
+                </Text>
+              </div>
+            )}
+            {!miCaja && (
+              <div style={{ marginTop: 4 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  No tenés una caja abierta — el egreso se registra en Caja Central
+                </Text>
+              </div>
+            )}
+          </div>
 
           <div style={{ marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>

@@ -331,17 +331,27 @@ export const cajaService = {
       `);
 
     // Calcular totales
+    // Egreso-type ORIGEN_TIPOs: aquellos movimientos que SIEMPRE implican salida
+    // de efectivo de la caja (su signo en MONTO_EFECTIVO es negativo). Se suman
+    // con ABS para mostrar el monto bruto egresado, independientemente del signo.
+    const EGRESO_ORIGENES = new Set(['EGRESO', 'GASTO', 'COMPRA', 'ORDEN_PAGO', 'NC_VENTA', 'ND_COMPRA']);
+    // Ingreso-type ORIGEN_TIPOs: aquellos que SIEMPRE implican entrada de efectivo
+    // (signo positivo). Se suman con su signo natural.
+    const INGRESO_ORIGENES = new Set(['VENTA', 'INGRESO', 'COBRANZA', 'NC_COMPRA', 'ND_VENTA']);
     let efectivo = 0, digital = 0, ingresos = 0, egresos = 0;
     for (const it of itemsResult.recordset) {
       const ef = Number(it.MONTO_EFECTIVO) || 0;
       const dg = Number(it.MONTO_DIGITAL) || 0;
       efectivo += ef;
       digital += dg;
-      if (it.ORIGEN_TIPO === 'EGRESO') {
+      const ot = it.ORIGEN_TIPO;
+      if (EGRESO_ORIGENES.has(ot)) {
         egresos += Math.abs(ef) + Math.abs(dg);
-      } else if (it.ORIGEN_TIPO !== 'APERTURA') {
+      } else if (INGRESO_ORIGENES.has(ot)) {
         ingresos += ef + dg;
       }
+      // APERTURA y TRANSFERENCIA_CC no entran en ingresos/egresos del período
+      // (ya están contabilizados en 'efectivo' / 'digital' vía signo).
     }
 
     return {
@@ -637,19 +647,28 @@ export const cajaService = {
 
       // 2) Calcular efectivo y digital en caja.
       //    `efectivoEnCaja` se computa como la suma neta de MONTO_EFECTIVO de
-      //    todos los items, excluyendo los movimientos de egreso manual y
-      //    depósito de cierre. Esto YA incluye el item de APERTURA, por lo
-      //    que NO se debe volver a sumar `sesion.MONTO_APERTURA`.
+      //    todos los items, excluyendo los movimientos de egreso (manual EGRESO
+      //    y los egresos de origen de negocio como GASTO/COMPRA/ORDEN_PAGO/NC_VENTA/ND_COMPRA
+      //    que se contabilizan con ABS en el bucket `egresos`). Esto YA incluye
+      //    el item de APERTURA, por lo que NO se debe volver a sumar
+      //    `sesion.MONTO_APERTURA`.
       //    `digitalEnCaja` es la suma de MONTO_DIGITAL de las ventas de la
       //    sesión (no incluye egresos manuales). El digital se registra en
       //    el mismo MOVIMIENTOS_CAJA del cierre para que impacte en el
       //    balance y desglose de Caja Central (modelo heredado de CIERRE_CAJA).
+      //
+      //    Importante: las entidades de egreso de negocio (GASTO, COMPRA,
+      //    ORDEN_PAGO, NC_VENTA, ND_COMPRA) se incluyen en `egresos` para
+      //    que el cierre materialice su impacto en Caja Central vía
+      //    DEPOSITO_CIERRE (movEfectivo = deposito + retenido − inversionCC
+      //    = ventas + ingresos − all_egresos).
+      const EGRESO_ORIGENES_SQL = "('EGRESO','DEPOSITO_CIERRE','GASTO','COMPRA','ORDEN_PAGO','NC_VENTA','ND_COMPRA')";
       const itemsResult = await transaction.request()
         .input('sid', sql.Int, sesionId)
         .query(`
           SELECT
-            ISNULL(SUM(CASE WHEN ORIGEN_TIPO NOT IN ('EGRESO', 'DEPOSITO_CIERRE') THEN MONTO_EFECTIVO ELSE 0 END), 0) AS efectivoBruto,
-            ISNULL(SUM(CASE WHEN ORIGEN_TIPO IN ('EGRESO', 'DEPOSITO_CIERRE') THEN ABS(MONTO_EFECTIVO) ELSE 0 END), 0) AS egresos,
+            ISNULL(SUM(CASE WHEN ORIGEN_TIPO NOT IN ${EGRESO_ORIGENES_SQL} THEN MONTO_EFECTIVO ELSE 0 END), 0) AS efectivoBruto,
+            ISNULL(SUM(CASE WHEN ORIGEN_TIPO IN ${EGRESO_ORIGENES_SQL} THEN ABS(MONTO_EFECTIVO) ELSE 0 END), 0) AS egresos,
             ISNULL(SUM(CASE WHEN ORIGEN_TIPO = 'VENTA' THEN MONTO_DIGITAL ELSE 0 END), 0) AS digitalVentas,
             ISNULL(SUM(CASE WHEN ORIGEN_TIPO = 'VENTA' THEN MONTO_EFECTIVO ELSE 0 END), 0) AS ventaEfectivo,
             ISNULL(SUM(CASE WHEN ORIGEN_TIPO = 'INGRESO' THEN MONTO_EFECTIVO ELSE 0 END), 0) AS ingresoEfectivo,
@@ -736,12 +755,20 @@ export const cajaService = {
       //      movDigital  = digitalVentas
       //      movTotal    = movEfectivo + movDigital
       //
+      //    Algebraicamente, como deposito+retenido = efectivoEnCaja
+      //    = inversionCC + ventas + ingresos − all_egresos, se cumple:
+      //      movEfectivo = ventas + ingresos − all_egresos
+      //    donde `all_egresos` incluye EGRESO manual + GASTO/COMPRA/ORDEN_PAGO
+      //    pagados desde la sesión. Esto asegura que un egreso de negocio
+      //    pagado desde la caja chica impacte el saldo de CC.
+      //
       //    Casos:
+      //      - Caja abre con $30000 de CC, gasta $10000 (GASTO vía sesión)
+      //        → inversionCC=30000, all_egresos=10000,
+      //          movEfectivo = 0 − 10000 = -10000, movDigital = 0,
+      //          movTotal = -10000 (CC impactado por el egreso)
       //      - Caja abre con $0, transfiere $12500 de CC, vende $2500 dig,
       //        gasta $15000 → inversionCC=12500, devoluciones=0+0+2500=2500
-      //        movEfectivo = -12500, movDigital = +2500, movTotal = -10000
-      //      - Caja abre con $12500 de CC, vende $2500 dig, gasta $15000
-      //        → inversionCC=12500, devoluciones=0+0+2500=2500
       //        movEfectivo = -12500, movDigital = +2500, movTotal = -10000
       //      - Caja abre con $12500, vende $2500 ef + $2500 dig, gasta $0,
       //        deposita $5000, retiene $0

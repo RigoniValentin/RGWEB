@@ -447,6 +447,7 @@ WITH nuevos AS (
     ('gastronomy.mesas.ver',      'Ver gestión de mesas',            'gastronomia',   'lectura',   'BAJO',    10),
     ('gastronomy.mesas.operar',   'Operar mesas y comandas',         'gastronomia',   'escritura', 'MEDIO',   20),
     -- Reportes
+    ('reportes.ver',              'Ver módulo de Reportes (análisis de ingresos, ventas, compras, clientes y productos)', 'reportes', 'reporte', 'BAJO',  5),
     ('reportes.iva.ver',          'Ver libro IVA ventas',            'reportes',      'reporte',   'MEDIO',   10),
     ('reportes.iva.compras.ver',  'Ver libro IVA compras',           'reportes',      'reporte',   'MEDIO',   11),
     -- Configuración
@@ -520,6 +521,42 @@ WHERE p.ACTIVO = 1
   AND NOT EXISTS (SELECT 1 FROM ROLES_PERMISOS rp WHERE rp.ROL_ID = @CAJERO AND rp.PERMISO_ID = p.PERMISO_ID);
 GO
 PRINT '✅ ROLES_PERMISOS: permisos de CAJERO asignados';
+GO
+
+-- GERENTE: supervisión y reportes — todos los permisos de lectura/reporte + acciones operativas
+-- que no impliquen administración de usuarios ni modificación de políticas críticas.
+DECLARE @GERENTE INT = (SELECT ROL_ID FROM ROLES WHERE NOMBRE = 'GERENTE');
+INSERT INTO ROLES_PERMISOS (ROL_ID, PERMISO_ID)
+SELECT @GERENTE, p.PERMISO_ID
+FROM PERMISOS_WEB p
+WHERE p.ACTIVO = 1
+  AND (
+    p.LLAVE IN (
+      'dashboard.ver',
+      'dashboard.rendimiento',
+      'clientes.ver', 'clientes.crear', 'clientes.editar',
+      'productos.ver', 'productos.crear', 'productos.editar',
+      'proveedores.ver', 'proveedores.crear', 'proveedores.editar',
+      'stock.ver',
+      'remitos.ver', 'remitos.crear',
+      'ventas.ver',
+      'compras.ver', 'compras.crear', 'compras.nc.crear',
+      'cobranzas.ver', 'cobranzas.crear',
+      'ordenes_pago.ver', 'ordenes_pago.crear',
+      'cta_corriente.ver', 'cta_corriente_prov.ver',
+      'caja.ver',
+      'caja.central.ver',
+      'caja.depositos.ver',
+      'cheques.ver',
+      'catalogo.ver', 'catalogo.editar',
+      'gastronomy.mesas.ver',
+      'reportes.ver',
+      'reportes.iva.ver', 'reportes.iva.compras.ver'
+    )
+    OR (p.CATEGORIA IN ('lectura', 'reporte') AND p.LLAVE NOT LIKE 'usuarios.%')
+  )
+  AND NOT EXISTS (SELECT 1 FROM ROLES_PERMISOS rp WHERE rp.ROL_ID = @GERENTE AND rp.PERMISO_ID = p.PERMISO_ID);
+PRINT '✅ ROLES_PERMISOS: permisos de GERENTE asignados';
 GO
 
 -- ═════════════════════════════════════════════════════════════════════════════

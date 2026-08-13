@@ -31,6 +31,12 @@ export interface CompraItemInput {
   IMP_INTERNOS: number;       // internal tax amount per unit
   IVA_ALICUOTA?: number;      // IVA rate fraction (e.g. 0.21)
   TASA_IVA_ID?: number | null;
+  /** Código con el que el proveedor identifica al producto en su catálogo.
+   *  Se persiste en PRODUCTOS_PROVEEDORES.CODIGO_PROVEEDOR para que la
+   *  próxima factura del mismo proveedor pueda matchear el producto por
+   *  código (además del CODIGOPARTICULAR propio). Sólo aplica cuando la
+   *  compra viene del flujo "Cargar comprobante por imagen". */
+  codigo_proveedor?: string | null;
 }
 
 export interface CompraMetodoPagoItem {
@@ -67,6 +73,9 @@ export interface CompraInput {
   /** IDs de cheques EN_CARTERA a egresar como pago (endoso). El backend
    *  marca cada cheque como EGRESADO con DESTINO_TIPO='COMPRA'. */
   cheques_ids?: number[];
+  /** Ruta relativa (al rootDir del backend) de la imagen del comprobante
+   *  subida vía POST /purchases/parse-image. Se persiste en COMPRAS.COMPROBANTE_IMG_PATH. */
+  comprobante_image_path?: string | null;
   items: CompraItemInput[];
   metodos_pago?: CompraMetodoPagoItem[];
 }
@@ -172,6 +181,47 @@ async function insertComprasMetodosPago(
         VALUES (@compraId, @metodoId, @monto)
       `);
   }
+}
+
+/**
+ * Upsert de la asociación producto↔proveedor en PRODUCTOS_PROVEEDORES.
+ *
+ * Si la fila (PRODUCTO_ID, PROVEEDOR_ID) no existe, la crea. Si ya existe,
+ * actualiza el CODIGO_PROVEEDOR cuando viene un valor no vacío. Esto se
+ * llama desde create() cada vez que el flujo de imagen asigna un producto
+ * para que el matcher pueda reutilizarlo en la siguiente factura del mismo
+ * proveedor — ya sea por código (cuando la IA lo extrae) o por nombre
+ * dentro del conjunto de productos asociados a ese proveedor.
+ */
+async function upsertProductoProveedorCodigo(
+  tx: any,
+  productoId: number,
+  proveedorId: number,
+  codigoProveedor: string | null | undefined,
+): Promise<void> {
+  const codigoTrim = (codigoProveedor ?? '').trim();
+
+  await tx.request()
+    .input('prodId', sql.Int, productoId)
+    .input('provId', sql.Int, proveedorId)
+    .input('codigo', sql.NVarChar, codigoTrim || null)
+    .query(`
+      IF EXISTS (
+        SELECT 1 FROM PRODUCTOS_PROVEEDORES
+        WHERE PRODUCTO_ID = @prodId AND PROVEEDOR_ID = @provId
+      )
+      BEGIN
+        IF @codigo IS NOT NULL
+          UPDATE PRODUCTOS_PROVEEDORES
+          SET CODIGO_PROVEEDOR = @codigo
+          WHERE PRODUCTO_ID = @prodId AND PROVEEDOR_ID = @provId;
+      END
+      ELSE
+      BEGIN
+        INSERT INTO PRODUCTOS_PROVEEDORES (PRODUCTO_ID, PROVEEDOR_ID, CODIGO_PROVEEDOR)
+        VALUES (@prodId, @provId, @codigo);
+      END
+    `);
 }
 
 async function insertMovimientoCajaMetodosPago(
@@ -967,6 +1017,20 @@ export const purchasesService = {
         montoChequesAporte = derived.montoCheques;
       }
 
+      // ── Defensive fallback: si el frontend nunca envió metodos_pago pero
+      //    el monto explícito (MONTO_EFECTIVO/MONTO_DIGITAL) es positivo, lo
+      //    respetamos. Esto cubre flujos donde el modal de pagos falla en
+      //    completar la selección (ej. carga vía imagen que se cuelga) y
+      //    de otro modo el egreso en Caja Central nunca se generaría.
+      if (input.metodos_pago === undefined || (Array.isArray(input.metodos_pago) && input.metodos_pago.length === 0)) {
+        const ef = Number(input.MONTO_EFECTIVO ?? 0);
+        const dg = Number(input.MONTO_DIGITAL ?? 0);
+        if (ef > 0 || dg > 0) {
+          montoEfectivo = ef;
+          montoDigital = dg;
+        }
+      }
+
       // ── 2. CTA CTE: Check saldo and apply anticipo if available ──
       if (input.ES_CTA_CORRIENTE) {
         ctaCteId = await ensureCtaCorrienteP(tx, input.PROVEEDOR_ID);
@@ -1020,6 +1084,7 @@ export const purchasesService = {
         .input('montoAnticipo', sql.Decimal(18, 2), montoAnticipo)
         .input('dtoGral', sql.Decimal(5, 2), dtoGral)
         .input('remitoId', sql.Int, input.REMITO_ID || null)
+        .input('comprobanteImgPath', sql.NVarChar, input.comprobante_image_path || null)
         .query(`
           INSERT INTO COMPRAS (
             COMPRA_ID, PROVEEDOR_ID, FECHA_COMPRA, TOTAL, ES_CTA_CORRIENTE,
@@ -1027,14 +1092,14 @@ export const purchasesService = {
             COBRADA, PTO_VTA, NRO_COMPROBANTE, PRECIOS_SIN_IVA,
             IMP_INT_GRAVA_IVA, PERCEPCION_IVA, PERCEPCION_IIBB,
             IMPUESTO_INTERNO, IVA_TOTAL, BONIFICACION_TOTAL, MONTO_ANTICIPO,
-            DTO_GRAL, REMITO_ID
+            DTO_GRAL, REMITO_ID, COMPROBANTE_IMG_PATH
           ) VALUES (
             @compraId, @proveedorId, @fechaCompra, @total, @esCtaCorriente,
             @montoEfectivo, @montoDigital, @vuelto, @tipoComprobante,
             @cobrada, @ptoVta, @nroComprobante, @preciosSinIva,
             @impIntGravaIva, @percIVA, @percIIBB,
             @impInterno, @ivaTotal, @bonifTotal, @montoAnticipo,
-            @dtoGral, @remitoId
+            @dtoGral, @remitoId, @comprobanteImgPath
           );
         `);
 
@@ -1097,6 +1162,23 @@ export const purchasesService = {
         // Increment stock (purchase increases inventory)
         if (input.ACTUALIZAR_STOCK !== false) {
           await incrementarStock(tx, item.PRODUCTO_ID, item.CANTIDAD, depositoId, compraId, usuarioId);
+        }
+
+        // Persistir la asociación producto↔proveedor (flujo "Cargar
+        // comprobante por imagen"). Si vino codigo_proveedor lo guardamos
+        // también para matchear por código en la próxima factura; si no
+        // vino, igual dejamos registrada la asociación para que el matcher
+        // pueda buscar el producto por nombre dentro del conjunto de
+        // productos ya vinculados a este proveedor. Si la compra es manual
+        // sin código o si el ítem es ficticio (PRODUCTO_ID = 0), no hace
+        // nada.
+        if (item.PRODUCTO_ID > 0 && input.PROVEEDOR_ID) {
+          await upsertProductoProveedorCodigo(
+            tx,
+            item.PRODUCTO_ID,
+            input.PROVEEDOR_ID,
+            item.codigo_proveedor,
+          );
         }
 
         // Update costs if requested
@@ -1325,7 +1407,7 @@ export const purchasesService = {
 
       await tx.commit();
       return { COMPRA_ID: compraId, TOTAL: r2(total), MONTO_ANTICIPO: montoAnticipo, COBRADA: cobrada };
-    } catch (err) {
+    } catch (err: any) {
       await tx.rollback();
       throw err;
     }

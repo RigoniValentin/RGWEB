@@ -922,6 +922,11 @@ export interface CompraItemInput {
   TASA_IVA_ID?: number | null;
   NOMBRE?: string;
   CODIGO?: string;
+  /** Código con el que el proveedor identifica al producto en su catálogo
+   *  (extraído por la IA del comprobante o editado manualmente). Se persiste
+   *  en PRODUCTOS_PROVEEDORES.CODIGO_PROVEEDOR para que la próxima factura
+   *  del mismo proveedor pueda matchear el producto por código. */
+  codigo_proveedor?: string | null;
 }
 
 export interface CompraInput {
@@ -949,6 +954,9 @@ export interface CompraInput {
   /** Si viene, indica que la compra se origina en un remito de entrada.
    *  El backend forzará ACTUALIZAR_STOCK=false. */
   REMITO_ID?: number | null;
+  /** Path de la imagen del comprobante subida vía POST /purchases/parse-image.
+   *  Se persiste en COMPRAS.COMPROBANTE_IMG_PATH. */
+  comprobante_image_path?: string | null;
   items: CompraItemInput[];
   metodos_pago?: MetodoPagoItem[];
   cheques_ids?: number[];

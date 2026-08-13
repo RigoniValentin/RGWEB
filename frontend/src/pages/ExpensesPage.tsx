@@ -18,6 +18,7 @@ import { useAuthStore } from '../store/authStore';
 import { DateFilterPopover, getPresetRange, type DatePreset } from '../components/DateFilterPopover';
 import { PuntoVentaFilter } from '../components/PuntoVentaFilter';
 import { notify } from '../utils/notify.ts';
+import { invalidateCashQueries } from '../utils/invalidateCashQueries';
 import { RGCajaModalHeader } from '../components/RGCajaModalHeader';
 import { rgIcon } from '../components/rg-icons';
 
@@ -71,8 +72,7 @@ export function ExpensesPage() {
       notify.success('Gasto eliminado');
       qc.invalidateQueries({ queryKey: ['expenses'] });
       qc.invalidateQueries({ queryKey: ['expenses-metodos-totales'] });
-      qc.invalidateQueries({ queryKey: ['caja-central-mov'] });
-      qc.invalidateQueries({ queryKey: ['caja-central-totales'] });
+      invalidateCashQueries(qc);
     },
     onError: (err: any) => notify.error(err.response?.data?.error || err.message),
   });
@@ -108,8 +108,7 @@ export function ExpensesPage() {
     setEditGastoId(null);
     qc.invalidateQueries({ queryKey: ['expenses'] });
     qc.invalidateQueries({ queryKey: ['expenses-metodos-totales'] });
-    qc.invalidateQueries({ queryKey: ['caja-central-mov'] });
-    qc.invalidateQueries({ queryKey: ['caja-central-totales'] });
+    invalidateCashQueries(qc);
   };
 
   // ── Statistics ──────────────────────────────────

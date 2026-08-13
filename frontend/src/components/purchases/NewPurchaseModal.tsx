@@ -5,7 +5,7 @@ import {
   FileTextOutlined, ArrowLeftOutlined, CheckCircleOutlined,
   DollarOutlined, CreditCardOutlined, WalletOutlined,
   BankOutlined, InboxOutlined, SettingOutlined,
-  WarningOutlined,
+  WarningOutlined, CameraOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
@@ -19,6 +19,8 @@ import { RemitoPickerModal } from './RemitoPickerModal';
 import { ComprobanteConfigModal } from './ComprobanteConfigModal';
 import { RGCajaModalHeader } from '../RGCajaModalHeader';
 import { rgIcon } from '../rg-icons';
+import { PurchaseReceiptReviewModal, type ReceiptAppliedData } from './PurchaseReceiptReviewModal';
+import { ProveedorPickerModal } from './ProveedorPickerModal';
 import { usePurchaseDraftStore } from '../../store/purchaseDraftStore';
 import { useAuthStore } from '../../store/authStore';
 import { invalidateInventoryQueries } from '../../utils/invalidateInventoryQueries';
@@ -156,6 +158,11 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
   const [saldoModalOpen, setSaldoModalOpen] = useState(false);
   const [saldoInfo, setSaldoInfo] = useState<{ saldo: number; creditoDisponible: number; cobertura: 'total' | 'parcial' } | null>(null);
   const [checkingSaldo, setCheckingSaldo] = useState(false);
+
+  // ── AI Receipt Modal ──
+  const [receiptModalOpen, setReceiptModalOpen] = useState(false);
+  // ── Pre-paso: pedir proveedor antes de abrir la pantalla de imagen ──
+  const [proveedorPickerOpen, setProveedorPickerOpen] = useState(false);
 
   // Fetch proveedores
   const { data: proveedores = [] } = useQuery({
@@ -750,7 +757,12 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
 
   // Close modal — purge draft if cart is empty, otherwise keep for next open
   const handleClose = () => {
-    usePurchaseDraftStore.getState().purgeIfEmpty();
+    if (cart.length === 0) {
+      // Si el carrito está vacío al cerrar y todavía quedó una imagen de IA,
+      // la descartamos en el backend para no acumular basura.
+      cleanupOrphanImage(usePurchaseDraftStore.getState().draft.comprobanteImagePath);
+      usePurchaseDraftStore.getState().purgeIfEmpty();
+    }
     onClose();
   };
 
@@ -759,6 +771,23 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     mutationFn: (data: CompraInput) => purchasesApi.create(data),
     onSuccess: (result) => {
       invalidateInventoryQueries(queryClient);
+
+      // ── Refresh activo de queries vecinas ────────────────────
+      // AppLayout mantiene las tabs (Compras, Caja Central) montadas
+      // permanentemente, y el QueryClient global tiene `refetchOnMount:false`.
+      // Por eso `invalidateQueries` solo marca el cache como stale pero
+      // NO dispara un nuevo fetch en componentes ya montados — la grilla
+      // seguía mostrando datos viejos. Usamos `refetchQueries` que sí
+      // fuerza el re-fetch activo en queries ya montadas.
+      queryClient.refetchQueries({ queryKey: ['purchases'] });
+      queryClient.refetchQueries({ queryKey: ['purchases-all'] });
+      queryClient.refetchQueries({ queryKey: ['caja-central-mov'] });
+      queryClient.refetchQueries({ queryKey: ['caja-central-totales'] });
+      queryClient.refetchQueries({ queryKey: ['caja-central-historico'] });
+
+      // Invalidar también (cubre queries no prefijadas exactamente)
+      queryClient.invalidateQueries({ queryKey: ['purchases'] });
+      queryClient.invalidateQueries({ queryKey: ['caja-central'] });
 
       // Invalidar caché de cheques (cartera/resumen) si se egresaron cheques
       if (chequesIds.length > 0) {
@@ -842,6 +871,25 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       else digitalFinal += mp.MONTO;
     }
 
+    // Defensive: si llegamos a handleSubmit con pagoValido=true pero no
+    // pudimos armar metodos_pago (caso patológico — ej. modal de métodos
+    // no llegó a confirmar), generamos uno sintético a partir del default
+    // Efectivo para que el egreso en Caja Central sí se registre.
+    let metodosPagoFinal = metodosPagoInput;
+    if (!esCtaCorriente && metodosPagoFinal.length === 0 && chequesTotal <= 0) {
+      const efDef = metodosPago.find(mp => mp.CATEGORIA === 'EFECTIVO' && mp.POR_DEFECTO)
+        ?? metodosPago.find(mp => mp.CATEGORIA === 'EFECTIVO')
+        ?? metodosPago[0];
+      if (efDef) {
+        const totalAPagar = Math.max(0, total - chequesTotal);
+        if (totalAPagar > 0) {
+          metodosPagoFinal = [{ METODO_PAGO_ID: efDef.METODO_PAGO_ID, MONTO: totalAPagar }];
+          efectivoFinal = efDef.CATEGORIA === 'EFECTIVO' ? totalAPagar : 0;
+          digitalFinal = efDef.CATEGORIA !== 'EFECTIVO' ? totalAPagar : 0;
+        }
+      }
+    }
+
     const payload: CompraInput = {
       PROVEEDOR_ID: proveedorId,
       FECHA_COMPRA: fechaCompra.toISOString(),
@@ -865,7 +913,8 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       DESTINO_PAGO: esCtaCorriente ? undefined : destinoPago,
       PUNTO_VENTA_ID: esCtaCorriente ? undefined : puntoVentaActivo,
       REMITO_ID: remitoId || undefined,
-      metodos_pago: metodosPagoInput.length > 0 ? metodosPagoInput : undefined,
+      comprobante_image_path: usePurchaseDraftStore.getState().draft.comprobanteImagePath ?? undefined,
+      metodos_pago: metodosPagoFinal.length > 0 ? metodosPagoFinal : undefined,
       cheques_ids: !esCtaCorriente && chequesIds.length > 0 ? chequesIds : undefined,
       items: cart.map(item => ({
         PRODUCTO_ID: item.PRODUCTO_ID,
@@ -876,6 +925,7 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
         IMP_INTERNOS: item.IMP_INTERNOS,
         IVA_ALICUOTA: item.IVA_ALICUOTA,
         TASA_IVA_ID: item.TASA_IVA_ID,
+        codigo_proveedor: item.codigo_proveedor || undefined,
       })),
     };
 
@@ -985,6 +1035,71 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
     } catch (err: any) {
       notify.error(err?.response?.data?.error || 'No se pudieron cargar los items del remito');
     }
+  };
+
+  // ── AI Receipt: volcar datos parseados al carrito ───────────────
+  // Cleanup: si quedó un comprobante_img_path huérfano y el carrito se
+  // vacía, descarta el archivo en el backend y limpia el draft.
+  const cleanupOrphanImage = (path: string | null) => {
+    if (!path) return;
+    purchasesApi.discardParsedImage(path).catch(() => { /* best-effort */ });
+    usePurchaseDraftStore.getState().updateDraft({ comprobanteImagePath: null });
+  };
+
+  // Si el carrito se vacía por completo y había imagen pendiente, limpiar.
+  const prevCartLenRef = useRef(cart.length);
+  useEffect(() => {
+    const prev = prevCartLenRef.current;
+    prevCartLenRef.current = cart.length;
+    if (prev > 0 && cart.length === 0) {
+      const orphanPath = usePurchaseDraftStore.getState().draft.comprobanteImagePath;
+      cleanupOrphanImage(orphanPath);
+    }
+  }, [cart]);
+
+  const handleReceiptApplied = (data: ReceiptAppliedData) => {
+    // Encabezado
+    setProveedorId(data.proveedorId);
+    if (data.tipoComprobante) setTipoComprobante(data.tipoComprobante);
+    if (data.ptoVta) setPtoVta(data.ptoVta);
+    if (data.nroComprobante) setNroComprobante(data.nroComprobante);
+    // NO pisamos `fechaCompra` con la fecha del comprobante: esa fecha se
+    // persiste como dato informativo en el draft de la review modal, pero el
+    // registro contable (COMPRAS.FECHA_COMPRA + MOVIMIENTOS_CAJA.FECHA) debe
+    // usar la fecha de hoy para que el egreso impacte en Caja Central y la
+    // compra aparezca en la grilla con el filtro por defecto (hoy). Si el
+    // usuario necesita fechar la compra con la fecha del comprobante, puede
+    // cambiarla manualmente en el modal antes de confirmar.
+
+    // Items mapeados a CartItem
+    const newCart: CartItem[] = data.items.map((it, idx) => ({
+      key: `ai-${it.PRODUCTO_ID}-${Date.now()}-${idx}`,
+      PRODUCTO_ID: it.PRODUCTO_ID,
+      PRECIO_COMPRA: it.PRECIO_COMPRA,
+      CANTIDAD: it.CANTIDAD,
+      DEPOSITO_ID: it.DEPOSITO_ID ?? depositoId ?? undefined,
+      BONIFICACION: it.BONIFICACION,
+      IMP_INTERNOS: it.IMP_INTERNOS ?? 0,
+      IVA_ALICUOTA: it.IVA_ALICUOTA ?? 0.21,
+      TASA_IVA_ID: it.TASA_IVA_ID ?? null,
+      NOMBRE: it.NOMBRE ?? '',
+      CODIGO: it.CODIGO ?? '',
+      codigo_proveedor: it.codigo_proveedor ?? null,
+      STOCK: 0,
+      UNIDAD: 'u',
+      IVA_PORCENTAJE: (it.IVA_ALICUOTA ?? 0.21) * 100,
+      PRECIO_FINAL: r2(it.PRECIO_COMPRA * (1 - it.BONIFICACION / 100) * it.CANTIDAD),
+    }));
+    setCart(newCart);
+    setLastAddedKey(newCart[0]?.key ?? null);
+
+    // Persistir el path de la imagen en el draft para enviarlo al crear la compra
+    usePurchaseDraftStore.getState().updateDraft({
+      comprobanteImagePath: data.saved_path,
+    });
+
+    notify.success(`${newCart.length} ítems cargados desde la imagen. Revisá los precios y confirmá.`, 5);
+    setReceiptModalOpen(false);
   };
 
   // ── Item columns ───────────────────────────────
@@ -1149,15 +1264,34 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
                 })()}
               </div>
             </div>
-            <Button
-              type="primary"
-              size="middle"
-              icon={<SettingOutlined />}
-              onClick={() => setComprobanteModalOpen(true)}
-              className={comprobanteConfigurado ? 'npm-comprobante-btn-edit' : 'btn-gold npm-comprobante-btn-setup'}
-            >
-              {comprobanteConfigurado ? 'Editar comprobante' : 'Configurar comprobante'}
-            </Button>
+            <Space size={8} wrap>
+              <Button
+                size="middle"
+                icon={<CameraOutlined />}
+                onClick={() => {
+                  // Antes de abrir el flujo de imagen exigimos un proveedor:
+                  // así el matcher usa PRODUCTOS_PROVEEDORES.CODIGO_PROVEEDOR
+                  // y no se confunde con códigos idénticos de otros proveedores.
+                  if (!proveedorId) {
+                    setProveedorPickerOpen(true);
+                    return;
+                  }
+                  setReceiptModalOpen(true);
+                }}
+                className="npm-comprobante-btn-ai"
+              >
+                Cargar comprobante
+              </Button>
+              <Button
+                type="primary"
+                size="middle"
+                icon={<SettingOutlined />}
+                onClick={() => setComprobanteModalOpen(true)}
+                className={comprobanteConfigurado ? 'npm-comprobante-btn-edit' : 'btn-gold npm-comprobante-btn-setup'}
+              >
+                {comprobanteConfigurado ? 'Editar comprobante' : 'Configurar comprobante'}
+              </Button>
+            </Space>
           </div>
         )}
 
@@ -1880,6 +2014,27 @@ export function NewPurchaseModal({ open, onClose, onSuccess }: Props) {
       onClose={() => setComprobanteModalOpen(false)}
       onContinue={() => setComprobanteModalOpen(false)}
       mode="edit"
+    />
+
+    <PurchaseReceiptReviewModal
+      open={receiptModalOpen}
+      onClose={() => setReceiptModalOpen(false)}
+      onApplied={handleReceiptApplied}
+      defaultDepositoId={depositoId}
+      initialProveedorId={proveedorId}
+      initialProveedorNombre={proveedores.find(p => p.PROVEEDOR_ID === proveedorId)?.NOMBRE}
+      initialProveedorCUIT={proveedores.find(p => p.PROVEEDOR_ID === proveedorId)?.NUMERO_DOC ?? undefined}
+    />
+
+    <ProveedorPickerModal
+      open={proveedorPickerOpen}
+      proveedores={proveedores}
+      onClose={() => setProveedorPickerOpen(false)}
+      onConfirm={(id) => {
+        setProveedorId(id);
+        setProveedorPickerOpen(false);
+        setReceiptModalOpen(true);
+      }}
     />
     </>
   );

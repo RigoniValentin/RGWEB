@@ -34,6 +34,9 @@ export interface GastoServicioInput {
   /** IDs de cheques EN_CARTERA a egresar (categoría CHEQUES). */
   cheques_ids?: number[];
   puntoVentaId?: number;
+  /** Origen del egreso: 'CAJA_CENTRAL' (default) o 'CAJA' (sesión de caja activa).
+   *  Si es 'CAJA', todos los métodos deben ser EFECTIVO. */
+  DESTINO_PAGO?: 'CAJA_CENTRAL' | 'CAJA';
 }
 
 export interface GastoMetodoTotal {

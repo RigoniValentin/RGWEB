@@ -1980,35 +1980,26 @@ export function NewSaleModal({ open, onClose, onSuccess, pedido }: Props) {
       width="95vw"
       style={{ top: 20, maxWidth: 1400 }}
       footer={null}
-      closable={false}
+      closable={true}
       className="new-sale-modal rg-modal"
+      title={
+        step === 'cobro' ? (
+          <RGCajaModalHeader
+            icon={rgIcon('pago')}
+            title="Pantalla de Cobro"
+            subtitle="Cobrá la venta con uno o más métodos de pago"
+          />
+        ) : (
+          <RGCajaModalHeader
+            icon={rgIcon('venta')}
+            title="Nueva Venta"
+            subtitle="Agregá productos al carrito y avanzá al cobro"
+          />
+        )
+      }
       styles={{ body: { padding: 0, overflow: 'hidden' } }}
       afterOpenChange={handleAfterOpenChange}
     >
-      {/* ── Dark header bar ─────────────────────── */}
-      <div className="nsm-header">
-        <div className="nsm-header-left">
-          {step === 'cobro' ? (
-            <>
-              <WalletOutlined className="nsm-header-icon" />
-              <Title level={4} style={{ margin: 0, color: '#fff' }}>Pantalla de Cobro</Title>
-            </>
-          ) : (
-            <>
-              <ShoppingCartOutlined className="nsm-header-icon" />
-              <Title level={4} style={{ margin: 0, color: '#fff' }}>Nueva Venta</Title>
-            </>
-          )}
-        </div>
-        <Button
-          type="text"
-          onClick={handleClose}
-          style={{ color: 'rgba(255,255,255,0.6)', fontSize: 22, lineHeight: 1 }}
-        >
-          ✕
-        </Button>
-      </div>
-
       {/* ── Draft tabs bar ──────────────────────── */}
       {drafts.length > 0 && (
         <div className="nsm-drafts-bar">

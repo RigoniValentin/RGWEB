@@ -614,11 +614,11 @@ export const productService = {
 
       await tx.commit();
 
+      // NOMBRE no dispara sync: el nombre es editable en la tienda y RG no lo pisa.
       const webRelevantChanged =
         ('precios'    in input) ||
         ('VENTA_WEB'  in input) ||
-        ('ACTIVO'     in input) ||
-        ('NOMBRE'     in input);
+        ('ACTIVO'     in input);
       if (webRelevantChanged) {
         try {
           webhookDispatcher.notifyStockChange(id);
@@ -683,13 +683,8 @@ export const productService = {
         .input('val', simpleColType, val)
         .query(`UPDATE PRODUCTOS SET ${input.campo} = @val WHERE PRODUCTO_ID = @id`);
 
-      if (input.campo === 'NOMBRE') {
-        try {
-          webhookDispatcher.notifyStockChange(input.PRODUCTO_ID);
-        } catch {
-          // fire-and-forget
-        }
-      }
+      // Ningún campo simple editable inline se propaga a la tienda:
+      // el NOMBRE lo gestiona la tienda por su cuenta.
       return;
     }
 

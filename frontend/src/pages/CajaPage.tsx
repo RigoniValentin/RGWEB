@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useLocation, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, ColorPicker, DatePicker, Drawer, Dropdown, Form, Input, InputNumber, Modal, Popover, Radio, Segmented, Select, Space, Spin, Table, Tag, Tooltip, Typography, message, Alert, Descriptions } from 'antd';
 import { ShopOutlined, PlusOutlined, EditOutlined, EyeOutlined, SwapOutlined, PrinterOutlined, ArrowUpOutlined, ArrowDownOutlined, LockOutlined, ExportOutlined, InboxOutlined, WalletOutlined, ImportOutlined, InfoCircleOutlined, StopOutlined, CheckCircleOutlined, RightOutlined, BankOutlined, TeamOutlined, HistoryOutlined, ClockCircleOutlined, ThunderboltFilled, DownOutlined, MoreOutlined, UserOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -33,6 +33,7 @@ const ORIGEN_TIPO_LABELS: Record<string, { label: string; color: string }> = {
   COBRANZA: { label: 'Cobranza', color: 'green' },
   ORDEN_PAGO: { label: 'OP', color: 'red' },
   COMPRA: { label: 'Compra', color: 'red' },
+  GASTO: { label: 'Gasto', color: 'red' },
   NC_COMPRA: { label: 'NC Compra', color: 'orange' },
   NC_VENTA: { label: 'NC Venta', color: 'orange' },
   ND_COMPRA: { label: 'ND Compra', color: 'volcano' },
@@ -47,10 +48,13 @@ export default function CajaPage() {
 
   const queryClient = useQueryClient();
   const location = useLocation();
-  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // Estado del grid de cajas (foco principal)
   const [cajaDrawerActiva, setCajaDrawerActiva] = useState<Caja | null>(null);
+  // Tab inicial del drawer de detalle (controlado por el botón clickeado en la card)
+  const [drawerDefaultTab, setDrawerDefaultTab] = useState<'sesion' | 'info' | undefined>(undefined);
 
   // Estado ABM
   const [abmModalOpen, setAbmModalOpen] = useState(false);
@@ -130,6 +134,13 @@ export default function CajaPage() {
     queryFn: () => cajaApi.getMiSesionActiva(),
   });
 
+  // Sesión detallada que se está por cerrar — para mostrar el desglose de egresos del período.
+  const { data: sesionCerrarDetalle } = useQuery({
+    queryKey: ['caja-sesion', sesionParaCerrar?.SESION_ID],
+    queryFn: () => cajaApi.getSesionById(sesionParaCerrar!.SESION_ID),
+    enabled: !!sesionParaCerrar?.SESION_ID && cerrarModalOpen,
+  });
+
   const { data: cajasList = [], isLoading: cajasListLoading } = useQuery({
     queryKey: ['cajas-list', puntoVentaActivo],
     queryFn: () => cajaApi.listarCajas({ puntoVentaIds: puntoVentaActivo ? [puntoVentaActivo] : undefined }),
@@ -152,9 +163,15 @@ export default function CajaPage() {
     if (changed) setCajaDrawerActiva(fresh);
   }, [cajasList, cajaDrawerActiva]);
 
+  // El saldo de efectivo de Caja Central es información administrativa.
+  // Sólo los usuarios con permiso de administrar cajas pueden consultarlo;
+  // los cajeros sólo ven su propio saldo retenido.
+  const canVerCCEfectivo = hasPermiso('caja.administrar');
+
   const { data: ccEfectivo } = useQuery({
     queryKey: ['cc-efectivo', puntoVentaActivo],
     queryFn: () => cajaApi.getEfectivoCajaCentral(puntoVentaActivo || undefined),
+    enabled: canVerCCEfectivo,
   });
 
   // Mapa reactivo de colores personalizados por caja (localStorage)
@@ -393,26 +410,56 @@ export default function CajaPage() {
   // ═══════════════ CÁLCULOS PARA MODALES ═══════════════
 
   const cajaParaAbrir = misCajas.find(c => c.CAJA_ID === cajaSeleccionadaAbrir);
-  const maxAporteCC = ccEfectivo?.efectivo ?? 0;
+  const maxAporteCC = canVerCCEfectivo ? (ccEfectivo?.efectivo ?? 0) : 0;
   const retenidoDisponible = cajaParaAbrir?.SALDO_RETENIDO ?? 0;
   const totalDisponible = maxAporteCC + retenidoDisponible;
 
   const fuenteOpciones = useMemo(() => {
     if (!cajaParaAbrir) return [];
     const hasRetenido = retenidoDisponible > 0;
-    return [
-      {
-        value: 'APORTE_CC' as const,
-        icon: <ImportOutlined style={{ color: '#1677ff', fontSize: 20 }} />,
-        title: 'Aporte desde Caja Central',
-        desc: hasRetenido
-          ? `No disponible: la caja tiene ${fmtMoney(retenidoDisponible)} retenido que debe incluirse en la apertura.`
-          : maxAporteCC > 0
-            ? `Tomar todo el efectivo de CC. Máximo: ${fmtMoney(maxAporteCC)}.`
-            : 'No hay efectivo disponible en Caja Central.',
-        disabled: hasRetenido || maxAporteCC === 0,
-        montoMax: maxAporteCC,
-      },
+    const opciones: Array<{
+      value: 'USAR_RETENIDO' | 'APORTE_CC' | 'MIXTO' | 'NINGUNO';
+      icon: JSX.Element;
+      title: string;
+      desc: string;
+      disabled: boolean;
+      montoMax: number;
+    }> = [];
+
+    // Las opciones que toman dinero de Caja Central sólo se muestran
+    // a usuarios con permiso de administrar cajas (que son quienes
+    // pueden ver el saldo de CC). Los cajeros sólo pueden abrir con
+    // saldo retenido o sin aporte inicial.
+    if (canVerCCEfectivo) {
+      opciones.push(
+        {
+          value: 'APORTE_CC' as const,
+          icon: <ImportOutlined style={{ color: '#1677ff', fontSize: 20 }} />,
+          title: 'Aporte desde Caja Central',
+          desc: hasRetenido
+            ? `No disponible: la caja tiene ${fmtMoney(retenidoDisponible)} retenido que debe incluirse en la apertura.`
+            : maxAporteCC > 0
+              ? `Tomar todo el efectivo de CC. Máximo: ${fmtMoney(maxAporteCC)}.`
+              : 'No hay efectivo disponible en Caja Central.',
+          disabled: hasRetenido || maxAporteCC === 0,
+          montoMax: maxAporteCC,
+        },
+        {
+          value: 'MIXTO' as const,
+          icon: <SwapOutlined style={{ color: '#52c41a', fontSize: 20 }} />,
+          title: 'Mixto (retenido + Caja Central)',
+          desc: hasRetenido
+            ? `Toma los ${fmtMoney(retenidoDisponible)} retenidos y suma desde CC. Máximo total: ${fmtMoney(totalDisponible)}.`
+            : totalDisponible > 0
+              ? `Primero se usa el retenido, después CC. Máximo: ${fmtMoney(totalDisponible)}.`
+              : 'No hay efectivo disponible (ni retenido ni en CC).',
+          disabled: totalDisponible === 0 || (retenidoDisponible === 0 || maxAporteCC === 0),
+          montoMax: totalDisponible,
+        },
+      );
+    }
+
+    opciones.push(
       {
         value: 'USAR_RETENIDO' as const,
         icon: <LockOutlined style={{ color: '#722ed1', fontSize: 20 }} />,
@@ -424,18 +471,6 @@ export default function CajaPage() {
         montoMax: retenidoDisponible,
       },
       {
-        value: 'MIXTO' as const,
-        icon: <SwapOutlined style={{ color: '#52c41a', fontSize: 20 }} />,
-        title: 'Mixto (retenido + Caja Central)',
-        desc: hasRetenido
-          ? `Toma los ${fmtMoney(retenidoDisponible)} retenidos y suma desde CC. Máximo total: ${fmtMoney(totalDisponible)}.`
-          : totalDisponible > 0
-            ? `Primero se usa el retenido, después CC. Máximo: ${fmtMoney(totalDisponible)}.`
-            : 'No hay efectivo disponible (ni retenido ni en CC).',
-        disabled: totalDisponible === 0 || (retenidoDisponible === 0 || maxAporteCC === 0),
-        montoMax: totalDisponible,
-      },
-      {
         value: 'NINGUNO' as const,
         icon: <StopOutlined style={{ color: '#8c8c8c', fontSize: 20 }} />,
         title: 'Sin aporte inicial',
@@ -445,8 +480,10 @@ export default function CajaPage() {
         disabled: hasRetenido,
         montoMax: 0,
       },
-    ];
-  }, [cajaParaAbrir, maxAporteCC, retenidoDisponible, totalDisponible]);
+    );
+
+    return opciones;
+  }, [cajaParaAbrir, maxAporteCC, retenidoDisponible, totalDisponible, canVerCCEfectivo]);
 
   useEffect(() => {
     if (!cajaParaAbrir) return;
@@ -462,12 +499,14 @@ export default function CajaPage() {
 
   useEffect(() => {
     if (abrirModalOpen) {
-      setCajaSeleccionadaAbrir(null);
-      setFuenteApertura('APORTE_CC');
+      // Para cajeros sin permiso de administrar, las opciones APORTE_CC/MIXTO
+      // no existen; partimos de USAR_RETENIDO para que el modal abra con
+      // una opción válida seleccionada (no "undefined" que deja el botón deshabilitado).
+      setFuenteApertura(canVerCCEfectivo ? 'APORTE_CC' : 'USAR_RETENIDO');
       setMontoApertura(0);
       setObsApertura('');
     }
-  }, [abrirModalOpen]);
+  }, [abrirModalOpen, canVerCCEfectivo]);
 
   const fuenteActual = fuenteOpciones.find(o => o.value === fuenteApertura);
   const montoMaximoApertura = fuenteActual?.montoMax ?? 0;
@@ -514,7 +553,7 @@ export default function CajaPage() {
       const caja = cajasList.find(c => c.CAJA_ID === st.openCajaId);
       if (caja) {
         setCajaDrawerActiva(caja);
-        window.history.replaceState({}, '', location.pathname);
+        navigate(location.pathname, { replace: true, state: {} });
       }
       return;
     }
@@ -526,7 +565,7 @@ export default function CajaPage() {
         setCajaDrawerActiva(first);
         setCajaSeleccionadaAbrir(first.CAJA_ID);
         setAbrirModalOpen(true);
-        window.history.replaceState({}, '', location.pathname);
+        navigate(location.pathname, { replace: true, state: {} });
       }
       return;
     }
@@ -538,8 +577,7 @@ export default function CajaPage() {
         const caja = cajasList.find(c => c.CAJA_ID === cajaId);
         if (caja) {
           setCajaDrawerActiva(caja);
-          searchParams.delete('sesion');
-          window.history.replaceState({}, '', `${location.pathname}`);
+          setSearchParams({}, { replace: true });
         }
       }
     }
@@ -636,7 +674,13 @@ export default function CajaPage() {
                 caja={caja}
                 miSesionActiva={miSesionActiva}
                 accentColor={accentColorsByCaja[caja.CAJA_ID] ?? null}
-                onClick={() => setCajaDrawerActiva(caja)}
+                onClick={() => { setDrawerDefaultTab(undefined); setCajaDrawerActiva(caja); }}
+                onClickSesiones={() => { setDrawerDefaultTab('info'); setCajaDrawerActiva(caja); }}
+                onClickUsuarios={() => {
+                  setCajaParaUsuarios(caja);
+                  setUsuariosSeleccionados(caja.USUARIOS_ASIGNADOS?.map(u => u.USUARIO_ID) || []);
+                  setUsuariosModalOpen(true);
+                }}
               />
             ))}
         </div>
@@ -644,7 +688,7 @@ export default function CajaPage() {
 
       <CajaDetalleDrawer
         caja={cajaDrawerActiva}
-        onClose={() => setCajaDrawerActiva(null)}
+        onClose={() => { setCajaDrawerActiva(null); setDrawerDefaultTab(undefined); }}
         onVerSesion={(s) => setSesionActivaDetalle(s)}
         onAbrirSesion={(c) => {
           setCajaSeleccionadaAbrir(c.CAJA_ID);
@@ -668,6 +712,7 @@ export default function CajaPage() {
         canEgreso={hasPermiso('caja.egreso')}
         canCerrar={hasPermiso('caja.cerrar')}
         canAdministrar={hasPermiso('caja.administrar')}
+        defaultTab={drawerDefaultTab}
       />
 
       {/* Modal Abrir Sesión */}
@@ -725,15 +770,17 @@ export default function CajaPage() {
                     </div>
                   </div>
                 </div>
-                <div className="rg-mini-stat" style={{ borderLeftColor: '#1677ff' }}>
-                  <ImportOutlined className="rg-mini-stat__icon" style={{ color: '#1677ff' }} />
-                  <div>
-                    <div className="rg-mini-stat__label">Efectivo CC</div>
-                    <div className="rg-mini-stat__value" style={{ color: maxAporteCC > 0 ? '#1677ff' : '#999' }}>
-                      {fmtMoney(maxAporteCC)}
+                {canVerCCEfectivo && (
+                  <div className="rg-mini-stat" style={{ borderLeftColor: '#1677ff' }}>
+                    <ImportOutlined className="rg-mini-stat__icon" style={{ color: '#1677ff' }} />
+                    <div>
+                      <div className="rg-mini-stat__label">Efectivo CC</div>
+                      <div className="rg-mini-stat__value" style={{ color: maxAporteCC > 0 ? '#1677ff' : '#999' }}>
+                        {fmtMoney(maxAporteCC)}
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
                 <div className="rg-mini-stat" style={{ borderLeftColor: '#52c41a' }}>
                   <WalletOutlined className="rg-mini-stat__icon" style={{ color: '#52c41a' }} />
                   <div>
@@ -1049,6 +1096,47 @@ export default function CajaPage() {
                       </div>
                     </div>
                   </div>
+                )}
+
+                {Number(sesionCerrarDetalle?.totales?.egresos) > 0 && (
+                  <Popover
+                    content={
+                      <div style={{ maxWidth: 280 }}>
+                        <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+                          Detalle de egresos del período
+                        </Text>
+                        {Object.entries(
+                          (sesionCerrarDetalle?.items ?? []).reduce<Record<string, number>>((acc, it) => {
+                            const ot = it.ORIGEN_TIPO;
+                            const EGRESO_TYPES = ['EGRESO', 'GASTO', 'COMPRA', 'ORDEN_PAGO', 'NC_VENTA', 'ND_COMPRA'];
+                            if (EGRESO_TYPES.includes(ot)) {
+                              acc[ot] = (acc[ot] || 0) + Math.abs(Number(it.MONTO_EFECTIVO) || 0) + Math.abs(Number(it.MONTO_DIGITAL) || 0);
+                            }
+                            return acc;
+                          }, {})
+                        )
+                          .filter(([, v]) => v > 0)
+                          .sort((a, b) => b[1] - a[1])
+                          .map(([ot, v]) => (
+                            <div key={ot} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0' }}>
+                              <span>{ORIGEN_TIPO_LABELS[ot]?.label ?? ot}</span>
+                              <Text type="danger">{fmtMoney(v)}</Text>
+                            </div>
+                          ))}
+                      </div>
+                    }
+                    trigger="hover"
+                  >
+                    <div className="rg-mini-stat" style={{ borderLeftColor: '#ff4d4f', cursor: 'help' }}>
+                      <ArrowDownOutlined className="rg-mini-stat__icon" style={{ color: '#ff4d4f' }} />
+                      <div>
+                        <div className="rg-mini-stat__label">Egresos del período</div>
+                        <div className="rg-mini-stat__value" style={{ color: '#cf1322' }}>
+                          {fmtMoney(Number(sesionCerrarDetalle?.totales?.egresos) || 0)}
+                        </div>
+                      </div>
+                    </div>
+                  </Popover>
                 )}
               </div>
             </div>
@@ -1917,9 +2005,11 @@ interface CajaCardProps {
   miSesionActiva?: CajaSesion | null;
   accentColor?: string | null;
   onClick: () => void;
+  onClickSesiones: () => void;
+  onClickUsuarios: () => void;
 }
 
-function CajaCard({ caja, miSesionActiva, accentColor, onClick }: CajaCardProps) {
+function CajaCard({ caja, miSesionActiva, accentColor, onClick, onClickSesiones, onClickUsuarios }: CajaCardProps) {
   const esMiSesion = !!(caja.SESION_ACTIVA_ID && miSesionActiva && caja.CAJA_ID === miSesionActiva.CAJA_ID);
   const tieneSesionAjena = !!(caja.SESION_ACTIVA_ID && !esMiSesion);
   const libre = !caja.SESION_ACTIVA_ID;
@@ -2024,18 +2114,28 @@ function CajaCard({ caja, miSesionActiva, accentColor, onClick }: CajaCardProps)
         </div>
 
         <div className="rg-caja-card__stats">
-          <div className="rg-caja-card__stat">
+          <button
+            type="button"
+            className="rg-caja-card__stat rg-caja-card__stat--button"
+            onClick={(e) => { e.stopPropagation(); onClickSesiones(); }}
+            aria-label="Ver sesiones de la caja"
+          >
             <div className="rg-caja-card__stat-label">
               <HistoryOutlined /> Sesiones
             </div>
             <div className="rg-caja-card__stat-value">{sesionesCount}</div>
-          </div>
-          <div className="rg-caja-card__stat">
+          </button>
+          <button
+            type="button"
+            className="rg-caja-card__stat rg-caja-card__stat--button"
+            onClick={(e) => { e.stopPropagation(); onClickUsuarios(); }}
+            aria-label="Ver usuarios asignados a la caja"
+          >
             <div className="rg-caja-card__stat-label">
               <TeamOutlined /> Usuarios
             </div>
             <div className="rg-caja-card__stat-value">{usuariosCount}</div>
-          </div>
+          </button>
         </div>
 
         {(usuariosNombres && usuariosNombres.length > 0) || inactiva ? (
@@ -2077,12 +2177,14 @@ interface CajaDetalleDrawerProps {
   canEgreso?: boolean;
   canCerrar?: boolean;
   canAdministrar?: boolean;
+  defaultTab?: 'sesion' | 'info';
 }
 
 function CajaDetalleDrawer({
   caja, onClose, onVerSesion, onAbrirSesion, onIngreso, onEgreso, onCerrar, onTransferir,
   onEditar, onAsignarUsuarios, onDesgloseItem, onDesgloseTotal,
   currentUserId, canAbrir, canIngreso, canEgreso, canCerrar, canAdministrar,
+  defaultTab,
 }: CajaDetalleDrawerProps) {
   const [rangoFechas, setRangoFechas] = useState<[Dayjs, Dayjs] | null>(null);
   const [estadoFiltro, setEstadoFiltro] = useState<string | undefined>(undefined);
@@ -2116,8 +2218,12 @@ function CajaDetalleDrawer({
   useEffect(() => {
     setRangoFechas(null);
     setEstadoFiltro(undefined);
-    setTabActiva(caja?.SESION_ACTIVA_ID ? 'sesion' : 'info');
-  }, [cajaId, caja?.SESION_ACTIVA_ID]);
+    if (defaultTab === 'info') {
+      setTabActiva('info');
+    } else {
+      setTabActiva(caja?.SESION_ACTIVA_ID ? 'sesion' : 'info');
+    }
+  }, [cajaId, caja?.SESION_ACTIVA_ID, defaultTab]);
 
   // Reset filtros al cambiar de caja
   useEffect(() => {

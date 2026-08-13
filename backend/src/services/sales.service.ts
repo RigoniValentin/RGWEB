@@ -382,10 +382,15 @@ async function registrarAuditoria(
 async function getCajaAbiertaTx(
   tx: any,
   usuarioId: number
-): Promise<{ CAJA_ID: number } | null> {
+): Promise<{ CAJA_ID: number; SESION_ID: number; PUNTO_VENTA_ID: number | null } | null> {
   const result = await tx.request()
     .input('uid', sql.Int, usuarioId)
-    .query(`SELECT CAJA_ID FROM CAJA WHERE USUARIO_ID = @uid AND ESTADO = 'ACTIVA'`);
+    .query(`
+      SELECT cs.SESION_ID, cs.CAJA_ID, c.PUNTO_VENTA_ID
+      FROM CAJA_SESIONES cs
+      INNER JOIN CAJA c ON c.CAJA_ID = cs.CAJA_ID
+      WHERE cs.USUARIO_ID = @uid AND cs.ESTADO = 'ACTIVA'
+    `);
   return result.recordset.length > 0 ? result.recordset[0] : null;
 }
 
@@ -1182,6 +1187,7 @@ export const salesService = {
           : Math.max(0, montoEfectivo - vuelto);
         if (efectivoNeto > 0 || montoDigital > 0) {
           await tx.request()
+            .input('sesionId', sql.Int, caja.SESION_ID)
             .input('cajaId', sql.Int, caja.CAJA_ID)
             .input('origenTipo', sql.VarChar(30), 'VENTA')
             .input('origenId', sql.Int, ventaId)
@@ -1190,9 +1196,9 @@ export const salesService = {
             .input('desc', sql.NVarChar(255), `Venta #${ventaId}`)
             .input('uid', sql.Int, usuarioId)
             .query(`
-              INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
+              INSERT INTO CAJA_ITEMS (SESION_ID, CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
                 MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
-              VALUES (@cajaId, GETDATE(), @origenTipo, @origenId,
+              VALUES (@sesionId, @cajaId, GETDATE(), @origenTipo, @origenId,
                 @efectivo, @digital, @desc, @uid)
             `);
         }
@@ -1209,6 +1215,7 @@ export const salesService = {
         if (montoChequesAporte > 0) {
           await tx.request()
             .input('idEntidad', sql.Int, ventaId)
+            .input('cajaId', sql.Int, caja!.CAJA_ID)
             .input('tipoEntidad', sql.VarChar(20), 'VENTA')
             .input('movimiento', sql.NVarChar(500), `Ingreso cheque(s) Venta #${ventaId}`)
             .input('uid', sql.Int, usuarioId)
@@ -1216,8 +1223,8 @@ export const salesService = {
             .input('total', sql.Decimal(18, 2), montoChequesAporte)
             .input('pvId', sql.Int, input.PUNTO_VENTA_ID)
             .query(`
-              INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
-              VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 0)
+              INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, CAJA_ID, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+              VALUES (@idEntidad, @cajaId, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 0)
             `);
         }
       }
@@ -1602,6 +1609,7 @@ export const salesService = {
           : Math.max(0, montoEfectivo - vuelto);
         if (efectivoNeto > 0 || montoDigital > 0) {
           await tx.request()
+            .input('sesionId', sql.Int, caja.SESION_ID)
             .input('cajaId', sql.Int, caja.CAJA_ID)
             .input('origenTipo', sql.VarChar(30), 'VENTA')
             .input('origenId', sql.Int, id)
@@ -1610,9 +1618,9 @@ export const salesService = {
             .input('desc', sql.NVarChar(255), `Venta #${id}`)
             .input('uid', sql.Int, usuarioId)
             .query(`
-              INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
+              INSERT INTO CAJA_ITEMS (SESION_ID, CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
                 MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
-              VALUES (@cajaId, GETDATE(), @origenTipo, @origenId,
+              VALUES (@sesionId, @cajaId, GETDATE(), @origenTipo, @origenId,
                 @efectivo, @digital, @desc, @uid)
             `);
         }
@@ -1872,6 +1880,7 @@ export const salesService = {
           : Math.max(0, payEfectivo - payment.VUELTO);
         if (efectivoNeto > 0 || payDigital > 0) {
           await tx.request()
+            .input('sesionId', sql.Int, caja.SESION_ID)
             .input('cajaId', sql.Int, caja.CAJA_ID)
             .input('origenTipo', sql.VarChar(30), 'VENTA')
             .input('origenId', sql.Int, id)
@@ -1880,9 +1889,9 @@ export const salesService = {
             .input('desc', sql.NVarChar(255), `Cobro Venta #${id}`)
             .input('uid', sql.Int, usuarioId)
             .query(`
-              INSERT INTO CAJA_ITEMS (CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
+              INSERT INTO CAJA_ITEMS (SESION_ID, CAJA_ID, FECHA, ORIGEN_TIPO, ORIGEN_ID,
                 MONTO_EFECTIVO, MONTO_DIGITAL, DESCRIPCION, USUARIO_ID)
-              VALUES (@cajaId, GETDATE(), @origenTipo, @origenId,
+              VALUES (@sesionId, @cajaId, GETDATE(), @origenTipo, @origenId,
                 @efectivo, @digital, @desc, @uid)
             `);
         }
@@ -1897,6 +1906,7 @@ export const salesService = {
         if (payCheques > 0) {
           await tx.request()
             .input('idEntidad', sql.Int, id)
+            .input('cajaId', sql.Int, caja!.CAJA_ID)
             .input('tipoEntidad', sql.VarChar(20), 'VENTA')
             .input('movimiento', sql.NVarChar(500), `Cobro cheque(s) Venta #${id}`)
             .input('uid', sql.Int, usuarioId)
@@ -1904,8 +1914,8 @@ export const salesService = {
             .input('total', sql.Decimal(18, 2), payCheques)
             .input('pvId', sql.Int, venta.PUNTO_VENTA_ID)
             .query(`
-              INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
-              VALUES (@idEntidad, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 0)
+              INSERT INTO MOVIMIENTOS_CAJA (ID_ENTIDAD, CAJA_ID, TIPO_ENTIDAD, MOVIMIENTO, USUARIO_ID, EFECTIVO, DIGITAL, CHEQUES, CTA_CTE, TOTAL, PUNTO_VENTA_ID, ES_MANUAL)
+              VALUES (@idEntidad, @cajaId, @tipoEntidad, @movimiento, @uid, 0, 0, @cheques, 0, @total, @pvId, 0)
             `);
         }
       }
@@ -2432,21 +2442,46 @@ export const salesService = {
     return result.recordset;
   },
 
-  // ── Get aggregated payment method breakdown for a caja ─
-  async getDesgloseMetodosCaja(cajaId: number) {
+  // ── Get aggregated payment method breakdown for a session ─
+  // Filtra ventas por SESION_ID (no por CAJA_ID) y localiza el cierre de
+  // ESA sesión contra CAJA_SESIONES. Para sesiones activas (FECHA_CIERRE
+  // NULL) no hay match → no se prorratea contra cierres de otras sesiones.
+  async getDesgloseMetodosSesion(sesionId: number) {
     const pool = await getPool();
     await ensureVentasMetodosPagoTable(pool);
     const result = await pool.request()
-      .input('cajaId', sql.Int, cajaId)
+      .input('sesionId', sql.Int, sesionId)
       .query(`
-        ;WITH CierreCaja AS (
-          SELECT ISNULL(EFECTIVO, 0) AS EFECTIVO_CIERRE,
-                 ISNULL(DIGITAL, 0)  AS DIGITAL_CIERRE
-          FROM MOVIMIENTOS_CAJA
-          WHERE CAJA_ID = @cajaId AND TIPO_ENTIDAD = 'CIERRE_CAJA'
+        ;WITH CierreMatches AS (
+          -- Localiza el/los movimiento(s) de cierre correspondientes a ESTA
+          -- sesión:
+          --   · DEPOSITO_CIERRE: vínculo directo ID_ENTIDAD = SESION_ID.
+          --   · CIERRE_CAJA: mismo CAJA_ID y mc.FECHA ≈ cs.FECHA_CIERRE (60s).
+          -- Si la sesión está activa (FECHA_CIERRE NULL), no hay match y el
+          -- resto del query trabaja sin prorratear contra un cierre ajeno.
+          SELECT mc.EFECTIVO, mc.DIGITAL
+          FROM MOVIMIENTOS_CAJA mc
+          INNER JOIN CAJA_SESIONES cs
+            ON cs.SESION_ID = @sesionId
+           AND (
+             (mc.TIPO_ENTIDAD = 'DEPOSITO_CIERRE' AND mc.ID_ENTIDAD = cs.SESION_ID)
+             OR
+             (mc.TIPO_ENTIDAD = 'CIERRE_CAJA'
+              AND cs.CAJA_ID = mc.CAJA_ID
+              AND cs.FECHA_CIERRE IS NOT NULL
+              AND ABS(DATEDIFF(SECOND, cs.FECHA_CIERRE, mc.FECHA)) < 60)
+           )
+        ),
+        CierreSesion AS (
+          -- SUM defensivo: si hubiera más de un match para la misma sesión
+          -- (p.ej. reinserción del cierre), los subqueries escalares de abajo
+          -- siguen recibiendo un único valor.
+          SELECT ISNULL(SUM(EFECTIVO), 0) AS EFECTIVO_CIERRE,
+                 ISNULL(SUM(DIGITAL),  0) AS DIGITAL_CIERRE
+          FROM CierreMatches
         ),
         HasCierre AS (
-          SELECT CASE WHEN EXISTS (SELECT 1 FROM CierreCaja) THEN 1 ELSE 0 END AS VAL
+          SELECT CASE WHEN EXISTS (SELECT 1 FROM CierreMatches) THEN 1 ELSE 0 END AS VAL
         ),
         VentasBruto AS (
           SELECT mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64,
@@ -2454,7 +2489,7 @@ export const salesService = {
           FROM CAJA_ITEMS ci
           JOIN VENTAS_METODOS_PAGO vmp ON ci.ORIGEN_ID = vmp.VENTA_ID AND ci.ORIGEN_TIPO = 'VENTA'
           JOIN METODOS_PAGO mp ON vmp.METODO_PAGO_ID = mp.METODO_PAGO_ID
-          WHERE ci.CAJA_ID = @cajaId
+          WHERE ci.SESION_ID = @sesionId
           GROUP BY mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64
         ),
         BrutosPorCat AS (
@@ -2467,9 +2502,9 @@ export const salesService = {
                  CASE
                    WHEN (SELECT VAL FROM HasCierre) = 0 THEN vb.TOTAL
                    WHEN vb.CATEGORIA = 'EFECTIVO' AND (SELECT BRUTO_EF FROM BrutosPorCat) > 0
-                   THEN CAST(ROUND(vb.TOTAL * 1.0 * (SELECT EFECTIVO_CIERRE FROM CierreCaja) / (SELECT BRUTO_EF FROM BrutosPorCat), 2) AS DECIMAL(18,2))
+                   THEN CAST(ROUND(vb.TOTAL * 1.0 * (SELECT EFECTIVO_CIERRE FROM CierreSesion) / (SELECT BRUTO_EF FROM BrutosPorCat), 2) AS DECIMAL(18,2))
                    WHEN vb.CATEGORIA = 'DIGITAL' AND (SELECT BRUTO_DIG FROM BrutosPorCat) > 0
-                   THEN CAST(ROUND(vb.TOTAL * 1.0 * (SELECT DIGITAL_CIERRE FROM CierreCaja) / (SELECT BRUTO_DIG FROM BrutosPorCat), 2) AS DECIMAL(18,2))
+                   THEN CAST(ROUND(vb.TOTAL * 1.0 * (SELECT DIGITAL_CIERRE FROM CierreSesion) / (SELECT BRUTO_DIG FROM BrutosPorCat), 2) AS DECIMAL(18,2))
                    ELSE vb.TOTAL
                  END AS TOTAL
           FROM VentasBruto vb
@@ -2486,19 +2521,19 @@ export const salesService = {
         ),
         FallbackEfectivo AS (
           SELECT de.METODO_PAGO_ID, de.NOMBRE, de.CATEGORIA, de.IMAGEN_BASE64,
-                 (SELECT EFECTIVO_CIERRE FROM CierreCaja) AS TOTAL
+                 (SELECT EFECTIVO_CIERRE FROM CierreSesion) AS TOTAL
           FROM DefaultEfectivo de
           WHERE (SELECT VAL FROM HasCierre) = 1
             AND (SELECT BRUTO_EF FROM BrutosPorCat) = 0
-            AND (SELECT EFECTIVO_CIERRE FROM CierreCaja) <> 0
+            AND (SELECT EFECTIVO_CIERRE FROM CierreSesion) <> 0
         ),
         FallbackDigital AS (
           SELECT dd.METODO_PAGO_ID, dd.NOMBRE, dd.CATEGORIA, dd.IMAGEN_BASE64,
-                 (SELECT DIGITAL_CIERRE FROM CierreCaja) AS TOTAL
+                 (SELECT DIGITAL_CIERRE FROM CierreSesion) AS TOTAL
           FROM DefaultDigital dd
           WHERE (SELECT VAL FROM HasCierre) = 1
             AND (SELECT BRUTO_DIG FROM BrutosPorCat) = 0
-            AND (SELECT DIGITAL_CIERRE FROM CierreCaja) <> 0
+            AND (SELECT DIGITAL_CIERRE FROM CierreSesion) <> 0
         ),
         AllMetodos AS (
           SELECT * FROM MetodosAjustados
@@ -2678,7 +2713,7 @@ export const salesService = {
         FROM (
           SELECT METODO_PAGO_ID, NOMBRE, CATEGORIA, IMAGEN_BASE64, TOTAL FROM VentasPorMetodo
           UNION ALL
-          SELECT mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, NULL AS IMAGEN_BASE64, ca.TOTAL
+          SELECT mp.METODO_PAGO_ID, mp.NOMBRE, mp.CATEGORIA, mp.IMAGEN_BASE64, ca.TOTAL
           FROM CierresAsDefault ca
           JOIN METODOS_PAGO mp ON mp.METODO_PAGO_ID = ca.METODO_PAGO_ID
           UNION ALL
